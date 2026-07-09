@@ -102,6 +102,19 @@ describe("invoice issuing", () => {
 
     const unauth = await world.server.app.inject({ method: "GET", url: `/api/invoices/${inv!.id}/html` });
     expect(unauth.statusCode).toBe(401);
+
+    // A bidder token in ?token= must NOT authenticate an admin endpoint.
+    const reg = await world.server.app.inject({
+      method: "POST",
+      url: "/api/public/auth/register",
+      payload: { email: "invoice-peeker@public.test", alias: "peeker", password: "Bidder123!" },
+    });
+    const bidderToken = (reg.json() as { accessToken: string }).accessToken;
+    const viaBidder = await world.server.app.inject({
+      method: "GET",
+      url: `/api/invoices/${inv!.id}/html?token=${encodeURIComponent(bidderToken)}`,
+    });
+    expect(viaBidder.statusCode).toBe(401);
   });
 
   it("reverse-charge buyer (validated EE VAT) gets a 0% invoice with the Art. 196 note", async () => {

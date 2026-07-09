@@ -66,6 +66,24 @@ describe("bidder accounts", () => {
     });
     expect(res.statusCode).toBe(401);
   });
+
+  it("the admin customers API never serializes bidder password hashes", async () => {
+    // A registered bidder has a password hash in the DB.
+    await world.server.app.inject({
+      method: "POST",
+      url: "/api/public/auth/register",
+      payload: { email: "hash-check@public.test", alias: "hash_check", password: "Bidder123!" },
+    });
+    const list = await world.server.app.inject({ method: "GET", url: "/api/customers", headers: auth(adminToken) });
+    expect(list.body).not.toContain("passwordHash");
+    expect(list.body).not.toContain("scrypt$");
+
+    const { customers: rows } = list.json() as { customers: Array<{ id: string }> };
+    const target = rows.find((c) => (c as { alias?: string }).alias === "hash_check")!;
+    const detail = await world.server.app.inject({ method: "GET", url: `/api/customers/${target.id}`, headers: auth(adminToken) });
+    expect(detail.body).not.toContain("passwordHash");
+    expect(detail.body).not.toContain("scrypt$");
+  });
 });
 
 describe("public browsing hygiene", () => {

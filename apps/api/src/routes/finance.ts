@@ -80,7 +80,9 @@ export function registerFinanceRoutes(app: FastifyInstance, ctx: AppContext, per
     if (!admin) {
       const token = (req.query as { token?: string }).token;
       const claims = token ? verifyAccessToken(token, ctx.config.jwtSecret, ctx.now().getTime()) : null;
-      if (claims) admin = claims;
+      // Only admin-kind tokens qualify — a bidder token must never reach an
+      // admin endpoint, matching the onRequest hook's kind separation.
+      if (claims?.kind === "admin") admin = claims;
     }
     if (!admin) return reply.code(401).send({ error: "unauthenticated" });
     if (!(await perms.has(admin.role, "invoices.view"))) return reply.code(403).send({ error: "forbidden" });

@@ -11,6 +11,24 @@ const actor = (req: { admin?: { sub: string; name: string } }) => ({
   label: req.admin?.name ?? "Unknown",
 });
 
+/** Explicit column projection — never serialize passwordHash to the admin API. */
+const customerCols = {
+  id: customers.id,
+  email: customers.email,
+  alias: customers.alias,
+  name: customers.name,
+  country: customers.country,
+  marketCode: customers.marketCode,
+  company: customers.company,
+  vatNo: customers.vatNo,
+  vies: customers.vies,
+  strikes: customers.strikes,
+  blocked: customers.blocked,
+  notes: customers.notes,
+  erasedAt: customers.erasedAt,
+  createdAt: customers.createdAt,
+} as const;
+
 const customerBody = z.object({
   email: z.string().email(),
   alias: z.string().min(2),
@@ -29,7 +47,7 @@ export function registerCustomerRoutes(app: FastifyInstance, ctx: AppContext, pe
   app.get("/api/customers", guard("customers.view"), async (req) => {
     const q = req.query as { q?: string };
     const rows = await ctx.db
-      .select()
+      .select(customerCols)
       .from(customers)
       .where(q.q ? or(ilike(customers.alias, `%${q.q}%`), ilike(customers.email, `%${q.q}%`), ilike(customers.name, `%${q.q}%`)) : undefined)
       .orderBy(desc(customers.createdAt))
@@ -39,7 +57,7 @@ export function registerCustomerRoutes(app: FastifyInstance, ctx: AppContext, pe
 
   app.get("/api/customers/:id", guard("customers.view"), async (req, reply) => {
     const { id } = req.params as { id: string };
-    const [row] = await ctx.db.select().from(customers).where(eq(customers.id, id));
+    const [row] = await ctx.db.select(customerCols).from(customers).where(eq(customers.id, id));
     if (!row) return reply.code(404).send({ error: "not_found" });
     const orderRows = await ctx.db.select().from(orders).where(eq(orders.customerId, id)).orderBy(desc(orders.createdAt)).limit(100);
     const [bidStats] = await ctx.db
@@ -60,7 +78,7 @@ export function registerCustomerRoutes(app: FastifyInstance, ctx: AppContext, pe
       .insert(customers)
       .values({ ...body.data, email: body.data.email.toLowerCase() })
       .onConflictDoNothing()
-      .returning();
+      .returning(customerCols);
     if (!row) return reply.code(409).send({ error: "email_exists" });
     await writeAudit(ctx.db, actor(req), "customer", "created", row.alias);
     return { customer: row };
@@ -70,7 +88,7 @@ export function registerCustomerRoutes(app: FastifyInstance, ctx: AppContext, pe
     const body = customerBody.partial().safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: body.error.flatten() });
     const { id } = req.params as { id: string };
-    const [row] = await ctx.db.update(customers).set(body.data).where(eq(customers.id, id)).returning();
+    const [row] = await ctx.db.update(customers).set(body.data).where(eq(customers.id, id)).returning(customerCols);
     if (!row) return reply.code(404).send({ error: "not_found" });
     await writeAudit(ctx.db, actor(req), "customer", "updated", row.alias, { fields: Object.keys(body.data) });
     return { customer: row };
@@ -85,7 +103,7 @@ export function registerCustomerRoutes(app: FastifyInstance, ctx: AppContext, pe
       .update(customers)
       .set({ strikes: sql`${customers.strikes} + 1` })
       .where(eq(customers.id, id))
-      .returning();
+      .returning(customerCols);
     if (!row) return reply.code(404).send({ error: "not_found" });
     await writeAudit(ctx.db, actor(req), "customer", "strike_added", row.alias, { reason: body.data.reason, strikes: row.strikes });
     return { customer: row };
@@ -101,6 +119,9 @@ export function registerCustomerRoutes(app: FastifyInstance, ctx: AppContext, pe
         company: null,
         vatNo: null,
         vies: null,
+        // Revoke storefront access on erasure — the password hash is
+        // personal credential material and must not survive a GDPR erase.
+        passwordHash: null,
         notes: "",
         email: `erased-${id}@erased.invalid`,
         alias: "erased_user",
@@ -108,7 +129,7 @@ export function registerCustomerRoutes(app: FastifyInstance, ctx: AppContext, pe
         erasedAt: ctx.now(),
       })
       .where(eq(customers.id, id))
-      .returning();
+      .returning({ id: customers.id });
     if (!row) return reply.code(404).send({ error: "not_found" });
     await writeAudit(ctx.db, actor(req), "customer", "gdpr_erased", id);
     return { ok: true };

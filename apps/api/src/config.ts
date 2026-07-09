@@ -22,6 +22,12 @@ export interface ApiConfig {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
+  // The JWT secret is the entire trust anchor for admin + bidder auth. In
+  // production it MUST be provided — never fall back to a source-published
+  // value (that would let anyone forge a super_admin token).
+  if (env.NODE_ENV === "production" && !env.JWT_SECRET) {
+    throw new Error("JWT_SECRET must be set in production");
+  }
   return {
     host: env.HOST ?? "0.0.0.0",
     port: Number(env.PORT ?? 4000),
