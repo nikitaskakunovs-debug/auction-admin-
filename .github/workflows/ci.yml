@@ -42,7 +42,9 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck
+      # Build first: @auction/db and the apps resolve @auction/domain's types
+      # from its built dist/, so the workspace must be built before typecheck.
       - run: pnpm build
+      - run: pnpm typecheck
       - run: pnpm db:migrate
       - run: pnpm test

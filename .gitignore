@@ -8,3 +8,6 @@ coverage/
 .DS_Store
 .turbo/
 dump.rdb
+.next/
+apps/web/next-env.d.ts
+apps/web/tsconfig.tsbuildinfo
