@@ -122,8 +122,22 @@ price updates (anonymous viewers included), proxy-bid box with exact minimum-nex
 sanitized public ledger (aliases only — reserve amounts, maxima, and emails never
 leave the server), "reserve not met" state, account page with my-bids/my-orders.
 SEO: JSON-LD Product/Offer, sitemap.xml, robots.txt, hreflang alternates.
-UI strings in Latvian / Russian / English (per-country ccTLD routing lands in the
-SEO polish phase).
+
+**Per-country ccTLD SEO**: one deployment serves all three markets; the
+country is resolved from the request `Host` (`.lv`/`.ee`/`.lt` → Latvia /
+Estonia / Lithuania, unknown hosts fall back to Latvia — see
+`apps/web/src/lib/country.ts`). The host drives the `<html lang>`, the
+default UI language, and the offered language set (national + Russian +
+English). Every page emits **canonical + hreflang alternates** that
+self-reference the current domain and cross-link the two ccTLD siblings
+(national language unqualified, `ru`/`en` region-qualified per domain, plus
+`x-default` → the `.lv` origin) so Google treats the three domains as
+localized siblings rather than duplicates. `sitemap.xml`/`robots.txt` are
+host-aware, listing each domain's own-origin URLs. UI strings ship in
+Latvian / Russian / English / **Estonian / Lithuanian** (the et/lt
+translations are machine-drafted and flagged for native review before
+launch, like the per-country VAT rates). Origins are configurable per
+deployment via `NEXT_PUBLIC_ORIGIN_LV` / `_EE` / `_LT`.
 
 **Fixed-price "buy it now"**: each fixed listing is backed by one unique warehouse
 item, so it sells exactly once (the item's `listed` status is the availability gate).

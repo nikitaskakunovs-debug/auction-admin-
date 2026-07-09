@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useT } from "@/lib/i18n";
-import type { Localized } from "./CmsBlocks";
+import { pickLocalized, type Localized } from "./CmsBlocks";
 
 export function Footer({ pages }: { pages: Array<{ slug: string; title: Localized }> }) {
   const { lang } = useT();
@@ -13,7 +13,7 @@ export function Footer({ pages }: { pages: Array<{ slug: string; title: Localize
         <nav style={{ marginLeft: "auto", display: "flex", gap: 16, flexWrap: "wrap" }}>
           {pages.map((p) => (
             <Link key={p.slug} href={`/p/${p.slug}`} style={{ fontSize: 12.5, fontWeight: 600, color: "#454542", textDecoration: "none" }}>
-              {p.title[lang] || p.title.lv || p.title.en}
+              {pickLocalized(p.title, lang)}
             </Link>
           ))}
         </nav>

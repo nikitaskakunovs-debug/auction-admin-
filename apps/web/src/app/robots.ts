@@ -1,9 +1,11 @@
 import type { MetadataRoute } from "next";
-import { SITE_URL } from "@/lib/config";
+import { headers } from "next/headers";
+import { originForHost } from "@/lib/country";
 
-export default function robots(): MetadataRoute.Robots {
+export default async function robots(): Promise<MetadataRoute.Robots> {
+  const origin = originForHost((await headers()).get("host"));
   return {
     rules: { userAgent: "*", allow: "/", disallow: ["/account", "/login", "/register"] },
-    sitemap: `${SITE_URL}/sitemap.xml`,
+    sitemap: `${origin}/sitemap.xml`,
   };
 }

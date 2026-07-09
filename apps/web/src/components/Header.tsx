@@ -3,10 +3,10 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { publicApi } from "@/lib/api";
-import { LANGS, useT, type Lang } from "@/lib/i18n";
+import { useT, type Lang } from "@/lib/i18n";
 
 export function Header() {
-  const { lang, setLang, t } = useT();
+  const { lang, setLang, available, t } = useT();
   const [signedIn, setSignedIn] = useState(false);
 
   useEffect(() => {
@@ -42,7 +42,7 @@ export function Header() {
             </>
           )}
           <span style={{ display: "inline-flex", gap: 4, marginLeft: 6 }}>
-            {LANGS.map((l: Lang) => (
+            {available.map((l: Lang) => (
               <button
                 key={l}
                 onClick={() => setLang(l)}

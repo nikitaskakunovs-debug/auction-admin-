@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
-import { API_URL, SITE_URL } from "@/lib/config";
+import { API_URL } from "@/lib/config";
+import { resolveCountry, SITE_ORIGINS } from "@/lib/country";
+import { alternatesFor } from "@/lib/seo";
 import { jsonLdScript } from "@/lib/jsonld";
 import type { FixedListing } from "@/lib/types";
 import { BuyNow } from "@/components/BuyNow";
@@ -19,19 +22,21 @@ async function fetchListing(id: string): Promise<FixedListing | null> {
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
-  const l = await fetchListing(id);
+  const [l, host] = await Promise.all([fetchListing(id), headers().then((h) => h.get("host"))]);
   if (!l) return { title: "Listing" };
+  const country = resolveCountry(host);
   return {
     title: l.title,
     description: l.description.slice(0, 160) || `Buy now: ${l.title}`,
-    alternates: { canonical: `/listing/${id}` },
+    alternates: alternatesFor(country, `/listing/${id}`),
   };
 }
 
 export default async function ListingPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const listing = await fetchListing(id);
+  const [listing, host] = await Promise.all([fetchListing(id), headers().then((h) => h.get("host"))]);
   if (!listing) notFound();
+  const origin = SITE_ORIGINS[resolveCountry(host).code];
 
   const jsonLd = {
     "@context": "https://schema.org",
@@ -44,7 +49,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
       priceCurrency: "EUR",
       price: (listing.priceCents / 100).toFixed(2),
       availability: listing.soldOut ? "https://schema.org/SoldOut" : "https://schema.org/InStock",
-      url: `${SITE_URL}/listing/${listing.id}`,
+      url: `${origin}/listing/${listing.id}`,
     },
   };
 
