@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { SITE_URL } from "@/lib/config";
+import { API_URL, SITE_URL } from "@/lib/config";
 import { I18nProvider } from "@/lib/i18n";
+import type { Localized } from "@/components/CmsBlocks";
+import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
 
 export const metadata: Metadata = {
@@ -16,7 +18,18 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+async function fetchFooterPages(): Promise<Array<{ slug: string; title: Localized }>> {
+  try {
+    const res = await fetch(`${API_URL}/api/public/pages`, { next: { revalidate: 120 } });
+    if (!res.ok) return [];
+    return ((await res.json()) as { pages: Array<{ slug: string; title: Localized }> }).pages;
+  } catch {
+    return [];
+  }
+}
+
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  const footerPages = await fetchFooterPages();
   return (
     <html lang="lv">
       <body
@@ -31,11 +44,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <I18nProvider>
           <Header />
           <main style={{ maxWidth: 1080, margin: "0 auto", padding: "28px 20px 80px" }}>{children}</main>
-          <footer style={{ borderTop: "1px solid rgba(10,10,10,0.08)", padding: "22px 20px", textAlign: "center" }}>
-            <span style={{ fontSize: 12, color: "#6B6B68" }}>
-              Baltic Auction House · LV · EE · LT
-            </span>
-          </footer>
+          <Footer pages={footerPages} />
         </I18nProvider>
       </body>
     </html>

@@ -6,6 +6,7 @@ import { verifyAccessToken } from "./auth/jwt.js";
 import type { AppContext } from "./context.js";
 import { registerAdminRoutes } from "./routes/admin.js";
 import { registerAuctionRoutes } from "./routes/auctions.js";
+import { registerCmsRoutes } from "./routes/cms.js";
 import { registerCustomerRoutes } from "./routes/customers.js";
 import { registerDashboardRoutes } from "./routes/dashboard.js";
 import { registerFinanceRoutes } from "./routes/finance.js";
@@ -48,6 +49,7 @@ export async function buildServer(ctx: AppContext, opts: { logger?: boolean } = 
   registerCustomerRoutes(app, ctx, perms);
   registerFinanceRoutes(app, ctx, perms);
   registerAdminRoutes(app, ctx, perms);
+  registerCmsRoutes(app, ctx, perms);
   registerPublicRoutes(app, ctx);
   await registerWs(app, ctx);
 

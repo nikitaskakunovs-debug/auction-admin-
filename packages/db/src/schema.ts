@@ -323,6 +323,39 @@ export const counters = pgTable("counters", {
   value: bigint("value", { mode: "number" }).notNull().default(0),
 });
 
+// ── CMS pages (Shhh editor architecture, persistence in Postgres) ───────────
+
+/** One localized string per storefront language; lv is the fallback. */
+export type CmsLocalized = { lv: string; ru: string; en: string };
+
+export type CmsBlock =
+  | { type: "heading"; text: CmsLocalized }
+  | { type: "text"; text: CmsLocalized }
+  | { type: "image"; url: string; alt: CmsLocalized }
+  | { type: "faq"; question: CmsLocalized; answer: CmsLocalized }
+  | { type: "divider" };
+
+export const cmsPages = pgTable(
+  "cms_pages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** URL path segment, e.g. "about", "terms". */
+    slug: text("slug").notNull(),
+    title: jsonb("title").$type<CmsLocalized>().notNull(),
+    blocks: jsonb("blocks").$type<CmsBlock[]>().notNull().default([]),
+    /** Per-page SEO: meta title/description per language. */
+    seo: jsonb("seo").$type<{ title: CmsLocalized; description: CmsLocalized }>(),
+    status: text("status").notNull().default("draft"), // draft | published
+    /** Show in the storefront footer navigation. */
+    inFooter: boolean("in_footer").notNull().default(true),
+    position: integer("position").notNull().default(0),
+    updatedBy: uuid("updated_by").references(() => adminUsers.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("cms_pages_slug_idx").on(t.slug), index("cms_pages_status_idx").on(t.status)],
+);
+
 // ── Append-only audit log ────────────────────────────────────────────────────
 
 export const auditLog = pgTable(

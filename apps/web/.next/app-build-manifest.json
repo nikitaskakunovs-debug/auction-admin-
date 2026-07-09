@@ -7,20 +7,20 @@
       "static/chunks/main-app-dd0fc61ba71a64a4.js",
       "static/chunks/app/_not-found/page-73700340f508795b.js"
     ],
-    "/layout": [
-      "static/chunks/webpack-30b9dd9193356b11.js",
-      "static/chunks/567e3fde-8c71b67cb98676f3.js",
-      "static/chunks/558-239c31f73a257451.js",
-      "static/chunks/main-app-dd0fc61ba71a64a4.js",
-      "static/chunks/817-f9ae6839b8a599e0.js",
-      "static/chunks/app/layout-b63e7c7a9e372905.js"
-    ],
     "/robots.txt/route": [
       "static/chunks/webpack-30b9dd9193356b11.js",
       "static/chunks/567e3fde-8c71b67cb98676f3.js",
       "static/chunks/558-239c31f73a257451.js",
       "static/chunks/main-app-dd0fc61ba71a64a4.js",
       "static/chunks/app/robots.txt/route-21a633d81b23fc2a.js"
+    ],
+    "/layout": [
+      "static/chunks/webpack-30b9dd9193356b11.js",
+      "static/chunks/567e3fde-8c71b67cb98676f3.js",
+      "static/chunks/558-239c31f73a257451.js",
+      "static/chunks/main-app-dd0fc61ba71a64a4.js",
+      "static/chunks/817-f9ae6839b8a599e0.js",
+      "static/chunks/app/layout-570b063b35f3b609.js"
     ],
     "/sitemap.xml/route": [
       "static/chunks/webpack-30b9dd9193356b11.js",
@@ -51,6 +51,20 @@
       "static/chunks/main-app-dd0fc61ba71a64a4.js",
       "static/chunks/app/register/page-f8ac4da08b5b0222.js"
     ],
+    "/auction/[id]/page": [
+      "static/chunks/webpack-30b9dd9193356b11.js",
+      "static/chunks/567e3fde-8c71b67cb98676f3.js",
+      "static/chunks/558-239c31f73a257451.js",
+      "static/chunks/main-app-dd0fc61ba71a64a4.js",
+      "static/chunks/app/auction/[id]/page-f18fe0ec25be792f.js"
+    ],
+    "/p/[slug]/page": [
+      "static/chunks/webpack-30b9dd9193356b11.js",
+      "static/chunks/567e3fde-8c71b67cb98676f3.js",
+      "static/chunks/558-239c31f73a257451.js",
+      "static/chunks/main-app-dd0fc61ba71a64a4.js",
+      "static/chunks/app/p/[slug]/page-55a2af26f4af3cc4.js"
+    ],
     "/page": [
       "static/chunks/webpack-30b9dd9193356b11.js",
       "static/chunks/567e3fde-8c71b67cb98676f3.js",
@@ -58,13 +72,6 @@
       "static/chunks/main-app-dd0fc61ba71a64a4.js",
       "static/chunks/817-f9ae6839b8a599e0.js",
       "static/chunks/app/page-9eaec8e2b022504b.js"
-    ],
-    "/auction/[id]/page": [
-      "static/chunks/webpack-30b9dd9193356b11.js",
-      "static/chunks/567e3fde-8c71b67cb98676f3.js",
-      "static/chunks/558-239c31f73a257451.js",
-      "static/chunks/main-app-dd0fc61ba71a64a4.js",
-      "static/chunks/app/auction/[id]/page-f18fe0ec25be792f.js"
     ]
   }
 }

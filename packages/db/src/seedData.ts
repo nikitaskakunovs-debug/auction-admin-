@@ -78,6 +78,89 @@ export async function seedDatabase(db: Db, opts: SeedOptions = {}): Promise<void
 
   if (!demoData) return;
 
+  // ── CMS starter pages ──────────────────────────────────────────────────────
+  const L = (lv: string, ru: string, en: string) => ({ lv, ru, en });
+  await db
+    .insert(t.cmsPages)
+    .values([
+      {
+        slug: "about",
+        title: L("Par mums", "О нас", "About us"),
+        status: "published",
+        position: 1,
+        blocks: [
+          { type: "heading", text: L("Baltijas izsoļu nams", "Балтийский аукционный дом", "The Baltic auction house") },
+          {
+            type: "text",
+            text: L(
+              "Mēs rīkojam tiešsaistes izsoles Latvijā, Igaunijā un Lietuvā — pulksteņi, māksla, dizains un kolekcionējami priekšmeti no mūsu noliktavas Rīgā.",
+              "Мы проводим онлайн-аукционы в Латвии, Эстонии и Литве — часы, искусство, дизайн и коллекционные предметы с нашего склада в Риге.",
+              "We run online auctions across Latvia, Estonia and Lithuania — watches, art, design and collectibles from our Riga warehouse.",
+            ),
+          },
+        ],
+        seo: {
+          title: L("Par mums · Baltijas izsoļu nams", "О нас · Балтийский аукционный дом", "About us · Baltic Auction House"),
+          description: L(
+            "Tiešsaistes izsoles Baltijā kopš pirmās dienas — godīgi soļi, slēptas rezerves cenas un tiešraides solīšana.",
+            "Онлайн-аукционы в Балтии — честные шаги, скрытые резервы и живые торги.",
+            "Online auctions in the Baltics — fair increments, hidden reserves and live bidding.",
+          ),
+        },
+      },
+      {
+        slug: "how-to-bid",
+        title: L("Kā solīt", "Как делать ставки", "How to bid"),
+        status: "published",
+        position: 2,
+        blocks: [
+          { type: "heading", text: L("Kā darbojas solīšana", "Как работают ставки", "How bidding works") },
+          {
+            type: "text",
+            text: L(
+              "Norādiet savu maksimālo cenu — sistēma solīs jūsu vietā ar minimālo soli, tikai tik, cik nepieciešams, lai saglabātu vadību.",
+              "Укажите свой максимум — система будет ставить за вас с минимальным шагом, ровно столько, сколько нужно, чтобы сохранить лидерство.",
+              "Enter your maximum bid — the system bids on your behalf by the minimum increment, only as much as needed to keep you in the lead.",
+            ),
+          },
+          {
+            type: "faq",
+            question: L("Kas ir rezerves cena?", "Что такое резервная цена?", "What is a reserve price?"),
+            answer: L(
+              "Slēpta minimālā pārdošanas cena. Ja tā nav sasniegta, izsole beidzas bez uzvarētāja.",
+              "Скрытая минимальная цена продажи. Если она не достигнута, аукцион завершается без победителя.",
+              "A hidden minimum selling price. If it is not met, the auction ends without a winner.",
+            ),
+          },
+          {
+            type: "faq",
+            question: L("Kas notiek pēdējā minūtē?", "Что происходит в последнюю минуту?", "What happens in the last minute?"),
+            answer: L(
+              "Solījums pēdējās 60 sekundēs automātiski pagarina izsoli — nolauzt beigas nav iespējams.",
+              "Ставка в последние 60 секунд автоматически продлевает аукцион — «снайпинг» не работает.",
+              "A bid in the final 60 seconds automatically extends the auction — sniping does not work.",
+            ),
+          },
+        ],
+        seo: {
+          title: L("Kā solīt · Baltijas izsoļu nams", "Как делать ставки", "How to bid · Baltic Auction House"),
+          description: L("Soli pa solim: reģistrācija, maksimālā cena, uzvara un apmaksa.", "Пошагово: регистрация, максимум, победа и оплата.", "Step by step: register, set your max, win and pay."),
+        },
+      },
+      {
+        slug: "terms",
+        title: L("Noteikumi", "Условия", "Terms"),
+        status: "draft",
+        position: 3,
+        blocks: [
+          { type: "heading", text: L("Lietošanas noteikumi", "Условия использования", "Terms of service") },
+          { type: "text", text: L("Melnraksts — juridiskais teksts tiks pievienots.", "Черновик — юридический текст будет добавлен.", "Draft — legal copy to be added.") },
+        ],
+      },
+    ])
+    .onConflictDoNothing();
+
+
   // Demo data is not idempotent per-row; bail if items already exist.
   const existing = await db.select({ n: sql<number>`count(*)` }).from(t.items);
   if (Number(existing[0]!.n) > 0) return;

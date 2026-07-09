@@ -26,6 +26,14 @@
         "nxtPid": "nxtPid"
       },
       "namedRegex": "^/auction/(?<nxtPid>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/p/[slug]",
+      "regex": "^/p/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPslug": "nxtPslug"
+      },
+      "namedRegex": "^/p/(?<nxtPslug>[^/]+?)(?:/)?$"
     }
   ],
   "staticRoutes": [

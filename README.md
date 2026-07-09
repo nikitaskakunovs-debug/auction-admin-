@@ -120,8 +120,19 @@ SEO: JSON-LD Product/Offer, sitemap.xml, robots.txt, hreflang alternates.
 UI strings in Latvian / Russian / English (per-country ccTLD routing lands in the
 SEO polish phase).
 
+## CMS
+
+Multilingual block pages (heading / text / image / FAQ / divider blocks with
+lv/ru/en fields and LV fallback) stored in `cms_pages`, edited in the admin's
+Content screen by the **Content Editor** role (language tabs, block reorder,
+per-page SEO meta, draft→publish), rendered SSR at `/p/<slug>` on the
+storefront with footer navigation built from published pages. Drafts are
+invisible publicly. Built in-stack rather than as a separate Payload instance
+to keep one auth, one RBAC, one audit trail; a Puck-style visual editor can be
+layered on the same data later.
+
 ## Out of scope so far (per design-doc build order)
 
 Klix payments, carrier APIs (Omniva/DPD/Venipak) — both waiting on merchant
-credentials (request early!), CMS (Payload/Puck), email notifications, Sentry
-monitoring. The schema and config leave explicit room for each.
+credentials (request early!), email notifications, Sentry monitoring. The
+schema and config leave explicit room for each.
