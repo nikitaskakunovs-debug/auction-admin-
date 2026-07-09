@@ -26,6 +26,29 @@ async function bid(auctionId: string, customerId: string, maxCents: number) {
   });
 }
 
+/**
+ * Drive the scheduler until an expected effect has landed. A single tick is
+ * single-flight behind a Redis lock and can no-op (or lose a lock race), so
+ * asserting after exactly one tick is non-deterministic — poll instead.
+ */
+async function tickUntil(done: () => Promise<boolean>, attempts = 25): Promise<boolean> {
+  for (let i = 0; i < attempts; i++) {
+    await scheduler.tick();
+    if (await done()) return true;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return done();
+}
+
+/** Poll the scheduler until an auction has left the `live` state. */
+async function tickUntilClosed(auctionId: string): Promise<void> {
+  const closed = await tickUntil(async () => {
+    const [a] = await world.ctx.db.select({ status: auctions.status }).from(auctions).where(eq(auctions.id, auctionId));
+    return !!a && a.status !== "live";
+  });
+  if (!closed) throw new Error(`auction ${auctionId} never left the live state`);
+}
+
 describe("auction close via the scheduler", () => {
   it("won auction → order with design-doc invoice math, item → awaiting_payment", async () => {
     const { auctionId, itemId } = await createLiveAuction(world, token, { startPriceCents: 10_000, endsInMs: 500, antiSnipeSec: 0 });
@@ -34,7 +57,7 @@ describe("auction close via the scheduler", () => {
     expect(res.statusCode).toBe(200);
 
     await new Promise((r) => setTimeout(r, 600));
-    await scheduler.tick();
+    await tickUntilClosed(auctionId);
 
     const [a] = await world.ctx.db.select().from(auctions).where(eq(auctions.id, auctionId));
     expect(a!.status).toBe("ended_won");
@@ -64,7 +87,7 @@ describe("auction close via the scheduler", () => {
     const bidder = await createBidder(world, "res_low");
     await bid(auctionId, bidder, 5_000);
     await new Promise((r) => setTimeout(r, 500));
-    await scheduler.tick();
+    await tickUntilClosed(auctionId);
 
     const [a] = await world.ctx.db.select().from(auctions).where(eq(auctions.id, auctionId));
     expect(a!.status).toBe("ended_reserve_not_met");
@@ -77,7 +100,7 @@ describe("auction close via the scheduler", () => {
   it("no bids → ended_no_bids, then relist creates a fresh scheduled auction", async () => {
     const { auctionId, itemId } = await createLiveAuction(world, token, { endsInMs: 300 });
     await new Promise((r) => setTimeout(r, 400));
-    await scheduler.tick();
+    await tickUntilClosed(auctionId);
 
     const [a] = await world.ctx.db.select().from(auctions).where(eq(auctions.id, auctionId));
     expect(a!.status).toBe("ended_no_bids");
@@ -111,9 +134,15 @@ describe("orders: payment, fulfilment, unpaid handling", () => {
     const buyer = await createBidder(world, `buyer_${Math.random().toString(36).slice(2, 8)}`);
     await bid(auctionId, buyer, 5_000);
     await new Promise((r) => setTimeout(r, 400));
-    await scheduler.tick();
-    const [order] = await world.ctx.db.select().from(orders).where(eq(orders.auctionId, auctionId));
-    return { order: order!, itemId, buyer };
+    // Drive the scheduler until the close has produced the winner's order
+    // rather than assuming one tick lands it — keeps the helper deterministic.
+    let order: typeof orders.$inferSelect | undefined;
+    await tickUntil(async () => {
+      [order] = await world.ctx.db.select().from(orders).where(eq(orders.auctionId, auctionId));
+      return !!order;
+    });
+    if (!order) throw new Error(`auction ${auctionId} did not close into an order`);
+    return { order, itemId, buyer };
   }
 
   it("mark paid → item paid → fulfilment chain to closed", async () => {
@@ -204,7 +233,10 @@ describe("orders: payment, fulfilment, unpaid handling", () => {
     // Warp past the deadline.
     world.setNow(new Date(Date.now() + (world.ctx.config.paymentDeadlineHours + 1) * 3_600_000));
     try {
-      await scheduler.tick();
+      await tickUntil(async () => {
+        const [o] = await world.ctx.db.select({ status: orders.status }).from(orders).where(eq(orders.id, order.id));
+        return o?.status === "cancelled";
+      });
       expect((await world.ctx.db.select().from(orders).where(eq(orders.id, order.id)))[0]!.status).toBe("cancelled");
       expect((await world.ctx.db.select().from(items).where(eq(items.id, itemId)))[0]!.status).toBe("unpaid_cancelled");
       expect((await world.ctx.db.select().from(customers).where(eq(customers.id, buyer)))[0]!.strikes).toBe(1);
