@@ -8,6 +8,13 @@
       "when": 1783526819173,
       "tag": "0000_certain_raider",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1783568141960,
+      "tag": "0001_busy_krista_starr",
+      "breakpoints": true
     }
   ]
 }

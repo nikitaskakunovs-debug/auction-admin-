@@ -18,6 +18,7 @@ import {
 import { eq, sql } from "drizzle-orm";
 import { writeAudit, SYSTEM_ACTOR, type Actor } from "../audit.js";
 import { publishAuctionEvent, type AppContext } from "../context.js";
+import { issueInvoice } from "./invoices.js";
 
 export interface CloseOutcome {
   ok: true;
@@ -83,7 +84,7 @@ export async function closeAuction(
         .returning({ value: counters.value });
       const ref = `A-${counter!.value}`;
 
-      await tx.insert(orders).values({
+      const [createdOrder] = await tx.insert(orders).values({
         ref,
         auctionId: auction.id,
         listingId: listing!.id,
@@ -101,7 +102,11 @@ export async function closeAuction(
         reverseCharge,
         status: "awaiting_payment",
         paymentDeadlineAt: new Date(now.getTime() + ctx.config.paymentDeadlineHours * 3_600_000),
-      });
+      }).returning({ id: orders.id });
+
+      // The invoice is the request for payment — issue it with the order,
+      // atomically, with a gap-free number from the market's series.
+      await issueInvoice(tx, createdOrder!.id, now);
 
       await tx.update(auctions).set({ status: "ended_won", closedAt: now }).where(eq(auctions.id, auction.id));
       // live → won → awaiting_payment (order exists the moment the state does)

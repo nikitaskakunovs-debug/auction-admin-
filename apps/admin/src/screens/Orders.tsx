@@ -20,6 +20,7 @@ interface OrderDetail {
   order: Order;
   item: Item;
   refunds: Refund[];
+  invoice: { id: string; number: string; issuedAt: string } | null;
 }
 
 const PILLS = [
@@ -88,6 +89,16 @@ export function OrdersScreen({ nav: _nav }: { nav: Nav }) {
       load();
     } catch (err) {
       toast(err instanceof ApiError ? err.message : "Refund failed", "danger");
+    }
+  };
+
+  const issueInvoice = async (o: Order) => {
+    try {
+      await api.post(`/api/orders/${o.id}/issue-invoice`);
+      toast("Invoice issued", "ok");
+      openDetail(o.id);
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Issue failed", "danger");
     }
   };
 
@@ -221,6 +232,20 @@ export function OrdersScreen({ nav: _nav }: { nav: Nav }) {
                     Reverse charge — VAT payable by recipient, Art. 196 Dir. 2006/112/EC.
                   </div>
                 )}
+                <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
+                  {detail.invoice ? (
+                    <>
+                      <span style={{ fontFamily: AT.mono, fontSize: 12 }}>{detail.invoice.number}</span>
+                      <ABtn size="sm" kind="ghost" onClick={() =>
+                        window.open(`/api/invoices/${detail.invoice!.id}/html?token=${encodeURIComponent(api.accessToken ?? "")}`, "_blank")
+                      }>Open invoice</ABtn>
+                    </>
+                  ) : can("invoices.issue") ? (
+                    <ABtn size="sm" kind="ghost" onClick={() => void issueInvoice(detail.order)}>Issue invoice</ABtn>
+                  ) : (
+                    <span style={{ fontSize: 11.5, color: AT.inkSoft }}>No invoice issued.</span>
+                  )}
+                </div>
               </div>
             </ACard>
 

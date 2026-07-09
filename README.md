@@ -33,13 +33,21 @@ rebuilt as a typed Vite/React app against a real API.
 - **Item lifecycle**: Draft → Listed → Live → Won → Awaiting payment → Paid → Picking →
   Packed → Shipped → Delivered → Closed, plus Unsold→Relist and Unpaid→Cancel/Relist
 - **Live updates**: Redis pub/sub → WebSocket; payloads never leak reserves or proxy maxima
+- **Invoicing**: issued atomically with the winner's order — gap-free sequential numbers per
+  market legal-entity series (`LV-2026-00001`), snapshot data, printable HTML document
+  (browser print → PDF), backfill endpoint for older orders
+- **VIES**: server-side EU VAT-number consultation (`VIES_MODE=live|simulate`), stamped on
+  the bidder with the consultation number as zero-rating proof
+- **VAT report**: per-market accrual report (invoices issued in period) with reverse-charge
+  split, CSV export from the Finance screen
 
 ## Admin panel
 
 Dashboard (live KPIs) · Auctions · **Live auction monitor** (real-time bid feed, extend /
 cancel / void-bid / relist with mandatory audited reasons) · Listings (commercial pricing
 split from operational editing) · Inventory (warehouse lifecycle) · Orders (invoice
-breakdown, refunds, cancel+strike) · Bidders (strikes, GDPR erase) · Settings (per-country
+breakdown, refunds, cancel+strike) · Bidders (strikes, GDPR erase, VIES validation) ·
+Finance (invoice register with printable documents, VAT report + CSV) · Settings (per-country
 VAT / premium / increments / anti-snipe, team management, editable **7-role permission
 matrix**) · Activity (append-only audit log).
 

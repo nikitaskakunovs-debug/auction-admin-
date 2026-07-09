@@ -24,6 +24,8 @@ import {
 export const markets = pgTable("markets", {
   code: text("code").primaryKey(), // 'LV' | 'EE' | 'LT'
   name: text("name").notNull(),
+  /** Legal entity printed on invoices for this market. */
+  legalName: text("legal_name").notNull().default(""),
   currency: text("currency").notNull().default("EUR"),
   languages: jsonb("languages").$type<string[]>().notNull(),
   vatRateBp: integer("vat_rate_bp").notNull(),

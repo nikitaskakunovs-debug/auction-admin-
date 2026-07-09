@@ -1,4 +1,4 @@
-import { customers, items, orders, refunds } from "@auction/db";
+import { customers, invoices, items, orders, refunds } from "@auction/db";
 import { assertItemTransition, type ItemStatus } from "@auction/domain";
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -36,7 +36,11 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext, perms
       .where(eq(orders.id, id));
     if (!row) return reply.code(404).send({ error: "not_found" });
     const refundRows = await ctx.db.select().from(refunds).where(eq(refunds.orderId, id)).orderBy(desc(refunds.createdAt));
-    return { order: row.order, item: row.item, refunds: refundRows };
+    const [invoice] = await ctx.db
+      .select({ id: invoices.id, number: invoices.number, issuedAt: invoices.issuedAt })
+      .from(invoices)
+      .where(eq(invoices.orderId, id));
+    return { order: row.order, item: row.item, refunds: refundRows, invoice: invoice ?? null };
   });
 
   app.post("/api/orders/:id/mark-paid", guard("orders.mark_paid"), async (req, reply) => {

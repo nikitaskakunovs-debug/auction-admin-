@@ -1,0 +1,1 @@
+ALTER TABLE "markets" ADD COLUMN "legal_name" text DEFAULT '' NOT NULL;

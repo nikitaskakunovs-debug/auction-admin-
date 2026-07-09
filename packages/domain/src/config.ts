@@ -13,6 +13,8 @@ export type MarketCode = "LV" | "EE" | "LT";
 export interface MarketConfig {
   code: MarketCode;
   name: string;
+  /** Legal entity printed on invoices for this market. */
+  legalName: string;
   currency: "EUR";
   /** national + Russian + English, per the design doc. */
   languages: readonly string[];
@@ -32,6 +34,7 @@ export const DEFAULT_MARKETS: readonly MarketConfig[] = [
   {
     code: "LV",
     name: "Latvia",
+    legalName: "Baltic Auction House SIA",
     currency: "EUR",
     languages: ["lv", "ru", "en"],
     vatRateBp: 2100,
@@ -44,6 +47,7 @@ export const DEFAULT_MARKETS: readonly MarketConfig[] = [
   {
     code: "EE",
     name: "Estonia",
+    legalName: "Baltic Auction House OÜ",
     currency: "EUR",
     languages: ["et", "ru", "en"],
     // 24% since 2025-07-01 — verify with the accountant per the design doc.
@@ -57,6 +61,7 @@ export const DEFAULT_MARKETS: readonly MarketConfig[] = [
   {
     code: "LT",
     name: "Lithuania",
+    legalName: "Baltic Auction House UAB",
     currency: "EUR",
     languages: ["lt", "ru", "en"],
     vatRateBp: 2100,
@@ -91,7 +96,7 @@ export const PERMISSIONS = [
   // Orders & fulfilment
   "orders.view", "orders.mark_paid", "orders.fulfil", "orders.refund", "orders.cancel_unpaid",
   // Customers / bidders
-  "customers.view", "customers.edit", "customers.strike", "customers.erase",
+  "customers.view", "customers.edit", "customers.strike", "customers.erase", "customers.vies_check",
   // Content
   "content.view", "content.edit",
   // Finance
@@ -124,7 +129,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<RoleId, readonly Permissi
     "items.view",
     "listings.view", "listings.edit", "listings.set_pricing",
     "auctions.view", "auctions.monitor", "auctions.extend",
-    "customers.view",
+    "customers.view", "customers.vies_check",
     "reports.view", "finance.view", "audit.view",
   ],
   // Orders, payments, pick/pack, labels, refunds
@@ -132,7 +137,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<RoleId, readonly Permissi
     "items.view", "items.transition",
     "auctions.view",
     "orders.view", "orders.mark_paid", "orders.fulfil", "orders.refund", "orders.cancel_unpaid",
-    "customers.view", "customers.strike",
+    "customers.view", "customers.strike", "customers.vies_check",
     "reports.view", "audit.view",
   ],
   // CMS pages only
@@ -149,6 +154,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<RoleId, readonly Permissi
   // Invoices, VAT reports, reconciliation — read-only elsewhere
   finance: [
     "items.view", "listings.view", "auctions.view", "orders.view", "customers.view",
+    "customers.vies_check",
     "finance.view", "invoices.view", "invoices.issue", "reports.view", "audit.view",
   ],
 };

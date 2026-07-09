@@ -14,6 +14,11 @@ export interface ApiConfig {
    */
   allowBidSimulation: boolean;
   schedulerEnabled: boolean;
+  /**
+   * "live" calls the EU VIES REST service; "simulate" stamps a synthetic
+   * consultation (format-valid ⇒ valid) for dev/tests without network.
+   */
+  viesMode: "live" | "simulate";
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
@@ -28,5 +33,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     paymentDeadlineHours: Number(env.PAYMENT_DEADLINE_HOURS ?? 72),
     allowBidSimulation: (env.ALLOW_BID_SIMULATION ?? (env.NODE_ENV === "production" ? "0" : "1")) === "1",
     schedulerEnabled: (env.SCHEDULER_ENABLED ?? "1") === "1",
+    viesMode: (env.VIES_MODE ?? (env.NODE_ENV === "production" ? "live" : "simulate")) === "live" ? "live" : "simulate",
   };
 }

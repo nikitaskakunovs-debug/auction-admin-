@@ -22,6 +22,7 @@ export function registerAdminRoutes(app: FastifyInstance, ctx: AppContext, perms
 
   const marketPatch = z.object({
     name: z.string().min(1).optional(),
+    legalName: z.string().optional(),
     languages: z.array(z.string()).optional(),
     vatRateBp: z.number().int().min(0).max(5000).optional(),
     buyerPremiumBp: z.number().int().min(0).max(5000).optional(),

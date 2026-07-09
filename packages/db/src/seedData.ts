@@ -43,6 +43,7 @@ export async function seedDatabase(db: Db, opts: SeedOptions = {}): Promise<void
       .values({
         code: m.code,
         name: m.name,
+        legalName: m.legalName,
         currency: m.currency,
         languages: [...m.languages],
         vatRateBp: m.vatRateBp,

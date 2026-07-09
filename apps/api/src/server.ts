@@ -8,6 +8,7 @@ import { registerAdminRoutes } from "./routes/admin.js";
 import { registerAuctionRoutes } from "./routes/auctions.js";
 import { registerCustomerRoutes } from "./routes/customers.js";
 import { registerDashboardRoutes } from "./routes/dashboard.js";
+import { registerFinanceRoutes } from "./routes/finance.js";
 import { registerItemRoutes } from "./routes/items.js";
 import { registerListingRoutes } from "./routes/listings.js";
 import { registerOrderRoutes } from "./routes/orders.js";
@@ -42,6 +43,7 @@ export async function buildServer(ctx: AppContext, opts: { logger?: boolean } = 
   registerListingRoutes(app, ctx, perms);
   registerOrderRoutes(app, ctx, perms);
   registerCustomerRoutes(app, ctx, perms);
+  registerFinanceRoutes(app, ctx, perms);
   registerAdminRoutes(app, ctx, perms);
   await registerWs(app, ctx);
 

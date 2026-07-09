@@ -96,6 +96,17 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
     }
   };
 
+  const viesCheck = async () => {
+    if (!detail) return;
+    try {
+      const r = await api.post<{ vies: { valid: boolean; consult: string } }>(`/api/customers/${detail.customer.id}/vies-check`);
+      toast(r.vies.valid ? `VIES: valid · consultation ${r.vies.consult}` : "VIES: number could NOT be validated — do not zero-rate", r.vies.valid ? "ok" : "danger");
+      openDetail(detail.customer.id);
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "VIES check failed", "danger");
+    }
+  };
+
   const strike = async () => {
     if (!detail) return;
     const r = await confirm({
@@ -248,6 +259,30 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
               <Stat label="Auctions" value={String(detail.bidStats.auctionsBidOn)} />
               <Stat label="Strikes" value={String(detail.customer.strikes)} warn={detail.customer.strikes > 0} />
             </div>
+
+            {detail.customer.vatNo && (
+              <div style={{ background: AT.surfaceAlt, borderRadius: AT.radiusSm, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontFamily: AT.body, fontSize: 12, fontWeight: 700 }}>
+                    VIES check{" "}
+                    {detail.customer.vies ? (
+                      detail.customer.vies.valid ? <ABadge tone="ok">valid</ABadge> : <ABadge tone="danger">invalid</ABadge>
+                    ) : (
+                      <ABadge tone="warn">not verified</ABadge>
+                    )}
+                  </div>
+                  <div style={{ fontFamily: AT.mono, fontSize: 10.5, color: AT.inkSoft, marginTop: 2 }}>
+                    {detail.customer.vatNo}
+                    {detail.customer.vies ? ` · checked ${formatDay(detail.customer.vies.checkedAt)} · ${detail.customer.vies.consult}` : ""}
+                  </div>
+                </div>
+                {can("customers.vies_check") && !detail.customer.erasedAt && (
+                  <ABtn size="sm" kind="dark" onClick={() => void viesCheck()}>
+                    {detail.customer.vies ? "Re-check" : "Validate"}
+                  </ABtn>
+                )}
+              </div>
+            )}
 
             {!detail.customer.erasedAt && can("customers.edit") && (
               <>

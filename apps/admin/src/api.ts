@@ -120,11 +120,44 @@ export interface Customer {
   marketCode: string | null;
   company: string | null;
   vatNo: string | null;
+  vies: { valid: boolean; checkedAt: string; consult: string } | null;
   strikes: number;
   blocked: boolean;
   notes: string;
   erasedAt: string | null;
   createdAt: string;
+}
+
+export interface Invoice {
+  id: string;
+  number: string;
+  series: string;
+  orderId: string;
+  orderRef: string;
+  orderStatus: string;
+  issuedAt: string;
+  data: {
+    totalCents: number;
+    vatCents: number;
+    reverseCharge: boolean;
+    buyer: { alias: string; email: string; company: string | null };
+    marketCode: string;
+  };
+}
+
+export interface VatReport {
+  from: string;
+  to: string;
+  basis: string;
+  markets: Array<{
+    marketCode: string;
+    invoiceCount: number;
+    netCents: number;
+    vatCents: number;
+    grossCents: number;
+    reverseChargeNetCents: number;
+    reverseChargeCount: number;
+  }>;
 }
 
 export interface AuditEntry {
@@ -193,7 +226,9 @@ export class ApiClient {
     const res = await fetch(url, {
       method,
       headers: {
-        "content-type": "application/json",
+        // content-type only when a body is present — Fastify 400s on an
+        // empty JSON body otherwise.
+        ...(body !== undefined ? { "content-type": "application/json" } : {}),
         ...(this.tokens ? { authorization: `Bearer ${this.tokens.accessToken}` } : {}),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
