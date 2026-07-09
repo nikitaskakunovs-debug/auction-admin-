@@ -7,6 +7,7 @@ import { Redis } from "ioredis";
 import pg from "pg";
 import { loadConfig } from "../src/config.js";
 import type { AppContext } from "../src/context.js";
+import { CapturingEmailAdapter } from "../src/email.js";
 import { buildServer, type BuiltServer } from "../src/server.js";
 
 const ADMIN_URL = process.env.DATABASE_URL ?? "postgres://auction:auction@localhost:5432/auction";
@@ -23,6 +24,8 @@ export interface TestWorld {
   ctx: AppContext;
   server: BuiltServer;
   handle: DbHandle;
+  /** Captures every email the engine would send. */
+  email: CapturingEmailAdapter;
   /** Set to control the engine clock; null = real time. */
   setNow: (d: Date | null) => void;
   close: () => Promise<void>;
@@ -48,8 +51,8 @@ export async function createWorld(): Promise<TestWorld> {
   // Clean slate: truncate everything, reseed baseline config (no demo data).
   await handle.db.execute(sql`
     truncate markets, admin_roles, role_permissions, admin_users, refresh_tokens,
-      customers, items, listings, auctions, bids, orders, refunds, invoices,
-      counters, audit_log cascade
+      customers, customer_refresh_tokens, items, listings, auctions, bids, orders,
+      refunds, invoices, counters, audit_log, cms_pages, notifications cascade
   `);
   await seedDatabase(handle.db, { demoData: false });
 
@@ -63,11 +66,13 @@ export async function createWorld(): Promise<TestWorld> {
     REDIS_URL: TEST_REDIS,
     ALLOW_BID_SIMULATION: "1",
   });
+  const email = new CapturingEmailAdapter();
   const ctx: AppContext = {
     db: handle.db,
     pool: handle.pool,
     redis,
     config,
+    email,
     now: () => fakeNow ?? new Date(),
   };
   const server = await buildServer(ctx);
@@ -76,6 +81,7 @@ export async function createWorld(): Promise<TestWorld> {
     ctx,
     server,
     handle,
+    email,
     setNow: (d) => {
       fakeNow = d;
     },

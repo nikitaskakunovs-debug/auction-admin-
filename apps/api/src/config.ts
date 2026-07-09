@@ -19,6 +19,10 @@ export interface ApiConfig {
    * consultation (format-valid ⇒ valid) for dev/tests without network.
    */
   viesMode: "live" | "simulate";
+  /** Email transport. Only "console" is wired today; SMTP lands with a provider. */
+  emailMode: "console";
+  /** Hours before the payment deadline to send the unpaid-winner reminder. */
+  paymentReminderLeadHours: number;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
@@ -40,5 +44,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     allowBidSimulation: (env.ALLOW_BID_SIMULATION ?? (env.NODE_ENV === "production" ? "0" : "1")) === "1",
     schedulerEnabled: (env.SCHEDULER_ENABLED ?? "1") === "1",
     viesMode: (env.VIES_MODE ?? (env.NODE_ENV === "production" ? "live" : "simulate")) === "live" ? "live" : "simulate",
+    emailMode: "console",
+    paymentReminderLeadHours: Number(env.PAYMENT_REMINDER_LEAD_HOURS ?? 24),
   };
 }

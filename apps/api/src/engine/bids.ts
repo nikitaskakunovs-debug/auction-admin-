@@ -15,6 +15,7 @@ import {
 } from "@auction/domain";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { publishAuctionEvent, type AppContext } from "../context.js";
+import { enqueueNotification } from "./notifications.js";
 
 export type PlaceBidError =
   | { ok: false; code: "AUCTION_NOT_FOUND" | "AUCTION_NOT_LIVE" | "AUCTION_ENDED" | "BIDDER_NOT_FOUND" | "BIDDER_BLOCKED" }
@@ -123,7 +124,8 @@ export async function placeBid(
       });
     }
 
-    // A dethroned leader's earlier winning rows flip to outbid.
+    // A dethroned leader's earlier winning rows flip to outbid, and they get
+    // an outbid notification (enqueued in-transaction so it can't be lost).
     if (resolution.leaderChanged && oldLeader) {
       await tx
         .update(bids)
@@ -136,6 +138,11 @@ export async function placeBid(
             isNull(bids.voidedAt),
           ),
         );
+      await enqueueNotification(tx, {
+        customerId: oldLeader.bidderId,
+        type: "outbid",
+        template: { alias: "", lotTitle: listing.title, amountCents: resolution.state.currentPriceCents ?? 0 },
+      });
     }
 
     const newLeader = resolution.state.leader!;

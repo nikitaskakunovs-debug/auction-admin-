@@ -2,6 +2,7 @@ import type { Db } from "@auction/db";
 import type pg from "pg";
 import type { Redis } from "ioredis";
 import type { ApiConfig } from "./config.js";
+import type { EmailAdapter } from "./email.js";
 
 /** Shared dependencies threaded through routes and the engine. */
 export interface AppContext {
@@ -9,6 +10,8 @@ export interface AppContext {
   pool: pg.Pool;
   redis: Redis;
   config: ApiConfig;
+  /** Email transport (console in dev; capturing in tests). */
+  email: EmailAdapter;
   /** Injectable clock so tests control time. */
   now: () => Date;
 }

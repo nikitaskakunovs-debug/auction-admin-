@@ -13,6 +13,7 @@ import { SettingsScreen } from "./screens/Settings.js";
 import { ActivityScreen } from "./screens/Activity.js";
 import { FinanceScreen } from "./screens/Finance.js";
 import { ContentScreen } from "./screens/Content.js";
+import { NotificationsScreen } from "./screens/Notifications.js";
 
 export interface Route {
   screen: string;
@@ -48,6 +49,7 @@ const SCREENS: ScreenDef[] = [
   { id: "finance", label: "Finance", icon: "finance", permission: "invoices.view", render: (nav) => <FinanceScreen nav={nav} /> },
   { id: "content", label: "Content", icon: "list", permission: "content.view", render: (nav) => <ContentScreen nav={nav} /> },
   { id: "settings", label: "Settings", icon: "settings", permission: "settings.view", render: (nav) => <SettingsScreen nav={nav} /> },
+  { id: "notifications", label: "Notifications", icon: "bell", permission: "audit.view", render: (nav) => <NotificationsScreen nav={nav} /> },
   { id: "activity", label: "Activity", icon: "activity", permission: "audit.view", render: (nav) => <ActivityScreen nav={nav} /> },
 ];
 

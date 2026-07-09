@@ -356,6 +356,39 @@ export const cmsPages = pgTable(
   (t) => [uniqueIndex("cms_pages_slug_idx").on(t.slug), index("cms_pages_status_idx").on(t.status)],
 );
 
+// ── Notifications outbox ─────────────────────────────────────────────────────
+
+/**
+ * Durable notification outbox. Rows are enqueued (often inside the triggering
+ * transaction so they can't be lost) and drained by the dispatcher, which
+ * hands each to the configured email adapter. The recipient email is
+ * snapshotted at enqueue time so a later GDPR erase never re-mails anyone.
+ */
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    customerId: uuid("customer_id").references(() => customers.id, { onDelete: "set null" }),
+    type: text("type").notNull(), // outbid | won | payment_reminder | order_paid
+    channel: text("channel").notNull().default("email"),
+    toEmail: text("to_email").notNull(),
+    lang: text("lang").notNull().default("en"),
+    subject: text("subject").notNull(),
+    body: text("body").notNull(),
+    /** Optional idempotency key — a partial unique index rejects duplicates. */
+    dedupeKey: text("dedupe_key"),
+    status: text("status").notNull().default("pending"), // pending | sent | failed
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("notifications_status_idx").on(t.status, t.createdAt),
+    uniqueIndex("notifications_dedupe_idx").on(t.dedupeKey),
+  ],
+);
+
 // ── Append-only audit log ────────────────────────────────────────────────────
 
 export const auditLog = pgTable(

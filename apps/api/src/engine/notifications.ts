@@ -1,0 +1,160 @@
+import { customers, notifications, type Db } from "@auction/db";
+import { formatEur } from "@auction/domain";
+import { and, asc, eq, lte, sql } from "drizzle-orm";
+import type { AppContext } from "../context.js";
+
+/**
+ * Notification enqueue + dispatch. Enqueue writes an outbox row (inside the
+ * caller's transaction when durability matters); dispatch drains pending rows
+ * and hands each to the email adapter, marking sent/failed with retry.
+ */
+
+export type NotificationType = "outbid" | "won" | "payment_reminder" | "order_paid";
+
+type Lang = "lv" | "en";
+
+/** Bidder country → template language (lv for Latvia, en elsewhere for now). */
+function langForCountry(country: string | null): Lang {
+  return country === "LV" ? "lv" : "en";
+}
+
+interface TemplateInput {
+  alias: string;
+  lotTitle: string;
+  amountCents?: number | undefined;
+  orderRef?: string | undefined;
+  totalCents?: number | undefined;
+  deadline?: Date | undefined;
+}
+
+/** type → (lang → {subject, body}). Body carries a machine tag `[type]` used
+ * by tests and for traceability; it is harmless in the rendered email. */
+function render(type: NotificationType, lang: Lang, i: TemplateInput): { subject: string; body: string } {
+  const money = (c: number | undefined) => (c === undefined ? "" : formatEur(c));
+  const t: Record<NotificationType, Record<Lang, { subject: string; body: string }>> = {
+    outbid: {
+      lv: {
+        subject: `Jūsu solījums pārsolīts — ${i.lotTitle}`,
+        body: `Sveiki, ${i.alias}!\n\nJūsu solījums izsolē "${i.lotTitle}" ir pārsolīts. Pašreizējā cena: ${money(i.amountCents)}.\nJa vēlaties turpināt, paaugstiniet savu maksimālo cenu.\n\n[outbid]`,
+      },
+      en: {
+        subject: `You have been outbid — ${i.lotTitle}`,
+        body: `Hi ${i.alias},\n\nYou have been outbid on "${i.lotTitle}". Current price: ${money(i.amountCents)}.\nRaise your maximum bid if you'd like to stay in.\n\n[outbid]`,
+      },
+    },
+    won: {
+      lv: {
+        subject: `Apsveicam — jūs uzvarējāt izsolē ${i.lotTitle}`,
+        body: `Sveiki, ${i.alias}!\n\nJūs uzvarējāt izsolē "${i.lotTitle}". Rēķina numurs: ${i.orderRef}. Kopā apmaksai: ${money(i.totalCents)}.\nLūdzu, apmaksājiet līdz ${i.deadline?.toISOString().slice(0, 10)}.\n\n[won]`,
+      },
+      en: {
+        subject: `Congratulations — you won ${i.lotTitle}`,
+        body: `Hi ${i.alias},\n\nYou won "${i.lotTitle}". Order ${i.orderRef}. Total due: ${money(i.totalCents)}.\nPlease pay by ${i.deadline?.toISOString().slice(0, 10)}.\n\n[won]`,
+      },
+    },
+    payment_reminder: {
+      lv: {
+        subject: `Atgādinājums par apmaksu — ${i.orderRef}`,
+        body: `Sveiki, ${i.alias}!\n\nRēķins ${i.orderRef} (${money(i.totalCents)}) vēl nav apmaksāts. Termiņš: ${i.deadline?.toISOString().slice(0, 16).replace("T", " ")}.\nNeapmaksāšanas gadījumā pasūtījums tiks atcelts.\n\n[payment_reminder]`,
+      },
+      en: {
+        subject: `Payment reminder — ${i.orderRef}`,
+        body: `Hi ${i.alias},\n\nOrder ${i.orderRef} (${money(i.totalCents)}) is not yet paid. Deadline: ${i.deadline?.toISOString().slice(0, 16).replace("T", " ")}.\nIf unpaid, the order will be cancelled.\n\n[payment_reminder]`,
+      },
+    },
+    order_paid: {
+      lv: {
+        subject: `Apmaksa saņemta — ${i.orderRef}`,
+        body: `Sveiki, ${i.alias}!\n\nMēs saņēmām apmaksu par pasūtījumu ${i.orderRef} (${money(i.totalCents)}). Paldies!\n\n[order_paid]`,
+      },
+      en: {
+        subject: `Payment received — ${i.orderRef}`,
+        body: `Hi ${i.alias},\n\nWe received payment for order ${i.orderRef} (${money(i.totalCents)}). Thank you!\n\n[order_paid]`,
+      },
+    },
+  };
+  return t[type][lang];
+}
+
+type Tx = Pick<Db, "select" | "insert">;
+
+/**
+ * Enqueue a notification for a customer. Looks up the recipient's email +
+ * language snapshot. Skips silently for erased/missing recipients. `dedupeKey`
+ * (when given) makes the enqueue idempotent via the unique index.
+ */
+export async function enqueueNotification(
+  tx: Tx,
+  args: { customerId: string; type: NotificationType; template: TemplateInput; dedupeKey?: string },
+): Promise<void> {
+  const [recipient] = await tx
+    .select({ email: customers.email, alias: customers.alias, country: customers.country, erasedAt: customers.erasedAt })
+    .from(customers)
+    .where(eq(customers.id, args.customerId));
+  if (!recipient || recipient.erasedAt !== null) return;
+
+  const lang = langForCountry(recipient.country);
+  // The greeting name always comes from the current record, never the caller.
+  const { subject, body } = render(args.type, lang, { ...args.template, alias: recipient.alias });
+  await tx
+    .insert(notifications)
+    .values({
+      customerId: args.customerId,
+      type: args.type,
+      toEmail: recipient.email,
+      lang,
+      subject,
+      body,
+      dedupeKey: args.dedupeKey ?? null,
+    })
+    .onConflictDoNothing(); // dedupeKey collision → already enqueued
+}
+
+const MAX_ATTEMPTS = 5;
+
+/** Drain pending notifications and send them. Returns how many were sent. */
+export async function dispatchNotifications(ctx: AppContext, batch = 50): Promise<number> {
+  const pending = await ctx.db
+    .select()
+    .from(notifications)
+    .where(eq(notifications.status, "pending"))
+    .orderBy(asc(notifications.createdAt))
+    .limit(batch);
+
+  let sent = 0;
+  for (const n of pending) {
+    try {
+      await ctx.email.send({ to: n.toEmail, subject: n.subject, text: n.body });
+      await ctx.db
+        .update(notifications)
+        .set({ status: "sent", sentAt: ctx.now(), attempts: n.attempts + 1 })
+        .where(eq(notifications.id, n.id));
+      sent += 1;
+    } catch (err) {
+      const attempts = n.attempts + 1;
+      await ctx.db
+        .update(notifications)
+        .set({
+          status: attempts >= MAX_ATTEMPTS ? "failed" : "pending",
+          attempts,
+          lastError: (err as Error).message.slice(0, 500),
+        })
+        .where(eq(notifications.id, n.id));
+    }
+  }
+  return sent;
+}
+
+/** Convenience for tests/ops: count outbox rows by status. */
+export async function notificationCounts(ctx: AppContext): Promise<Record<string, number>> {
+  const rows = await ctx.db
+    .select({ status: notifications.status, n: sql<string>`count(*)` })
+    .from(notifications)
+    .groupBy(notifications.status);
+  return Object.fromEntries(rows.map((r) => [r.status, Number(r.n)]));
+}
+
+/** Reminders due: awaiting-payment orders whose deadline is within the window. */
+export function reminderDedupeKey(orderId: string): string {
+  return `payment_reminder:${orderId}`;
+}

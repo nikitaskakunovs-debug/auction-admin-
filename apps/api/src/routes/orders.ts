@@ -5,6 +5,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { writeAudit } from "../audit.js";
 import type { AppContext } from "../context.js";
+import { enqueueNotification } from "../engine/notifications.js";
 import { requirePermission, type PermissionService } from "../auth/rbac.js";
 
 const actor = (req: { admin?: { sub: string; name: string } }) => ({
@@ -53,6 +54,11 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext, perms
       assertItemTransition(item!.status as ItemStatus, "paid");
       await tx.update(orders).set({ status: "paid", paidAt: ctx.now() }).where(eq(orders.id, id));
       await tx.update(items).set({ status: "paid", updatedAt: ctx.now() }).where(eq(items.id, item!.id));
+      await enqueueNotification(tx, {
+        customerId: order.customerId,
+        type: "order_paid",
+        template: { alias: "", lotTitle: "", orderRef: order.ref, totalCents: order.totalCents },
+      });
       await writeAudit(tx, actor(req), "order", "marked_paid", order.ref, { totalCents: order.totalCents });
       return order;
     });

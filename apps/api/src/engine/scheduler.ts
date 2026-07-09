@@ -1,9 +1,10 @@
 import { auctions, customers, items, orders } from "@auction/db";
 import { assertItemTransition, type ItemStatus } from "@auction/domain";
-import { and, eq, lte, sql } from "drizzle-orm";
+import { and, eq, gt, lte, sql } from "drizzle-orm";
 import { writeAudit, SYSTEM_ACTOR } from "../audit.js";
 import type { AppContext } from "../context.js";
 import { closeAuction, openAuction } from "./close.js";
+import { dispatchNotifications, enqueueNotification, reminderDedupeKey } from "./notifications.js";
 
 const LOCK_KEY = "scheduler:lock";
 const LOCK_TTL_MS = 4_000;
@@ -44,7 +45,11 @@ export class AuctionScheduler {
       try {
         await this.openDue();
         await this.closeDue();
+        // Design-doc unpaid-winner flow: deadline → reminder → auto-cancel.
+        await this.remindUnpaidDue();
         await this.cancelUnpaidDue();
+        // Drain the outbox last so this tick's enqueues go out promptly.
+        await dispatchNotifications(this.ctx);
       } finally {
         // Release only our own lock.
         await this.ctx.redis.eval(
@@ -78,6 +83,34 @@ export class AuctionScheduler {
       .from(auctions)
       .where(and(eq(auctions.status, "live"), lte(auctions.endsAt, now)));
     for (const a of due) await closeAuction(this.ctx, a.id);
+  }
+
+  /**
+   * Unpaid-winner reminder: once the deadline is within the lead window (and
+   * still in the future), enqueue a single payment reminder per order. The
+   * dedupe key makes this idempotent no matter how often the tick runs.
+   */
+  private async remindUnpaidDue(): Promise<void> {
+    const now = this.ctx.now();
+    const windowEnd = new Date(now.getTime() + this.ctx.config.paymentReminderLeadHours * 3_600_000);
+    const due = await this.ctx.db
+      .select({ id: orders.id, ref: orders.ref, customerId: orders.customerId, totalCents: orders.totalCents, deadline: orders.paymentDeadlineAt })
+      .from(orders)
+      .where(
+        and(
+          eq(orders.status, "awaiting_payment"),
+          gt(orders.paymentDeadlineAt, now),
+          lte(orders.paymentDeadlineAt, windowEnd),
+        ),
+      );
+    for (const o of due) {
+      await enqueueNotification(this.ctx.db, {
+        customerId: o.customerId,
+        type: "payment_reminder",
+        template: { alias: "", lotTitle: "", orderRef: o.ref, totalCents: o.totalCents, deadline: o.deadline ?? undefined },
+        dedupeKey: reminderDedupeKey(o.id),
+      });
+    }
   }
 
   /** Unpaid-winner handling: deadline passed → cancel order + strike. */

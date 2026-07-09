@@ -1,4 +1,4 @@
-import { adminRoles, adminUsers, auditLog, hashPassword, markets, rolePermissions } from "@auction/db";
+import { adminRoles, adminUsers, auditLog, hashPassword, markets, notifications, rolePermissions } from "@auction/db";
 import { PERMISSIONS, validateIncrementTable, type Permission } from "@auction/domain";
 import { and, desc, eq, ne } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -174,5 +174,32 @@ export function registerAdminRoutes(app: FastifyInstance, ctx: AppContext, perms
       .orderBy(desc(auditLog.createdAt))
       .limit(limit);
     return { entries: rows };
+  });
+
+  // ── Notifications outbox (read-only operational visibility) ────────────────
+  app.get("/api/notifications", guard("audit.view"), async (req) => {
+    const q = req.query as { status?: string; type?: string; limit?: string };
+    const limit = Math.min(Number(q.limit ?? 200), 1000);
+    const conds = [];
+    if (q.status) conds.push(eq(notifications.status, q.status));
+    if (q.type) conds.push(eq(notifications.type, q.type));
+    const rows = await ctx.db
+      .select({
+        id: notifications.id,
+        type: notifications.type,
+        toEmail: notifications.toEmail,
+        lang: notifications.lang,
+        subject: notifications.subject,
+        status: notifications.status,
+        attempts: notifications.attempts,
+        lastError: notifications.lastError,
+        sentAt: notifications.sentAt,
+        createdAt: notifications.createdAt,
+      })
+      .from(notifications)
+      .where(conds.length ? and(...conds) : undefined)
+      .orderBy(desc(notifications.createdAt))
+      .limit(limit);
+    return { notifications: rows };
   });
 }

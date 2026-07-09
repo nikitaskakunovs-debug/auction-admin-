@@ -131,8 +131,23 @@ invisible publicly. Built in-stack rather than as a separate Payload instance
 to keep one auth, one RBAC, one audit trail; a Puck-style visual editor can be
 layered on the same data later.
 
+## Notifications & email
+
+A durable notification outbox (`notifications` table) plus a pluggable email
+adapter (`console` in dev, capturing adapter in tests, SMTP later — the same
+seam Klix/carriers use). The engine enqueues, often inside the triggering
+transaction so nothing is lost; the scheduler drains the outbox each tick.
+Events wired: **outbid** (to the dethroned leader), **won** (order ref +
+payment deadline), **payment reminder** (the design-doc unpaid flow is now
+deadline → reminder → auto-cancel → strike, idempotent via a dedupe key), and
+**order-paid** receipt. Templates are localized (lv/en; recipient's country
+picks the language) and recipient email is snapshotted at enqueue time, so a
+later GDPR erase never re-mails anyone. Operators see the outbox (status,
+retries, last error) in the admin's read-only **Notifications** screen
+(`audit.view`).
+
 ## Out of scope so far (per design-doc build order)
 
 Klix payments, carrier APIs (Omniva/DPD/Venipak) — both waiting on merchant
-credentials (request early!), email notifications, Sentry monitoring. The
-schema and config leave explicit room for each.
+credentials (request early!), a real SMTP/email provider (adapter seam is
+ready), Sentry monitoring. The schema and config leave explicit room for each.

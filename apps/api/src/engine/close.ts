@@ -19,6 +19,7 @@ import { eq, sql } from "drizzle-orm";
 import { writeAudit, SYSTEM_ACTOR, type Actor } from "../audit.js";
 import { publishAuctionEvent, type AppContext } from "../context.js";
 import { issueInvoice } from "./invoices.js";
+import { enqueueNotification } from "./notifications.js";
 
 export interface CloseOutcome {
   ok: true;
@@ -84,6 +85,7 @@ export async function closeAuction(
         .returning({ value: counters.value });
       const ref = `A-${counter!.value}`;
 
+      const paymentDeadlineAt = new Date(now.getTime() + ctx.config.paymentDeadlineHours * 3_600_000);
       const [createdOrder] = await tx.insert(orders).values({
         ref,
         auctionId: auction.id,
@@ -101,12 +103,19 @@ export async function closeAuction(
         totalCents: inv.totalCents,
         reverseCharge,
         status: "awaiting_payment",
-        paymentDeadlineAt: new Date(now.getTime() + ctx.config.paymentDeadlineHours * 3_600_000),
+        paymentDeadlineAt,
       }).returning({ id: orders.id });
 
       // The invoice is the request for payment — issue it with the order,
       // atomically, with a gap-free number from the market's series.
       await issueInvoice(tx, createdOrder!.id, now);
+
+      // Winner gets a "you won" email with the order ref + payment deadline.
+      await enqueueNotification(tx, {
+        customerId: winner!.id,
+        type: "won",
+        template: { alias: "", lotTitle: listing!.title, orderRef: ref, totalCents: inv.totalCents, deadline: paymentDeadlineAt },
+      });
 
       await tx.update(auctions).set({ status: "ended_won", closedAt: now }).where(eq(auctions.id, auction.id));
       // live → won → awaiting_payment (order exists the moment the state does)
