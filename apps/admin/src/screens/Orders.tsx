@@ -237,7 +237,7 @@ export function OrdersScreen({ nav: _nav }: { nav: Nav }) {
                     <>
                       <span style={{ fontFamily: AT.mono, fontSize: 12 }}>{detail.invoice.number}</span>
                       <ABtn size="sm" kind="ghost" onClick={() =>
-                        window.open(`/api/invoices/${detail.invoice!.id}/html?token=${encodeURIComponent(api.accessToken ?? "")}`, "_blank")
+                        window.open(`/api/invoices/${detail.invoice!.id}/html?token=${encodeURIComponent(api.token ?? "")}`, "_blank")
                       }>Open invoice</ABtn>
                     </>
                   ) : can("invoices.issue") ? (

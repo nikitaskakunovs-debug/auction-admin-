@@ -1,11 +1,12 @@
 import { adminRoles, adminUsers, auditLog, hashPassword, markets, notifications, rolePermissions } from "@auction/db";
-import { PERMISSIONS, validateIncrementTable, type Permission } from "@auction/domain";
+import { PERMISSIONS, validateIncrementTable, validatePassword, type Permission } from "@auction/domain";
 import { and, desc, eq, ne } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { writeAudit } from "../audit.js";
 import type { AppContext } from "../context.js";
 import { requirePermission, type PermissionService } from "../auth/rbac.js";
+import { revokeAllUserRefreshTokens } from "../auth/session.js";
 
 const actor = (req: { admin?: { sub: string; name: string } }) => ({
   id: req.admin?.sub ?? null,
@@ -66,12 +67,14 @@ export function registerAdminRoutes(app: FastifyInstance, ctx: AppContext, perms
   const userBody = z.object({
     email: z.string().email(),
     name: z.string().min(1),
-    password: z.string().min(8),
+    password: z.string().min(1),
     roleId: z.string().min(1),
   });
   app.post("/api/team", guard("team.manage"), async (req, reply) => {
     const body = userBody.safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: body.error.flatten() });
+    const check = validatePassword(body.data.password, { email: body.data.email, name: body.data.name });
+    if (!check.ok) return reply.code(422).send({ error: "weak_password", detail: check.errors });
     const [role] = await ctx.db.select().from(adminRoles).where(eq(adminRoles.id, body.data.roleId));
     if (!role) return reply.code(422).send({ error: "unknown_role" });
     const [row] = await ctx.db
@@ -93,7 +96,7 @@ export function registerAdminRoutes(app: FastifyInstance, ctx: AppContext, perms
     name: z.string().min(1).optional(),
     roleId: z.string().min(1).optional(),
     active: z.boolean().optional(),
-    password: z.string().min(8).optional(),
+    password: z.string().min(1).optional(),
   });
   app.patch("/api/team/:id", guard("team.manage"), async (req, reply) => {
     const body = userPatch.safeParse(req.body);
@@ -116,15 +119,26 @@ export function registerAdminRoutes(app: FastifyInstance, ctx: AppContext, perms
         if (!role) return "unknown_role" as const;
       }
       const { password, ...rest } = body.data;
+      if (password) {
+        const check = validatePassword(password, { email: user.email, name: body.data.name ?? user.name });
+        if (!check.ok) return { weak: check.errors } as const;
+      }
       const patch: Record<string, unknown> = { ...rest };
       if (password) patch.passwordHash = await hashPassword(password);
       const [row] = await tx.update(adminUsers).set(patch).where(eq(adminUsers.id, id)).returning();
+      // Deactivation, role change, or a password reset must end the target's
+      // live sessions — access tokens expire on their own short TTL.
+      const roleChanged = body.data.roleId !== undefined && body.data.roleId !== user.roleId;
+      if (body.data.active === false || roleChanged || password) {
+        await revokeAllUserRefreshTokens(tx, id, ctx.now());
+      }
       await writeAudit(tx, actor(req), "team", "user_updated", row!.email, { fields: Object.keys(body.data) });
       return row!;
     });
     if (result === null) return reply.code(404).send({ error: "not_found" });
     if (result === "last_super_admin") return reply.code(409).send({ error: "cannot_demote_last_super_admin" });
     if (result === "unknown_role") return reply.code(422).send({ error: "unknown_role" });
+    if ("weak" in result) return reply.code(422).send({ error: "weak_password", detail: result.weak });
     return { user: { id: result.id, email: result.email, name: result.name, roleId: result.roleId, active: result.active } };
   });
 

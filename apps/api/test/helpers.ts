@@ -1,6 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createDb, seedDatabase, type DbHandle } from "@auction/db";
+import { createDb, seedDatabase, SEED_ADMIN_TOTP_SECRET, type DbHandle } from "@auction/db";
+import { base32Decode, totp } from "@auction/domain";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { sql } from "drizzle-orm";
 import { Redis } from "ioredis";
@@ -93,15 +94,28 @@ export async function createWorld(): Promise<TestWorld> {
   };
 }
 
-/** Log in a seeded role user and return its bearer token. */
+/** Current TOTP code for the fixed dev secret the seeded admins enrolled with. */
+export function seedTotpCode(world: TestWorld): string {
+  return totp(base32Decode(SEED_ADMIN_TOTP_SECRET), Math.floor(world.ctx.now().getTime() / 1000));
+}
+
+/**
+ * Log in a seeded role user through the full two-step flow (password →
+ * challenge → TOTP) and return its bearer access token. The seeded admins are
+ * pre-enrolled with a known secret so the code is computed deterministically.
+ */
 export async function loginAs(world: TestWorld, email: string, password = "Admin123!"): Promise<string> {
-  const res = await world.server.app.inject({
-    method: "POST",
-    url: "/api/auth/login",
-    payload: { email, password },
-  });
+  const res = await world.server.app.inject({ method: "POST", url: "/api/auth/login", payload: { email, password } });
   if (res.statusCode !== 200) throw new Error(`login failed for ${email}: ${res.body}`);
-  return (res.json() as { accessToken: string }).accessToken;
+  const { challenge, challengeToken } = res.json() as { challenge: string; challengeToken: string };
+  if (challenge !== "totp") throw new Error(`expected totp challenge for ${email}, got ${challenge}`);
+  const res2 = await world.server.app.inject({
+    method: "POST",
+    url: "/api/auth/login/2fa",
+    payload: { challengeToken, code: seedTotpCode(world) },
+  });
+  if (res2.statusCode !== 200) throw new Error(`2fa failed for ${email}: ${res2.body}`);
+  return (res2.json() as { accessToken: string }).accessToken;
 }
 
 export const auth = (token: string) => ({ authorization: `Bearer ${token}` });

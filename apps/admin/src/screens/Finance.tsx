@@ -38,7 +38,7 @@ export function FinanceScreen({ nav: _nav }: { nav: Nav }) {
 }
 
 function openInvoice(id: string): void {
-  window.open(`/api/invoices/${id}/html?token=${encodeURIComponent(api.accessToken ?? "")}`, "_blank");
+  window.open(`/api/invoices/${id}/html?token=${encodeURIComponent(api.token ?? "")}`, "_blank");
 }
 
 function InvoicesTab() {

@@ -1,6 +1,13 @@
+import { SEED_ADMIN_TOTP_SECRET } from "@auction/db";
+import { base32Decode, totp } from "@auction/domain";
 import { type APIRequestContext, expect } from "@playwright/test";
 
 const API = "http://localhost:4000";
+
+/** Current TOTP code for the seeded admins' fixed dev secret. */
+function seedTotp(): string {
+  return totp(base32Decode(SEED_ADMIN_TOTP_SECRET), Math.floor(Date.now() / 1000));
+}
 
 /** Unique-ish suffix without Date.now() collisions across a serial run. */
 let counter = 0;
@@ -12,7 +19,11 @@ export function uniq(prefix: string): string {
 async function adminToken(request: APIRequestContext, email = "super@auction.test"): Promise<string> {
   const res = await request.post(`${API}/api/auth/login`, { data: { email, password: "Admin123!" } });
   expect(res.ok(), `admin login ${email}`).toBeTruthy();
-  return (await res.json()).accessToken as string;
+  const { challengeToken } = (await res.json()) as { challengeToken: string };
+  // Seeded admins are pre-enrolled with a known TOTP secret; complete step 2.
+  const step2 = await request.post(`${API}/api/auth/login/2fa`, { data: { challengeToken, code: seedTotp() } });
+  expect(step2.ok(), `admin 2fa ${email}`).toBeTruthy();
+  return (await step2.json()).accessToken as string;
 }
 
 const authHeaders = (token: string) => ({ authorization: `Bearer ${token}` });

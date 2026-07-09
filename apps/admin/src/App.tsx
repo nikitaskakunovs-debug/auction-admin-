@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useAuth } from "./auth.js";
+import { LoginScreen } from "./Login.js";
 import { AT } from "./theme.js";
-import { ABtn, AIcon, AInput, type IconName } from "./ui.js";
+import { AIcon, type IconName } from "./ui.js";
 import { DashboardScreen } from "./screens/Dashboard.js";
 import { AuctionsScreen } from "./screens/Auctions.js";
 import { AuctionMonitorScreen } from "./screens/AuctionMonitor.js";
@@ -14,6 +15,7 @@ import { ActivityScreen } from "./screens/Activity.js";
 import { FinanceScreen } from "./screens/Finance.js";
 import { ContentScreen } from "./screens/Content.js";
 import { NotificationsScreen } from "./screens/Notifications.js";
+import { SecurityScreen } from "./screens/Security.js";
 
 export interface Route {
   screen: string;
@@ -51,55 +53,9 @@ const SCREENS: ScreenDef[] = [
   { id: "settings", label: "Settings", icon: "settings", permission: "settings.view", render: (nav) => <SettingsScreen nav={nav} /> },
   { id: "notifications", label: "Notifications", icon: "bell", permission: "audit.view", render: (nav) => <NotificationsScreen nav={nav} /> },
   { id: "activity", label: "Activity", icon: "activity", permission: "audit.view", render: (nav) => <ActivityScreen nav={nav} /> },
+  // Personal account security — available to every signed-in admin.
+  { id: "security", label: "Security", icon: "shield", permission: null, render: () => <SecurityScreen /> },
 ];
-
-function LoginScreen() {
-  const { login } = useAuth();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const submit = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await login(email.trim().toLowerCase(), password);
-    } catch {
-      setError("Invalid email or password.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div style={{ height: "100%", display: "grid", placeItems: "center", background: AT.side }}>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          void submit();
-        }}
-        style={{ width: 360, background: AT.panel, borderRadius: AT.radius, padding: 26 }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-          <span style={{ width: 34, height: 34, borderRadius: 9, background: AT.ink, color: "#fff", display: "grid", placeItems: "center" }}>
-            <AIcon name="gavel" size={18} color="#fff" />
-          </span>
-          <h1 style={{ fontFamily: AT.body, fontSize: 17, fontWeight: 700, color: AT.ink }}>Auction Admin</h1>
-        </div>
-        <p style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.inkSoft, marginBottom: 18 }}>Baltic auction house · operations panel</p>
-        <div style={{ display: "grid", gap: 10 }}>
-          <AInput value={email} onChange={setEmail} placeholder="email@company.com" type="email" autoFocus />
-          <AInput value={password} onChange={setPassword} placeholder="Password" type="password" />
-          {error && <div style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.danger }}>{error}</div>}
-          <ABtn type="submit" kind="dark" full disabled={busy || !email || !password}>
-            {busy ? "Signing in…" : "Sign in"}
-          </ABtn>
-        </div>
-      </form>
-    </div>
-  );
-}
 
 export function App() {
   const { user, loading, can, logout } = useAuth();

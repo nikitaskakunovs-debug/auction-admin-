@@ -110,9 +110,26 @@ languages, VAT rate, buyer premium, anti-snipe default, increment table. Changin
 one-field edit in Settings → Markets — never a code change. Klix credentials and carrier
 config fields are reserved for their build phases.
 
-Environment variables (`apps/api`): `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET` (change in
-production!), `PORT`, `PAYMENT_DEADLINE_HOURS` (72), `ALLOW_BID_SIMULATION` (auto-off in
-production), `SCHEDULER_ENABLED`.
+Environment variables (`apps/api`): `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET` (required and
+≥32 chars in production), `CORS_ORIGINS` (comma-separated admin + storefront origins;
+required in production), `PORT`, `PAYMENT_DEADLINE_HOURS` (72), `ALLOW_BID_SIMULATION`
+(auto-off in production), `SCHEDULER_ENABLED`, plus security knobs
+`ACCESS_TOKEN_TTL_SEC` (900), `REFRESH_TOKEN_TTL_SEC` (7 days), `LOGIN_MAX_ATTEMPTS` (8),
+`LOGIN_LOCKOUT_SEC` (900), `RATE_LIMIT_MAX` (300/min per IP), `TOTP_ISSUER`.
+
+**Signing in (dev):** every admin uses **mandatory TOTP two-factor**. The seeded demo
+admins are pre-enrolled with a fixed dev secret (`SEED_ADMIN_TOTP_SECRET` in
+`packages/db`) so you can add it to an authenticator (or compute the code) — real admins
+created through the panel enroll their own unique secret on first sign-in.
+
+## Security
+
+The admin panel is hardened in depth — mandatory TOTP 2FA with recovery codes,
+httpOnly/SameSite cookie refresh tokens with rotation + theft detection, in-memory
+access tokens, per-account brute-force lockout, constant-time login, strong password
+policy, action-level deny-by-default RBAC, helmet security headers, a CORS allowlist,
+and production secret guards. The full model is documented in
+[`SECURITY.md`](./SECURITY.md).
 
 ## Public storefront (`apps/web`)
 

@@ -6,6 +6,18 @@ export interface AdminUser {
   name: string;
   role: string;
   permissions: string[];
+  totpEnabled: boolean;
+}
+
+/** Password step result: which second factor the account must complete. */
+export interface LoginChallenge {
+  challenge: "totp" | "enroll";
+  challengeToken: string;
+}
+
+export interface TotpSetup {
+  secret: string;
+  otpauthUri: string;
 }
 
 export interface Market {
@@ -189,47 +201,35 @@ export class ApiError extends Error {
   }
 }
 
-type Tokens = { accessToken: string; refreshToken: string };
+type Session = { accessToken: string; user: AdminUser };
 
-const STORAGE_KEY = "auction_admin_tokens";
-
+/**
+ * The access token lives only in memory (never localStorage), so an XSS bug
+ * can't read it from storage. The refresh token is an httpOnly cookie the
+ * browser sends automatically; on a cold load we mint a fresh access token
+ * from it via /api/auth/refresh. All requests include credentials so the
+ * cookie rides along.
+ */
 export class ApiClient {
-  private tokens: Tokens | null = null;
+  private accessToken: string | null = null;
   onUnauthenticated: (() => void) | null = null;
 
-  constructor() {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      try {
-        this.tokens = JSON.parse(raw) as Tokens;
-      } catch {
-        this.tokens = null;
-      }
-    }
-  }
-
-  get accessToken(): string | null {
-    return this.tokens?.accessToken ?? null;
-  }
-
   get hasSession(): boolean {
-    return this.tokens !== null;
+    return this.accessToken !== null;
   }
 
-  private setTokens(t: Tokens | null): void {
-    this.tokens = t;
-    if (t) localStorage.setItem(STORAGE_KEY, JSON.stringify(t));
-    else localStorage.removeItem(STORAGE_KEY);
+  /** Current bearer token for WebSocket URLs and authorized download links. */
+  get token(): string | null {
+    return this.accessToken;
   }
 
   private async raw<T>(method: string, url: string, body?: unknown): Promise<T> {
     const res = await fetch(url, {
       method,
+      credentials: "same-origin",
       headers: {
-        // content-type only when a body is present — Fastify 400s on an
-        // empty JSON body otherwise.
         ...(body !== undefined ? { "content-type": "application/json" } : {}),
-        ...(this.tokens ? { authorization: `Bearer ${this.tokens.accessToken}` } : {}),
+        ...(this.accessToken ? { authorization: `Bearer ${this.accessToken}` } : {}),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
@@ -239,20 +239,18 @@ export class ApiClient {
     return json as T;
   }
 
-  /** Request with a single transparent refresh-and-retry on 401. */
+  /** Request with a single transparent cookie-refresh-and-retry on 401. */
   async request<T>(method: string, url: string, body?: unknown): Promise<T> {
     try {
       return await this.raw<T>(method, url, body);
     } catch (err) {
-      if (err instanceof ApiError && err.status === 401 && this.tokens) {
+      if (err instanceof ApiError && err.status === 401 && this.accessToken) {
         try {
-          const r = await this.raw<Tokens & { user: AdminUser }>("POST", "/api/auth/refresh", {
-            refreshToken: this.tokens.refreshToken,
-          });
-          this.setTokens({ accessToken: r.accessToken, refreshToken: r.refreshToken });
+          const r = await this.raw<Session>("POST", "/api/auth/refresh");
+          this.accessToken = r.accessToken;
           return await this.raw<T>(method, url, body);
         } catch {
-          this.setTokens(null);
+          this.accessToken = null;
           this.onUnauthenticated?.();
         }
       }
@@ -276,27 +274,63 @@ export class ApiClient {
     return this.request<T>("DELETE", url);
   }
 
-  async login(email: string, password: string): Promise<AdminUser> {
-    const r = await this.raw<Tokens & { user: AdminUser }>("POST", "/api/auth/login", { email, password });
-    this.setTokens({ accessToken: r.accessToken, refreshToken: r.refreshToken });
+  // ── Login: password → second factor ─────────────────────────────────────────
+
+  /** Step 1: submit the password, receive a 2FA challenge. */
+  loginPassword(email: string, password: string): Promise<LoginChallenge> {
+    return this.raw<LoginChallenge>("POST", "/api/auth/login", { email, password });
+  }
+
+  /** Step 2 (enrolled): complete with a TOTP or recovery code. */
+  async completeTotp(challengeToken: string, code: string): Promise<AdminUser> {
+    const r = await this.raw<Session>("POST", "/api/auth/login/2fa", { challengeToken, code });
+    this.accessToken = r.accessToken;
     return r.user;
   }
 
-  async me(): Promise<AdminUser | null> {
-    if (!this.tokens) return null;
+  /** Step 2 (first login): begin TOTP enrollment. */
+  setup2fa(challengeToken?: string): Promise<TotpSetup> {
+    return this.accessToken
+      ? this.post<TotpSetup>("/api/auth/2fa/setup", {})
+      : this.raw<TotpSetup>("POST", "/api/auth/2fa/setup", { challengeToken });
+  }
+
+  /** Confirm the authenticator code, receive recovery codes (+ session if first login). */
+  async enable2fa(code: string, challengeToken?: string): Promise<{ recoveryCodes: string[]; user?: AdminUser }> {
+    if (this.accessToken) {
+      return this.post<{ recoveryCodes: string[] }>("/api/auth/2fa/enable", { code });
+    }
+    const r = await this.raw<{ recoveryCodes: string[] } & Session>("POST", "/api/auth/2fa/enable", { challengeToken, code });
+    this.accessToken = r.accessToken;
+    return { recoveryCodes: r.recoveryCodes, user: r.user };
+  }
+
+  regenerateRecoveryCodes(password: string): Promise<{ recoveryCodes: string[] }> {
+    return this.post<{ recoveryCodes: string[] }>("/api/auth/2fa/recovery-codes", { password });
+  }
+
+  changePassword(currentPassword: string, newPassword: string): Promise<Session> {
+    return this.post<Session>("/api/auth/change-password", { currentPassword, newPassword }).then((s) => {
+      this.accessToken = s.accessToken;
+      return s;
+    });
+  }
+
+  /** Cold-load session recovery from the refresh cookie. */
+  async boot(): Promise<AdminUser | null> {
     try {
-      const r = await this.request<{ user: AdminUser }>("GET", "/api/auth/me");
+      const r = await this.raw<Session>("POST", "/api/auth/refresh");
+      this.accessToken = r.accessToken;
       return r.user;
     } catch {
+      this.accessToken = null;
       return null;
     }
   }
 
   async logout(): Promise<void> {
-    if (this.tokens) {
-      await this.raw("POST", "/api/auth/logout", { refreshToken: this.tokens.refreshToken }).catch(() => undefined);
-    }
-    this.setTokens(null);
+    await this.raw("POST", "/api/auth/logout").catch(() => undefined);
+    this.accessToken = null;
   }
 }
 

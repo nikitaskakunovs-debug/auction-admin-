@@ -16,6 +16,14 @@ import * as t from "./schema.js";
 /** Demo admin password for every seeded role user (dev/staging only). */
 export const SEED_ADMIN_PASSWORD = "Admin123!";
 
+/**
+ * Fixed TOTP secret the seeded demo admins enroll with, so dev/test can
+ * compute a valid 2FA code deterministically (add it to an authenticator, or
+ * derive the code in code). DEV/STAGING ONLY — real admins created through the
+ * API start with 2FA off and enroll their own unique secret on first login.
+ */
+export const SEED_ADMIN_TOTP_SECRET = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP";
+
 const ROLE_EMAILS: Record<string, string> = {
   super_admin: "super@auction.test",
   listing_manager: "listings@auction.test",
@@ -70,6 +78,8 @@ export async function seedDatabase(db: Db, opts: SeedOptions = {}): Promise<void
         name: ROLE_LABELS[roleId],
         passwordHash: await hashPassword(SEED_ADMIN_PASSWORD),
         roleId,
+        totpSecret: SEED_ADMIN_TOTP_SECRET,
+        totpEnabled: true,
       })
       .onConflictDoNothing();
   }

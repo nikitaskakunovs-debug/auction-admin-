@@ -17,7 +17,7 @@ export function useAuctionEvents(auctionId: string | null, onEvent: (ev: Auction
   handler.current = onEvent;
 
   useEffect(() => {
-    if (!auctionId || !api.accessToken) return;
+    if (!auctionId || !api.token) return;
     let ws: WebSocket | null = null;
     let closed = false;
     let retry = 0;
@@ -25,7 +25,7 @@ export function useAuctionEvents(auctionId: string | null, onEvent: (ev: Auction
     const connect = () => {
       if (closed) return;
       const proto = location.protocol === "https:" ? "wss" : "ws";
-      ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(api.accessToken!)}`);
+      ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(api.token!)}`);
       ws.onopen = () => {
         retry = 0;
         ws?.send(JSON.stringify(auctionId === "admin" ? { type: "subscribe_admin" } : { type: "subscribe", auctionId }));

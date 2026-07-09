@@ -1,4 +1,7 @@
+import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
+import helmet from "@fastify/helmet";
+import rateLimit from "@fastify/rate-limit";
 import Fastify, { type FastifyInstance } from "fastify";
 import { registerAuthRoutes } from "./auth/routes.js";
 import { PermissionService } from "./auth/rbac.js";
@@ -23,7 +26,37 @@ export interface BuiltServer {
 
 export async function buildServer(ctx: AppContext, opts: { logger?: boolean } = {}): Promise<BuiltServer> {
   const app = Fastify({ logger: opts.logger ?? false });
-  await app.register(cors, { origin: true });
+
+  // Parse the httpOnly refresh cookie.
+  await app.register(cookie);
+
+  // Security headers (clickjacking, MIME-sniffing, referrer leakage, HSTS).
+  // CSP is disabled here — this process serves JSON, and the admin SPA / Next
+  // storefront set their own content-security policies on the HTML they serve.
+  await app.register(helmet, {
+    contentSecurityPolicy: false,
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    hsts: { maxAge: 15_552_000, includeSubDomains: true },
+  });
+
+  // CORS locked to the configured admin + storefront origins (never a wildcard
+  // with credentials). Same-origin/server-side calls send no Origin and pass.
+  const allowed = new Set(ctx.config.corsOrigins);
+  await app.register(cors, {
+    origin: (origin, cb) => cb(null, !origin || allowed.has(origin)),
+    credentials: true,
+  });
+
+  // Global rate limit (per-IP), Redis-backed so it holds across instances.
+  // Auth endpoints add their own stricter caps via per-route config.
+  await app.register(rateLimit, {
+    global: true,
+    max: ctx.config.rateLimitMax,
+    timeWindow: "1 minute",
+    redis: ctx.redis,
+    // Health checks and the WebSocket upgrade must not be throttled.
+    allowList: (req) => req.url === "/api/health",
+  });
 
   // Bearer-token parsing; enforcement is per-route via requirePermission.
   // Admin and bidder tokens are strictly separated by the `kind` claim.

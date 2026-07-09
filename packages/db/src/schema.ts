@@ -67,9 +67,31 @@ export const adminUsers = pgTable(
       .notNull()
       .references(() => adminRoles.id),
     active: boolean("active").notNull().default(true),
+    /** Base32 TOTP shared secret. Set at enrollment; kept while 2FA is on. */
+    totpSecret: text("totp_secret"),
+    /** Whether TOTP two-factor is active for this admin (enrollment complete). */
+    totpEnabled: boolean("totp_enabled").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("admin_users_email_idx").on(t.email)],
+);
+
+/**
+ * One-time recovery codes for admins who lose their authenticator. Stored as
+ * SHA-256 hashes; a row is burned (used_at set) the first time it is redeemed.
+ */
+export const adminRecoveryCodes = pgTable(
+  "admin_recovery_codes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => adminUsers.id, { onDelete: "cascade" }),
+    codeHash: text("code_hash").notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("admin_recovery_codes_user_idx").on(t.userId)],
 );
 
 export const refreshTokens = pgTable(

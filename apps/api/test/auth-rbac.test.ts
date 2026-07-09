@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { auth, createWorld, loginAs, type TestWorld } from "./helpers.js";
+import { auth, createWorld, loginAs, seedTotpCode, type TestWorld } from "./helpers.js";
 
 let world: TestWorld;
 
@@ -10,41 +10,105 @@ afterAll(async () => {
   await world.close();
 });
 
+type InjectResult = Awaited<ReturnType<TestWorld["server"]["app"]["inject"]>>;
+
+/** Pull the httpOnly refresh cookie value out of a login/refresh response. */
+function refreshCookie(res: InjectResult): string {
+  const c = res.cookies.find((c) => c.name === "admin_rt");
+  if (!c) throw new Error("no refresh cookie set");
+  return c.value;
+}
+
 describe("authentication", () => {
-  it("rejects bad credentials", async () => {
+  it("rejects bad credentials without a second-factor challenge", async () => {
     const res = await world.server.app.inject({
       method: "POST",
       url: "/api/auth/login",
-      payload: { email: "super@auction.test", password: "wrong" },
+      payload: { email: "ops@auction.test", password: "wrong-password" },
     });
     expect(res.statusCode).toBe(401);
+    expect((res.json() as { challengeToken?: string }).challengeToken).toBeUndefined();
   });
 
-  it("logs in and returns role + permissions", async () => {
+  it("password step returns a 2FA challenge, not a session", async () => {
     const res = await world.server.app.inject({
       method: "POST",
       url: "/api/auth/login",
       payload: { email: "finance@auction.test", password: "Admin123!" },
     });
     expect(res.statusCode).toBe(200);
-    const body = res.json() as { user: { role: string; permissions: string[] }; accessToken: string; refreshToken: string };
+    const body = res.json() as { challenge: string; challengeToken: string; accessToken?: string };
+    expect(body.challenge).toBe("totp");
+    expect(body.challengeToken).toBeTruthy();
+    // No session material leaks before the second factor.
+    expect(body.accessToken).toBeUndefined();
+    expect(res.cookies.find((c) => c.name === "admin_rt")).toBeUndefined();
+  });
+
+  it("completing TOTP returns role + permissions and sets an httpOnly cookie", async () => {
+    const step1 = await world.server.app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { email: "finance@auction.test", password: "Admin123!" },
+    });
+    const { challengeToken } = step1.json() as { challengeToken: string };
+    const step2 = await world.server.app.inject({
+      method: "POST",
+      url: "/api/auth/login/2fa",
+      payload: { challengeToken, code: seedTotpCode(world) },
+    });
+    expect(step2.statusCode).toBe(200);
+    const body = step2.json() as { user: { role: string; permissions: string[] }; accessToken: string; refreshToken?: string };
     expect(body.user.role).toBe("finance");
     expect(body.user.permissions).toContain("invoices.issue");
     expect(body.user.permissions).not.toContain("team.manage");
+    expect(body.accessToken).toBeTruthy();
+    // The refresh token is delivered ONLY as an httpOnly cookie, never in JSON.
+    expect(body.refreshToken).toBeUndefined();
+    const cookie = step2.cookies.find((c) => c.name === "admin_rt");
+    expect(cookie?.httpOnly).toBe(true);
+    expect(cookie?.sameSite?.toLowerCase()).toBe("strict");
   });
 
-  it("refresh rotates the token", async () => {
-    const login = await world.server.app.inject({
+  it("rejects a wrong TOTP code", async () => {
+    const step1 = await world.server.app.inject({
       method: "POST",
       url: "/api/auth/login",
-      payload: { email: "super@auction.test", password: "Admin123!" },
+      payload: { email: "support@auction.test", password: "Admin123!" },
     });
-    const { refreshToken } = login.json() as { refreshToken: string };
-    const r1 = await world.server.app.inject({ method: "POST", url: "/api/auth/refresh", payload: { refreshToken } });
+    const { challengeToken } = step1.json() as { challengeToken: string };
+    const bad = await world.server.app.inject({
+      method: "POST",
+      url: "/api/auth/login/2fa",
+      payload: { challengeToken, code: "000000" },
+    });
+    expect(bad.statusCode).toBe(401);
+  });
+
+  it("refresh rotates the cookie and burns the family on reuse (theft detection)", async () => {
+    const step1 = await world.server.app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { email: "sales@auction.test", password: "Admin123!" },
+    });
+    const { challengeToken } = step1.json() as { challengeToken: string };
+    const login = await world.server.app.inject({
+      method: "POST",
+      url: "/api/auth/login/2fa",
+      payload: { challengeToken, code: seedTotpCode(world) },
+    });
+    const rt0 = refreshCookie(login);
+
+    const r1 = await world.server.app.inject({ method: "POST", url: "/api/auth/refresh", cookies: { admin_rt: rt0 } });
     expect(r1.statusCode).toBe(200);
-    // The used token is revoked.
-    const r2 = await world.server.app.inject({ method: "POST", url: "/api/auth/refresh", payload: { refreshToken } });
-    expect(r2.statusCode).toBe(401);
+    const rt1 = refreshCookie(r1);
+
+    // Replaying the already-rotated rt0 is treated as theft → whole family dies.
+    const reuse = await world.server.app.inject({ method: "POST", url: "/api/auth/refresh", cookies: { admin_rt: rt0 } });
+    expect(reuse.statusCode).toBe(401);
+    // …so even the legitimately-rotated rt1 is now revoked.
+    const r3 = await world.server.app.inject({ method: "POST", url: "/api/auth/refresh", cookies: { admin_rt: rt1 } });
+    expect(r3.statusCode).toBe(401);
   });
 
   it("requires auth on admin endpoints", async () => {
