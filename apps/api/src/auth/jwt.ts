@@ -3,9 +3,12 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 /** Minimal HS256 JWT — sign + verify, no external deps. */
 
 export interface AccessClaims {
-  sub: string; // admin user id
+  sub: string; // admin user id or customer id, per kind
+  /** Token audience: admin panel vs public bidder. Never interchangeable. */
+  kind: "admin" | "bidder";
   email: string;
   name: string;
+  /** Admin role id; bidders carry "bidder". */
   role: string;
   exp: number; // epoch seconds
   iat: number;

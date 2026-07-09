@@ -87,6 +87,21 @@ export const refreshTokens = pgTable(
   (t) => [index("refresh_tokens_user_idx").on(t.userId)],
 );
 
+export const customerRefreshTokens = pgTable(
+  "customer_refresh_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("customer_refresh_tokens_customer_idx").on(t.customerId)],
+);
+
 // ── Bidders / customers ──────────────────────────────────────────────────────
 
 export const customers = pgTable(
@@ -104,6 +119,8 @@ export const customers = pgTable(
     vatNo: text("vat_no"),
     /** Latest VIES consultation: { valid, checkedAt, consult }. */
     vies: jsonb("vies").$type<{ valid: boolean; checkedAt: string; consult: string } | null>(),
+    /** Set when the bidder registered on the storefront; null = admin-created record. */
+    passwordHash: text("password_hash"),
     /** Unpaid-winner strikes per the design doc. */
     strikes: integer("strikes").notNull().default(0),
     blocked: boolean("blocked").notNull().default(false),

@@ -16,7 +16,7 @@ const refreshSchema = z.object({ refreshToken: z.string().min(10) });
 export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext, perms: PermissionService): void {
   async function issueTokens(user: { id: string; email: string; name: string; roleId: string }) {
     const accessToken = signAccessToken(
-      { sub: user.id, email: user.email, name: user.name, role: user.roleId },
+      { sub: user.id, kind: "admin", email: user.email, name: user.name, role: user.roleId },
       ctx.config.jwtSecret,
       ctx.config.accessTokenTtlSec,
       ctx.now().getTime(),

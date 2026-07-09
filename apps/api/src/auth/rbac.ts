@@ -47,6 +47,7 @@ export class PermissionService {
 declare module "fastify" {
   interface FastifyRequest {
     admin?: AccessClaims;
+    bidder?: AccessClaims;
   }
 }
 

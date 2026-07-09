@@ -15,7 +15,8 @@ rebuilt as a typed Vite/React app against a real API.
 | `packages/domain` | Pure TypeScript auction logic — zero I/O, exhaustively unit-tested |
 | `packages/db` | Drizzle ORM schema, SQL migrations, seed (bids replayed through the real resolver) |
 | `apps/api` | Fastify 5 — REST + WebSocket, auction engine runtime, JWT auth, action-level RBAC |
-| `apps/admin` | Vite + React 18 admin panel (dark-sidebar operator UI) |
+| `apps/admin` | Vite + React 19 admin panel (dark-sidebar operator UI) |
+| `apps/web` | Next.js 15 public storefront — SSR, live bidding, lv/ru/en |
 | Data | PostgreSQL 16 (source of truth) + Redis 7 (locks, scheduler, pub/sub) |
 
 ## Engine features (per design doc)
@@ -65,6 +66,7 @@ pnpm db:seed                  # markets, roles, demo admins, demo lots + live au
 
 pnpm dev:api                  # Fastify on :4000 (scheduler on)
 pnpm dev:admin                # Vite on :5173 (proxies /api and /ws to :4000)
+pnpm --filter @auction/web dev  # Next.js storefront on :3000
 ```
 
 Sign in at http://localhost:5173 — one demo user per role, password **`Admin123!`**:
@@ -107,8 +109,19 @@ Environment variables (`apps/api`): `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET` (c
 production!), `PORT`, `PAYMENT_DEADLINE_HOURS` (72), `ALLOW_BID_SIMULATION` (auto-off in
 production), `SCHEDULER_ENABLED`.
 
-## Out of scope for this phase (per design-doc build order)
+## Public storefront (`apps/web`)
 
-Public storefront (Next.js SSR), Klix payments, carrier APIs (Omniva/DPD/Venipak),
-CMS (Payload/Puck), email notifications, Sentry monitoring. The schema and config
-leave explicit room for each.
+Bidder registration/login (separate `kind="bidder"` tokens that admin routes reject
+by construction), SSR auction browsing, and the **live auction page**: WebSocket
+price updates (anonymous viewers included), proxy-bid box with exact minimum-next-bid,
+sanitized public ledger (aliases only — reserve amounts, maxima, and emails never
+leave the server), "reserve not met" state, account page with my-bids/my-orders.
+SEO: JSON-LD Product/Offer, sitemap.xml, robots.txt, hreflang alternates.
+UI strings in Latvian / Russian / English (per-country ccTLD routing lands in the
+SEO polish phase).
+
+## Out of scope so far (per design-doc build order)
+
+Klix payments, carrier APIs (Omniva/DPD/Venipak) — both waiting on merchant
+credentials (request early!), CMS (Payload/Puck), email notifications, Sentry
+monitoring. The schema and config leave explicit room for each.

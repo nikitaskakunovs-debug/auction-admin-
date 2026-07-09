@@ -39,13 +39,20 @@ function nextMessage(ws: WebSocket, filter: (m: Record<string, unknown>) => bool
 }
 
 describe("WebSocket live events", () => {
-  it("rejects unauthenticated connections", async () => {
+  it("anonymous clients may watch auctions but not the admin firehose", async () => {
+    const { auctionId } = await createLiveAuction(world, token);
+    const ws = await connect("");
+    ws.send(JSON.stringify({ type: "subscribe", auctionId }));
+    await nextMessage(ws, (m) => m.type === "subscribed");
+    ws.close();
+
     const closed = await new Promise<number>((resolve) => {
-      const ws = new WebSocket(`${baseUrl}/ws`);
-      ws.on("close", (code) => resolve(code));
-      ws.on("error", () => undefined);
+      const anon = new WebSocket(`${baseUrl}/ws`);
+      anon.on("open", () => anon.send(JSON.stringify({ type: "subscribe_admin" })));
+      anon.on("close", (code) => resolve(code));
+      anon.on("error", () => undefined);
     });
-    expect(closed).toBe(4001);
+    expect(closed).toBe(4003);
   });
 
   it("subscribers get public-safe bid events (no reserve, no proxy max)", async () => {

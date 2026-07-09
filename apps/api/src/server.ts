@@ -12,6 +12,7 @@ import { registerFinanceRoutes } from "./routes/finance.js";
 import { registerItemRoutes } from "./routes/items.js";
 import { registerListingRoutes } from "./routes/listings.js";
 import { registerOrderRoutes } from "./routes/orders.js";
+import { registerPublicRoutes } from "./routes/public.js";
 import { registerWs } from "./ws.js";
 
 export interface BuiltServer {
@@ -24,11 +25,13 @@ export async function buildServer(ctx: AppContext, opts: { logger?: boolean } = 
   await app.register(cors, { origin: true });
 
   // Bearer-token parsing; enforcement is per-route via requirePermission.
+  // Admin and bidder tokens are strictly separated by the `kind` claim.
   app.addHook("onRequest", async (req) => {
     const header = req.headers.authorization;
     if (header?.startsWith("Bearer ")) {
       const claims = verifyAccessToken(header.slice(7), ctx.config.jwtSecret, ctx.now().getTime());
-      if (claims) req.admin = claims;
+      if (claims?.kind === "admin") req.admin = claims;
+      else if (claims?.kind === "bidder") req.bidder = claims;
     }
   });
 
@@ -45,6 +48,7 @@ export async function buildServer(ctx: AppContext, opts: { logger?: boolean } = 
   registerCustomerRoutes(app, ctx, perms);
   registerFinanceRoutes(app, ctx, perms);
   registerAdminRoutes(app, ctx, perms);
+  registerPublicRoutes(app, ctx);
   await registerWs(app, ctx);
 
   return { app, perms };

@@ -47,12 +47,10 @@ export async function registerWs(app: FastifyInstance, ctx: AppContext): Promise
   });
 
   app.get("/ws", { websocket: true }, (socket, req) => {
+    // Per-auction rooms are public (events are public-safe by construction);
+    // the admin firehose requires an admin token.
     const token = (req.query as { token?: string }).token;
     const claims = token ? verifyAccessToken(token, ctx.config.jwtSecret) : null;
-    if (!claims) {
-      socket.close(4001, "unauthenticated");
-      return;
-    }
     socket.on("message", (raw: Buffer) => {
       let msg: { type?: string; auctionId?: string };
       try {
@@ -64,6 +62,10 @@ export async function registerWs(app: FastifyInstance, ctx: AppContext): Promise
         join(msg.auctionId, socket);
         socket.send(JSON.stringify({ type: "subscribed", auctionId: msg.auctionId }));
       } else if (msg.type === "subscribe_admin") {
+        if (claims?.kind !== "admin") {
+          socket.close(4003, "admin token required");
+          return;
+        }
         join(ADMIN_ROOM, socket);
         socket.send(JSON.stringify({ type: "subscribed", room: "admin" }));
       } else if (msg.type === "unsubscribe_all") {
