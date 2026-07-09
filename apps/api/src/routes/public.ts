@@ -10,12 +10,13 @@ import {
   orders,
   verifyPassword,
 } from "@auction/db";
-import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { signAccessToken } from "../auth/jwt.js";
 import type { AppContext } from "../context.js";
 import { placeBid } from "../engine/bids.js";
+import { buyNow } from "../engine/purchase.js";
 
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
@@ -306,5 +307,72 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
         createdAt: r.order.createdAt,
       })),
     };
+  });
+
+  // ── Fixed-price "buy it now" ───────────────────────────────────────────────
+
+  function publicListing(row: {
+    listing: typeof listings.$inferSelect;
+    item: typeof items.$inferSelect;
+  }) {
+    const { listing, item } = row;
+    return {
+      id: listing.id,
+      title: listing.title,
+      description: listing.description,
+      sku: item.sku,
+      condition: item.condition,
+      photos: item.photos,
+      marketCode: listing.marketCode,
+      priceCents: listing.priceCents,
+      quantity: listing.quantity,
+    };
+  }
+
+  app.get("/api/public/listings", async (req) => {
+    const q = req.query as { market?: string };
+    const conds = [
+      eq(listings.type, "fixed"),
+      eq(listings.status, "published"),
+      gt(listings.quantity, 0),
+      eq(items.status, "listed"),
+    ];
+    if (q.market) conds.push(eq(listings.marketCode, q.market.toUpperCase()));
+    const rows = await ctx.db
+      .select({ listing: listings, item: items })
+      .from(listings)
+      .innerJoin(items, eq(listings.itemId, items.id))
+      .where(and(...conds))
+      .orderBy(desc(listings.createdAt))
+      .limit(200);
+    return { listings: rows.map(publicListing) };
+  });
+
+  app.get("/api/public/listings/:id", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const [row] = await ctx.db
+      .select({ listing: listings, item: items })
+      .from(listings)
+      .innerJoin(items, eq(listings.itemId, items.id))
+      .where(eq(listings.id, id));
+    // Serve published (buyable) and archived (sold) fixed listings so a shared
+    // link shows "sold out" rather than 404; drafts stay hidden.
+    if (!row || row.listing.type !== "fixed" || row.listing.status === "draft") {
+      return reply.code(404).send({ error: "not_found" });
+    }
+    const soldOut = row.listing.status !== "published" || row.item.status !== "listed";
+    return { listing: { ...publicListing(row), soldOut } };
+  });
+
+  app.post("/api/public/listings/:id/buy", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const { id } = req.params as { id: string };
+    const result = await buyNow(ctx, { listingId: id, customerId: bidderId });
+    if (!result.ok) {
+      const status = result.code === "LISTING_NOT_FOUND" ? 404 : result.code === "NOT_AVAILABLE" ? 409 : 422;
+      return reply.code(status).send(result);
+    }
+    return result;
   });
 }

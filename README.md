@@ -125,6 +125,15 @@ SEO: JSON-LD Product/Offer, sitemap.xml, robots.txt, hreflang alternates.
 UI strings in Latvian / Russian / English (per-country ccTLD routing lands in the
 SEO polish phase).
 
+**Fixed-price "buy it now"**: each fixed listing is backed by one unique warehouse
+item, so it sells exactly once (the item's `listed` status is the availability gate).
+`POST /api/public/listings/:id/buy` is stock-safe (listing + item row locks — concurrent
+buyers serialize, one wins), reuses the order + sequential-invoice + item-lifecycle
+machinery with **no buyer's premium** (VAT on top; reverse charge for validated EU-VAT
+buyers), and emails a purchase confirmation. Storefront: a "Buy now" home section and a
+`/listing/[id]` SSR page (JSON-LD, sold-out state); the purchase lands in the bidder's
+account as awaiting-payment.
+
 ## CMS
 
 Multilingual block pages (heading / text / image / FAQ / divider blocks with

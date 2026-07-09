@@ -1,17 +1,26 @@
 import type { MetadataRoute } from "next";
 import { API_URL, SITE_URL } from "@/lib/config";
-import type { PublicAuction } from "@/lib/types";
+import type { FixedListing, PublicAuction } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const entries: MetadataRoute.Sitemap = [{ url: SITE_URL, changeFrequency: "hourly", priority: 1 }];
   try {
-    const res = await fetch(`${API_URL}/api/public/auctions`, { cache: "no-store" });
-    if (res.ok) {
-      const { auctions } = (await res.json()) as { auctions: PublicAuction[] };
+    const [aRes, lRes] = await Promise.all([
+      fetch(`${API_URL}/api/public/auctions`, { cache: "no-store" }),
+      fetch(`${API_URL}/api/public/listings`, { cache: "no-store" }),
+    ]);
+    if (aRes.ok) {
+      const { auctions } = (await aRes.json()) as { auctions: PublicAuction[] };
       for (const a of auctions) {
         entries.push({ url: `${SITE_URL}/auction/${a.id}`, changeFrequency: "always", priority: 0.8 });
+      }
+    }
+    if (lRes.ok) {
+      const { listings } = (await lRes.json()) as { listings: FixedListing[] };
+      for (const l of listings) {
+        entries.push({ url: `${SITE_URL}/listing/${l.id}`, changeFrequency: "daily", priority: 0.7 });
       }
     }
   } catch {

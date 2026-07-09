@@ -55,6 +55,11 @@ describe("item lifecycle (design-doc warehouse flow)", () => {
     expect(canTransitionItem("live", "listed")).toBe(true);
   });
 
+  it("a listed item can be sold directly (fixed-price buy-now) or go to auction", () => {
+    expect(canTransitionItem("listed", "won")).toBe(true); // buy now
+    expect(canTransitionItem("listed", "live")).toBe(true); // auction
+  });
+
   it("blocks illegal jumps", () => {
     expect(canTransitionItem("draft", "live")).toBe(false);
     expect(canTransitionItem("paid", "shipped")).toBe(false); // must pick+pack first

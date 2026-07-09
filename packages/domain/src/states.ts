@@ -47,7 +47,9 @@ export type ItemStatus = (typeof ITEM_STATUSES)[number];
 
 const ITEM_TRANSITIONS: Record<ItemStatus, readonly ItemStatus[]> = {
   draft: ["listed"],
-  listed: ["live", "draft"],
+  // listed → won is the fixed-price "buy it now" sale (no auction run);
+  // listed → live is the auction path.
+  listed: ["live", "won", "draft"],
   live: ["won", "unsold", "listed"], // → listed when an admin cancels the auction
   won: ["awaiting_payment"],
   awaiting_payment: ["paid", "unpaid_cancelled"],

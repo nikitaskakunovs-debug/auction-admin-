@@ -101,6 +101,29 @@ export async function placeBidApi(
   expect(res.ok(), "place bid via api").toBeTruthy();
 }
 
+/** Provision a published fixed-price listing via the admin API. */
+export async function createFixedListing(
+  request: APIRequestContext,
+  opts: { priceCents?: number } = {},
+): Promise<{ listingId: string; sku: string; title: string }> {
+  const token = await adminToken(request);
+  const h = authHeaders(token);
+  const sku = uniq("FX-");
+  const title = `E2E fixed ${sku}`;
+
+  const item = await request.post(`${API}/api/items`, { headers: h, data: { sku, title, marketCode: "LV" } });
+  const itemId = (await item.json()).item.id as string;
+  const listing = await request.post(`${API}/api/listings`, {
+    headers: h,
+    data: { itemId, type: "fixed", title, marketCode: "LV", priceCents: opts.priceCents ?? 12_000 },
+  });
+  expect(listing.ok(), "create fixed listing").toBeTruthy();
+  const listingId = (await listing.json()).listing.id as string;
+  const pub = await request.post(`${API}/api/listings/${listingId}/publish`, { headers: h });
+  expect(pub.ok(), "publish fixed listing").toBeTruthy();
+  return { listingId, sku, title };
+}
+
 export async function markOrderPaid(request: APIRequestContext, orderRef: string): Promise<void> {
   const token = await adminToken(request, "ops@auction.test");
   const h = authHeaders(token);

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { API_URL, SITE_URL } from "@/lib/config";
+import { jsonLdScript } from "@/lib/jsonld";
 import type { AuctionDetail } from "@/lib/types";
 import { LiveAuction } from "@/components/LiveAuction";
 
@@ -27,17 +28,6 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   };
 }
 
-/**
- * Escape a JSON string for safe embedding inside a <script> element.
- * JSON.stringify does NOT escape "<", ">" or "&", so a "</script>" sequence in
- * any embedded (admin-entered) value would break out of the element. Also
- * escape U+2028/U+2029, which are valid JSON but illegal raw in JS string
- * literals. Every HTML-significant char becomes a \uXXXX escape.
- */
-function escapeJsonForScript(json: string): string {
-  return json.replace(/[<>&\u2028\u2029]/g, (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"));
-}
-
 export default async function AuctionPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const detail = await fetchDetail(id);
@@ -62,7 +52,7 @@ export default async function AuctionPage({ params }: { params: Promise<{ id: st
 
   return (
     <>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: escapeJsonForScript(JSON.stringify(jsonLd)) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdScript(jsonLd) }} />
       <LiveAuction initial={detail} />
     </>
   );

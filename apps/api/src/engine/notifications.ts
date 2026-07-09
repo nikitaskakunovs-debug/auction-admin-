@@ -9,7 +9,7 @@ import type { AppContext } from "../context.js";
  * and hands each to the email adapter, marking sent/failed with retry.
  */
 
-export type NotificationType = "outbid" | "won" | "payment_reminder" | "order_paid";
+export type NotificationType = "outbid" | "won" | "purchased" | "payment_reminder" | "order_paid";
 
 type Lang = "lv" | "en";
 
@@ -50,6 +50,16 @@ function render(type: NotificationType, lang: Lang, i: TemplateInput): { subject
       en: {
         subject: `Congratulations — you won ${i.lotTitle}`,
         body: `Hi ${i.alias},\n\nYou won "${i.lotTitle}". Order ${i.orderRef}. Total due: ${money(i.totalCents)}.\nPlease pay by ${i.deadline?.toISOString().slice(0, 10)}.\n\n[won]`,
+      },
+    },
+    purchased: {
+      lv: {
+        subject: `Pirkums apstiprināts — ${i.lotTitle}`,
+        body: `Sveiki, ${i.alias}!\n\nPaldies par pirkumu "${i.lotTitle}". Rēķina numurs: ${i.orderRef}. Kopā apmaksai: ${money(i.totalCents)}.\nLūdzu, apmaksājiet līdz ${i.deadline?.toISOString().slice(0, 10)}.\n\n[purchased]`,
+      },
+      en: {
+        subject: `Purchase confirmed — ${i.lotTitle}`,
+        body: `Hi ${i.alias},\n\nThank you for buying "${i.lotTitle}". Order ${i.orderRef}. Total due: ${money(i.totalCents)}.\nPlease pay by ${i.deadline?.toISOString().slice(0, 10)}.\n\n[purchased]`,
       },
     },
     payment_reminder: {

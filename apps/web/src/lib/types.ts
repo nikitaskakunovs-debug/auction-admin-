@@ -41,6 +41,19 @@ export interface Bidder {
   alias: string;
 }
 
+export interface FixedListing {
+  id: string;
+  title: string;
+  description: string;
+  sku: string;
+  condition: string;
+  photos: string[];
+  marketCode: string;
+  priceCents: number;
+  quantity: number;
+  soldOut?: boolean;
+}
+
 export interface MyOrder {
   ref: string;
   itemTitle: string;
