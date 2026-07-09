@@ -89,14 +89,19 @@ curl -s -X POST localhost:4000/api/auctions/<id>/bids -H "Authorization: Bearer 
 
 ```bash
 pnpm test:unit          # domain: 94 tests — increments, proxy battles, reserve, VAT, VIES, state machines
-pnpm test:integration   # api: 31 tests vs real Postgres/Redis — RBAC per role, bid placement,
+pnpm test:integration   # api: 60 tests vs real Postgres/Redis — RBAC per role, bid placement,
                         # anti-snipe, void+replay, 60-bidder concurrency, scheduler close paths,
-                        # unpaid auto-cancel, WebSocket payload hygiene
+                        # unpaid auto-cancel, invoicing, VIES, CMS, notifications, WS + payload hygiene
+pnpm test:e2e           # apps/e2e: Playwright drives the built API + Next.js storefront —
+                        # register→bid→lead, live outbid over WebSocket, sad paths, and the full
+                        # register→bid→win→pay→track journey (scheduler closes a real short auction)
 pnpm typecheck && pnpm build
 ```
 
-CI (GitHub Actions) runs typecheck + build + migrations + the full suite against
-Postgres/Redis services on every push.
+CI (GitHub Actions) has two jobs, both against Postgres/Redis services on every push:
+`ci` (build → typecheck → migrate → unit + integration) and `e2e` (build → install
+Chromium → Playwright drives the full stack). The Playwright HTML report uploads as an
+artifact on failure.
 
 ## Configuration
 

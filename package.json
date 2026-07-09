@@ -14,9 +14,11 @@
     "test": "pnpm -r test",
     "test:unit": "pnpm --filter @auction/domain test",
     "test:integration": "pnpm --filter @auction/api test",
+    "test:e2e": "pnpm --filter @auction/e2e e2e",
     "db:migrate": "pnpm --filter @auction/db migrate",
     "db:seed": "pnpm --filter @auction/db seed",
     "dev:api": "pnpm --filter @auction/api dev",
-    "dev:admin": "pnpm --filter @auction/admin dev"
+    "dev:admin": "pnpm --filter @auction/admin dev",
+    "dev:web": "pnpm --filter @auction/web dev"
   }
 }
