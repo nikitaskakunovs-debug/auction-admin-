@@ -222,6 +222,28 @@ settles the fee (paid at the desk/by transfer) or waives it with an audited
 reason. No-pickup fees mirror into the same ledger born `settled`, so every
 restock fee is in one place. State the 5% unpaid-lot fee in the T&C.
 
+## Condition reference & account moderation
+
+Items are graded with the warehouse's **16-grade condition taxonomy**
+(`packages/domain/src/conditions.ts`, ported from the laminated CONDITION
+REFERENCE sheet): brand new → open package → new/used *with issue* → as-is
+(untested / salvage / expired). The five **SEE NOTES** grades refuse to save
+without a written note describing the specific issue (enforced in the API and
+the admin form). The storefront shows translated labels (lv/ru/en/et/lt), the
+note in an amber callout on every lot page, and a public **`/conditions`**
+reference page linked from each lot; items graded before the taxonomy keep
+their legacy free-text label. Seed data demonstrates the new grades.
+
+**Zero-tolerance suspensions**: swearing, threats or abuse toward staff gets
+an account suspended on the spot — Customers → **Suspend account** (ops/sales
+permission `customers.strike`), reason mandatory, audit-logged, effective
+immediately (`BIDDER_BLOCKED` on bid/buy, banner on the account page).
+Reinstating equally requires a reason. The generic customer PATCH deliberately
+cannot flip the flag, so no ban ever bypasses the audit trail. GDPR-erase
+also suspends with reason "GDPR erasure". This complements the restock-fee
+pause (`FEES_OUTSTANDING`) above — settling fees unblocks that pause, but a
+zero-tolerance suspension only ends by explicit reinstatement.
+
 ## Out of scope so far (per design-doc build order)
 
 Klix payments, carrier APIs (Omniva/DPD/Venipak) — both waiting on merchant

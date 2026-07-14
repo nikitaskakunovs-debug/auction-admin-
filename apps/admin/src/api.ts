@@ -40,6 +40,7 @@ export interface Item {
   title: string;
   description: string;
   condition: string;
+  conditionNotes: string;
   location: string;
   locationId: string | null;
   weightGrams: number | null;
@@ -138,6 +139,8 @@ export interface Customer {
   vies: { valid: boolean; checkedAt: string; consult: string } | null;
   strikes: number;
   blocked: boolean;
+  blockedReason: string | null;
+  blockedAt: string | null;
   notes: string;
   erasedAt: string | null;
   createdAt: string;

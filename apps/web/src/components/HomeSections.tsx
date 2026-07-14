@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { conditionLabel } from "@/lib/conditions";
 import { useT } from "@/lib/i18n";
 import { formatEur, type FixedListing, type PublicAuction } from "@/lib/types";
 import { AuctionCard } from "./AuctionCard";
@@ -23,7 +24,7 @@ function FixedCard({ listing }: { listing: FixedListing }) {
     >
       <span style={{ fontSize: 11, fontWeight: 700, color: "#2D4BFF", textTransform: "uppercase" }}>{t("home.buyNow")}</span>
       <h3 style={{ margin: "8px 0 0", fontSize: 15.5, fontWeight: 700, lineHeight: 1.35, minHeight: 42 }}>{listing.title}</h3>
-      <div style={{ fontSize: 11.5, color: "#6B6B68", margin: "4px 0 12px" }}>{listing.sku} · {listing.condition}</div>
+      <div style={{ fontSize: 11.5, color: "#6B6B68", margin: "4px 0 12px" }}>{listing.sku} · {conditionLabel(listing.condition, t)}</div>
       <div style={{ fontSize: 10.5, fontWeight: 700, color: "#6B6B68", textTransform: "uppercase", letterSpacing: "0.05em" }}>{t("buy.price")}</div>
       <div style={{ fontSize: 21, fontWeight: 700, letterSpacing: "-0.02em" }}>{formatEur(listing.priceCents)}</div>
     </Link>

@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./conditions": {
+      "types": "./dist/conditions.d.ts",
+      "import": "./dist/conditions.js"
     }
   },
   "scripts": {

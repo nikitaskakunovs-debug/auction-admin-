@@ -1,5 +1,5 @@
 import { items } from "@auction/db";
-import { assertItemTransition, ITEM_STATUSES, type ItemStatus } from "@auction/domain";
+import { assertItemTransition, conditionRequiresNotes, ITEM_STATUSES, type ItemStatus } from "@auction/domain";
 import { desc, eq, ilike, or, and } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -17,6 +17,7 @@ const itemBody = z.object({
   title: z.string().min(1),
   description: z.string().default(""),
   condition: z.string().default("good"),
+  conditionNotes: z.string().default(""),
   location: z.string().default(""),
   weightGrams: z.number().int().positive().nullable().optional(),
   dims: z.object({ l: z.number(), w: z.number(), h: z.number() }).nullable().optional(),
@@ -50,6 +51,8 @@ export function registerItemRoutes(app: FastifyInstance, ctx: AppContext, perms:
   app.post("/api/items", guard("items.create"), async (req, reply) => {
     const body = itemBody.safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: body.error.flatten() });
+    if (conditionRequiresNotes(body.data.condition) && body.data.conditionNotes.trim().length < 3)
+      return reply.code(400).send({ error: "condition_notes_required", detail: "This condition grade is a SEE NOTES grade — describe the issue." });
     const [row] = await ctx.db
       .insert(items)
       .values({ ...body.data, weightGrams: body.data.weightGrams ?? null, dims: body.data.dims ?? null })
@@ -61,6 +64,12 @@ export function registerItemRoutes(app: FastifyInstance, ctx: AppContext, perms:
   app.patch("/api/items/:id", guard("items.edit"), async (req, reply) => {
     const body = itemBody.partial().safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: body.error.flatten() });
+    if (
+      body.data.condition !== undefined &&
+      conditionRequiresNotes(body.data.condition) &&
+      (body.data.conditionNotes ?? "").trim().length < 3
+    )
+      return reply.code(400).send({ error: "condition_notes_required", detail: "This condition grade is a SEE NOTES grade — describe the issue." });
     const { id } = req.params as { id: string };
     const [row] = await ctx.db
       .update(items)

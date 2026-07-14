@@ -150,6 +150,9 @@ export const customers = pgTable(
     /** Unpaid-winner strikes per the design doc. */
     strikes: integer("strikes").notNull().default(0),
     blocked: boolean("blocked").notNull().default(false),
+    /** Why the account is disabled (zero-tolerance / fraud / GDPR erase …). */
+    blockedReason: text("blocked_reason"),
+    blockedAt: timestamp("blocked_at", { withTimezone: true }),
     notes: text("notes").notNull().default(""),
     erasedAt: timestamp("erased_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -210,6 +213,8 @@ export const items = pgTable(
     title: text("title").notNull(),
     description: text("description").notNull().default(""),
     condition: text("condition").notNull().default("good"),
+    /** Required for "(SEE NOTES)" condition grades — describes the issue. */
+    conditionNotes: text("condition_notes").notNull().default(""),
     location: text("location").notNull().default(""),
     /** Structured bin; the free-text `location` stays as display fallback. */
     locationId: uuid("location_id").references(() => warehouseLocations.id),

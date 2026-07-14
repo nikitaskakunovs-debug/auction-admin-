@@ -205,16 +205,16 @@ export async function seedDatabase(db: Db, opts: SeedOptions = {}): Promise<void
 
   // ── Items ──────────────────────────────────────────────────────────────────
   const itemDefs = [
-    { sku: "LOT-0001", title: "Rolex Datejust 36 ref. 16234, 1994", condition: "very good", location: "A-01-03", weightGrams: 350, status: "live" },
-    { sku: "LOT-0002", title: "Jāzeps Grosvalds — Watercolour, signed", condition: "good", location: "B-02-01", weightGrams: 1200, status: "live" },
-    { sku: "LOT-0003", title: "Art Deco walnut sideboard, 1930s", condition: "restored", location: "C-01-01", weightGrams: 48000, status: "live" },
-    { sku: "LOT-0004", title: "Soviet-era Zenit-E camera kit", condition: "working", location: "A-03-11", weightGrams: 1500, status: "listed" },
-    { sku: "LOT-0005", title: "Baltic amber necklace, 52 g", condition: "excellent", location: "S-01-02", weightGrams: 80, status: "won" },
-    { sku: "LOT-0006", title: "Kuznetsov porcelain tea service, 12 pcs", condition: "good", location: "B-01-07", weightGrams: 4200, status: "listed" },
-    { sku: "LOT-0007", title: "Omega Seamaster DeVille, 1967", condition: "serviced", location: "A-01-04", weightGrams: 300, status: "draft" },
-    { sku: "LOT-0008", title: "Mid-century teak lounge chair", condition: "original", location: "C-02-03", weightGrams: 9000, status: "draft" },
-    { sku: "LOT-0009", title: "WWII-era field binoculars, cased", condition: "good", location: "A-04-01", weightGrams: 1100, status: "unsold" },
-    { sku: "LOT-0010", title: "Riga silver spoon set, 875 hallmark", condition: "excellent", location: "S-01-05", weightGrams: 400, status: "listed" },
+    { sku: "LOT-0001", title: "Rolex Datejust 36 ref. 16234, 1994", condition: "lightly_used", conditionNotes: "Hairline scratches on the clasp; movement serviced 2023.", location: "A-01-03", weightGrams: 350, status: "live" },
+    { sku: "LOT-0002", title: "Jāzeps Grosvalds — Watercolour, signed", condition: "used", conditionNotes: "Light foxing at the lower margin; frame with minor chips.", location: "B-02-01", weightGrams: 1200, status: "live" },
+    { sku: "LOT-0003", title: "Art Deco walnut sideboard, 1930s", condition: "refurbished", conditionNotes: "", location: "C-01-01", weightGrams: 48000, status: "live" },
+    { sku: "LOT-0004", title: "Soviet-era Zenit-E camera kit", condition: "as_is_untested", conditionNotes: "", location: "A-03-11", weightGrams: 1500, status: "listed" },
+    { sku: "LOT-0005", title: "Baltic amber necklace, 52 g", condition: "open_package_inspected", conditionNotes: "", location: "S-01-02", weightGrams: 80, status: "won" },
+    { sku: "LOT-0006", title: "Kuznetsov porcelain tea service, 12 pcs", condition: "used_with_issue", conditionNotes: "One saucer with a hairline crack; gilding worn on two cups.", location: "B-01-07", weightGrams: 4200, status: "listed" },
+    { sku: "LOT-0007", title: "Omega Seamaster DeVille, 1967", condition: "refurbished", conditionNotes: "", location: "A-01-04", weightGrams: 300, status: "draft" },
+    { sku: "LOT-0008", title: "Mid-century teak lounge chair", condition: "previously_assembled", conditionNotes: "", location: "C-02-03", weightGrams: 9000, status: "draft" },
+    { sku: "LOT-0009", title: "WWII-era field binoculars, cased", condition: "used", conditionNotes: "Optics clear; leather case scuffed with worn strap.", location: "A-04-01", weightGrams: 1100, status: "unsold" },
+    { sku: "LOT-0010", title: "Riga silver spoon set, 875 hallmark", condition: "as_is", conditionNotes: "", location: "S-01-05", weightGrams: 400, status: "listed" },
   ] as const;
   const itemRows = await db
     .insert(t.items)

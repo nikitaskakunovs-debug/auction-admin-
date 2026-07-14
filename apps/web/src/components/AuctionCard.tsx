@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { conditionLabel } from "@/lib/conditions";
 import { useT } from "@/lib/i18n";
 import { formatEur, type PublicAuction } from "@/lib/types";
 import { Countdown } from "./Countdown";
@@ -32,7 +33,7 @@ export function AuctionCard({ auction }: { auction: PublicAuction }) {
         )}
       </div>
       <h3 style={{ margin: 0, fontSize: 15.5, fontWeight: 700, lineHeight: 1.35, minHeight: 42 }}>{auction.title}</h3>
-      <div style={{ fontSize: 11.5, color: "#6B6B68", margin: "4px 0 12px" }}>{auction.sku} · {auction.condition}</div>
+      <div style={{ fontSize: 11.5, color: "#6B6B68", margin: "4px 0 12px" }}>{auction.sku} · {conditionLabel(auction.condition, t)}</div>
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
         <div>
           <div style={{ fontSize: 10.5, fontWeight: 700, color: "#6B6B68", textTransform: "uppercase", letterSpacing: "0.05em" }}>

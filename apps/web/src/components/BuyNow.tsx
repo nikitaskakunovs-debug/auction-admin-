@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
+import { conditionLabel } from "@/lib/conditions";
 import { useT } from "@/lib/i18n";
 import { formatEur, type FixedListing } from "@/lib/types";
 
@@ -50,7 +51,14 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
       <div>
         <span style={{ fontSize: 12, fontWeight: 700, color: "#2D4BFF", textTransform: "uppercase", letterSpacing: "0.05em" }}>{t("buy.badge")}</span>
         <h1 style={{ margin: "6px 0 0", fontSize: 26, fontWeight: 700, letterSpacing: "-0.02em" }}>{listing.title}</h1>
-        <div style={{ fontSize: 12, color: "#6B6B68", marginTop: 4 }}>{listing.sku} · {listing.condition} · {listing.marketCode}</div>
+        <div style={{ fontSize: 12, color: "#6B6B68", marginTop: 4 }}>
+          {listing.sku} · <a href="/conditions" style={{ color: "inherit", textDecoration: "underline dotted" }}>{conditionLabel(listing.condition, t)}</a> · {listing.marketCode}
+        </div>
+        {listing.conditionNotes && (
+          <div style={{ marginTop: 8, maxWidth: 720, background: "#FCEFD9", border: "1px solid #EAD3A8", borderRadius: 10, padding: "9px 12px", fontSize: 13, color: "#6B4A00" }}>
+            <strong>{t("cond.notes")}:</strong> {listing.conditionNotes}
+          </div>
+        )}
         {listing.description && <p style={{ color: "#454542", fontSize: 14, lineHeight: 1.6, maxWidth: 720 }}>{listing.description}</p>}
       </div>
 

@@ -9,7 +9,10 @@ export const dynamic = "force-dynamic";
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Serve each ccTLD its own-origin URLs so the sitemap on .ee lists .ee links.
   const origin = originForHost((await headers()).get("host"));
-  const entries: MetadataRoute.Sitemap = [{ url: origin, changeFrequency: "hourly", priority: 1 }];
+  const entries: MetadataRoute.Sitemap = [
+    { url: origin, changeFrequency: "hourly", priority: 1 },
+    { url: `${origin}/conditions`, changeFrequency: "monthly", priority: 0.4 },
+  ];
   try {
     const [aRes, lRes] = await Promise.all([
       fetch(`${API_URL}/api/public/auctions`, { cache: "no-store" }),

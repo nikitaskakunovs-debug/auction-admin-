@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
+import { conditionLabel } from "@/lib/conditions";
 import { PUBLIC_API_URL } from "@/lib/config";
 import { useT } from "@/lib/i18n";
 import { formatEur, type AuctionDetail } from "@/lib/types";
@@ -109,9 +110,16 @@ export function LiveAuction({ initial }: { initial: AuctionDetail }) {
               <span style={{ width: 8, height: 8, borderRadius: 99, background: "#1F8A4C" }} /> LIVE
             </span>
           )}
-          <span style={{ fontSize: 12, color: "#6B6B68" }}>{a.sku} · {a.condition} · {a.marketCode}</span>
+          <span style={{ fontSize: 12, color: "#6B6B68" }}>
+            {a.sku} · <a href="/conditions" style={{ color: "inherit", textDecoration: "underline dotted" }}>{conditionLabel(a.condition, t)}</a> · {a.marketCode}
+          </span>
         </div>
         <h1 style={{ margin: "6px 0 0", fontSize: 26, fontWeight: 700, letterSpacing: "-0.02em" }}>{a.title}</h1>
+        {a.conditionNotes && (
+          <div style={{ marginTop: 8, maxWidth: 720, background: "#FCEFD9", border: "1px solid #EAD3A8", borderRadius: 10, padding: "9px 12px", fontSize: 13, color: "#6B4A00" }}>
+            <strong>{t("cond.notes")}:</strong> {a.conditionNotes}
+          </div>
+        )}
         {a.description && <p style={{ color: "#454542", fontSize: 14, lineHeight: 1.6, maxWidth: 720 }}>{a.description}</p>}
       </div>
 

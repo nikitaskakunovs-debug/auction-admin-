@@ -24,6 +24,8 @@ const customerCols = {
   vies: customers.vies,
   strikes: customers.strikes,
   blocked: customers.blocked,
+  blockedReason: customers.blockedReason,
+  blockedAt: customers.blockedAt,
   notes: customers.notes,
   erasedAt: customers.erasedAt,
   createdAt: customers.createdAt,
@@ -38,7 +40,6 @@ const customerBody = z.object({
   company: z.string().nullable().optional(),
   vatNo: z.string().nullable().optional(),
   notes: z.string().optional(),
-  blocked: z.boolean().optional(),
 });
 
 export function registerCustomerRoutes(app: FastifyInstance, ctx: AppContext, perms: PermissionService): void {
@@ -133,6 +134,39 @@ export function registerCustomerRoutes(app: FastifyInstance, ctx: AppContext, pe
     return { customer: row };
   });
 
+  // ── Account suspension (zero-tolerance policy, staff-abuse etc.) ──────────
+  // Blocking always goes through these audited endpoints — the generic PATCH
+  // deliberately cannot flip `blocked`, so every ban carries a reason + actor.
+
+  const blockSchema = z.object({ reason: z.string().min(3).max(500) });
+  app.post("/api/customers/:id/block", guard("customers.strike"), async (req, reply) => {
+    const body = blockSchema.safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: "reason required (min 3 chars)" });
+    const { id } = req.params as { id: string };
+    const [row] = await ctx.db
+      .update(customers)
+      .set({ blocked: true, blockedReason: body.data.reason, blockedAt: ctx.now() })
+      .where(eq(customers.id, id))
+      .returning(customerCols);
+    if (!row) return reply.code(404).send({ error: "not_found" });
+    await writeAudit(ctx.db, actor(req), "customer", "blocked", row.alias, { reason: body.data.reason });
+    return { customer: row };
+  });
+
+  app.post("/api/customers/:id/unblock", guard("customers.strike"), async (req, reply) => {
+    const body = blockSchema.safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: "reason required (min 3 chars)" });
+    const { id } = req.params as { id: string };
+    const [row] = await ctx.db
+      .update(customers)
+      .set({ blocked: false, blockedReason: null, blockedAt: null })
+      .where(and(eq(customers.id, id), sql`${customers.erasedAt} is null`))
+      .returning(customerCols);
+    if (!row) return reply.code(404).send({ error: "not_found" });
+    await writeAudit(ctx.db, actor(req), "customer", "unblocked", row.alias, { reason: body.data.reason });
+    return { customer: row };
+  });
+
   const strikeSchema = z.object({ reason: z.string().min(3) });
   app.post("/api/customers/:id/strike", guard("customers.strike"), async (req, reply) => {
     const body = strikeSchema.safeParse(req.body);
@@ -165,6 +199,8 @@ export function registerCustomerRoutes(app: FastifyInstance, ctx: AppContext, pe
         email: `erased-${id}@erased.invalid`,
         alias: "erased_user",
         blocked: true,
+        blockedReason: "GDPR erasure",
+        blockedAt: ctx.now(),
         erasedAt: ctx.now(),
       })
       .where(eq(customers.id, id))

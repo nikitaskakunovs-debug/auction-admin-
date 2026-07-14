@@ -1,3 +1,5 @@
+// Subpath import keeps the node-only parts of @auction/domain (TOTP) out of the browser bundle.
+import { CONDITIONS, conditionByCode, conditionRequiresNotes } from "@auction/domain/conditions";
 import { useEffect, useMemo, useState } from "react";
 import { api, ApiError, type Item, type Market } from "../api.js";
 import type { Nav } from "../App.js";
@@ -29,19 +31,21 @@ const NEXT_STEP: Record<string, { to: string; label: string }> = {
   delivered: { to: "closed", label: "Close" },
 };
 
-const CONDITIONS = ["new", "excellent", "very good", "good", "fair", "restored", "working"];
+/** Items graded before the 16-grade taxonomy keep their free-text value. */
+const conditionLabel = (code: string) => conditionByCode(code)?.label ?? code;
 
 interface FormState {
   sku: string;
   title: string;
   description: string;
   condition: string;
+  conditionNotes: string;
   location: string;
   weight: string;
   marketCode: string;
 }
 
-const emptyForm: FormState = { sku: "", title: "", description: "", condition: "good", location: "", weight: "", marketCode: "LV" };
+const emptyForm: FormState = { sku: "", title: "", description: "", condition: "brand_new", conditionNotes: "", location: "", weight: "", marketCode: "LV" };
 
 interface Bin { id: string; label: string; zone: string; active: boolean }
 interface Movement { id: string; type: string; toLabel: string | null; actorLabel: string; reason: string; createdAt: string }
@@ -95,6 +99,7 @@ export function InventoryScreen({ nav: _nav }: { nav: Nav }) {
       title: form.title,
       description: form.description,
       condition: form.condition,
+      conditionNotes: form.conditionNotes,
       location: form.location,
       weightGrams: form.weight ? Number(form.weight) : null,
       marketCode: form.marketCode,
@@ -204,12 +209,13 @@ export function InventoryScreen({ nav: _nav }: { nav: Nav }) {
                 setEditing(i);
                 setForm({
                   sku: i.sku, title: i.title, description: i.description, condition: i.condition,
+                  conditionNotes: i.conditionNotes ?? "",
                   location: i.location, weight: i.weightGrams == null ? "" : String(i.weightGrams), marketCode: i.marketCode,
                 });
               }}>
                 <ATd mono>{i.sku}</ATd>
                 <ATd><span style={{ fontWeight: 600 }}>{i.title}</span></ATd>
-                <ATd>{i.condition}</ATd>
+                <ATd>{conditionLabel(i.condition)}</ATd>
                 <ATd mono>{i.location || "—"}</ATd>
                 <ATd right>{i.weightGrams == null ? "—" : `${i.weightGrams} g`}</ATd>
                 <ATd><ABadge tone={ITEM_STATUS_TONE[i.status]?.tone ?? "neutral"}>{ITEM_STATUS_TONE[i.status]?.label ?? i.status}</ABadge></ATd>
@@ -231,7 +237,7 @@ export function InventoryScreen({ nav: _nav }: { nav: Nav }) {
               )}
               <ABtn kind="ghost" onClick={() => { setCreating(false); setEditing(null); }}>Close</ABtn>
               {(editing ? can("items.edit") : can("items.create")) && (
-                <ABtn onClick={() => void submit()} disabled={!form.sku || !form.title}>{editing ? "Save" : "Create"}</ABtn>
+                <ABtn onClick={() => void submit()} disabled={!form.sku || !form.title || (conditionRequiresNotes(form.condition) && form.conditionNotes.trim().length < 3)}>{editing ? "Save" : "Create"}</ABtn>
               )}
             </>
           }
@@ -257,7 +263,14 @@ export function InventoryScreen({ nav: _nav }: { nav: Nav }) {
             </AField>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <AField label="Condition">
-                <ASelect value={form.condition} onChange={(v) => set({ condition: v })} options={CONDITIONS.map((c) => ({ value: c, label: c }))} />
+                <ASelect
+                  value={form.condition}
+                  onChange={(v) => set({ condition: v })}
+                  options={[
+                    ...(conditionByCode(form.condition) ? [] : [{ value: form.condition, label: `${form.condition} (legacy)` }]),
+                    ...CONDITIONS.map((c) => ({ value: c.code, label: c.requiresNotes ? `${c.label} — see notes` : c.label })),
+                  ]}
+                />
               </AField>
               <AField label="Market">
                 <ASelect value={form.marketCode} onChange={(v) => set({ marketCode: v })} options={markets.map((m) => ({ value: m.code, label: m.code }))} />
@@ -265,6 +278,21 @@ export function InventoryScreen({ nav: _nav }: { nav: Nav }) {
               <AField label="Location (note)"><AInput value={form.location} onChange={(v) => set({ location: v })} placeholder="A-01-03" /></AField>
               <AField label="Weight (grams)"><AInput value={form.weight} onChange={(v) => set({ weight: v })} placeholder="1200" /></AField>
             </div>
+            {conditionByCode(form.condition) && (
+              <div style={{ fontSize: 12, color: AT.inkSoft, marginTop: -8 }}>{conditionByCode(form.condition)!.description}</div>
+            )}
+            <AField
+              label={conditionRequiresNotes(form.condition) ? "Condition notes (required)" : "Condition notes"}
+              hint={conditionRequiresNotes(form.condition)
+                ? "This is a SEE NOTES grade — describe the specific issue (shown to bidders)."
+                : "Optional details shown to bidders."}
+            >
+              <textarea value={form.conditionNotes} onChange={(e) => set({ conditionNotes: e.target.value })} rows={2} style={{
+                width: "100%", borderRadius: AT.radiusSm, fontFamily: AT.body,
+                border: `1px solid ${conditionRequiresNotes(form.condition) && form.conditionNotes.trim().length < 3 ? "#C24" : AT.rule}`,
+                fontSize: 13, color: AT.ink, padding: 10, resize: "vertical",
+              }} />
+            </AField>
             {editing && can("warehouse.manage") && (
               <AField label="Warehouse bin" hint="Changing the bin writes a putaway/move into the stock ledger.">
                 <ASelect

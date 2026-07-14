@@ -16,6 +16,7 @@ export default function AccountPage() {
   const [bids, setBids] = useState<MyBidAuction[]>([]);
   const [orders, setOrders] = useState<MyOrder[]>([]);
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
+  const [suspended, setSuspended] = useState(false);
 
   useEffect(() => {
     if (!publicApi.hasSession) {
@@ -23,6 +24,7 @@ export default function AccountPage() {
       return;
     }
     setSignedIn(true);
+    void publicApi.get<{ bidder: { blocked: boolean } }>("/api/public/auth/me").then((r) => setSuspended(r.bidder.blocked)).catch(() => undefined);
     void publicApi.get<{ bids: MyBidAuction[] }>("/api/public/me/bids").then((r) => setBids(r.bids)).catch(() => undefined);
     void publicApi.get<{ orders: MyOrder[] }>("/api/public/me/orders").then((r) => setOrders(r.orders)).catch(() => undefined);
   }, []);
@@ -40,6 +42,11 @@ export default function AccountPage() {
 
   return (
     <div style={{ display: "grid", gap: 26 }}>
+      {suspended && (
+        <div style={{ background: "#FBE3E3", border: "1px solid #E8B4B4", borderRadius: 14, padding: "14px 18px", fontSize: 14, fontWeight: 700, color: "#8F1D21" }}>
+          {t("acc.suspended")}
+        </div>
+      )}
       <FeesNotice />
       <PickupPass />
       <section>

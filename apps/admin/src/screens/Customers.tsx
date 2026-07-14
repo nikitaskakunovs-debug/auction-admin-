@@ -43,7 +43,7 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
   const [creating, setCreating] = useState(false);
   const [detail, setDetail] = useState<CustomerDetail | null>(null);
   const [form, setForm] = useState({ email: "", alias: "", name: "", country: "LV", company: "", vatNo: "" });
-  const [edit, setEdit] = useState({ alias: "", name: "", notes: "", blocked: false });
+  const [edit, setEdit] = useState({ alias: "", name: "", notes: "" });
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = (q: string) => {
@@ -67,7 +67,6 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
         alias: d.customer.alias,
         name: d.customer.name ?? "",
         notes: d.customer.notes,
-        blocked: d.customer.blocked,
       });
     }).catch(() => undefined);
   };
@@ -98,7 +97,6 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
         alias: edit.alias,
         name: edit.name || null,
         notes: edit.notes,
-        blocked: edit.blocked,
       });
       toast("Bidder saved", "ok");
       openDetail(detail.customer.id);
@@ -138,6 +136,46 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
       openDetail(detail.customer.id);
     } catch (err) {
       toast(err instanceof ApiError ? err.message : "Action failed", "danger");
+    }
+  };
+
+  /** Zero-tolerance suspension — always via the audited block endpoint. */
+  const ban = async () => {
+    if (!detail) return;
+    const r = await confirm({
+      title: `Suspend ${detail.customer.alias}?`,
+      body: "The account can no longer sign in to bid or buy. Use for zero-tolerance behaviour (threats, verbal abuse, aggression towards staff) or repeated strikes. The reason goes to the audit log.",
+      danger: true,
+      requireReason: true,
+      confirmLabel: "Suspend account",
+    });
+    if (!r.ok) return;
+    try {
+      await api.post(`/api/customers/${detail.customer.id}/block`, { reason: r.reason });
+      toast("Account suspended", "ok");
+      openDetail(detail.customer.id);
+      load(query);
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Failed", "danger");
+    }
+  };
+
+  const unban = async () => {
+    if (!detail) return;
+    const r = await confirm({
+      title: `Reinstate ${detail.customer.alias}?`,
+      body: "The account can bid and buy again (outstanding restock fees still pause bidding until settled). The reason goes to the audit log.",
+      requireReason: true,
+      confirmLabel: "Reinstate",
+    });
+    if (!r.ok) return;
+    try {
+      await api.post(`/api/customers/${detail.customer.id}/unblock`, { reason: r.reason });
+      toast("Account reinstated", "ok");
+      openDetail(detail.customer.id);
+      load(query);
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Failed", "danger");
     }
   };
 
@@ -329,12 +367,25 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
                     fontSize: 13, color: AT.ink, padding: 10, resize: "vertical",
                   }} />
                 </AField>
-                <div>
-                  <ABtn kind={edit.blocked ? "danger" : "ghost"} size="sm" onClick={() => setEdit({ ...edit, blocked: !edit.blocked })}>
-                    {edit.blocked ? "Blocked — click to unblock on save" : "Active — click to block on save"}
-                  </ABtn>
-                </div>
               </>
+            )}
+
+            {!detail.customer.erasedAt && can("customers.strike") && (
+              detail.customer.blocked ? (
+                <div style={{ background: "#FBE3E3", border: "1px solid #E8B4B4", borderRadius: AT.radiusSm, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontFamily: AT.body, fontSize: 12, fontWeight: 700, color: "#8F1D21" }}>
+                      Account suspended{detail.customer.blockedAt ? ` · ${formatDay(detail.customer.blockedAt)}` : ""}
+                    </div>
+                    <div style={{ fontSize: 12, color: "#A54A4D", marginTop: 2 }}>{detail.customer.blockedReason || "No reason recorded"}</div>
+                  </div>
+                  <ABtn size="sm" kind="dark" onClick={() => void unban()}>Reinstate</ABtn>
+                </div>
+              ) : (
+                <div>
+                  <ABtn kind="danger" size="sm" onClick={() => void ban()}>Suspend account</ABtn>
+                </div>
+              )
             )}
 
             {detail.fees.length > 0 && (
