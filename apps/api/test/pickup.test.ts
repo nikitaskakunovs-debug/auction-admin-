@@ -287,18 +287,21 @@ describe("no-show engine: reminders, 5% restock fee, strike, restock queue", () 
       await cancelNoShowDue(world.ctx);
       const refundsAfter = await world.ctx.db.select().from(refunds).where(eq(refunds.orderId, orderId));
       expect(refundsAfter).toHaveLength(1);
-
-      // Manual restock review: operations returns the item to draft.
-      const restock = await world.server.app.inject({
-        method: "POST",
-        url: `/api/items/${itemId}/transition`,
-        headers: auth(opsToken),
-        payload: { to: "draft" },
-      });
-      expect(restock.statusCode).toBe(200);
     } finally {
       world.setNow(null);
     }
+
+    // Manual restock review: operations returns the item to draft. Runs after
+    // the clock is restored — access tokens expire inside the 15-day warp.
+    const restock = await world.server.app.inject({
+      method: "POST",
+      url: `/api/items/${itemId}/transition`,
+      headers: auth(opsToken),
+      payload: { to: "draft" },
+    });
+    expect(restock.statusCode).toBe(200);
+    const [restocked] = await world.ctx.db.select().from(items).where(eq(items.id, itemId));
+    expect(restocked!.status).toBe("draft");
   });
 
   it("skips clients who are mid-pickup (item already picking)", async () => {
