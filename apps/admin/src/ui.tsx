@@ -263,11 +263,14 @@ export function ASelect({ label, value, onChange, options }: {
   );
 }
 
-export function AInput({ value, onChange, placeholder, type = "text", style, autoFocus }: {
+export function AInput({ value, onChange, placeholder, type = "text", style, autoFocus, inputRef }: {
   value: string; onChange: (v: string) => void; placeholder?: string; type?: string; style?: CSSProperties; autoFocus?: boolean;
+  /** For focus management (e.g. rapid-entry forms that refocus after submit). */
+  inputRef?: React.Ref<HTMLInputElement>;
 }) {
   return (
     <input
+      ref={inputRef}
       type={type}
       value={value}
       autoFocus={autoFocus}

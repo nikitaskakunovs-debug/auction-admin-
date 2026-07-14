@@ -64,6 +64,13 @@
       "when": 1784063061607,
       "tag": "0008_steep_leopardon",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1784067760289,
+      "tag": "0009_solid_ego",
+      "breakpoints": true
     }
   ]
 }

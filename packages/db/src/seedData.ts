@@ -99,6 +99,9 @@ export async function seedDatabase(db: Db, opts: SeedOptions = {}): Promise<void
   }
 
   await db.insert(t.counters).values({ key: "order_ref", value: 1000 }).onConflictDoNothing();
+  // Receiving: auto-SKU + consignment refs. sku starts above the demo LOT-00xx range.
+  await db.insert(t.counters).values({ key: "sku", value: 100 }).onConflictDoNothing();
+  await db.insert(t.counters).values({ key: "consignment_ref", value: 0 }).onConflictDoNothing();
 
   if (!demoData) return;
 

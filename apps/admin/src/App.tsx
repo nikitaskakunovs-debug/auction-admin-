@@ -10,6 +10,7 @@ import { ListingsScreen } from "./screens/Listings.js";
 import { InventoryScreen } from "./screens/Inventory.js";
 import { OrdersScreen } from "./screens/Orders.js";
 import { PickupScreen } from "./screens/Pickup.js";
+import { ReceivingScreen } from "./screens/Receiving.js";
 import { BoardScreen } from "./screens/Board.js";
 import { CustomersScreen } from "./screens/Customers.js";
 import { SettingsScreen } from "./screens/Settings.js";
@@ -48,6 +49,7 @@ const SCREENS: ScreenDef[] = [
   { id: "auctions", label: "Auctions", icon: "gavel", permission: "auctions.view", render: (nav) => nav.route.param ? <AuctionMonitorScreen nav={nav} auctionId={nav.route.param} /> : <AuctionsScreen nav={nav} /> },
   { id: "listings", label: "Listings", icon: "tag", permission: "listings.view", render: (nav) => <ListingsScreen nav={nav} /> },
   { id: "inventory", label: "Inventory", icon: "inventory", permission: "items.view", render: (nav) => <InventoryScreen nav={nav} /> },
+  { id: "receiving", label: "Receiving", icon: "inventory", permission: "warehouse.manage", render: (nav) => <ReceivingScreen nav={nav} /> },
   { id: "orders", label: "Orders", icon: "orders", permission: "orders.view", render: (nav) => <OrdersScreen nav={nav} /> },
   { id: "pickup", label: "Pickup", icon: "inventory", permission: "pickup.view", render: (nav) => <PickupScreen nav={nav} /> },
   { id: "customers", label: "Bidders", icon: "users", permission: "customers.view", render: (nav) => <CustomersScreen nav={nav} /> },

@@ -5,6 +5,7 @@ import { api, ApiError, type Item, type Market } from "../api.js";
 import type { Nav } from "../App.js";
 import { useAuth } from "../auth.js";
 import { formatDate } from "../format.js";
+import { openLabelWindow as openLabel } from "../labels.js";
 import { AT, ITEM_STATUS_TONE } from "../theme.js";
 import {
   ABadge, ABtn, ACard, ADrawer, AEmpty, AField, AIcon, AInput, APills, ASelect,
@@ -283,13 +284,16 @@ export function InventoryScreen({ nav: _nav }: { nav: Nav }) {
         >
           <div style={{ display: "grid", gap: 14 }}>
             {editing && (
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <ABadge tone={ITEM_STATUS_TONE[editing.status]?.tone ?? "neutral"}>{ITEM_STATUS_TONE[editing.status]?.label ?? editing.status}</ABadge>
                 {NEXT_STEP[editing.status] && can("items.transition") && (
                   <ABtn size="sm" kind="dark" onClick={() => void transition(editing, NEXT_STEP[editing.status]!.to)}>
                     <AIcon name="pkg" size={13} color="#fff" /> {NEXT_STEP[editing.status]!.label}
                   </ABtn>
                 )}
+                <ABtn size="sm" kind="ghost" onClick={() => void openLabel(`/api/items/${editing.id}/label`, (m) => toast(m, "danger"))}>
+                  Print label
+                </ABtn>
               </div>
             )}
             <AField label="SKU"><AInput value={form.sku} onChange={(v) => set({ sku: v })} placeholder="LOT-0042" /></AField>

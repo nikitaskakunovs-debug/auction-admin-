@@ -226,6 +226,25 @@ settles the fee (paid at the desk/by transfer) or waives it with an audited
 reason. No-pickup fees mirror into the same ledger born `settled`, so every
 restock fee is in one place. State the 5% unpaid-lot fee in the T&C.
 
+## Receiving (inbound deliveries)
+
+The inbound half of the ERP: when a truck arrives, warehouse staff
+(`warehouse.manage`) create a **consignment** (supplier, market, expected
+units — ref `CON-0042` from the counters row lock) in admin → **Receiving**,
+then receive units one by one at the intake station: title + condition grade
+(taxonomy with enforced SEE-NOTES), optional weight. Each receive mints an
+auto-SKU (`LOT-000123`, same row-lock counter pattern as invoices, race-safe),
+creates the item in `draft` linked to the consignment, and writes an `intake`
+stock movement — so the movements ledger now covers the item's whole life:
+intake → putaway → pick → handover.
+
+**QR labels**: every receive can print a 57×32 mm thermal label (QR = item
+uuid, plus SKU/title/grade) via server-rendered print pages — per item, whole
+consignment, or all bin labels. `GET /api/items/lookup?code=` resolves a
+scanned QR (uuid) or a typed SKU to the item + bin + consignment, which is
+what the Phase-15 warehouse mobile screens will drive putaway/pick from.
+Closing a consignment (audited, warns on count mismatch) stops receiving.
+
 ## Item photos
 
 Photos are captured at the warehouse (grading station phone/camera or the

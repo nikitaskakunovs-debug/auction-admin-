@@ -203,6 +203,33 @@ export const stockMovements = pgTable(
   (t) => [index("stock_movements_item_idx").on(t.itemId, t.createdAt)],
 );
 
+// ── Receiving (consignments / deliveries) ────────────────────────────────────
+
+/** One inbound delivery (pallet, supplier lot, buy-out). Items are received
+ * against it one by one at the intake station, each writing an `intake`
+ * stock movement. */
+export const consignments = pgTable(
+  "consignments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Human ref (CON-0042) from the counters row lock. */
+    ref: text("ref").notNull(),
+    supplier: text("supplier").notNull(),
+    notes: text("notes").notNull().default(""),
+    marketCode: text("market_code")
+      .notNull()
+      .references(() => markets.code),
+    /** open (still receiving) | closed. */
+    status: text("status").notNull().default("open"),
+    /** Units the paperwork promises; 0 = unknown. */
+    expectedCount: integer("expected_count").notNull().default(0),
+    createdById: uuid("created_by_id").references(() => adminUsers.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("consignments_ref_idx").on(t.ref), index("consignments_status_idx").on(t.status)],
+);
+
 // ── Warehouse items ──────────────────────────────────────────────────────────
 
 export const items = pgTable(
@@ -222,6 +249,8 @@ export const items = pgTable(
     /** { l, w, h } in cm. */
     dims: jsonb("dims").$type<{ l: number; w: number; h: number } | null>(),
     photos: jsonb("photos").$type<string[]>().notNull().default([]),
+    /** Inbound delivery this item arrived with (null for pre-receiving rows). */
+    consignmentId: uuid("consignment_id").references(() => consignments.id),
     /** Warehouse lifecycle state (domain ItemStatus). */
     status: text("status").notNull().default("draft"),
     marketCode: text("market_code")
