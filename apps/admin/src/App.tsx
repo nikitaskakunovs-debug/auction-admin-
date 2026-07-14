@@ -9,6 +9,8 @@ import { AuctionMonitorScreen } from "./screens/AuctionMonitor.js";
 import { ListingsScreen } from "./screens/Listings.js";
 import { InventoryScreen } from "./screens/Inventory.js";
 import { OrdersScreen } from "./screens/Orders.js";
+import { PickupScreen } from "./screens/Pickup.js";
+import { BoardScreen } from "./screens/Board.js";
 import { CustomersScreen } from "./screens/Customers.js";
 import { SettingsScreen } from "./screens/Settings.js";
 import { ActivityScreen } from "./screens/Activity.js";
@@ -47,6 +49,7 @@ const SCREENS: ScreenDef[] = [
   { id: "listings", label: "Listings", icon: "tag", permission: "listings.view", render: (nav) => <ListingsScreen nav={nav} /> },
   { id: "inventory", label: "Inventory", icon: "inventory", permission: "items.view", render: (nav) => <InventoryScreen nav={nav} /> },
   { id: "orders", label: "Orders", icon: "orders", permission: "orders.view", render: (nav) => <OrdersScreen nav={nav} /> },
+  { id: "pickup", label: "Pickup", icon: "inventory", permission: "pickup.view", render: (nav) => <PickupScreen nav={nav} /> },
   { id: "customers", label: "Bidders", icon: "users", permission: "customers.view", render: (nav) => <CustomersScreen nav={nav} /> },
   { id: "finance", label: "Finance", icon: "finance", permission: "invoices.view", render: (nav) => <FinanceScreen nav={nav} /> },
   { id: "content", label: "Content", icon: "list", permission: "content.view", render: (nav) => <ContentScreen nav={nav} /> },
@@ -76,6 +79,10 @@ export function App() {
     }),
     [route],
   );
+
+  // Waiting-room TVs render without a login: #/board shows only the
+  // PII-free public board payload (ticket numbers, progress, zone counts).
+  if (route.screen === "board") return <BoardScreen view={route.param} />;
 
   if (loading) return null;
   if (!user) return <LoginScreen />;

@@ -4,6 +4,7 @@ import { and, eq, gt, lte, sql } from "drizzle-orm";
 import { writeAudit, SYSTEM_ACTOR } from "../audit.js";
 import type { AppContext } from "../context.js";
 import { closeAuction, openAuction } from "./close.js";
+import { cancelNoShowDue, remindPickupDue } from "./noShow.js";
 import { dispatchNotifications, enqueueNotification, reminderDedupeKey } from "./notifications.js";
 
 const LOCK_KEY = "scheduler:lock";
@@ -48,6 +49,9 @@ export class AuctionScheduler {
         // Design-doc unpaid-winner flow: deadline → reminder → auto-cancel.
         await this.remindUnpaidDue();
         await this.cancelUnpaidDue();
+        // Pickup no-show flow: reminder → cancel + restock fee + strike.
+        await remindPickupDue(this.ctx);
+        await cancelNoShowDue(this.ctx);
         // Drain the outbox last so this tick's enqueues go out promptly.
         await dispatchNotifications(this.ctx);
       } finally {

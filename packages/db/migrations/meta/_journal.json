@@ -43,6 +43,13 @@
       "when": 1783629441166,
       "tag": "0005_plain_rafael_vega",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784059354349,
+      "tag": "0006_lively_argent",
+      "breakpoints": true
     }
   ]
 }

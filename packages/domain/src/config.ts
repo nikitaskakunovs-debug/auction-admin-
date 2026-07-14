@@ -25,6 +25,10 @@ export interface MarketConfig {
   /** Anti-snipe window in seconds (listing can override). */
   antiSnipeSec: number;
   incrementTable: IncrementTable;
+  /** Days after payment the client has to collect (pickup fulfilment). */
+  pickupDeadlineDays: number;
+  /** No-show restock fee in basis points of the paid order total (5% = 500). */
+  restockFeeBp: BasisPoints;
   /** Reserved for later phases. */
   klix: null;
   carriers: null;
@@ -41,6 +45,8 @@ export const DEFAULT_MARKETS: readonly MarketConfig[] = [
     buyerPremiumBp: 1000,
     antiSnipeSec: 60,
     incrementTable: DEFAULT_INCREMENT_TABLE,
+    pickupDeadlineDays: 14,
+    restockFeeBp: 500,
     klix: null,
     carriers: null,
   },
@@ -55,6 +61,8 @@ export const DEFAULT_MARKETS: readonly MarketConfig[] = [
     buyerPremiumBp: 1000,
     antiSnipeSec: 60,
     incrementTable: DEFAULT_INCREMENT_TABLE,
+    pickupDeadlineDays: 14,
+    restockFeeBp: 500,
     klix: null,
     carriers: null,
   },
@@ -68,6 +76,8 @@ export const DEFAULT_MARKETS: readonly MarketConfig[] = [
     buyerPremiumBp: 1000,
     antiSnipeSec: 60,
     incrementTable: DEFAULT_INCREMENT_TABLE,
+    pickupDeadlineDays: 14,
+    restockFeeBp: 500,
     klix: null,
     carriers: null,
   },
@@ -95,6 +105,8 @@ export const PERMISSIONS = [
   "auctions.view", "auctions.monitor", "auctions.extend", "auctions.cancel", "auctions.void_bid", "auctions.relist",
   // Orders & fulfilment
   "orders.view", "orders.mark_paid", "orders.fulfil", "orders.refund", "orders.cancel_unpaid",
+  // Pickup desk + warehouse ERP
+  "pickup.view", "pickup.operate", "warehouse.manage",
   // Customers / bidders
   "customers.view", "customers.edit", "customers.strike", "customers.erase", "customers.vies_check",
   // Content
@@ -122,6 +134,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<RoleId, readonly Permissi
     "items.view", "items.create", "items.edit", "items.delete", "items.transition",
     "listings.view", "listings.create", "listings.edit", "listings.publish",
     "auctions.view", "auctions.monitor", "auctions.relist",
+    "warehouse.manage",
     "reports.view", "audit.view",
   ],
   // Commercial: pricing, reserves, promotions, analytics
@@ -132,11 +145,12 @@ export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<RoleId, readonly Permissi
     "customers.view", "customers.vies_check",
     "reports.view", "finance.view", "audit.view",
   ],
-  // Orders, payments, pick/pack, labels, refunds
+  // Orders, payments, pick/pack, pickup desk, refunds
   operations: [
     "items.view", "items.transition",
     "auctions.view",
     "orders.view", "orders.mark_paid", "orders.fulfil", "orders.refund", "orders.cancel_unpaid",
+    "pickup.view", "pickup.operate", "warehouse.manage",
     "customers.view", "customers.strike", "customers.vies_check",
     "reports.view", "audit.view",
   ],
@@ -148,6 +162,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<RoleId, readonly Permissi
   support: [
     "items.view", "listings.view", "auctions.view",
     "orders.view", "orders.refund",
+    "pickup.view",
     "customers.view", "customers.edit",
     "audit.view",
   ],

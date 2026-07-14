@@ -14,11 +14,14 @@ const GROUPS = [
   { id: "intake", label: "Intake", statuses: ["draft", "listed"] },
   { id: "selling", label: "Selling", statuses: ["live", "won", "awaiting_payment"] },
   { id: "fulfilment", label: "Fulfilment", statuses: ["paid", "picking", "packed", "shipped", "delivered"] },
-  { id: "attention", label: "Attention", statuses: ["unsold", "unpaid_cancelled"] },
+  { id: "attention", label: "Attention", statuses: ["unsold", "unpaid_cancelled", "no_pickup_cancelled"] },
+  { id: "restock", label: "Returned", statuses: ["unpaid_cancelled", "no_pickup_cancelled"] },
   { id: "closed", label: "Closed", statuses: ["closed"] },
 ];
 
 const NEXT_STEP: Record<string, { to: string; label: string }> = {
+  unpaid_cancelled: { to: "draft", label: "Return to stock" },
+  no_pickup_cancelled: { to: "draft", label: "Return to stock" },
   paid: { to: "picking", label: "Start picking" },
   picking: { to: "packed", label: "Mark packed" },
   packed: { to: "shipped", label: "Mark shipped" },
@@ -40,6 +43,9 @@ interface FormState {
 
 const emptyForm: FormState = { sku: "", title: "", description: "", condition: "good", location: "", weight: "", marketCode: "LV" };
 
+interface Bin { id: string; label: string; zone: string; active: boolean }
+interface Movement { id: string; type: string; toLabel: string | null; actorLabel: string; reason: string; createdAt: string }
+
 export function InventoryScreen({ nav: _nav }: { nav: Nav }) {
   const { can } = useAuth();
   const toast = useToast();
@@ -51,6 +57,8 @@ export function InventoryScreen({ nav: _nav }: { nav: Nav }) {
   const [editing, setEditing] = useState<Item | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [markets, setMarkets] = useState<Market[]>([]);
+  const [bins, setBins] = useState<Bin[]>([]);
+  const [movements, setMovements] = useState<Movement[]>([]);
 
   const load = () => {
     void api.get<{ items: Item[] }>("/api/items").then((r) => setItems(r.items)).catch(() => undefined);
@@ -58,7 +66,26 @@ export function InventoryScreen({ nav: _nav }: { nav: Nav }) {
   useEffect(() => {
     load();
     void api.get<{ markets: Market[] }>("/api/markets").then((r) => setMarkets(r.markets)).catch(() => undefined);
+    void api.get<{ locations: Bin[] }>("/api/warehouse/locations").then((r) => setBins(r.locations.filter((b) => b.active))).catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    if (!editing) return setMovements([]);
+    void api.get<{ movements: Movement[] }>(`/api/items/${editing.id}/movements`).then((r) => setMovements(r.movements)).catch(() => undefined);
+  }, [editing?.id]);
+
+  const putaway = async (locationId: string | null) => {
+    if (!editing) return;
+    try {
+      await api.post(`/api/items/${editing.id}/putaway`, { locationId, reason: "" });
+      toast(locationId ? "Bin assigned" : "Bin cleared", "ok");
+      setEditing({ ...editing, locationId });
+      void api.get<{ movements: Movement[] }>(`/api/items/${editing.id}/movements`).then((r) => setMovements(r.movements)).catch(() => undefined);
+      load();
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Putaway failed", "danger");
+    }
+  };
 
   const set = (patch: Partial<FormState>) => setForm((f) => ({ ...f, ...patch }));
 
@@ -130,7 +157,7 @@ export function InventoryScreen({ nav: _nav }: { nav: Nav }) {
       total: items.length,
       fulfilment: by(["paid", "picking", "packed", "shipped"]),
       awaiting: by(["awaiting_payment"]),
-      attention: by(["unsold", "unpaid_cancelled"]),
+      attention: by(["unsold", "unpaid_cancelled", "no_pickup_cancelled"]),
     };
   }, [items]);
 
@@ -157,7 +184,7 @@ export function InventoryScreen({ nav: _nav }: { nav: Nav }) {
         <AStat label="Items" value={kpis.total} />
         <AStat label="In fulfilment" value={kpis.fulfilment} />
         <AStat label="Awaiting payment" value={kpis.awaiting} tone={kpis.awaiting > 0 ? "warn" : undefined} />
-        <AStat label="Needs attention" value={kpis.attention} tone={kpis.attention > 0 ? "warn" : undefined} sub="unsold / unpaid" />
+        <AStat label="Needs attention" value={kpis.attention} tone={kpis.attention > 0 ? "warn" : undefined} sub="unsold / cancelled" />
       </div>
 
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
@@ -235,9 +262,32 @@ export function InventoryScreen({ nav: _nav }: { nav: Nav }) {
               <AField label="Market">
                 <ASelect value={form.marketCode} onChange={(v) => set({ marketCode: v })} options={markets.map((m) => ({ value: m.code, label: m.code }))} />
               </AField>
-              <AField label="Location"><AInput value={form.location} onChange={(v) => set({ location: v })} placeholder="A-01-03" /></AField>
+              <AField label="Location (note)"><AInput value={form.location} onChange={(v) => set({ location: v })} placeholder="A-01-03" /></AField>
               <AField label="Weight (grams)"><AInput value={form.weight} onChange={(v) => set({ weight: v })} placeholder="1200" /></AField>
             </div>
+            {editing && can("warehouse.manage") && (
+              <AField label="Warehouse bin" hint="Changing the bin writes a putaway/move into the stock ledger.">
+                <ASelect
+                  value={editing.locationId ?? ""}
+                  onChange={(v) => void putaway(v || null)}
+                  options={[{ value: "", label: "— no bin —" }, ...bins.map((b) => ({ value: b.id, label: b.label }))]}
+                />
+              </AField>
+            )}
+            {editing && movements.length > 0 && (
+              <AField label={`Stock movements (${movements.length})`}>
+                <div style={{ display: "grid", gap: 4, maxHeight: 180, overflowY: "auto" }}>
+                  {movements.map((m) => (
+                    <div key={m.id} style={{ display: "flex", gap: 8, fontSize: 12, color: AT.inkSoft, alignItems: "baseline" }}>
+                      <span style={{ fontFamily: AT.mono, fontWeight: 700, color: AT.ink, minWidth: 64 }}>{m.type}</span>
+                      <span style={{ fontFamily: AT.mono }}>{m.toLabel ?? "—"}</span>
+                      <span style={{ flex: 1 }}>{m.actorLabel}{m.reason ? ` · ${m.reason}` : ""}</span>
+                      <span>{formatDate(m.createdAt)}</span>
+                    </div>
+                  ))}
+                </div>
+              </AField>
+            )}
           </div>
         </ADrawer>
       )}

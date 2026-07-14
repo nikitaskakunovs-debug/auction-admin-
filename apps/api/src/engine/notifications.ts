@@ -9,7 +9,15 @@ import type { AppContext } from "../context.js";
  * and hands each to the email adapter, marking sent/failed with retry.
  */
 
-export type NotificationType = "outbid" | "won" | "purchased" | "payment_reminder" | "order_paid";
+export type NotificationType =
+  | "outbid"
+  | "won"
+  | "purchased"
+  | "payment_reminder"
+  | "order_paid"
+  | "pickup_ready"
+  | "pickup_reminder"
+  | "no_pickup_cancelled";
 
 type Lang = "lv" | "en";
 
@@ -25,6 +33,11 @@ interface TemplateInput {
   orderRef?: string | undefined;
   totalCents?: number | undefined;
   deadline?: Date | undefined;
+  /** Pickup pass credential (pickup_ready / pickup_reminder). */
+  pickupCode?: string | undefined;
+  /** No-show settlement (no_pickup_cancelled). */
+  feeCents?: number | undefined;
+  refundCents?: number | undefined;
 }
 
 /** type → (lang → {subject, body}). Body carries a machine tag `[type]` used
@@ -80,6 +93,36 @@ function render(type: NotificationType, lang: Lang, i: TemplateInput): { subject
       en: {
         subject: `Payment received — ${i.orderRef}`,
         body: `Hi ${i.alias},\n\nWe received payment for order ${i.orderRef} (${money(i.totalCents)}). Thank you!\n\n[order_paid]`,
+      },
+    },
+    pickup_ready: {
+      lv: {
+        subject: `Gatavs saņemšanai — ${i.orderRef}`,
+        body: `Sveiki, ${i.alias}!\n\nPasūtījums ${i.orderRef} ir gatavs saņemšanai noliktavā. Saņemšanas kods: ${i.pickupCode}.\nLūdzu, izņemiet līdz ${i.deadline?.toISOString().slice(0, 10)} — pēc termiņa pasūtījums tiek atcelts ar 5% uzglabāšanas maksu.\n\n[pickup_ready]`,
+      },
+      en: {
+        subject: `Ready for pickup — ${i.orderRef}`,
+        body: `Hi ${i.alias},\n\nOrder ${i.orderRef} is ready for collection at the warehouse. Pickup code: ${i.pickupCode}.\nPlease collect by ${i.deadline?.toISOString().slice(0, 10)} — after the deadline the order is cancelled with a 5% restocking fee.\n\n[pickup_ready]`,
+      },
+    },
+    pickup_reminder: {
+      lv: {
+        subject: `Atgādinājums: saņemiet pasūtījumu ${i.orderRef}`,
+        body: `Sveiki, ${i.alias}!\n\nPasūtījums ${i.orderRef} joprojām gaida noliktavā. Saņemšanas kods: ${i.pickupCode}.\nTermiņš: ${i.deadline?.toISOString().slice(0, 10)}. Pēc termiņa pasūtījums tiek atcelts ar 5% uzglabāšanas maksu.\n\n[pickup_reminder]`,
+      },
+      en: {
+        subject: `Reminder: collect order ${i.orderRef}`,
+        body: `Hi ${i.alias},\n\nOrder ${i.orderRef} is still waiting at the warehouse. Pickup code: ${i.pickupCode}.\nDeadline: ${i.deadline?.toISOString().slice(0, 10)}. After the deadline the order is cancelled with a 5% restocking fee.\n\n[pickup_reminder]`,
+      },
+    },
+    no_pickup_cancelled: {
+      lv: {
+        subject: `Pasūtījums atcelts (nav izņemts) — ${i.orderRef}`,
+        body: `Sveiki, ${i.alias}!\n\nPasūtījums ${i.orderRef} netika izņemts līdz termiņam un ir atcelts. Uzglabāšanas maksa: ${money(i.feeCents)}. Atmaksa: ${money(i.refundCents)}.\nAtmaksa tiks veikta uz jūsu maksājuma līdzekli.\n\n[no_pickup_cancelled]`,
+      },
+      en: {
+        subject: `Order cancelled (not collected) — ${i.orderRef}`,
+        body: `Hi ${i.alias},\n\nOrder ${i.orderRef} was not collected by the deadline and has been cancelled. Restocking fee: ${money(i.feeCents)}. Refund: ${money(i.refundCents)}.\nThe refund will be returned to your payment method.\n\n[no_pickup_cancelled]`,
       },
     },
   };
@@ -167,4 +210,9 @@ export async function notificationCounts(ctx: AppContext): Promise<Record<string
 /** Reminders due: awaiting-payment orders whose deadline is within the window. */
 export function reminderDedupeKey(orderId: string): string {
   return `payment_reminder:${orderId}`;
+}
+
+/** One pickup reminder per window (3 days out, 1 day out) per order. */
+export function pickupReminderDedupeKey(orderId: string, window: "3d" | "1d"): string {
+  return `pickup_reminder:${window}:${orderId}`;
 }

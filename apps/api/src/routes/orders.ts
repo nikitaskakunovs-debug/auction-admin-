@@ -1,4 +1,4 @@
-import { customers, invoices, items, orders, refunds } from "@auction/db";
+import { customers, invoices, items, markets, orders, refunds } from "@auction/db";
 import { assertItemTransition, type ItemStatus } from "@auction/domain";
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -6,6 +6,7 @@ import { z } from "zod";
 import { writeAudit } from "../audit.js";
 import type { AppContext } from "../context.js";
 import { enqueueNotification } from "../engine/notifications.js";
+import { generatePickupCode } from "../engine/pickup.js";
 import { requirePermission, type PermissionService } from "../auth/rbac.js";
 
 const actor = (req: { admin?: { sub: string; name: string } }) => ({
@@ -46,18 +47,33 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext, perms
 
   app.post("/api/orders/:id/mark-paid", guard("orders.mark_paid"), async (req, reply) => {
     const { id } = req.params as { id: string };
+    // Allocated outside the tx (reads only); uniqueness is among active paid
+    // orders, and the odds of a same-instant collision are negligible.
+    const pickupCode = await generatePickupCode(ctx.db);
     const result = await ctx.db.transaction(async (tx) => {
       const [order] = await tx.select().from(orders).where(eq(orders.id, id)).for("update");
       if (!order) return null;
       if (order.status !== "awaiting_payment") return "not_awaiting" as const;
       const [item] = await tx.select().from(items).where(eq(items.id, order.itemId)).for("update");
       assertItemTransition(item!.status as ItemStatus, "paid");
-      await tx.update(orders).set({ status: "paid", paidAt: ctx.now() }).where(eq(orders.id, id));
+      const [market] = await tx.select().from(markets).where(eq(markets.code, order.marketCode));
+      const deadlineDays = market?.pickupDeadlineDays ?? 14;
+      const pickupDeadlineAt = new Date(ctx.now().getTime() + deadlineDays * 24 * 3_600_000);
+      await tx
+        .update(orders)
+        .set({ status: "paid", paidAt: ctx.now(), pickupCode, pickupDeadlineAt })
+        .where(eq(orders.id, id));
       await tx.update(items).set({ status: "paid", updatedAt: ctx.now() }).where(eq(items.id, item!.id));
       await enqueueNotification(tx, {
         customerId: order.customerId,
         type: "order_paid",
         template: { alias: "", lotTitle: "", orderRef: order.ref, totalCents: order.totalCents },
+      });
+      // Pickup pass: collection code + deadline (design: 14 days, then 5% fee).
+      await enqueueNotification(tx, {
+        customerId: order.customerId,
+        type: "pickup_ready",
+        template: { alias: "", lotTitle: "", orderRef: order.ref, pickupCode, deadline: pickupDeadlineAt },
       });
       await writeAudit(tx, actor(req), "order", "marked_paid", order.ref, { totalCents: order.totalCents });
       return order;

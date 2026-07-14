@@ -58,8 +58,22 @@ export async function seedDatabase(db: Db, opts: SeedOptions = {}): Promise<void
         buyerPremiumBp: m.buyerPremiumBp,
         antiSnipeSec: m.antiSnipeSec,
         incrementTable: [...m.incrementTable],
+        pickupDeadlineDays: m.pickupDeadlineDays,
+        restockFeeBp: m.restockFeeBp,
       })
       .onConflictDoNothing();
+  }
+
+  // ── Warehouse locations (FRONT/BACK zones the pickup boards count) ────────
+  for (const zone of ["FRONT", "BACK"] as const) {
+    for (const aisle of ["A1", "A2"]) {
+      for (const shelf of ["S1", "S2"]) {
+        await db
+          .insert(t.warehouseLocations)
+          .values({ zone, aisle, rack: "R1", shelf, label: `${zone}-${aisle}-R1-${shelf}` })
+          .onConflictDoNothing();
+      }
+    }
   }
 
   // ── Roles + permissions + one admin user per role ─────────────────────────

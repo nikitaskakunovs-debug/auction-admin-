@@ -73,6 +73,11 @@ const STRINGS: Record<string, Record<Lang, string>> = {
   "acc.awaiting": { lv: "Gaida apmaksu", ru: "Ожидает оплаты", en: "Awaiting payment", et: "Ootab maksmist", lt: "Laukiama apmokėjimo" },
   "acc.paid": { lv: "Apmaksāts", ru: "Оплачен", en: "Paid", et: "Makstud", lt: "Apmokėta" },
   "acc.empty": { lv: "Vēl nav aktivitātes.", ru: "Пока нет активности.", en: "No activity yet.", et: "Tegevust veel pole.", lt: "Kol kas nėra veiklos." },
+  "pickup.title": { lv: "Gatavs saņemšanai noliktavā", ru: "Готово к получению на складе", en: "Ready for warehouse pickup", et: "Valmis laost kättesaamiseks", lt: "Paruošta atsiimti sandėlyje" },
+  "pickup.code": { lv: "Saņemšanas kods", ru: "Код получения", en: "Pickup code", et: "Kättesaamise kood", lt: "Atsiėmimo kodas" },
+  "pickup.deadline": { lv: "Izņemt līdz", ru: "Забрать до", en: "Collect by", et: "Kätte saada hiljemalt", lt: "Atsiimti iki" },
+  "pickup.feeNote": { lv: "Pēc termiņa pasūtījums tiek atcelts ar 5% maksu.", ru: "После срока заказ отменяется с комиссией 5%.", en: "After the deadline the order is cancelled with a 5% fee.", et: "Pärast tähtaega tellimus tühistatakse 5% tasuga.", lt: "Po termino užsakymas atšaukiamas su 5% mokesčiu." },
+  "pickup.inProgress": { lv: "Tiek gatavots izsniegšanai — jūsu talons ir rindā", ru: "Готовится к выдаче — ваш талон в очереди", en: "Being prepared — your ticket is in the queue", et: "Valmistatakse ette — teie pilet on järjekorras", lt: "Ruošiama išduoti — jūsų bilietas eilėje" },
 };
 
 interface I18n {

@@ -29,6 +29,8 @@ export interface Market {
   buyerPremiumBp: number;
   antiSnipeSec: number;
   incrementTable: Array<{ fromCents: number; incrementCents: number }>;
+  pickupDeadlineDays: number;
+  restockFeeBp: number;
   active: boolean;
 }
 
@@ -39,6 +41,7 @@ export interface Item {
   description: string;
   condition: string;
   location: string;
+  locationId: string | null;
   weightGrams: number | null;
   photos: string[];
   status: string;

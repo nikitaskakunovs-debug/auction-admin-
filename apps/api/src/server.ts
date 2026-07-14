@@ -16,6 +16,7 @@ import { registerFinanceRoutes } from "./routes/finance.js";
 import { registerItemRoutes } from "./routes/items.js";
 import { registerListingRoutes } from "./routes/listings.js";
 import { registerOrderRoutes } from "./routes/orders.js";
+import { registerPickupRoutes } from "./routes/pickup.js";
 import { registerPublicRoutes } from "./routes/public.js";
 import { registerWs } from "./ws.js";
 
@@ -83,6 +84,7 @@ export async function buildServer(ctx: AppContext, opts: { logger?: boolean } = 
   registerFinanceRoutes(app, ctx, perms);
   registerAdminRoutes(app, ctx, perms);
   registerCmsRoutes(app, ctx, perms);
+  registerPickupRoutes(app, ctx, perms);
   registerPublicRoutes(app, ctx);
   await registerWs(app, ctx);
 

@@ -20,6 +20,8 @@ export interface AppContext {
 export const auctionChannel = (auctionId: string): string => `auction:${auctionId}`;
 /** Firehose channel for the admin live views. */
 export const ADMIN_CHANNEL = "admin:events";
+/** Channel for the warehouse waiting-room boards (public-safe payloads). */
+export const BOARD_CHANNEL = "board:pickup";
 
 export interface AuctionEvent {
   type: "bid" | "extended" | "opened" | "closed" | "cancelled" | "bid_voided";

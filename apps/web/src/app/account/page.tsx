@@ -6,6 +6,7 @@ import { publicApi } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { formatEur, type MyOrder, type PublicAuction } from "@/lib/types";
 import { Countdown } from "@/components/Countdown";
+import { PickupPass } from "@/components/PickupPass";
 
 type MyBidAuction = PublicAuction & { youLead: boolean };
 
@@ -38,6 +39,7 @@ export default function AccountPage() {
 
   return (
     <div style={{ display: "grid", gap: 26 }}>
+      <PickupPass />
       <section>
         <h1 style={{ fontSize: 20, fontWeight: 700, margin: "0 0 12px", letterSpacing: "-0.02em" }}>{t("acc.myBids")}</h1>
         <div style={card}>

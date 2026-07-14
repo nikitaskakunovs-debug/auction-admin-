@@ -3,9 +3,10 @@ import type { FastifyInstance } from "fastify";
 import { Redis } from "ioredis";
 import type { WebSocket } from "ws";
 import { verifyAccessToken } from "./auth/jwt.js";
-import { ADMIN_CHANNEL, type AppContext } from "./context.js";
+import { ADMIN_CHANNEL, BOARD_CHANNEL, type AppContext } from "./context.js";
 
 const ADMIN_ROOM = "__admin";
+const BOARD_ROOM = "__board";
 
 /**
  * WebSocket gateway: sockets join per-auction rooms (or the admin firehose)
@@ -35,12 +36,13 @@ export async function registerWs(app: FastifyInstance, ctx: AppContext): Promise
 
   const sub = new Redis(ctx.config.redisUrl);
   await sub.psubscribe("auction:*");
-  await sub.subscribe(ADMIN_CHANNEL);
+  await sub.subscribe(ADMIN_CHANNEL, BOARD_CHANNEL);
   sub.on("pmessage", (_pattern, channel, message) => {
     broadcast(channel.slice("auction:".length), message);
   });
   sub.on("message", (channel, message) => {
     if (channel === ADMIN_CHANNEL) broadcast(ADMIN_ROOM, message);
+    else if (channel === BOARD_CHANNEL) broadcast(BOARD_ROOM, message);
   });
   app.addHook("onClose", async () => {
     await sub.quit().catch(() => undefined);
@@ -68,6 +70,10 @@ export async function registerWs(app: FastifyInstance, ctx: AppContext): Promise
         }
         join(ADMIN_ROOM, socket);
         socket.send(JSON.stringify({ type: "subscribed", room: "admin" }));
+      } else if (msg.type === "subscribe_board") {
+        // Waiting-room TVs: payloads are PII-free by construction, no auth.
+        join(BOARD_ROOM, socket);
+        socket.send(JSON.stringify({ type: "subscribed", room: "board" }));
       } else if (msg.type === "unsubscribe_all") {
         leaveAll(socket);
       }

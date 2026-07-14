@@ -42,6 +42,7 @@ export const ITEM_STATUSES = [
   "closed",
   "unsold",
   "unpaid_cancelled",
+  "no_pickup_cancelled",
 ] as const;
 export type ItemStatus = (typeof ITEM_STATUSES)[number];
 
@@ -53,14 +54,19 @@ const ITEM_TRANSITIONS: Record<ItemStatus, readonly ItemStatus[]> = {
   live: ["won", "unsold", "listed"], // → listed when an admin cancels the auction
   won: ["awaiting_payment"],
   awaiting_payment: ["paid", "unpaid_cancelled"],
-  paid: ["picking"],
-  picking: ["packed"],
+  // paid → no_pickup_cancelled is the scheduler's no-show cancel (design:
+  // deadline → 5% restock fee retained → strike → restock queue).
+  paid: ["picking", "no_pickup_cancelled"],
+  // picking → delivered is the in-person pickup handover (no pack/ship legs);
+  // picking → paid rolls back when a pickup ticket is cancelled mid-pick.
+  picking: ["packed", "delivered", "paid"],
   packed: ["shipped"],
   shipped: ["delivered"],
   delivered: ["closed"],
   closed: [],
   unsold: ["listed", "draft"], // relist or pull back
   unpaid_cancelled: ["listed", "draft"], // relist (with strike issued) or pull back
+  no_pickup_cancelled: ["listed", "draft"], // manual restock review, then relist
 };
 
 // ── Shared helpers ───────────────────────────────────────────────────────────

@@ -309,6 +309,31 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
     };
   });
 
+  // Pickup pass: the bidder's own paid, uncollected orders with the 6-digit
+  // collection code + deadline (rendered as a QR on the account page).
+  app.get("/api/public/me/pickup", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const rows = await ctx.db
+      .select({ order: orders, itemTitle: items.title, itemStatus: items.status })
+      .from(orders)
+      .innerJoin(items, eq(orders.itemId, items.id))
+      .where(and(eq(orders.customerId, bidderId), eq(orders.status, "paid")))
+      .orderBy(desc(orders.paidAt))
+      .limit(50);
+    return {
+      pickup: rows
+        .filter((r) => r.itemStatus === "paid" || r.itemStatus === "picking")
+        .map((r) => ({
+          ref: r.order.ref,
+          itemTitle: r.itemTitle,
+          pickupCode: r.order.pickupCode,
+          pickupDeadlineAt: r.order.pickupDeadlineAt,
+          collecting: r.itemStatus === "picking",
+        })),
+    };
+  });
+
   // ── Fixed-price "buy it now" ───────────────────────────────────────────────
 
   function publicListing(row: {

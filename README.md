@@ -191,6 +191,29 @@ later GDPR erase never re-mails anyone. Operators see the outbox (status,
 retries, last error) in the admin's read-only **Notifications** screen
 (`audit.view`).
 
+## Pickup & warehouse ERP
+
+In-person collection is the default fulfilment (design: `docs/pickup-erp.md`).
+After payment the order gets a **6-digit pickup code** (QR on the account
+page + email) and a **14-day deadline** (per-market config). Clients check in
+at the warehouse **kiosk** (`/kiosk` on the storefront — keypad or USB QR
+scanner) or at the front desk (admin → Pickup); check-in mints a 3-digit
+daily **ticket** bundling all their paid orders. Two TV boards (admin
+`#/board` and `#/board/delivering`, PII-free public payloads, no login)
+show picking progress %, ETA (rolling average pick pace) and FRONT/BACK zone
+counts, then "NOW DELIVERING". Workers claim tickets, walk a pick-path-sorted
+list, flag missing/damaged lines, and verify the client's code at handover.
+
+**No-shows**: reminders 3 days and 1 day before the deadline; past it the
+scheduler cancels the order, retains a **5% restock fee** of the paid total,
+records the remainder as a refund, adds a strike, and sends the item to the
+Inventory "Returned" queue for a manual, audited return-to-stock + relist.
+
+**Warehouse ERP**: structured bins (`zone/aisle/rack/shelf`, unique labels),
+an append-only `stock_movements` ledger (intake/putaway/move/pick/restock/
+handover with actor + reason), bin assignment and per-item movement history
+in the Inventory drawer.
+
 ## Out of scope so far (per design-doc build order)
 
 Klix payments, carrier APIs (Omniva/DPD/Venipak) — both waiting on merchant

@@ -34,6 +34,10 @@ export const markets = pgTable("markets", {
   incrementTable: jsonb("increment_table")
     .$type<Array<{ fromCents: number; incrementCents: number }>>()
     .notNull(),
+  /** Days after payment the client has to collect (pickup fulfilment). */
+  pickupDeadlineDays: integer("pickup_deadline_days").notNull().default(14),
+  /** No-show restock fee in basis points of the paid total (5% = 500). */
+  restockFeeBp: integer("restock_fee_bp").notNull().default(500),
   active: boolean("active").notNull().default(true),
 });
 
@@ -153,6 +157,49 @@ export const customers = pgTable(
   (t) => [uniqueIndex("customers_email_idx").on(t.email)],
 );
 
+// ── Warehouse ERP: structured locations + movement ledger ───────────────────
+
+/** A physical slot: zone (FRONT/BACK/…) → aisle → rack → shelf. */
+export const warehouseLocations = pgTable(
+  "warehouse_locations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    zone: text("zone").notNull(), // 'FRONT' | 'BACK' | custom
+    aisle: text("aisle").notNull().default(""),
+    rack: text("rack").notNull().default(""),
+    shelf: text("shelf").notNull().default(""),
+    /** Human label, e.g. 'FRONT-A1-R2-S3' — printed on the shelf edge. */
+    label: text("label").notNull(),
+    notes: text("notes").notNull().default(""),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("warehouse_locations_label_idx").on(t.label)],
+);
+
+/**
+ * Append-only movement ledger — every physical change of custody or place:
+ * intake | putaway | move | pick | restock | handover | adjust.
+ */
+export const stockMovements = pgTable(
+  "stock_movements",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    itemId: uuid("item_id")
+      .notNull()
+      .references(() => items.id, { onDelete: "cascade" }),
+    type: text("type").notNull(),
+    fromLocationId: uuid("from_location_id").references(() => warehouseLocations.id),
+    toLocationId: uuid("to_location_id").references(() => warehouseLocations.id),
+    actorId: uuid("actor_id").references(() => adminUsers.id),
+    /** Display snapshot ('System' for scheduler moves). */
+    actorLabel: text("actor_label").notNull().default("System"),
+    reason: text("reason").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("stock_movements_item_idx").on(t.itemId, t.createdAt)],
+);
+
 // ── Warehouse items ──────────────────────────────────────────────────────────
 
 export const items = pgTable(
@@ -164,6 +211,8 @@ export const items = pgTable(
     description: text("description").notNull().default(""),
     condition: text("condition").notNull().default("good"),
     location: text("location").notNull().default(""),
+    /** Structured bin; the free-text `location` stays as display fallback. */
+    locationId: uuid("location_id").references(() => warehouseLocations.id),
     weightGrams: integer("weight_grams"),
     /** { l, w, h } in cm. */
     dims: jsonb("dims").$type<{ l: number; w: number; h: number } | null>(),
@@ -302,9 +351,66 @@ export const orders = pgTable(
     paymentDeadlineAt: timestamp("payment_deadline_at", { withTimezone: true }),
     paidAt: timestamp("paid_at", { withTimezone: true }),
     cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    /** Why a cancelled order was cancelled: 'unpaid' | 'no_pickup' | manual text. */
+    cancelReason: text("cancel_reason"),
+    /** 6-digit collection credential, set at mark-paid (pickup fulfilment). */
+    pickupCode: text("pickup_code"),
+    pickupDeadlineAt: timestamp("pickup_deadline_at", { withTimezone: true }),
+    /** Retained no-show restock fee (5% of total by default). */
+    restockFeeCents: integer("restock_fee_cents"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("orders_ref_idx").on(t.ref), index("orders_status_idx").on(t.status)],
+);
+
+// ── Pickup tickets (one customer visit; drives the waiting-room boards) ─────
+
+export const pickupTickets = pgTable(
+  "pickup_tickets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Board number, 100–999, reset daily via the counters row lock. */
+    number: integer("number").notNull(),
+    dayKey: text("day_key").notNull(), // UTC date, e.g. '2026-07-14'
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customers.id),
+    status: text("status").notNull().default("waiting"), // domain TicketStatus
+    checkedInVia: text("checked_in_via").notNull().default("desk"), // 'kiosk' | 'desk'
+    claimedById: uuid("claimed_by_id").references(() => adminUsers.id),
+    checkedInAt: timestamp("checked_in_at", { withTimezone: true }).notNull().defaultNow(),
+    pickingStartedAt: timestamp("picking_started_at", { withTimezone: true }),
+    deliveringAt: timestamp("delivering_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    cancelReason: text("cancel_reason"),
+  },
+  (t) => [
+    uniqueIndex("pickup_tickets_day_number_idx").on(t.dayKey, t.number),
+    index("pickup_tickets_status_idx").on(t.status, t.checkedInAt),
+    index("pickup_tickets_customer_idx").on(t.customerId),
+  ],
+);
+
+/** One line per item on the ticket (an order is exactly one item today). */
+export const pickupTicketItems = pgTable(
+  "pickup_ticket_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ticketId: uuid("ticket_id")
+      .notNull()
+      .references(() => pickupTickets.id, { onDelete: "cascade" }),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id),
+    itemId: uuid("item_id")
+      .notNull()
+      .references(() => items.id),
+    status: text("status").notNull().default("pending"), // domain PickLineStatus
+    pickedAt: timestamp("picked_at", { withTimezone: true }),
+    pickedById: uuid("picked_by_id").references(() => adminUsers.id),
+  },
+  (t) => [index("pickup_ticket_items_ticket_idx").on(t.ticketId)],
 );
 
 export const refunds = pgTable(

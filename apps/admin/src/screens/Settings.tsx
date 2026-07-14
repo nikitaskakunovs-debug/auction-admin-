@@ -64,6 +64,8 @@ interface MarketDraft {
   vat: string;
   premium: string;
   antiSnipe: string;
+  pickupDays: string;
+  restockFee: string;
   active: boolean;
   tiers: Array<{ from: string; inc: string }>;
 }
@@ -86,6 +88,8 @@ function MarketsTab() {
               vat: (m.vatRateBp / 100).toFixed(1),
               premium: (m.buyerPremiumBp / 100).toFixed(1),
               antiSnipe: String(m.antiSnipeSec),
+              pickupDays: String(m.pickupDeadlineDays),
+              restockFee: (m.restockFeeBp / 100).toFixed(1),
               active: m.active,
               tiers: m.incrementTable.map((t) => ({ from: (t.fromCents / 100).toFixed(2), inc: (t.incrementCents / 100).toFixed(2) })),
             },
@@ -125,6 +129,8 @@ function MarketsTab() {
         vatRateBp: Math.round(parseFloat(d.vat.replace(",", ".")) * 100),
         buyerPremiumBp: Math.round(parseFloat(d.premium.replace(",", ".")) * 100),
         antiSnipeSec: Number(d.antiSnipe),
+        pickupDeadlineDays: Number(d.pickupDays),
+        restockFeeBp: Math.round(parseFloat(d.restockFee.replace(",", ".")) * 100),
         active: d.active,
         incrementTable: tiers,
       });
@@ -162,6 +168,12 @@ function MarketsTab() {
                 </AField>
                 <AField label="Anti-snipe (sec)">
                   <AInput value={d.antiSnipe} onChange={(v) => setDraft(m.code, { antiSnipe: v })} style={{ opacity: editable ? 1 : 0.6 }} />
+                </AField>
+                <AField label="Pickup window (days)" hint="After payment; then auto-cancel.">
+                  <AInput value={d.pickupDays} onChange={(v) => setDraft(m.code, { pickupDays: v })} style={{ opacity: editable ? 1 : 0.6 }} />
+                </AField>
+                <AField label="Restock fee %" hint="Retained on no-show.">
+                  <AInput value={d.restockFee} onChange={(v) => setDraft(m.code, { restockFee: v })} style={{ opacity: editable ? 1 : 0.6 }} />
                 </AField>
                 <AField label="Languages">
                   <div style={{ display: "flex", gap: 5, paddingTop: 8 }}>

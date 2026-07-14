@@ -61,6 +61,7 @@ export const ITEM_STATUS_TONE: Record<string, { label: string; tone: Tone }> = {
   closed: { label: "Closed", tone: "neutral" },
   unsold: { label: "Unsold", tone: "warn" },
   unpaid_cancelled: { label: "Unpaid · cancelled", tone: "danger" },
+  no_pickup_cancelled: { label: "No pickup · cancelled", tone: "danger" },
 };
 
 export const ORDER_STATUS_TONE: Record<string, { label: string; tone: Tone }> = {
