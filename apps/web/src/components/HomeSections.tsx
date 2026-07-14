@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { conditionLabel } from "@/lib/conditions";
 import { useT } from "@/lib/i18n";
+import { photoThumb } from "@/lib/photos";
 import { formatEur, type FixedListing, type PublicAuction } from "@/lib/types";
 import { AuctionCard } from "./AuctionCard";
 
@@ -22,6 +23,12 @@ function FixedCard({ listing }: { listing: FixedListing }) {
         border: "1px solid rgba(10,10,10,0.10)", borderRadius: 14, padding: 18,
       }}
     >
+      {listing.photos[0] && (
+        <div style={{ margin: "-18px -18px 12px", background: "#F2F1EE", borderRadius: "13px 13px 0 0", overflow: "hidden" }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={photoThumb(listing.photos[0])} alt="" style={{ width: "100%", height: 150, objectFit: "cover", display: "block" }} />
+        </div>
+      )}
       <span style={{ fontSize: 11, fontWeight: 700, color: "#2D4BFF", textTransform: "uppercase" }}>{t("home.buyNow")}</span>
       <h3 style={{ margin: "8px 0 0", fontSize: 15.5, fontWeight: 700, lineHeight: 1.35, minHeight: 42 }}>{listing.title}</h3>
       <div style={{ fontSize: 11.5, color: "#6B6B68", margin: "4px 0 12px" }}>{listing.sku} · {conditionLabel(listing.condition, t)}</div>

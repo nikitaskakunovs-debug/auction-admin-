@@ -3,6 +3,7 @@ import type pg from "pg";
 import type { Redis } from "ioredis";
 import type { ApiConfig } from "./config.js";
 import type { EmailAdapter } from "./email.js";
+import type { PhotoStorage } from "./storage.js";
 
 /** Shared dependencies threaded through routes and the engine. */
 export interface AppContext {
@@ -12,6 +13,8 @@ export interface AppContext {
   config: ApiConfig;
   /** Email transport (console in dev; capturing in tests). */
   email: EmailAdapter;
+  /** Item-photo storage (local disk in dev/tests, S3/Spaces in production). */
+  storage: PhotoStorage;
   /** Injectable clock so tests control time. */
   now: () => Date;
 }

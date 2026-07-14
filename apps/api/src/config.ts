@@ -35,6 +35,27 @@ export interface ApiConfig {
   emailMode: "console";
   /** Hours before the payment deadline to send the unpaid-winner reminder. */
   paymentReminderLeadHours: number;
+  /**
+   * Item-photo storage. "local" writes beneath uploadDir and the API serves
+   * the files at /uploads; "s3" targets any S3-compatible endpoint
+   * (DigitalOcean Spaces in production).
+   */
+  storageDriver: "local" | "s3";
+  /** Local-driver directory (relative to the process cwd unless absolute). */
+  uploadDir: string;
+  /** Origin used to mint public photo URLs for the local driver. */
+  publicBaseUrl: string;
+  s3: {
+    endpoint: string;
+    region: string;
+    bucket: string;
+    accessKeyId: string;
+    secretAccessKey: string;
+    /** Public origin of the bucket/CDN, e.g. https://photos.fra1.cdn.digitaloceanspaces.com */
+    publicUrl: string;
+  } | null;
+  /** Per-file upload ceiling in bytes. */
+  maxPhotoBytes: number;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
@@ -52,9 +73,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     .split(",")
     .map((o) => o.trim())
     .filter(Boolean);
+  const port = Number(env.PORT ?? 4000);
+  const storageDriver: "local" | "s3" = env.STORAGE_DRIVER === "s3" ? "s3" : "local";
+  if (storageDriver === "s3") {
+    for (const key of ["S3_BUCKET", "S3_ACCESS_KEY", "S3_SECRET_KEY", "S3_PUBLIC_URL"] as const) {
+      if (!env[key]) throw new Error(`${key} must be set when STORAGE_DRIVER=s3`);
+    }
+  }
   return {
     host: env.HOST ?? "0.0.0.0",
-    port: Number(env.PORT ?? 4000),
+    port,
     databaseUrl: env.DATABASE_URL ?? "postgres://auction:auction@localhost:5432/auction",
     redisUrl: env.REDIS_URL ?? "redis://localhost:6379",
     jwtSecret: env.JWT_SECRET ?? "dev-secret-change-in-production",
@@ -75,5 +103,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     viesMode: (env.VIES_MODE ?? (env.NODE_ENV === "production" ? "live" : "simulate")) === "live" ? "live" : "simulate",
     emailMode: "console",
     paymentReminderLeadHours: Number(env.PAYMENT_REMINDER_LEAD_HOURS ?? 24),
+    storageDriver,
+    uploadDir: env.UPLOAD_DIR ?? "var/uploads",
+    publicBaseUrl: (env.PUBLIC_BASE_URL ?? `http://localhost:${port}`).replace(/\/$/, ""),
+    s3:
+      storageDriver === "s3"
+        ? {
+            endpoint: env.S3_ENDPOINT ?? "",
+            region: env.S3_REGION ?? "us-east-1",
+            bucket: env.S3_BUCKET ?? "",
+            accessKeyId: env.S3_ACCESS_KEY ?? "",
+            secretAccessKey: env.S3_SECRET_KEY ?? "",
+            publicUrl: (env.S3_PUBLIC_URL ?? "").replace(/\/$/, ""),
+          }
+        : null,
+    maxPhotoBytes: Number(env.MAX_PHOTO_BYTES ?? 15 * 1024 * 1024),
   };
 }

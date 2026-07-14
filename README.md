@@ -116,6 +116,10 @@ required in production), `PORT`, `PAYMENT_DEADLINE_HOURS` (72), `ALLOW_BID_SIMUL
 (auto-off in production), `SCHEDULER_ENABLED`, plus security knobs
 `ACCESS_TOKEN_TTL_SEC` (900), `REFRESH_TOKEN_TTL_SEC` (7 days), `LOGIN_MAX_ATTEMPTS` (8),
 `LOGIN_LOCKOUT_SEC` (900), `RATE_LIMIT_MAX` (300/min per IP), `TOTP_ISSUER`.
+Photo storage: `STORAGE_DRIVER` (`local` default — files under `UPLOAD_DIR`, served at
+`/uploads` with `PUBLIC_BASE_URL` minting the URLs; or `s3` for DigitalOcean
+Spaces/any S3 endpoint with `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY`,
+`S3_SECRET_KEY`, `S3_PUBLIC_URL`), `MAX_PHOTO_BYTES` (15 MB/file).
 
 **Signing in (dev):** every admin uses **mandatory TOTP two-factor**. The seeded demo
 admins are pre-enrolled with a fixed dev secret (`SEED_ADMIN_TOTP_SECRET` in
@@ -221,6 +225,19 @@ from): auto- and manual cancel-unpaid record an `outstanding` row in the
 settles the fee (paid at the desk/by transfer) or waives it with an audited
 reason. No-pickup fees mirror into the same ledger born `settled`, so every
 restock fee is in one place. State the 5% unpaid-lot fee in the T&C.
+
+## Item photos
+
+Photos are captured at the warehouse (grading station phone/camera or the
+Inventory drawer) and uploaded to `POST /api/items/:id/photos` (`items.edit`).
+The server re-encodes every upload with sharp — EXIF-rotated, 1600px web size
+plus a 400px thumbnail, both webp — so originals never hit the storefront.
+Storage sits behind one interface: local disk in dev/tests (served by the API
+at `/uploads`), DigitalOcean Spaces / any S3 endpoint in production
+(`STORAGE_DRIVER=s3`); switching drivers never rewrites stored URLs. The first
+photo is the cover: admin can reorder (set cover) and delete (removes the
+stored files too, audit-logged). The storefront shows cover thumbnails on all
+cards and a gallery with a thumbnail strip on auction and buy-now pages.
 
 ## Condition reference & account moderation
 

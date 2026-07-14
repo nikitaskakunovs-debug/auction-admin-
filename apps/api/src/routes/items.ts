@@ -1,11 +1,14 @@
+import { randomUUID } from "node:crypto";
 import { items } from "@auction/db";
 import { assertItemTransition, conditionRequiresNotes, ITEM_STATUSES, type ItemStatus } from "@auction/domain";
 import { desc, eq, ilike, or, and } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
+import sharp from "sharp";
 import { z } from "zod";
 import { writeAudit } from "../audit.js";
 import type { AppContext } from "../context.js";
 import { requirePermission, type PermissionService } from "../auth/rbac.js";
+import { thumbKey } from "../storage.js";
 
 const actor = (req: { admin?: { sub: string; name: string } }) => ({
   id: req.admin?.sub ?? null,
@@ -78,6 +81,135 @@ export function registerItemRoutes(app: FastifyInstance, ctx: AppContext, perms:
       .returning();
     if (!row) return reply.code(404).send({ error: "not_found" });
     await writeAudit(ctx.db, actor(req), "item", "updated", row.sku, { fields: Object.keys(body.data) });
+    return { item: row };
+  });
+
+  // ── Photos ─────────────────────────────────────────────────────────────────
+  // Uploads are re-encoded server-side (sharp): EXIF-rotated, resized to a
+  // 1600px web size + 400px thumbnail, both webp. Only the web URL is stored
+  // on the item; the thumb URL is derived by the -web → -thumb convention.
+
+  const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+  const MAX_PHOTOS_PER_ITEM = 24;
+
+  async function processPhoto(buf: Buffer): Promise<{ web: Buffer; thumb: Buffer }> {
+    const base = sharp(buf).rotate();
+    const web = await base
+      .clone()
+      .resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true })
+      .webp({ quality: 82 })
+      .toBuffer();
+    const thumb = await base
+      .clone()
+      .resize({ width: 400, height: 400, fit: "inside", withoutEnlargement: true })
+      .webp({ quality: 78 })
+      .toBuffer();
+    return { web, thumb };
+  }
+
+  app.post("/api/items/:id/photos", guard("items.edit"), async (req, reply) => {
+    if (!req.isMultipart()) return reply.code(400).send({ error: "multipart_required" });
+    const { id } = req.params as { id: string };
+    const [item] = await ctx.db.select({ id: items.id }).from(items).where(eq(items.id, id));
+    if (!item) return reply.code(404).send({ error: "not_found" });
+
+    const added: string[] = [];
+    for await (const part of req.files()) {
+      if (!ALLOWED_IMAGE_TYPES.has(part.mimetype)) {
+        return reply.code(400).send({ error: "unsupported_image_type", detail: part.mimetype });
+      }
+      const buf = await part.toBuffer();
+      if (part.file.truncated) return reply.code(400).send({ error: "image_too_large" });
+      let processed: { web: Buffer; thumb: Buffer };
+      try {
+        processed = await processPhoto(buf);
+      } catch {
+        return reply.code(400).send({ error: "invalid_image" });
+      }
+      const key = `items/${id}/${randomUUID()}-web.webp`;
+      const webUrl = await ctx.storage.put(key, processed.web, "image/webp");
+      await ctx.storage.put(thumbKey(key), processed.thumb, "image/webp");
+      added.push(webUrl);
+    }
+    if (added.length === 0) return reply.code(400).send({ error: "no_files" });
+
+    const row = await ctx.db.transaction(async (tx) => {
+      const [cur] = await tx.select().from(items).where(eq(items.id, id)).for("update");
+      if (!cur) return null;
+      if (cur.photos.length + added.length > MAX_PHOTOS_PER_ITEM) return "too_many" as const;
+      const [updated] = await tx
+        .update(items)
+        .set({ photos: [...cur.photos, ...added], updatedAt: ctx.now() })
+        .where(eq(items.id, id))
+        .returning();
+      await writeAudit(tx, actor(req), "item", "photos_added", cur.sku, { count: added.length });
+      return updated;
+    });
+    if (row === null) return reply.code(404).send({ error: "not_found" });
+    if (row === "too_many") {
+      // Roll the just-written objects back so storage never leaks orphans.
+      for (const url of added) {
+        const key = ctx.storage.keyFor(url);
+        if (key) {
+          await ctx.storage.remove(key);
+          await ctx.storage.remove(thumbKey(key));
+        }
+      }
+      return reply.code(409).send({ error: "too_many_photos", detail: `max ${MAX_PHOTOS_PER_ITEM}` });
+    }
+    return { item: row };
+  });
+
+  const photoRef = z.object({ url: z.string().min(8) });
+
+  app.delete("/api/items/:id/photos", guard("items.edit"), async (req, reply) => {
+    const body = photoRef.safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid_body" });
+    const { id } = req.params as { id: string };
+    const url = body.data.url;
+    const row = await ctx.db.transaction(async (tx) => {
+      const [cur] = await tx.select().from(items).where(eq(items.id, id)).for("update");
+      if (!cur) return null;
+      if (!cur.photos.includes(url)) return "missing" as const;
+      const [updated] = await tx
+        .update(items)
+        .set({ photos: cur.photos.filter((p) => p !== url), updatedAt: ctx.now() })
+        .where(eq(items.id, id))
+        .returning();
+      await writeAudit(tx, actor(req), "item", "photo_removed", cur.sku, { url });
+      return updated;
+    });
+    if (row === null) return reply.code(404).send({ error: "not_found" });
+    if (row === "missing") return reply.code(404).send({ error: "photo_not_found" });
+    // Storage cleanup after the commit; foreign URLs (seeded/external) are left alone.
+    const key = ctx.storage.keyFor(url);
+    if (key) {
+      await ctx.storage.remove(key);
+      await ctx.storage.remove(thumbKey(key));
+    }
+    return { item: row };
+  });
+
+  /** Make a photo the cover (first position — cards show photos[0]). */
+  app.post("/api/items/:id/photos/cover", guard("items.edit"), async (req, reply) => {
+    const body = photoRef.safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid_body" });
+    const { id } = req.params as { id: string };
+    const url = body.data.url;
+    const row = await ctx.db.transaction(async (tx) => {
+      const [cur] = await tx.select().from(items).where(eq(items.id, id)).for("update");
+      if (!cur) return null;
+      if (!cur.photos.includes(url)) return "missing" as const;
+      const [updated] = await tx
+        .update(items)
+        .set({ photos: [url, ...cur.photos.filter((p) => p !== url)], updatedAt: ctx.now() })
+        .where(eq(items.id, id))
+        .returning();
+      await writeAudit(tx, actor(req), "item", "photo_cover_set", cur.sku, { url });
+      return updated;
+    });
+    if (row === null) return reply.code(404).send({ error: "not_found" });
+    if (row === "missing") return reply.code(404).send({ error: "photo_not_found" });
     return { item: row };
   });
 

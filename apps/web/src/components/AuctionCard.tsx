@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { conditionLabel } from "@/lib/conditions";
 import { useT } from "@/lib/i18n";
+import { photoThumb } from "@/lib/photos";
 import { formatEur, type PublicAuction } from "@/lib/types";
 import { Countdown } from "./Countdown";
 
@@ -18,6 +19,12 @@ export function AuctionCard({ auction }: { auction: PublicAuction }) {
         padding: 18, transition: "box-shadow 120ms",
       }}
     >
+      {auction.photos[0] && (
+        <div style={{ margin: "-18px -18px 12px", background: "#F2F1EE", borderRadius: "13px 13px 0 0", overflow: "hidden" }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={photoThumb(auction.photos[0])} alt="" style={{ width: "100%", height: 150, objectFit: "cover", display: "block" }} />
+        </div>
+      )}
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
         {live ? (
           <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, color: "#1F8A4C" }}>

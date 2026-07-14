@@ -230,14 +230,16 @@ export class ApiClient {
   }
 
   private async raw<T>(method: string, url: string, body?: unknown): Promise<T> {
+    // FormData bodies (photo uploads) set their own multipart boundary header.
+    const isForm = typeof FormData !== "undefined" && body instanceof FormData;
     const res = await fetch(url, {
       method,
       credentials: "same-origin",
       headers: {
-        ...(body !== undefined ? { "content-type": "application/json" } : {}),
+        ...(body !== undefined && !isForm ? { "content-type": "application/json" } : {}),
         ...(this.accessToken ? { authorization: `Bearer ${this.accessToken}` } : {}),
       },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
     });
     if (res.status === 204) return undefined as T;
     const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
@@ -276,8 +278,11 @@ export class ApiClient {
   put<T>(url: string, body?: unknown): Promise<T> {
     return this.request<T>("PUT", url, body);
   }
-  delete<T>(url: string): Promise<T> {
-    return this.request<T>("DELETE", url);
+  delete<T>(url: string, body?: unknown): Promise<T> {
+    return this.request<T>("DELETE", url, body);
+  }
+  postForm<T>(url: string, form: FormData): Promise<T> {
+    return this.request<T>("POST", url, form);
   }
 
   // ── Login: password → second factor ─────────────────────────────────────────

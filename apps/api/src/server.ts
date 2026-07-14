@@ -1,7 +1,11 @@
+import { mkdir } from "node:fs/promises";
+import path from "node:path";
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
+import multipart from "@fastify/multipart";
 import rateLimit from "@fastify/rate-limit";
+import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance } from "fastify";
 import { registerAuthRoutes } from "./auth/routes.js";
 import { PermissionService } from "./auth/rbac.js";
@@ -58,6 +62,27 @@ export async function buildServer(ctx: AppContext, opts: { logger?: boolean } = 
     // Health checks and the WebSocket upgrade must not be throttled.
     allowList: (req) => req.url === "/api/health",
   });
+
+  // Photo uploads (multipart). Per-file ceiling from config; a request may
+  // carry several photos at once from the grading station.
+  await app.register(multipart, {
+    limits: { fileSize: ctx.config.maxPhotoBytes, files: 10, fields: 5 },
+  });
+
+  // Local storage driver: the API itself serves the processed photos.
+  // Keys are uuid-unique so far-future caching is safe.
+  if (ctx.config.storageDriver === "local") {
+    const uploadRoot = path.resolve(ctx.config.uploadDir);
+    await mkdir(uploadRoot, { recursive: true });
+    await app.register(fastifyStatic, {
+      root: uploadRoot,
+      prefix: "/uploads/",
+      decorateReply: false,
+      index: false,
+      maxAge: "365d",
+      immutable: true,
+    });
+  }
 
   // Bearer-token parsing; enforcement is per-route via requirePermission.
   // Admin and bidder tokens are strictly separated by the `kind` claim.

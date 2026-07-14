@@ -10,6 +10,7 @@ import { loadConfig } from "../src/config.js";
 import type { AppContext } from "../src/context.js";
 import { CapturingEmailAdapter } from "../src/email.js";
 import { buildServer, type BuiltServer } from "../src/server.js";
+import { createStorage } from "../src/storage.js";
 
 const ADMIN_URL = process.env.DATABASE_URL ?? "postgres://auction:auction@localhost:5432/auction";
 const TEST_DB = "auction_test";
@@ -68,6 +69,9 @@ export async function createWorld(): Promise<TestWorld> {
     DATABASE_URL: TEST_URL,
     REDIS_URL: TEST_REDIS,
     ALLOW_BID_SIMULATION: "1",
+    // Photo uploads land on local disk under the (gitignored) var/ dir.
+    STORAGE_DRIVER: "local",
+    UPLOAD_DIR: path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../var/test-uploads"),
   });
   const email = new CapturingEmailAdapter();
   const ctx: AppContext = {
@@ -76,6 +80,7 @@ export async function createWorld(): Promise<TestWorld> {
     redis,
     config,
     email,
+    storage: createStorage(config),
     now: () => fakeNow ?? new Date(),
   };
   const server = await buildServer(ctx);

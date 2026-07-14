@@ -5,12 +5,21 @@ import type { AppContext } from "./context.js";
 import { createEmailAdapter } from "./email.js";
 import { AuctionScheduler } from "./engine/scheduler.js";
 import { buildServer } from "./server.js";
+import { createStorage } from "./storage.js";
 
 const config = loadConfig();
 const { db, pool } = createDb(config.databaseUrl);
 const redis = new Redis(config.redisUrl);
 
-const ctx: AppContext = { db, pool, redis, config, email: createEmailAdapter(config.emailMode), now: () => new Date() };
+const ctx: AppContext = {
+  db,
+  pool,
+  redis,
+  config,
+  email: createEmailAdapter(config.emailMode),
+  storage: createStorage(config),
+  now: () => new Date(),
+};
 
 const { app } = await buildServer(ctx, { logger: true });
 const scheduler = new AuctionScheduler(ctx);

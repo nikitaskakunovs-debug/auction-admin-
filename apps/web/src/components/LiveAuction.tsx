@@ -5,6 +5,7 @@ import { publicApi, PublicApiError } from "@/lib/api";
 import { conditionLabel } from "@/lib/conditions";
 import { PUBLIC_API_URL } from "@/lib/config";
 import { useT } from "@/lib/i18n";
+import { PhotoGallery } from "./PhotoGallery";
 import { formatEur, type AuctionDetail } from "@/lib/types";
 import { Countdown } from "./Countdown";
 
@@ -122,6 +123,8 @@ export function LiveAuction({ initial }: { initial: AuctionDetail }) {
         )}
         {a.description && <p style={{ color: "#454542", fontSize: 14, lineHeight: 1.6, maxWidth: 720 }}>{a.description}</p>}
       </div>
+
+      {a.photos.length > 0 && <PhotoGallery photos={a.photos} alt={a.title} />}
 
       <div style={{ display: "flex", gap: 18, flexWrap: "wrap", alignItems: "flex-start" }}>
         {/* Price + bid box */}

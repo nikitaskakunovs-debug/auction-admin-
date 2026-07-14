@@ -6,6 +6,7 @@ import { publicApi, PublicApiError } from "@/lib/api";
 import { conditionLabel } from "@/lib/conditions";
 import { useT } from "@/lib/i18n";
 import { formatEur, type FixedListing } from "@/lib/types";
+import { PhotoGallery } from "./PhotoGallery";
 
 export function BuyNow({ listing }: { listing: FixedListing }) {
   const { t } = useT();
@@ -61,6 +62,8 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
         )}
         {listing.description && <p style={{ color: "#454542", fontSize: 14, lineHeight: 1.6, maxWidth: 720 }}>{listing.description}</p>}
       </div>
+
+      {listing.photos.length > 0 && <PhotoGallery photos={listing.photos} alt={listing.title} />}
 
       <div style={{ maxWidth: 420, background: "#fff", border: "1px solid rgba(10,10,10,0.10)", borderRadius: 16, padding: 22 }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6B68", textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("buy.price")}</div>

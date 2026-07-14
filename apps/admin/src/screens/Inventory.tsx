@@ -93,6 +93,45 @@ export function InventoryScreen({ nav: _nav }: { nav: Nav }) {
 
   const set = (patch: Partial<FormState>) => setForm((f) => ({ ...f, ...patch }));
 
+  // ── Photos (upload → server re-encodes to web+thumb webp) ────────────────
+  const thumbOf = (u: string) => (u.includes("-web.webp") ? u.replace("-web.webp", "-thumb.webp") : u);
+
+  const uploadPhotos = async (files: FileList | null) => {
+    if (!editing || !files || files.length === 0) return;
+    const fd = new FormData();
+    for (const f of Array.from(files)) fd.append("photos", f);
+    try {
+      const r = await api.postForm<{ item: Item }>(`/api/items/${editing.id}/photos`, fd);
+      setEditing(r.item);
+      toast(files.length > 1 ? `${files.length} photos uploaded` : "Photo uploaded", "ok");
+      load();
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Upload failed", "danger");
+    }
+  };
+
+  const removePhoto = async (url: string) => {
+    if (!editing) return;
+    try {
+      const r = await api.delete<{ item: Item }>(`/api/items/${editing.id}/photos`, { url });
+      setEditing(r.item);
+      load();
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Delete failed", "danger");
+    }
+  };
+
+  const setCover = async (url: string) => {
+    if (!editing) return;
+    try {
+      const r = await api.post<{ item: Item }>(`/api/items/${editing.id}/photos/cover`, { url });
+      setEditing(r.item);
+      load();
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Failed", "danger");
+    }
+  };
+
   const submit = async () => {
     const body = {
       sku: form.sku,
@@ -293,6 +332,46 @@ export function InventoryScreen({ nav: _nav }: { nav: Nav }) {
                 fontSize: 13, color: AT.ink, padding: 10, resize: "vertical",
               }} />
             </AField>
+            {editing && (
+              <AField label={`Photos (${editing.photos.length})`} hint="The first photo is the storefront cover. Uploads are resized server-side.">
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {editing.photos.map((p, idx) => (
+                    <div key={p} style={{ position: "relative", width: 84 }}>
+                      <a href={p} target="_blank" rel="noreferrer">
+                        <img src={thumbOf(p)} alt="" style={{ width: 84, height: 84, objectFit: "cover", borderRadius: 8, border: `1px solid ${AT.rule}`, display: "block" }} />
+                      </a>
+                      {can("items.edit") && (
+                        <button
+                          onClick={() => void removePhoto(p)}
+                          title="Remove photo"
+                          style={{ position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: 99, border: "none", background: "#B0282C", color: "#fff", fontSize: 12, cursor: "pointer", lineHeight: 1 }}
+                        >×</button>
+                      )}
+                      {idx === 0 ? (
+                        <div style={{ fontSize: 9.5, fontWeight: 700, textAlign: "center", color: AT.inkSoft, marginTop: 3, textTransform: "uppercase", letterSpacing: "0.05em" }}>cover</div>
+                      ) : can("items.edit") ? (
+                        <button
+                          onClick={() => void setCover(p)}
+                          style={{ all: "unset", cursor: "pointer", display: "block", width: "100%", textAlign: "center", fontSize: 9.5, fontWeight: 700, color: "#2D4BFF", marginTop: 3, textTransform: "uppercase", letterSpacing: "0.05em" }}
+                        >set cover</button>
+                      ) : null}
+                    </div>
+                  ))}
+                  {can("items.edit") && (
+                    <label style={{ width: 84, height: 84, borderRadius: 8, border: `1.5px dashed ${AT.rule}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: AT.inkSoft, fontSize: 22 }}>
+                      +
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        multiple
+                        style={{ display: "none" }}
+                        onChange={(e) => { void uploadPhotos(e.target.files); e.target.value = ""; }}
+                      />
+                    </label>
+                  )}
+                </div>
+              </AField>
+            )}
             {editing && can("warehouse.manage") && (
               <AField label="Warehouse bin" hint="Changing the bin writes a putaway/move into the stock ledger.">
                 <ASelect
