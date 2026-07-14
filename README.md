@@ -245,6 +245,25 @@ scanned QR (uuid) or a typed SKU to the item + bin + consignment, which is
 what the Phase-15 warehouse mobile screens will drive putaway/pick from.
 Closing a consignment (audited, warns on count mismatch) stops receiving.
 
+## Warehouse mode (phone PWA)
+
+`#/wh` in the admin is a phone-first shell for storage workers — same login,
+same RBAC, big touch targets, installable to the home screen (web manifest;
+`start_url` opens straight into it). Bluetooth/USB barcode scanners work in
+every scan box (HID scanners type + Enter — the kiosk trick). Flows:
+
+- **Scan / look up** — scan a label QR (item uuid) or type a SKU → item card
+  with cover photo, grade, bin, delivery, status.
+- **Receive** — pick an open delivery, rapid-entry form, then either
+  "next unit" or jump straight to photographing the just-received item.
+- **Shoot & grade** — camera capture uploads photos on the spot; condition
+  editor with the enforced SEE-NOTES rule. The `operations` role now holds
+  `items.edit` so warehouse staff can grade and photograph.
+- **Putaway / move** — filterable bin list writes the audited stock movement.
+- **Pick queue** — claim a ticket, walk the bin-sorted lines
+  (picked/missing/damaged), send to the NOW DELIVERING board, complete the
+  handover with the client's 6-digit code.
+
 ## Item photos
 
 Photos are captured at the warehouse (grading station phone/camera or the

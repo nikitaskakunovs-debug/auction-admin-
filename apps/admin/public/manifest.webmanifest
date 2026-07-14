@@ -1,0 +1,12 @@
+{
+  "name": "Auction Warehouse",
+  "short_name": "Warehouse",
+  "description": "Warehouse mode: scan, receive, grade, putaway, pick.",
+  "start_url": "/#/wh",
+  "display": "standalone",
+  "background_color": "#141413",
+  "theme_color": "#141413",
+  "icons": [
+    { "src": "/wh-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

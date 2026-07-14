@@ -145,9 +145,10 @@ export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<RoleId, readonly Permissi
     "customers.view", "customers.vies_check",
     "reports.view", "finance.view", "audit.view",
   ],
-  // Orders, payments, pick/pack, pickup desk, refunds
+  // Orders, payments, pick/pack, pickup desk, refunds. items.edit covers the
+  // warehouse grading station: photos, condition + notes, weight.
   operations: [
-    "items.view", "items.transition",
+    "items.view", "items.edit", "items.transition",
     "auctions.view",
     "orders.view", "orders.mark_paid", "orders.fulfil", "orders.refund", "orders.cancel_unpaid",
     "pickup.view", "pickup.operate", "warehouse.manage",

@@ -154,6 +154,27 @@ describe("receiving (consignments + intake)", () => {
     expect(bins.body).toContain("FRONT-A1-R1-S1");
   });
 
+  it("operations can grade received items (warehouse station uses items.edit)", async () => {
+    const app = world.server.app;
+    const con = await createConsignment("Grading OÜ");
+    const rec = await app.inject({
+      method: "POST",
+      url: `/api/consignments/${con.id}/receive`,
+      headers: auth(opsToken),
+      payload: { title: "Ungraded blender", condition: "brand_new" },
+    });
+    const item = (rec.json() as { item: { id: string } }).item;
+
+    const regrade = await app.inject({
+      method: "PATCH",
+      url: `/api/items/${item.id}`,
+      headers: auth(opsToken),
+      payload: { condition: "used", conditionNotes: "Jar scratched; blade dull." },
+    });
+    expect(regrade.statusCode).toBe(200);
+    expect((regrade.json() as { item: { condition: string } }).item.condition).toBe("used");
+  });
+
   it("receiving requires warehouse.manage (content editor refused)", async () => {
     const app = world.server.app;
     const denied = await app.inject({

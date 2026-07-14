@@ -19,6 +19,7 @@ import { FinanceScreen } from "./screens/Finance.js";
 import { ContentScreen } from "./screens/Content.js";
 import { NotificationsScreen } from "./screens/Notifications.js";
 import { SecurityScreen } from "./screens/Security.js";
+import { WarehouseMode } from "./wh/Warehouse.js";
 
 export interface Route {
   screen: string;
@@ -89,6 +90,9 @@ export function App() {
   if (loading) return null;
   if (!user) return <LoginScreen />;
 
+  // Phone-first PWA shell for storage workers — own layout, same session/RBAC.
+  if (route.screen === "wh") return <WarehouseMode />;
+
   const allowed = SCREENS.filter((s) => s.permission === null || can(s.permission));
   const active = allowed.find((s) => s.id === route.screen) ?? allowed[0]!;
 
@@ -121,6 +125,14 @@ export function App() {
             );
           })}
         </nav>
+        {(can("warehouse.manage") || can("pickup.operate")) && (
+          <button onClick={() => nav.go("wh")} style={{
+            all: "unset", cursor: "pointer", margin: "0 10px 8px", padding: "9px 10px", borderRadius: 8,
+            fontSize: 12.5, fontWeight: 700, color: AT.sideSoft, border: `1px dashed ${AT.sideRule}`, textAlign: "center",
+          }}>
+            📦 Warehouse mode
+          </button>
+        )}
         <div style={{ padding: 12, borderTop: `1px solid ${AT.sideRule}`, display: "flex", alignItems: "center", gap: 9 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{user.name}</div>
