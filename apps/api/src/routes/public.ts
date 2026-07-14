@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import {
   auctions,
   bids,
+  customerFees,
   customerRefreshTokens,
   customers,
   hashPassword,
@@ -306,6 +307,27 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
         paymentDeadlineAt: r.order.paymentDeadlineAt,
         createdAt: r.order.createdAt,
       })),
+    };
+  });
+
+  // Outstanding restock fees — the reason an account is paused. Shown on the
+  // account page with the amount and the order each claim came from.
+  app.get("/api/public/me/fees", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const rows = await ctx.db
+      .select({
+        orderRef: customerFees.orderRef,
+        type: customerFees.type,
+        amountCents: customerFees.amountCents,
+        createdAt: customerFees.createdAt,
+      })
+      .from(customerFees)
+      .where(and(eq(customerFees.customerId, bidderId), eq(customerFees.status, "outstanding")))
+      .orderBy(desc(customerFees.createdAt));
+    return {
+      fees: rows,
+      outstandingCents: rows.reduce((sum, f) => sum + f.amountCents, 0),
     };
   });
 

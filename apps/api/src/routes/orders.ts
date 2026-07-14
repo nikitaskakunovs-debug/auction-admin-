@@ -1,10 +1,11 @@
 import { customers, invoices, items, markets, orders, refunds } from "@auction/db";
-import { assertItemTransition, type ItemStatus } from "@auction/domain";
+import { assertItemTransition, computeNoShowSettlement, type ItemStatus } from "@auction/domain";
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { writeAudit } from "../audit.js";
 import type { AppContext } from "../context.js";
+import { recordFee } from "../engine/fees.js";
 import { enqueueNotification } from "../engine/notifications.js";
 import { generatePickupCode } from "../engine/pickup.js";
 import { requirePermission, type PermissionService } from "../auth/rbac.js";
@@ -119,7 +120,12 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext, perms
     return { ok: true };
   });
 
-  const cancelSchema = z.object({ reason: z.string().min(3), strike: z.boolean().default(true) });
+  const cancelSchema = z.object({
+    reason: z.string().min(3),
+    strike: z.boolean().default(true),
+    /** Record the 5% restock fee as an outstanding claim (blocks bidding). */
+    restockFee: z.boolean().default(true),
+  });
   app.post("/api/orders/:id/cancel-unpaid", guard("orders.cancel_unpaid"), async (req, reply) => {
     const { id } = req.params as { id: string };
     const body = cancelSchema.safeParse(req.body);
@@ -130,7 +136,14 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext, perms
       if (order.status !== "awaiting_payment") return "not_awaiting" as const;
       const [item] = await tx.select().from(items).where(eq(items.id, order.itemId)).for("update");
       assertItemTransition(item!.status as ItemStatus, "unpaid_cancelled");
-      await tx.update(orders).set({ status: "cancelled", cancelledAt: ctx.now() }).where(eq(orders.id, id));
+      const [market] = await tx.select().from(markets).where(eq(markets.code, order.marketCode));
+      const feeCents = body.data.restockFee
+        ? computeNoShowSettlement(order.totalCents, market?.restockFeeBp ?? 500).feeCents
+        : 0;
+      await tx
+        .update(orders)
+        .set({ status: "cancelled", cancelledAt: ctx.now(), cancelReason: "unpaid", restockFeeCents: feeCents || null })
+        .where(eq(orders.id, id));
       await tx.update(items).set({ status: "unpaid_cancelled", updatedAt: ctx.now() }).where(eq(items.id, item!.id));
       if (body.data.strike) {
         await tx
@@ -138,9 +151,28 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext, perms
           .set({ strikes: sql`${customers.strikes} + 1` })
           .where(eq(customers.id, order.customerId));
       }
+      if (feeCents > 0) {
+        await recordFee(tx, {
+          customerId: order.customerId,
+          orderId: order.id,
+          orderRef: order.ref,
+          type: "unpaid_restock",
+          amountCents: feeCents,
+          status: "outstanding",
+          note: body.data.reason,
+          now: ctx.now(),
+        });
+        await enqueueNotification(tx, {
+          customerId: order.customerId,
+          type: "unpaid_cancelled",
+          template: { alias: "", lotTitle: "", orderRef: order.ref, feeCents },
+          dedupeKey: `unpaid_cancelled:${order.id}`,
+        });
+      }
       await writeAudit(tx, actor(req), "order", "cancelled_unpaid", order.ref, {
         reason: body.data.reason,
         strike: body.data.strike,
+        feeCents,
       });
       return order;
     });

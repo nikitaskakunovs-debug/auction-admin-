@@ -9,10 +9,22 @@ import {
   ATable, ATd, ATr, ASelect, useConfirm, useToast,
 } from "../ui.js";
 
+interface CustomerFee {
+  id: string;
+  orderRef: string;
+  type: "unpaid_restock" | "no_pickup_restock";
+  amountCents: number;
+  status: "outstanding" | "settled" | "waived";
+  note: string;
+  createdAt: string;
+}
+
 interface CustomerDetail {
   customer: Customer;
   orders: Order[];
   bidStats: { totalBids: number; auctionsBidOn: number };
+  fees: CustomerFee[];
+  outstandingFeeCents: number;
 }
 
 const COUNTRIES = [
@@ -104,6 +116,28 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
       openDetail(detail.customer.id);
     } catch (err) {
       toast(err instanceof ApiError ? err.message : "VIES check failed", "danger");
+    }
+  };
+
+  const feeAction = async (fee: CustomerFee, action: "settle" | "waive") => {
+    if (!detail) return;
+    let note = "";
+    if (action === "waive") {
+      const r = await confirm({
+        title: `Waive ${formatEur(fee.amountCents)} for ${fee.orderRef}?`,
+        body: "The claim is dropped and the account unblocks. Reason goes to the audit log.",
+        requireReason: true,
+        confirmLabel: "Waive fee",
+      });
+      if (!r.ok) return;
+      note = r.reason ?? "";
+    }
+    try {
+      await api.post(`/api/customers/${detail.customer.id}/fees/${fee.id}/${action}`, { note });
+      toast(action === "settle" ? "Fee settled — account unblocked" : "Fee waived", "ok");
+      openDetail(detail.customer.id);
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Action failed", "danger");
     }
   };
 
@@ -258,6 +292,7 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
               <Stat label="Bids" value={String(detail.bidStats.totalBids)} />
               <Stat label="Auctions" value={String(detail.bidStats.auctionsBidOn)} />
               <Stat label="Strikes" value={String(detail.customer.strikes)} warn={detail.customer.strikes > 0} />
+              <Stat label="Fees due" value={formatEur(detail.outstandingFeeCents)} warn={detail.outstandingFeeCents > 0} />
             </div>
 
             {detail.customer.vatNo && (
@@ -300,6 +335,31 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
                   </ABtn>
                 </div>
               </>
+            )}
+
+            {detail.fees.length > 0 && (
+              <ACard title={`Restock fees (${detail.fees.length})`} pad={false}>
+                <ATable head={["Order", "Type", "Amount", "Status", ""]}>
+                  {detail.fees.map((f) => (
+                    <ATr key={f.id}>
+                      <ATd mono>{f.orderRef}</ATd>
+                      <ATd>{f.type === "unpaid_restock" ? "unpaid" : "no pickup"}</ATd>
+                      <ATd mono right>{formatEur(f.amountCents)}</ATd>
+                      <ATd>
+                        <ABadge tone={f.status === "outstanding" ? "danger" : f.status === "settled" ? "ok" : "neutral"}>{f.status}</ABadge>
+                      </ATd>
+                      <ATd right>
+                        {f.status === "outstanding" && can("customers.strike") && (
+                          <span style={{ display: "inline-flex", gap: 6 }}>
+                            <ABtn size="sm" onClick={() => void feeAction(f, "settle")}>Settle</ABtn>
+                            <ABtn size="sm" kind="ghost" onClick={() => void feeAction(f, "waive")}>Waive</ABtn>
+                          </span>
+                        )}
+                      </ATd>
+                    </ATr>
+                  ))}
+                </ATable>
+              </ACard>
             )}
 
             <ACard title={`Orders (${detail.orders.length})`} pad={false}>

@@ -3,6 +3,7 @@ import { assertItemTransition, computeNoShowSettlement, type ItemStatus } from "
 import { and, eq, gt, lte, sql } from "drizzle-orm";
 import { writeAudit, SYSTEM_ACTOR } from "../audit.js";
 import type { AppContext } from "../context.js";
+import { recordFee } from "./fees.js";
 import { enqueueNotification, pickupReminderDedupeKey } from "./notifications.js";
 
 /**
@@ -103,6 +104,18 @@ export async function cancelNoShowDue(ctx: AppContext): Promise<void> {
         .update(customers)
         .set({ strikes: sql`${customers.strikes} + 1` })
         .where(eq(customers.id, order.customerId));
+      // Ledger the retained fee as settled-at-source so Finance sees every
+      // restock fee in one place alongside the unpaid-winner claims.
+      await recordFee(tx, {
+        customerId: order.customerId,
+        orderId: order.id,
+        orderRef: order.ref,
+        type: "no_pickup_restock",
+        amountCents: settlement.feeCents,
+        status: "settled",
+        note: "auto: retained from held funds",
+        now,
+      });
       await enqueueNotification(tx, {
         customerId: order.customerId,
         type: "no_pickup_cancelled",

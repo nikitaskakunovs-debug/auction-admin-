@@ -17,7 +17,8 @@ export type NotificationType =
   | "order_paid"
   | "pickup_ready"
   | "pickup_reminder"
-  | "no_pickup_cancelled";
+  | "no_pickup_cancelled"
+  | "unpaid_cancelled";
 
 type Lang = "lv" | "en";
 
@@ -113,6 +114,16 @@ function render(type: NotificationType, lang: Lang, i: TemplateInput): { subject
       en: {
         subject: `Reminder: collect order ${i.orderRef}`,
         body: `Hi ${i.alias},\n\nOrder ${i.orderRef} is still waiting at the warehouse. Pickup code: ${i.pickupCode}.\nDeadline: ${i.deadline?.toISOString().slice(0, 10)}. After the deadline the order is cancelled with a 5% restocking fee.\n\n[pickup_reminder]`,
+      },
+    },
+    unpaid_cancelled: {
+      lv: {
+        subject: `Pasūtījums atcelts (nav apmaksāts) — ${i.orderRef}`,
+        body: `Sveiki, ${i.alias}!\n\nPasūtījums ${i.orderRef} netika apmaksāts līdz termiņam un ir atcelts. Saskaņā ar noteikumiem tiek piemērota 5% uzglabāšanas maksa: ${money(i.feeCents)}.\nKamēr maksa nav nokārtota, solīšana un pirkšana jūsu kontā ir apturēta.\n\n[unpaid_cancelled]`,
+      },
+      en: {
+        subject: `Order cancelled (not paid) — ${i.orderRef}`,
+        body: `Hi ${i.alias},\n\nOrder ${i.orderRef} was not paid by the deadline and has been cancelled. Per our terms a 5% restocking fee applies: ${money(i.feeCents)}.\nBidding and buying on your account are paused until the fee is settled.\n\n[unpaid_cancelled]`,
       },
     },
     no_pickup_cancelled: {

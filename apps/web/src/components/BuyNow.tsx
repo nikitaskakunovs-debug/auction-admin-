@@ -35,6 +35,8 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
         setError(t("buy.soldOut"));
       } else if (err instanceof PublicApiError && err.body.code === "BIDDER_BLOCKED") {
         setError(t("buy.blocked"));
+      } else if (err instanceof PublicApiError && err.body.code === "FEES_OUTSTANDING") {
+        setError(t("fees.blockedShort"));
       } else {
         setError(err instanceof Error ? err.message : "error");
       }

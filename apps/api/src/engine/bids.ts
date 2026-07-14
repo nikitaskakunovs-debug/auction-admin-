@@ -15,10 +15,11 @@ import {
 } from "@auction/domain";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { publishAuctionEvent, type AppContext } from "../context.js";
+import { outstandingFeeCents } from "./fees.js";
 import { enqueueNotification } from "./notifications.js";
 
 export type PlaceBidError =
-  | { ok: false; code: "AUCTION_NOT_FOUND" | "AUCTION_NOT_LIVE" | "AUCTION_ENDED" | "BIDDER_NOT_FOUND" | "BIDDER_BLOCKED" }
+  | { ok: false; code: "AUCTION_NOT_FOUND" | "AUCTION_NOT_LIVE" | "AUCTION_ENDED" | "BIDDER_NOT_FOUND" | "BIDDER_BLOCKED" | "FEES_OUTSTANDING" }
   | { ok: false; code: RejectCode; minAcceptableCents: number };
 
 export interface PlaceBidOk {
@@ -68,6 +69,8 @@ export async function placeBid(
       .where(eq(customers.id, args.customerId));
     if (!bidder) return { ok: false, code: "BIDDER_NOT_FOUND" };
     if (bidder.blocked) return { ok: false, code: "BIDDER_BLOCKED" };
+    // Outstanding restock fees pause the account until settled or waived.
+    if ((await outstandingFeeCents(tx, args.customerId)) > 0) return { ok: false, code: "FEES_OUTSTANDING" };
 
     const incrementTable: IncrementTable = market.incrementTable;
     validateIncrementTable(incrementTable);

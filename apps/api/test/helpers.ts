@@ -54,7 +54,8 @@ export async function createWorld(): Promise<TestWorld> {
     truncate markets, admin_roles, role_permissions, admin_users, refresh_tokens,
       customers, customer_refresh_tokens, items, listings, auctions, bids, orders,
       refunds, invoices, counters, audit_log, cms_pages, notifications,
-      warehouse_locations, stock_movements, pickup_tickets, pickup_ticket_items cascade
+      warehouse_locations, stock_movements, pickup_tickets, pickup_ticket_items,
+      customer_fees cascade
   `);
   await seedDatabase(handle.db, { demoData: false });
 

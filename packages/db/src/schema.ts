@@ -445,6 +445,38 @@ export const invoices = pgTable(
   (t) => [uniqueIndex("invoices_number_idx").on(t.number)],
 );
 
+/**
+ * Restock-fee ledger. A no-pickup fee is deducted from the held funds and
+ * lands here already `settled`; an unpaid-winner fee is a claim we hold no
+ * money for, so it starts `outstanding` — and outstanding fees block the
+ * customer from bidding/buying until settled (or waived, with a reason).
+ */
+export const customerFees = pgTable(
+  "customer_fees",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id),
+    /** Order ref snapshot for display after GDPR erasure of relations. */
+    orderRef: text("order_ref").notNull(),
+    type: text("type").notNull(), // 'unpaid_restock' | 'no_pickup_restock'
+    amountCents: integer("amount_cents").notNull(),
+    status: text("status").notNull().default("outstanding"), // outstanding | settled | waived
+    note: text("note").notNull().default(""),
+    settledById: uuid("settled_by_id").references(() => adminUsers.id),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("customer_fees_customer_idx").on(t.customerId, t.status),
+    index("customer_fees_order_idx").on(t.orderId),
+  ],
+);
+
 /** Named counters (order refs, invoice series) — incremented under row lock. */
 export const counters = pgTable("counters", {
   key: text("key").primaryKey(),

@@ -77,6 +77,9 @@ const STRINGS: Record<string, Record<Lang, string>> = {
   "pickup.code": { lv: "Saņemšanas kods", ru: "Код получения", en: "Pickup code", et: "Kättesaamise kood", lt: "Atsiėmimo kodas" },
   "pickup.deadline": { lv: "Izņemt līdz", ru: "Забрать до", en: "Collect by", et: "Kätte saada hiljemalt", lt: "Atsiimti iki" },
   "pickup.feeNote": { lv: "Pēc termiņa pasūtījums tiek atcelts ar 5% maksu.", ru: "После срока заказ отменяется с комиссией 5%.", en: "After the deadline the order is cancelled with a 5% fee.", et: "Pärast tähtaega tellimus tühistatakse 5% tasuga.", lt: "Po termino užsakymas atšaukiamas su 5% mokesčiu." },
+  "fees.banner": { lv: "Jūsu kontā ir nenokārtota uzglabāšanas maksa", ru: "На вашем счету неоплаченный сбор за возврат на склад", en: "Your account has an outstanding restocking fee", et: "Teie kontol on tasumata laotasu", lt: "Jūsų paskyroje yra neapmokėtas sandėliavimo mokestis" },
+  "fees.note": { lv: "Solīšana un pirkšana ir apturēta, līdz maksa tiks nokārtota noliktavā vai ar pārskaitījumu.", ru: "Ставки и покупки приостановлены, пока сбор не будет оплачен на складе или переводом.", en: "Bidding and buying are paused until the fee is settled at the warehouse or by transfer.", et: "Pakkumine ja ostmine on peatatud, kuni tasu on laos või ülekandega tasutud.", lt: "Siūlymas ir pirkimas sustabdyti, kol mokestis bus sumokėtas sandėlyje arba pavedimu." },
+  "fees.blockedShort": { lv: "Konts apturēts nenokārtotas maksas dēļ", ru: "Аккаунт приостановлен из-за неоплаченного сбора", en: "Account paused — outstanding fee", et: "Konto peatatud — tasumata tasu", lt: "Paskyra sustabdyta — neapmokėtas mokestis" },
   "pickup.inProgress": { lv: "Tiek gatavots izsniegšanai — jūsu talons ir rindā", ru: "Готовится к выдаче — ваш талон в очереди", en: "Being prepared — your ticket is in the queue", et: "Valmistatakse ette — teie pilet on järjekorras", lt: "Ruošiama išduoti — jūsų bilietas eilėje" },
 };
 

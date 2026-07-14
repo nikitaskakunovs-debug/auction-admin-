@@ -214,6 +214,14 @@ an append-only `stock_movements` ledger (intake/putaway/move/pick/restock/
 handover with actor + reason), bin assignment and per-item movement history
 in the Inventory drawer.
 
+**Unpaid winners** owe the same 5% as a *claim* (no funds are held to deduct
+from): auto- and manual cancel-unpaid record an `outstanding` row in the
+`customer_fees` ledger, the account is paused (bids and buy-now refuse with
+`FEES_OUTSTANDING`, the account page shows the debt) until Operations
+settles the fee (paid at the desk/by transfer) or waives it with an audited
+reason. No-pickup fees mirror into the same ledger born `settled`, so every
+restock fee is in one place. State the 5% unpaid-lot fee in the T&C.
+
 ## Out of scope so far (per design-doc build order)
 
 Klix payments, carrier APIs (Omniva/DPD/Venipak) — both waiting on merchant

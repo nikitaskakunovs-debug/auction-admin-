@@ -102,6 +102,25 @@ pickup_deadline_at / cancel_reason / restock_fee_cents`,
   `/kiosk` (fullscreen keypad + scanner input → big ticket number),
   `/pickup-board` + `/pickup-board/delivering` (TV pages, WS + polling).
 
+## Restock fees for unpaid winners (added after review)
+
+The paid/no-show fee is *retained* from held funds; an unpaid winner paid
+nothing, so their 5% fee is a **claim**: a `customer_fees` row born
+`outstanding` (5% of the order total, same basis) created by both the
+scheduler auto-cancel and the manual cancel-unpaid action (opt-out flag for
+goodwill cases). While any fee is outstanding the account is **paused** —
+`placeBid` and `buyNow` refuse with `FEES_OUTSTANDING` — and the account
+page shows the amount per order. Operations settles the fee when the client
+pays (desk/transfer) or waives it with a mandatory reason; both audited,
+both unblock instantly. No-pickup fees mirror into the same ledger born
+`settled`, so Finance sees every restock fee in one place.
+
+**Legal note**: charging a fee without holding funds is a contractual claim —
+the T&C must state the 5% unpaid-lot fee explicitly, and enforceability of
+actually collecting (vs. just gating the account) varies by jurisdiction.
+Confirm wording with the lawyer; confirm VAT treatment of retained fees with
+the accountant.
+
 ## Deliberately out of scope (noted for later)
 
 Credit notes for retained fees (accountant to confirm treatment), booking

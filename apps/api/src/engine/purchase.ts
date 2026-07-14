@@ -1,6 +1,7 @@
 import { counters, customers, invoices, items, listings, markets, orders } from "@auction/db";
 import { assertItemTransition, computeInvoice, qualifiesForReverseCharge, type ItemStatus } from "@auction/domain";
 import { eq, sql } from "drizzle-orm";
+import { outstandingFeeCents } from "./fees.js";
 import type { AppContext } from "../context.js";
 import { issueInvoice } from "./invoices.js";
 import { enqueueNotification } from "./notifications.js";
@@ -19,6 +20,7 @@ export type BuyError =
   | "NOT_FIXED_PRICE"
   | "NOT_AVAILABLE"
   | "BIDDER_BLOCKED"
+  | "FEES_OUTSTANDING"
   | "NO_PRICE";
 
 export interface BuyResult {
@@ -42,6 +44,8 @@ export async function buyNow(
 
     const [buyer] = await tx.select().from(customers).where(eq(customers.id, args.customerId));
     if (!buyer || buyer.blocked || buyer.erasedAt !== null) return { ok: false, code: "BIDDER_BLOCKED" };
+    // Outstanding restock fees pause the account until settled or waived.
+    if ((await outstandingFeeCents(tx, args.customerId)) > 0) return { ok: false, code: "FEES_OUTSTANDING" };
 
     // The single backing item's `listed` status is the availability gate.
     const [item] = await tx.select().from(items).where(eq(items.id, listing.itemId)).for("update");

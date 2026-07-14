@@ -1,9 +1,10 @@
-import { auctions, customers, items, orders } from "@auction/db";
-import { assertItemTransition, type ItemStatus } from "@auction/domain";
+import { auctions, customers, items, markets, orders } from "@auction/db";
+import { assertItemTransition, computeNoShowSettlement, type ItemStatus } from "@auction/domain";
 import { and, eq, gt, lte, sql } from "drizzle-orm";
 import { writeAudit, SYSTEM_ACTOR } from "../audit.js";
 import type { AppContext } from "../context.js";
 import { closeAuction, openAuction } from "./close.js";
+import { recordFee } from "./fees.js";
 import { cancelNoShowDue, remindPickupDue } from "./noShow.js";
 import { dispatchNotifications, enqueueNotification, reminderDedupeKey } from "./notifications.js";
 
@@ -117,7 +118,11 @@ export class AuctionScheduler {
     }
   }
 
-  /** Unpaid-winner handling: deadline passed → cancel order + strike. */
+  /**
+   * Unpaid-winner handling: deadline passed → cancel order + strike + an
+   * OUTSTANDING restock fee (we hold no funds to deduct from, so the fee is
+   * a claim that blocks bidding/buying until settled or waived).
+   */
   private async cancelUnpaidDue(): Promise<void> {
     const now = this.ctx.now();
     const due = await this.ctx.db
@@ -131,15 +136,37 @@ export class AuctionScheduler {
         const [item] = await tx.select().from(items).where(eq(items.id, order.itemId));
 
         assertItemTransition(item!.status as ItemStatus, "unpaid_cancelled");
-        await tx.update(orders).set({ status: "cancelled", cancelledAt: now }).where(eq(orders.id, order.id));
+        const [market] = await tx.select().from(markets).where(eq(markets.code, order.marketCode));
+        const feeCents = computeNoShowSettlement(order.totalCents, market?.restockFeeBp ?? 500).feeCents;
+        await tx
+          .update(orders)
+          .set({ status: "cancelled", cancelledAt: now, cancelReason: "unpaid", restockFeeCents: feeCents })
+          .where(eq(orders.id, order.id));
         await tx.update(items).set({ status: "unpaid_cancelled", updatedAt: now }).where(eq(items.id, item!.id));
         await tx
           .update(customers)
           .set({ strikes: sql`${customers.strikes} + 1` })
           .where(eq(customers.id, order.customerId));
+        await recordFee(tx, {
+          customerId: order.customerId,
+          orderId: order.id,
+          orderRef: order.ref,
+          type: "unpaid_restock",
+          amountCents: feeCents,
+          status: "outstanding",
+          note: "auto: payment deadline passed",
+          now,
+        });
+        await enqueueNotification(tx, {
+          customerId: order.customerId,
+          type: "unpaid_cancelled",
+          template: { alias: "", lotTitle: "", orderRef: order.ref, feeCents },
+          dedupeKey: `unpaid_cancelled:${order.id}`,
+        });
         await writeAudit(tx, SYSTEM_ACTOR, "order", "auto_cancelled_unpaid", order.ref, {
           orderId: order.id,
           customerId: order.customerId,
+          feeCents,
         });
       });
     }

@@ -1,5 +1,5 @@
-import { bids, customers, orders } from "@auction/db";
-import { desc, eq, ilike, or, sql } from "drizzle-orm";
+import { bids, customerFees, customers, orders } from "@auction/db";
+import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { writeAudit } from "../audit.js";
@@ -64,12 +64,51 @@ export function registerCustomerRoutes(app: FastifyInstance, ctx: AppContext, pe
       .select({ total: sql<string>`count(*)`, auctions: sql<string>`count(distinct ${bids.auctionId})` })
       .from(bids)
       .where(eq(bids.customerId, id));
+    const feeRows = await ctx.db
+      .select()
+      .from(customerFees)
+      .where(eq(customerFees.customerId, id))
+      .orderBy(desc(customerFees.createdAt))
+      .limit(100);
     return {
       customer: row,
       orders: orderRows,
       bidStats: { totalBids: Number(bidStats!.total), auctionsBidOn: Number(bidStats!.auctions) },
+      fees: feeRows,
+      outstandingFeeCents: feeRows.filter((f) => f.status === "outstanding").reduce((s, f) => s + f.amountCents, 0),
     };
   });
+
+  // ── Restock-fee settlement (outstanding fees pause bidding/buying) ────────
+
+  const feeAction = z.object({ note: z.string().max(300).default("") });
+  for (const action of ["settle", "waive"] as const) {
+    app.post(`/api/customers/:id/fees/:feeId/${action}`, guard("customers.strike"), async (req, reply) => {
+      const body = feeAction.safeParse(req.body ?? {});
+      if (!body.success) return reply.code(400).send({ error: "invalid_body" });
+      if (action === "waive" && body.data.note.trim().length < 3) {
+        return reply.code(400).send({ error: "invalid_body", detail: "waiving requires a reason note" });
+      }
+      const { id, feeId } = req.params as { id: string; feeId: string };
+      const [fee] = await ctx.db
+        .update(customerFees)
+        .set({
+          status: action === "settle" ? "settled" : "waived",
+          note: body.data.note || undefined,
+          settledById: req.admin!.sub,
+          settledAt: ctx.now(),
+        })
+        .where(and(eq(customerFees.id, feeId), eq(customerFees.customerId, id), eq(customerFees.status, "outstanding")))
+        .returning();
+      if (!fee) return reply.code(409).send({ error: "fee_not_outstanding" });
+      await writeAudit(ctx.db, actor(req), "customer", `fee_${action}d`, fee.orderRef, {
+        feeId: fee.id,
+        amountCents: fee.amountCents,
+        note: body.data.note,
+      });
+      return { fee };
+    });
+  }
 
   app.post("/api/customers", guard("customers.edit"), async (req, reply) => {
     const body = customerBody.safeParse(req.body);

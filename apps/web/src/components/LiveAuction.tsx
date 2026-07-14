@@ -88,6 +88,8 @@ export function LiveAuction({ initial }: { initial: AuctionDetail }) {
     } catch (err) {
       if (err instanceof PublicApiError && typeof err.body.minAcceptableCents === "number") {
         setNotice({ text: `${t("a.minBid")}: ${formatEur(err.body.minAcceptableCents)}`, tone: "err" });
+      } else if (err instanceof PublicApiError && err.body.code === "FEES_OUTSTANDING") {
+        setNotice({ text: t("fees.blockedShort"), tone: "err" });
       } else {
         setNotice({ text: err instanceof Error ? err.message : "error", tone: "err" });
       }
