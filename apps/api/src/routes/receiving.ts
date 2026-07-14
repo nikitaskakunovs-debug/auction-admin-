@@ -92,11 +92,14 @@ export function registerReceivingRoutes(app: FastifyInstance, ctx: AppContext, p
 
   app.get("/api/consignments", guard("items.view"), async (req) => {
     const q = req.query as { status?: string };
-    const received = sql<string>`(select count(*) from ${items} where ${items.consignmentId} = ${consignments.id})`;
+    // Join + group-by (not a raw correlated subquery: drizzle renders sql``
+    // column refs unqualified, so the inner "id" would bind to items.id).
     const rows = await ctx.db
-      .select({ consignment: consignments, receivedCount: received })
+      .select({ consignment: consignments, receivedCount: sql<string>`count(${items.id})` })
       .from(consignments)
+      .leftJoin(items, eq(items.consignmentId, consignments.id))
       .where(q.status ? eq(consignments.status, q.status) : undefined)
+      .groupBy(consignments.id)
       .orderBy(desc(consignments.createdAt))
       .limit(200);
     return { consignments: rows.map((r) => ({ ...r.consignment, receivedCount: Number(r.receivedCount) })) };
