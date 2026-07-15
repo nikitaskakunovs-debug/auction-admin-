@@ -9,6 +9,7 @@ import pg from "pg";
 import { loadConfig } from "../src/config.js";
 import type { AppContext } from "../src/context.js";
 import { CapturingEmailAdapter } from "../src/email.js";
+import { createKlixClient } from "../src/engine/klix.js";
 import { buildServer, type BuiltServer } from "../src/server.js";
 import { createStorage } from "../src/storage.js";
 
@@ -56,7 +57,7 @@ export async function createWorld(): Promise<TestWorld> {
       customers, customer_refresh_tokens, items, listings, auctions, bids, orders,
       refunds, invoices, counters, audit_log, cms_pages, notifications,
       warehouse_locations, stock_movements, pickup_tickets, pickup_ticket_items,
-      customer_fees, consignments cascade
+      customer_fees, consignments, payments cascade
   `);
   await seedDatabase(handle.db, { demoData: false });
 
@@ -72,6 +73,9 @@ export async function createWorld(): Promise<TestWorld> {
     // Photo uploads land on local disk under the (gitignored) var/ dir.
     STORAGE_DRIVER: "local",
     UPLOAD_DIR: path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../var/test-uploads"),
+    // In-memory Klix driver — the payments suite flips purchase statuses and
+    // exercises the callback exactly the way the provider would.
+    KLIX_MODE: "simulate",
   });
   const email = new CapturingEmailAdapter();
   const ctx: AppContext = {
@@ -81,6 +85,7 @@ export async function createWorld(): Promise<TestWorld> {
     config,
     email,
     storage: createStorage(config),
+    klix: createKlixClient(config),
     now: () => fakeNow ?? new Date(),
   };
   const server = await buildServer(ctx);

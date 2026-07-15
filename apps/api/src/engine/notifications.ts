@@ -39,12 +39,21 @@ interface TemplateInput {
   /** No-show settlement (no_pickup_cancelled). */
   feeCents?: number | undefined;
   refundCents?: number | undefined;
+  /** One-click Klix checkout link (won / purchased / payment_reminder). */
+  payUrl?: string | null | undefined;
 }
 
 /** type → (lang → {subject, body}). Body carries a machine tag `[type]` used
  * by tests and for traceability; it is harmless in the rendered email. */
 function render(type: NotificationType, lang: Lang, i: TemplateInput): { subject: string; body: string } {
   const money = (c: number | undefined) => (c === undefined ? "" : formatEur(c));
+  // Appended to payment-due emails when online payments are on: one click
+  // opens the Klix checkout (cards, Pay Later, banklinks) — no login needed.
+  const payLine = i.payUrl
+    ? lang === "lv"
+      ? `\nApmaksāt tiešsaistē (karte, banklinks, Klix Pay Later):\n${i.payUrl}\n`
+      : `\nPay online (card, bank link, Klix Pay Later):\n${i.payUrl}\n`
+    : "";
   const t: Record<NotificationType, Record<Lang, { subject: string; body: string }>> = {
     outbid: {
       lv: {
@@ -59,31 +68,31 @@ function render(type: NotificationType, lang: Lang, i: TemplateInput): { subject
     won: {
       lv: {
         subject: `Apsveicam — jūs uzvarējāt izsolē ${i.lotTitle}`,
-        body: `Sveiki, ${i.alias}!\n\nJūs uzvarējāt izsolē "${i.lotTitle}". Rēķina numurs: ${i.orderRef}. Kopā apmaksai: ${money(i.totalCents)}.\nLūdzu, apmaksājiet līdz ${i.deadline?.toISOString().slice(0, 10)}.\n\n[won]`,
+        body: `Sveiki, ${i.alias}!\n\nJūs uzvarējāt izsolē "${i.lotTitle}". Rēķina numurs: ${i.orderRef}. Kopā apmaksai: ${money(i.totalCents)}.\nLūdzu, apmaksājiet līdz ${i.deadline?.toISOString().slice(0, 10)}.\n${payLine}\n[won]`,
       },
       en: {
         subject: `Congratulations — you won ${i.lotTitle}`,
-        body: `Hi ${i.alias},\n\nYou won "${i.lotTitle}". Order ${i.orderRef}. Total due: ${money(i.totalCents)}.\nPlease pay by ${i.deadline?.toISOString().slice(0, 10)}.\n\n[won]`,
+        body: `Hi ${i.alias},\n\nYou won "${i.lotTitle}". Order ${i.orderRef}. Total due: ${money(i.totalCents)}.\nPlease pay by ${i.deadline?.toISOString().slice(0, 10)}.\n${payLine}\n[won]`,
       },
     },
     purchased: {
       lv: {
         subject: `Pirkums apstiprināts — ${i.lotTitle}`,
-        body: `Sveiki, ${i.alias}!\n\nPaldies par pirkumu "${i.lotTitle}". Rēķina numurs: ${i.orderRef}. Kopā apmaksai: ${money(i.totalCents)}.\nLūdzu, apmaksājiet līdz ${i.deadline?.toISOString().slice(0, 10)}.\n\n[purchased]`,
+        body: `Sveiki, ${i.alias}!\n\nPaldies par pirkumu "${i.lotTitle}". Rēķina numurs: ${i.orderRef}. Kopā apmaksai: ${money(i.totalCents)}.\nLūdzu, apmaksājiet līdz ${i.deadline?.toISOString().slice(0, 10)}.\n${payLine}\n[purchased]`,
       },
       en: {
         subject: `Purchase confirmed — ${i.lotTitle}`,
-        body: `Hi ${i.alias},\n\nThank you for buying "${i.lotTitle}". Order ${i.orderRef}. Total due: ${money(i.totalCents)}.\nPlease pay by ${i.deadline?.toISOString().slice(0, 10)}.\n\n[purchased]`,
+        body: `Hi ${i.alias},\n\nThank you for buying "${i.lotTitle}". Order ${i.orderRef}. Total due: ${money(i.totalCents)}.\nPlease pay by ${i.deadline?.toISOString().slice(0, 10)}.\n${payLine}\n[purchased]`,
       },
     },
     payment_reminder: {
       lv: {
         subject: `Atgādinājums par apmaksu — ${i.orderRef}`,
-        body: `Sveiki, ${i.alias}!\n\nRēķins ${i.orderRef} (${money(i.totalCents)}) vēl nav apmaksāts. Termiņš: ${i.deadline?.toISOString().slice(0, 16).replace("T", " ")}.\nNeapmaksāšanas gadījumā pasūtījums tiks atcelts.\n\n[payment_reminder]`,
+        body: `Sveiki, ${i.alias}!\n\nRēķins ${i.orderRef} (${money(i.totalCents)}) vēl nav apmaksāts. Termiņš: ${i.deadline?.toISOString().slice(0, 16).replace("T", " ")}.\nNeapmaksāšanas gadījumā pasūtījums tiks atcelts.\n${payLine}\n[payment_reminder]`,
       },
       en: {
         subject: `Payment reminder — ${i.orderRef}`,
-        body: `Hi ${i.alias},\n\nOrder ${i.orderRef} (${money(i.totalCents)}) is not yet paid. Deadline: ${i.deadline?.toISOString().slice(0, 16).replace("T", " ")}.\nIf unpaid, the order will be cancelled.\n\n[payment_reminder]`,
+        body: `Hi ${i.alias},\n\nOrder ${i.orderRef} (${money(i.totalCents)}) is not yet paid. Deadline: ${i.deadline?.toISOString().slice(0, 16).replace("T", " ")}.\nIf unpaid, the order will be cancelled.\n${payLine}\n[payment_reminder]`,
       },
     },
     order_paid: {

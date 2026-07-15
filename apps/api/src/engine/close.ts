@@ -20,6 +20,7 @@ import { writeAudit, SYSTEM_ACTOR, type Actor } from "../audit.js";
 import { publishAuctionEvent, type AppContext } from "../context.js";
 import { issueInvoice } from "./invoices.js";
 import { enqueueNotification } from "./notifications.js";
+import { buildPayUrl } from "./payLink.js";
 
 export interface CloseOutcome {
   ok: true;
@@ -110,11 +111,19 @@ export async function closeAuction(
       // atomically, with a gap-free number from the market's series.
       await issueInvoice(tx, createdOrder!.id, now);
 
-      // Winner gets a "you won" email with the order ref + payment deadline.
+      // Winner gets a "you won" email with the order ref + payment deadline
+      // (and, when Klix is on, a one-click pay link straight to checkout).
       await enqueueNotification(tx, {
         customerId: winner!.id,
         type: "won",
-        template: { alias: "", lotTitle: listing!.title, orderRef: ref, totalCents: inv.totalCents, deadline: paymentDeadlineAt },
+        template: {
+          alias: "",
+          lotTitle: listing!.title,
+          orderRef: ref,
+          totalCents: inv.totalCents,
+          deadline: paymentDeadlineAt,
+          payUrl: buildPayUrl(ctx, ref, paymentDeadlineAt),
+        },
       });
 
       await tx.update(auctions).set({ status: "ended_won", closedAt: now }).where(eq(auctions.id, auction.id));

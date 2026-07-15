@@ -93,6 +93,39 @@ export function verifyAccessToken(token: string, secret: string, nowMs = Date.no
   return claims as unknown as AccessClaims;
 }
 
+/**
+ * A pay-by-link token (embedded in "you won" / reminder emails). Grants ONE
+ * ability: opening the Klix checkout for that specific order — it is not a
+ * session and reads nothing. Expires with the order's payment deadline.
+ */
+export interface PayLinkClaims {
+  /** The order ref (A-1042). */
+  sub: string;
+  kind: "pay";
+  iss: string;
+  aud: string;
+  exp: number;
+  iat: number;
+}
+
+export function signPayLinkToken(orderRef: string, secret: string, expiresAtMs: number, nowMs = Date.now()): string {
+  const payload: PayLinkClaims = {
+    sub: orderRef,
+    kind: "pay",
+    iss: ISSUER,
+    aud: AUDIENCE,
+    iat: Math.floor(nowMs / 1000),
+    exp: Math.floor(expiresAtMs / 1000),
+  };
+  return sign(payload, secret);
+}
+
+export function verifyPayLinkToken(token: string, secret: string, nowMs = Date.now()): PayLinkClaims | null {
+  const claims = verify(token, secret, nowMs);
+  if (!claims || claims.kind !== "pay") return null;
+  return claims as unknown as PayLinkClaims;
+}
+
 export function signChallengeToken(
   sub: string,
   step: "totp" | "enroll",

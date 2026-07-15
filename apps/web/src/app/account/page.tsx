@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { publicApi } from "@/lib/api";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { publicApi, PublicApiError } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { formatEur, type MyOrder, type PublicAuction } from "@/lib/types";
 import { Countdown } from "@/components/Countdown";
@@ -11,12 +11,22 @@ import { PickupPass } from "@/components/PickupPass";
 
 type MyBidAuction = PublicAuction & { youLead: boolean };
 
+/** Banner state after coming back from the Klix checkout page. */
+type PayBanner = "confirming" | "success" | "failed" | "cancelled" | "unavailable" | null;
+
 export default function AccountPage() {
-  const { t } = useT();
+  const { t, lang } = useT();
   const [bids, setBids] = useState<MyBidAuction[]>([]);
   const [orders, setOrders] = useState<MyOrder[]>([]);
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const [suspended, setSuspended] = useState(false);
+  const [payBanner, setPayBanner] = useState<PayBanner>(null);
+  const [payingRef, setPayingRef] = useState<string | null>(null);
+  const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const loadOrders = useCallback(() => {
+    void publicApi.get<{ orders: MyOrder[] }>("/api/public/me/orders").then((r) => setOrders(r.orders)).catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     if (!publicApi.hasSession) {
@@ -26,8 +36,66 @@ export default function AccountPage() {
     setSignedIn(true);
     void publicApi.get<{ bidder: { blocked: boolean } }>("/api/public/auth/me").then((r) => setSuspended(r.bidder.blocked)).catch(() => undefined);
     void publicApi.get<{ bids: MyBidAuction[] }>("/api/public/me/bids").then((r) => setBids(r.bids)).catch(() => undefined);
-    void publicApi.get<{ orders: MyOrder[] }>("/api/public/me/orders").then((r) => setOrders(r.orders)).catch(() => undefined);
-  }, []);
+    loadOrders();
+  }, [loadOrders]);
+
+  // Back from the Klix checkout: ?paid=1|0|cancel&order=<ref>. On success we
+  // poll the payment endpoint — it re-checks the provider, so the order flips
+  // to paid even if the server-to-server callback was lost.
+  useEffect(() => {
+    if (signedIn !== true || typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const paid = params.get("paid");
+    const ref = params.get("order");
+    if (!paid || !ref) return;
+    window.history.replaceState(null, "", window.location.pathname);
+    if (paid === "0") {
+      setPayBanner("failed");
+      return;
+    }
+    if (paid === "cancel") {
+      setPayBanner("cancelled");
+      return;
+    }
+    setPayBanner("confirming");
+    let attempts = 0;
+    const poll = async () => {
+      attempts += 1;
+      try {
+        const r = await publicApi.get<{ orderStatus: string; paymentStatus: string | null }>(
+          `/api/public/orders/${encodeURIComponent(ref)}/payment`,
+        );
+        if (r.orderStatus === "paid") {
+          setPayBanner("success");
+          loadOrders();
+          return;
+        }
+        if (r.paymentStatus === "failed" || r.paymentStatus === "expired") {
+          setPayBanner("failed");
+          return;
+        }
+      } catch {
+        // transient — keep polling
+      }
+      if (attempts < 10) pollTimer.current = setTimeout(poll, 2000);
+      else setPayBanner("failed");
+    };
+    void poll();
+    return () => {
+      if (pollTimer.current) clearTimeout(pollTimer.current);
+    };
+  }, [signedIn, loadOrders]);
+
+  async function payOrder(ref: string) {
+    setPayingRef(ref);
+    try {
+      const r = await publicApi.post<{ checkoutUrl: string }>(`/api/public/orders/${encodeURIComponent(ref)}/pay`, { language: lang });
+      window.location.assign(r.checkoutUrl);
+    } catch (err) {
+      setPayingRef(null);
+      setPayBanner(err instanceof PublicApiError && err.status === 503 ? "unavailable" : "failed");
+    }
+  }
 
   if (signedIn === false) {
     return (
@@ -40,6 +108,23 @@ export default function AccountPage() {
   const card: React.CSSProperties = { background: "#fff", border: "1px solid rgba(10,10,10,0.10)", borderRadius: 14, overflow: "hidden" };
   const row: React.CSSProperties = { display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: "1px solid rgba(10,10,10,0.05)", fontSize: 13.5, textDecoration: "none", color: "#0A0A0A" };
 
+  const bannerStyle = (kind: PayBanner): React.CSSProperties => ({
+    borderRadius: 14,
+    padding: "14px 18px",
+    fontSize: 14,
+    fontWeight: 700,
+    background: kind === "success" ? "#E4F4EA" : kind === "confirming" ? "#EAF0FE" : "#FCEFD9",
+    border: `1px solid ${kind === "success" ? "#B5DFC4" : kind === "confirming" ? "#C4D3F9" : "#EBD5AB"}`,
+    color: kind === "success" ? "#1F8A4C" : kind === "confirming" ? "#2D4BFF" : "#9A5B00",
+  });
+  const bannerText: Record<Exclude<PayBanner, null>, string> = {
+    confirming: t("acc.payConfirming"),
+    success: t("acc.paySuccess"),
+    failed: t("acc.payFailed"),
+    cancelled: t("acc.payCancelled"),
+    unavailable: t("acc.payUnavailable"),
+  };
+
   return (
     <div style={{ display: "grid", gap: 26 }}>
       {suspended && (
@@ -47,6 +132,7 @@ export default function AccountPage() {
           {t("acc.suspended")}
         </div>
       )}
+      {payBanner && <div style={bannerStyle(payBanner)}>{bannerText[payBanner]}</div>}
       <FeesNotice />
       <PickupPass />
       <section>
@@ -96,6 +182,19 @@ export default function AccountPage() {
                   {o.status === "awaiting_payment" ? t("acc.awaiting") : t("acc.paid")}
                 </span>
                 <span style={{ fontFamily: '"Geist Mono", ui-monospace, monospace', fontWeight: 700 }}>{formatEur(o.totalCents)}</span>
+                {o.status === "awaiting_payment" && (
+                  <button
+                    onClick={() => void payOrder(o.ref)}
+                    disabled={payingRef !== null}
+                    style={{
+                      border: "none", borderRadius: 99, padding: "6px 14px", fontSize: 12, fontWeight: 700,
+                      background: "#2D4BFF", color: "#fff", cursor: payingRef ? "wait" : "pointer",
+                      opacity: payingRef && payingRef !== o.ref ? 0.5 : 1,
+                    }}
+                  >
+                    {payingRef === o.ref ? t("acc.payRedirecting") : t("acc.pay")}
+                  </button>
+                )}
               </div>
             ))
           )}

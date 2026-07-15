@@ -22,8 +22,11 @@ State as of 2026-07-15: platform deployed and hardened on the FRA1 droplet
 
 ## 2. Business threads (owner, can run in parallel)
 
-- [ ] **Klix** merchant application (weeks of lead time — apply early);
-      integration is a build phase once credentials arrive
+- [ ] **Klix** merchant application (weeks of lead time — apply early).
+      The integration is already built and env-gated: when the Brand ID +
+      Secret key arrive, set `KLIX_MODE=live` + the two keys in
+      `deploy/.env`, restart the api container, and test with a Klix test
+      card first (see docs/deploy.md → "Klix payments")
 - [ ] **Hardware**: thermal label printer (labels ≈57×32 mm), one or two **2D**
       barcode scanners (must read QR), photo-station lamp, 2 TVs for the
       pickup boards
@@ -55,7 +58,8 @@ The missing tier is human preview. At launch, add:
 
 ## 4. Later / roadmap
 
-- [ ] Klix payment integration (replaces manual mark-paid)
+- [x] Klix payment integration — built (BNPL + banklinks + cards via hosted
+      checkout); switches on via `KLIX_MODE=live` once keys arrive (§2)
 - [ ] Carrier APIs (Omniva/DPD) if shipping is ever offered
 - [ ] Error monitoring (Sentry) + an uptime check on `/api/health`
 - [ ] Managed PostgreSQL migration when scale demands (change `DATABASE_URL`,
