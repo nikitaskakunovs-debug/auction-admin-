@@ -2,6 +2,7 @@ import { items, orders, payments } from "@auction/db";
 import { and, desc, eq } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { verifyPayLinkToken } from "../auth/jwt.js";
 import type { AppContext } from "../context.js";
 import { KlixError } from "../engine/klix.js";
 import { settleOrderPaid } from "../engine/settlement.js";
@@ -81,22 +82,20 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
     return status;
   }
 
-  const paySchema = z.object({ language: z.enum(["lv", "ru", "en", "et", "lt"]).optional() });
-
-  /** Start (or resume) checkout for the bidder's own unpaid order. */
-  app.post("/api/public/orders/:ref/pay", async (req, reply) => {
-    const bidderId = requireBidder(req, reply);
-    if (!bidderId) return;
-    if (!ctx.klix) return reply.code(503).send({ error: "payments_unavailable" });
-    const body = paySchema.safeParse(req.body ?? {});
-    if (!body.success) return reply.code(400).send({ error: "invalid_body" });
-    const { ref } = req.params as { ref: string };
-    const row = await ownOrderByRef(ref, bidderId);
-    if (!row) return reply.code(404).send({ error: "not_found" });
-    if (row.order.status !== "awaiting_payment") return reply.code(409).send({ error: "order_not_awaiting_payment" });
-
-    // Reuse a fresh, still-open checkout so double-clicks and page reloads
-    // don't pile up purchases; anything older gets superseded.
+  /**
+   * One open checkout per order, shared by EVERY entry point (storefront
+   * button and email pay link). Both channels landing on the same Klix
+   * purchase is the double-payment guard: one purchase can only be paid
+   * once. A stale open checkout (>30 min) is superseded — cancelled at the
+   * provider first, so its link stops accepting money — before a fresh one
+   * is created. `channel` records which door the customer came through.
+   */
+  async function openCheckout(
+    row: { order: typeof orders.$inferSelect; itemTitle: string },
+    channel: "web" | "email",
+    language: string,
+  ): Promise<{ ok: true; checkoutUrl: string } | { ok: false; status: number; error: string }> {
+    if (!ctx.klix) return { ok: false, status: 503, error: "payments_unavailable" };
     const [existing] = await ctx.db
       .select()
       .from(payments)
@@ -104,20 +103,31 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
       .orderBy(desc(payments.createdAt))
       .limit(1);
     if (existing?.checkoutUrl && ctx.now().getTime() - existing.createdAt.getTime() < CHECKOUT_REUSE_MS) {
-      return { checkoutUrl: existing.checkoutUrl };
+      return { ok: true, checkoutUrl: existing.checkoutUrl };
     }
     if (existing) {
+      // Kill the stale checkout at Klix before superseding it locally, so
+      // an old tab or old email link can't pay the order a second time.
+      // Best-effort: if the purchase meanwhile got paid, the cancel fails
+      // and the callback/poll will settle it — never mask real money.
+      if (existing.providerId) {
+        try {
+          await ctx.klix.cancelPurchase(existing.providerId);
+        } catch {
+          const status = await reconcilePayment(existing);
+          if (status === "paid") return { ok: false, status: 409, error: "order_not_awaiting_payment" };
+        }
+      }
       await ctx.db
         .update(payments)
         .set({ status: "expired", updatedAt: ctx.now() })
-        .where(eq(payments.id, existing.id));
+        .where(and(eq(payments.id, existing.id), eq(payments.status, "created")));
     }
 
-    const language = body.data.language ?? MARKET_LANGUAGE[row.order.marketCode] ?? "en";
     const accountUrl = `${ctx.config.storefrontBaseUrl}/account`;
     const [payment] = await ctx.db
       .insert(payments)
-      .values({ orderId: row.order.id, provider: "klix", amountCents: row.order.totalCents })
+      .values({ orderId: row.order.id, provider: "klix", channel, amountCents: row.order.totalCents })
       .returning();
     try {
       const purchase = await ctx.klix.createPurchase({
@@ -141,16 +151,70 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
         .update(payments)
         .set({ providerId: purchase.id, checkoutUrl: purchase.checkoutUrl, providerStatus: purchase.status, updatedAt: ctx.now() })
         .where(eq(payments.id, payment!.id));
-      return { checkoutUrl: purchase.checkoutUrl };
+      return { ok: true, checkoutUrl: purchase.checkoutUrl! };
     } catch (err) {
       await ctx.db
         .update(payments)
         .set({ status: "failed", providerStatus: "create_error", updatedAt: ctx.now() })
         .where(eq(payments.id, payment!.id));
-      req.log?.error({ err, orderRef: ref }, "klix purchase creation failed");
-      const status = err instanceof KlixError ? 502 : 500;
-      return reply.code(status).send({ error: "payment_provider_error" });
+      app.log?.error({ err, orderRef: row.order.ref }, "klix purchase creation failed");
+      return { ok: false, status: err instanceof KlixError ? 502 : 500, error: "payment_provider_error" };
     }
+  }
+
+  const paySchema = z.object({ language: z.enum(["lv", "ru", "en", "et", "lt"]).optional() });
+
+  /** Start (or resume) checkout for the bidder's own unpaid order. */
+  app.post("/api/public/orders/:ref/pay", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    if (!ctx.klix) return reply.code(503).send({ error: "payments_unavailable" });
+    const body = paySchema.safeParse(req.body ?? {});
+    if (!body.success) return reply.code(400).send({ error: "invalid_body" });
+    const { ref } = req.params as { ref: string };
+    const row = await ownOrderByRef(ref, bidderId);
+    if (!row) return reply.code(404).send({ error: "not_found" });
+    if (row.order.status !== "awaiting_payment") return reply.code(409).send({ error: "order_not_awaiting_payment" });
+    const language = body.data.language ?? MARKET_LANGUAGE[row.order.marketCode] ?? "en";
+    const result = await openCheckout(row, "web", language);
+    if (!result.ok) return reply.code(result.status).send({ error: result.error });
+    return { checkoutUrl: result.checkoutUrl };
+  });
+
+  /**
+   * Pay-by-link from the won / reminder emails: one click straight into the
+   * Klix checkout, no login. The signed token (see engine/payLink.ts)
+   * authorizes exactly this order and expires with the payment deadline.
+   * Already-paid orders bounce to the account page instead of a checkout —
+   * the email link can never charge twice.
+   */
+  app.get("/api/public/pay/:ref", async (req, reply) => {
+    const { ref } = req.params as { ref: string };
+    const { t } = req.query as { t?: string };
+    const accountUrl = `${ctx.config.storefrontBaseUrl}/account`;
+    const claims = t ? verifyPayLinkToken(t, ctx.config.jwtSecret, ctx.now().getTime()) : null;
+    if (!claims || claims.sub !== ref) return reply.code(401).send({ error: "invalid_pay_link" });
+    const [row] = await ctx.db
+      .select({ order: orders, itemTitle: items.title })
+      .from(orders)
+      .innerJoin(items, eq(orders.itemId, items.id))
+      .where(eq(orders.ref, ref));
+    if (!row) return reply.code(404).send({ error: "not_found" });
+    if (row.order.status === "paid") {
+      return reply.redirect(`${accountUrl}?paid=1&order=${encodeURIComponent(ref)}`);
+    }
+    if (row.order.status !== "awaiting_payment") {
+      return reply.redirect(accountUrl);
+    }
+    if (!ctx.klix) return reply.redirect(accountUrl);
+    const language = MARKET_LANGUAGE[row.order.marketCode] ?? "en";
+    const result = await openCheckout(row, "email", language);
+    if (!result.ok) {
+      return result.error === "order_not_awaiting_payment"
+        ? reply.redirect(`${accountUrl}?paid=1&order=${encodeURIComponent(ref)}`)
+        : reply.redirect(`${accountUrl}?paid=0&order=${encodeURIComponent(ref)}`);
+    }
+    return reply.redirect(result.checkoutUrl);
   });
 
   /**

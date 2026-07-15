@@ -479,6 +479,8 @@ export const payments = pgTable(
       .notNull()
       .references(() => orders.id, { onDelete: "cascade" }),
     provider: text("provider").notNull().default("klix"),
+    /** Where the checkout was started: storefront button or an email pay link. */
+    channel: text("channel").notNull().default("web"), // web | email
     /** Provider-side purchase id (Klix purchase UUID). */
     providerId: text("provider_id"),
     status: text("status").notNull().default("created"), // created | paid | failed | expired

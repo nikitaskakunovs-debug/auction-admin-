@@ -5,6 +5,7 @@ import { outstandingFeeCents } from "./fees.js";
 import type { AppContext } from "../context.js";
 import { issueInvoice } from "./invoices.js";
 import { enqueueNotification } from "./notifications.js";
+import { buildPayUrl } from "./payLink.js";
 
 /**
  * Fixed-price "buy it now". A fixed listing is backed by ONE unique warehouse
@@ -112,7 +113,14 @@ export async function buyNow(
     await enqueueNotification(tx, {
       customerId: buyer.id,
       type: "purchased",
-      template: { alias: "", lotTitle: listing.title, orderRef: ref, totalCents: inv.totalCents, deadline: paymentDeadlineAt },
+      template: {
+        alias: "",
+        lotTitle: listing.title,
+        orderRef: ref,
+        totalCents: inv.totalCents,
+        deadline: paymentDeadlineAt,
+        payUrl: buildPayUrl(ctx, ref, paymentDeadlineAt),
+      },
     });
 
     return { ok: true, orderRef: ref, totalCents: inv.totalCents };

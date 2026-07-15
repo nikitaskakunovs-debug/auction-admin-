@@ -19,6 +19,8 @@ interface Refund {
 interface Payment {
   id: string;
   provider: string;
+  /** Where the checkout was started: storefront button or email pay link. */
+  channel: string; // web | email
   providerId: string | null;
   status: string; // created | paid | failed | expired
   providerStatus: string | null;
@@ -272,11 +274,12 @@ export function OrdersScreen({ nav: _nav }: { nav: Nav }) {
 
             {detail.payments.length > 0 && (
               <ACard title="Online payments (Klix)" pad={false}>
-                <ATable head={["When", "Status", "Amount", "Purchase"]}>
+                <ATable head={["When", "Status", "Via", "Amount", "Purchase"]}>
                   {detail.payments.map((p) => (
                     <ATr key={p.id}>
                       <ATd>{formatDate(p.createdAt)}</ATd>
                       <ATd><ABadge tone={PAYMENT_TONE[p.status] ?? "neutral"}>{p.status}</ABadge></ATd>
+                      <ATd><span style={{ fontSize: 12, color: AT.inkSoft }}>{p.channel === "email" ? "Email link" : "Web"}</span></ATd>
                       <ATd mono right>{formatEur(p.amountCents)}</ATd>
                       <ATd><span style={{ fontFamily: AT.mono, fontSize: 11, color: AT.inkSoft }}>{p.providerId ?? "—"}</span></ATd>
                     </ATr>

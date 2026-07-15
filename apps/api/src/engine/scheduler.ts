@@ -7,6 +7,7 @@ import { closeAuction, openAuction } from "./close.js";
 import { recordFee } from "./fees.js";
 import { cancelNoShowDue, remindPickupDue } from "./noShow.js";
 import { dispatchNotifications, enqueueNotification, reminderDedupeKey } from "./notifications.js";
+import { buildPayUrl } from "./payLink.js";
 
 const LOCK_KEY = "scheduler:lock";
 const LOCK_TTL_MS = 4_000;
@@ -112,7 +113,14 @@ export class AuctionScheduler {
       await enqueueNotification(this.ctx.db, {
         customerId: o.customerId,
         type: "payment_reminder",
-        template: { alias: "", lotTitle: "", orderRef: o.ref, totalCents: o.totalCents, deadline: o.deadline ?? undefined },
+        template: {
+          alias: "",
+          lotTitle: "",
+          orderRef: o.ref,
+          totalCents: o.totalCents,
+          deadline: o.deadline ?? undefined,
+          payUrl: buildPayUrl(this.ctx, o.ref, o.deadline),
+        },
         dedupeKey: reminderDedupeKey(o.id),
       });
     }

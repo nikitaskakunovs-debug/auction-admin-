@@ -1,4 +1,4 @@
-import { orders, payments, refunds } from "@auction/db";
+import { notifications, orders, payments, refunds } from "@auction/db";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { SimulatedKlixClient } from "../src/engine/klix.js";
@@ -81,6 +81,7 @@ describe("checkout creation", () => {
 
     const [p] = await paymentRow(orderId);
     expect(p!.status).toBe("created");
+    expect(p!.channel).toBe("web");
     expect(p!.amountCents).toBe(13_310); // 11000 + 10% premium + 21% VAT
     expect(p!.providerId).toBeTruthy();
     expect(p!.checkoutUrl).toBe(checkoutUrl);
@@ -226,6 +227,87 @@ describe("storefront poll fallback", () => {
       headers: auth(other.accessToken),
     });
     expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("pay-by-link (email channel)", () => {
+  /** Pull the one-click pay URL out of the buyer's "purchased" email. */
+  async function payLinkFromEmail(ref: string): Promise<{ path: string; url: string }> {
+    const rows = await world.ctx.db.select().from(notifications).where(eq(notifications.type, "purchased"));
+    const n = rows.find((r) => r.body.includes(`/api/public/pay/${encodeURIComponent(ref)}`));
+    expect(n, `no purchased email with a pay link for ${ref}`).toBeDefined();
+    const url = n!.body.match(/https?:\/\/\S+/g)!.find((u) => u.includes("/api/public/pay/"))!;
+    const parsed = new URL(url);
+    return { path: parsed.pathname + parsed.search, url };
+  }
+
+  it("the purchase email carries a pay link that opens checkout without login", async () => {
+    const buyer = await registerBidder("link_anna");
+    const { orderId, ref } = await unpaidOrder(buyer.accessToken);
+    const { path } = await payLinkFromEmail(ref);
+    const res = await world.server.app.inject({ method: "GET", url: path }); // deliberately unauthenticated
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toContain("https://klix.simulated/checkout/");
+    const [p] = await paymentRow(orderId);
+    expect(p!.channel).toBe("email");
+  });
+
+  it("web button and email link share ONE checkout — nothing to double-pay", async () => {
+    const buyer = await registerBidder("link_share");
+    const { orderId, ref } = await unpaidOrder(buyer.accessToken);
+    const { checkoutUrl } = await startCheckout(ref, buyer.accessToken); // web first
+    const { path } = await payLinkFromEmail(ref);
+    const res = await world.server.app.inject({ method: "GET", url: path }); // email second
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe(checkoutUrl); // the SAME Klix purchase
+    expect((await paymentRow(orderId)).length).toBe(1);
+  });
+
+  it("email link on an already-paid order bounces to the account page, never a checkout", async () => {
+    const buyer = await registerBidder("link_paid");
+    const { orderId, ref } = await unpaidOrder(buyer.accessToken);
+    await startCheckout(ref, buyer.accessToken);
+    const [p] = await paymentRow(orderId);
+    klix.setStatus(p!.providerId!, "paid");
+    await world.server.app.inject({ method: "POST", url: `/api/public/payments/klix/callback?payment=${p!.id}` });
+
+    const { path } = await payLinkFromEmail(ref);
+    const res = await world.server.app.inject({ method: "GET", url: path });
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toContain("/account?paid=1");
+    expect((await paymentRow(orderId)).length).toBe(1); // no new checkout appeared
+  });
+
+  it("a tampered or missing token is rejected", async () => {
+    const buyer = await registerBidder("link_bad");
+    const { ref } = await unpaidOrder(buyer.accessToken);
+    const bad = await world.server.app.inject({ method: "GET", url: `/api/public/pay/${ref}?t=garbage` });
+    expect(bad.statusCode).toBe(401);
+    const none = await world.server.app.inject({ method: "GET", url: `/api/public/pay/${ref}` });
+    expect(none.statusCode).toBe(401);
+  });
+
+  it("superseding a stale checkout cancels the old purchase at the provider", async () => {
+    const buyer = await registerBidder("link_stale");
+    const { orderId, ref } = await unpaidOrder(buyer.accessToken);
+    const first = await startCheckout(ref, buyer.accessToken);
+    const [p1] = await paymentRow(orderId);
+    const { path } = await payLinkFromEmail(ref);
+    try {
+      world.setNow(new Date(Date.now() + 31 * 60 * 1000)); // past the reuse window
+      // The session token has expired with the clock jump — the email pay
+      // link (valid until the payment deadline) starts the fresh checkout.
+      const res = await world.server.app.inject({ method: "GET", url: path });
+      expect(res.statusCode).toBe(302);
+      expect(res.headers.location).not.toBe(first.checkoutUrl);
+      // The old link is dead at Klix itself — it can never take money again.
+      expect(klix.inspect(p1!.providerId!)!.status).toBe("cancelled");
+      const rows = await paymentRow(orderId);
+      expect(rows.length).toBe(2);
+      expect(rows.find((r) => r.id === p1!.id)!.status).toBe("expired");
+    } finally {
+      world.setNow(null);
+    }
   });
 });
 

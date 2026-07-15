@@ -140,6 +140,14 @@ itself reports `paid` (spoofed callbacks are harmless). If the callback is
 ever lost, the account page's status poll reconciles on the next visit.
 Payment attempts are visible per order in admin → Orders.
 
+**Pay by email link**: the "you won" / "purchase confirmed" / payment-reminder
+emails carry a one-click pay link (signed, order-specific, expires with the
+payment deadline) that opens the same Klix checkout without logging in.
+Admin → Orders shows whether each payment attempt came from the web button or
+the email link. Both doors share one open checkout per order — and a
+superseded checkout is cancelled at Klix itself — so paying twice is
+impossible by construction.
+
 **Refunds**: on a Klix-paid order the admin Refund action returns the money
 to the customer through the Klix API automatically (partial or full) and
 records it — if Klix rejects the refund, nothing is recorded. The

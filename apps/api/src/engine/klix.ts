@@ -50,6 +50,12 @@ export interface KlixClient {
    * exceeds the refundable remainder, already fully refunded…).
    */
   refundPurchase(id: string, amountCents?: number): Promise<KlixPurchase>;
+  /**
+   * Kill an unpaid checkout (POST /purchases/<id>/cancel/) so its link can
+   * never collect money again. Used when a fresh checkout supersedes a stale
+   * one — the double-payment guard.
+   */
+  cancelPurchase(id: string): Promise<KlixPurchase>;
 }
 
 export class KlixError extends Error {
@@ -123,6 +129,12 @@ class LiveKlixClient implements KlixClient {
     if (!json) throw new KlixError(`Klix /purchases/${id}/refund/ returned 404`, 404);
     return toPurchase(json);
   }
+
+  async cancelPurchase(id: string): Promise<KlixPurchase> {
+    const json = await this.call(`/purchases/${id}/cancel/`, { method: "POST", body: "{}" });
+    if (!json) throw new KlixError(`Klix /purchases/${id}/cancel/ returned 404`, 404);
+    return toPurchase(json);
+  }
 }
 
 function toPurchase(json: Record<string, unknown>): KlixPurchase {
@@ -184,6 +196,16 @@ export class SimulatedKlixClient implements KlixClient {
     }
     p.refundedCents += amount;
     if (p.refundedCents >= p.amountCents) p.status = "refunded";
+    return p;
+  }
+
+  async cancelPurchase(id: string): Promise<KlixPurchase> {
+    const p = this.purchases.get(id);
+    if (!p) throw new KlixError(`no simulated purchase ${id}`, 404);
+    if (p.status === "paid" || p.status === "refunded") {
+      throw new KlixError(`purchase ${id} already ${p.status} — cannot cancel`, 400);
+    }
+    p.status = "cancelled";
     return p;
   }
 
