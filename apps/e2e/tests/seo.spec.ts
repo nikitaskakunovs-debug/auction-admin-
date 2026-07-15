@@ -11,12 +11,12 @@ import { expect, test } from "@playwright/test";
  * tolerate an optional trailing slash.
  */
 
-const LV_ORIGIN = "https://baltic-auctions.lv";
-const EE_ORIGIN = "https://baltic-auctions.ee";
-const LT_ORIGIN = "https://baltic-auctions.lt";
+const LV_ORIGIN = "https://izsoli.lv";
+const EE_ORIGIN = "https://izsoli.ee";
+const LT_ORIGIN = "https://izsoli.lt";
 
 test("SEO: Latvian domain renders lv and cross-links its ccTLD siblings", async ({ request }) => {
-  const res = await request.get("/", { headers: { host: "www.baltic-auctions.lv" } });
+  const res = await request.get("/", { headers: { host: "www.izsoli.lv" } });
   expect(res.ok()).toBeTruthy();
   const html = await res.text();
 
@@ -36,7 +36,7 @@ test("SEO: Latvian domain renders lv and cross-links its ccTLD siblings", async 
 });
 
 test("SEO: Estonian domain renders et as the default language", async ({ request }) => {
-  const res = await request.get("/", { headers: { host: "shop.baltic-auctions.ee" } });
+  const res = await request.get("/", { headers: { host: "shop.izsoli.ee" } });
   const html = await res.text();
   expect(html).toMatch(/<html[^>]*\blang="et"/);
   // Estonia's canonical points at the .ee origin.
@@ -50,7 +50,7 @@ test("SEO: unknown host falls back to Latvia", async ({ request }) => {
 });
 
 test("SEO: robots.txt sitemap self-references the request host origin", async ({ request }) => {
-  const res = await request.get("/robots.txt", { headers: { host: "www.baltic-auctions.ee" } });
+  const res = await request.get("/robots.txt", { headers: { host: "www.izsoli.ee" } });
   const body = await res.text();
-  expect(body).toContain("Sitemap: https://www.baltic-auctions.ee/sitemap.xml");
+  expect(body).toContain("Sitemap: https://www.izsoli.ee/sitemap.xml");
 });
