@@ -35,6 +35,8 @@ export interface InbankSession {
   /** Raw Inbank session status; "completed" is the only paid-equivalent. */
   status: string;
   redirectUrl: string | null;
+  /** The full session object as Inbank returned it (contract uuid, terms…). */
+  raw: Record<string, unknown>;
 }
 
 export interface InbankClient {
@@ -107,6 +109,7 @@ function toSession(json: Record<string, unknown>): InbankSession {
     status: String(json.status ?? ""),
     redirectUrl:
       typeof json.redirectUrl === "string" ? json.redirectUrl : typeof json.redirect_url === "string" ? json.redirect_url : null,
+    raw: json,
   };
 }
 
@@ -121,22 +124,27 @@ export class SimulatedInbankClient implements InbankClient {
       id,
       status: "pending",
       redirectUrl: `https://inbank.simulated/session/${id}`,
+      raw: {} as Record<string, unknown>,
       reference: input.reference,
       amountCents: input.amountCents,
       input,
     };
+    session.raw = { uuid: id, status: session.status, reference: input.reference };
     this.sessions.set(id, session);
     return session;
   }
 
   async getSession(id: string): Promise<InbankSession | null> {
-    return this.sessions.get(id) ?? null;
+    const s = this.sessions.get(id);
+    if (!s) return null;
+    return { ...s, raw: { uuid: s.id, status: s.status, reference: s.reference, ...s.raw } };
   }
 
-  setStatus(id: string, status: string): void {
+  setStatus(id: string, status: string, rawExtra?: Record<string, unknown>): void {
     const s = this.sessions.get(id);
     if (!s) throw new Error(`no simulated inbank session ${id}`);
     s.status = status;
+    if (rawExtra) s.raw = { ...s.raw, ...rawExtra };
   }
 
   inspect(id: string) {

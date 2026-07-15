@@ -38,6 +38,10 @@ export interface KlixPurchase {
   /** Raw Klix purchase status; "paid" is the only success value. */
   status: string;
   checkoutUrl: string | null;
+  /** Payment method actually used (klix, klix_pay_later, swedbank_lv_pis…). */
+  method: string | null;
+  /** The full purchase object as Klix returned it. */
+  raw: Record<string, unknown>;
 }
 
 export interface KlixClient {
@@ -157,10 +161,17 @@ class LiveKlixClient implements KlixClient {
 }
 
 function toPurchase(json: Record<string, unknown>): KlixPurchase {
+  // The method the customer picked on the checkout page lives in
+  // transaction_data.payment_method on the purchase object.
+  const tx = json.transaction_data as Record<string, unknown> | undefined;
+  const method =
+    typeof tx?.payment_method === "string" ? tx.payment_method : typeof json.payment_method === "string" ? json.payment_method : null;
   return {
     id: String(json.id),
     status: String(json.status ?? ""),
     checkoutUrl: typeof json.checkout_url === "string" ? json.checkout_url : null,
+    method,
+    raw: json,
   };
 }
 
@@ -177,6 +188,13 @@ interface SimulatedPurchase extends KlixPurchase {
   input: KlixPurchaseInput;
 }
 
+const simulatedRaw = (p: SimulatedPurchase): Record<string, unknown> => ({
+  id: p.id,
+  status: p.status,
+  reference: p.reference,
+  ...(p.method ? { transaction_data: { payment_method: p.method } } : {}),
+});
+
 export class SimulatedKlixClient implements KlixClient {
   private purchases = new Map<string, SimulatedPurchase>();
   private seq = 0;
@@ -187,17 +205,22 @@ export class SimulatedKlixClient implements KlixClient {
       id,
       status: "created",
       checkoutUrl: `https://klix.simulated/checkout/${id}`,
+      method: null,
+      raw: {},
       reference: input.reference,
       amountCents: input.amountCents,
       refundedCents: 0,
       input,
     };
+    purchase.raw = simulatedRaw(purchase);
     this.purchases.set(id, purchase);
     return purchase;
   }
 
   async getPurchase(id: string): Promise<KlixPurchase | null> {
-    return this.purchases.get(id) ?? null;
+    const p = this.purchases.get(id);
+    if (!p) return null;
+    return { ...p, raw: simulatedRaw(p) };
   }
 
   async refundPurchase(id: string, amountCents?: number): Promise<KlixPurchase> {
@@ -239,10 +262,11 @@ export class SimulatedKlixClient implements KlixClient {
     return this.purchases.get(id) ?? null;
   }
 
-  setStatus(id: string, status: string): void {
+  setStatus(id: string, status: string, method?: string): void {
     const p = this.purchases.get(id);
     if (!p) throw new Error(`no simulated purchase ${id}`);
     p.status = status;
+    if (method !== undefined) p.method = method;
   }
 }
 

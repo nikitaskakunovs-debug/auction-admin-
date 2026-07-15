@@ -2,10 +2,12 @@ import { useEffect, useState } from "react";
 import { api, type Invoice, type VatReport } from "../api.js";
 import type { Nav } from "../App.js";
 import { formatDate, formatEur } from "../format.js";
+import { isBnpl, methodLabel, providerLabel } from "../paymentLabels.js";
 import { AT } from "../theme.js";
-import { ABadge, ABtn, ACard, AEmpty, AField, AIcon, AInput, ATable, ATd, ATr, useToast } from "../ui.js";
+import { ABadge, ABtn, ACard, AEmpty, AField, AIcon, AInput, APills, ATable, ATd, ATr, useToast } from "../ui.js";
 
 const TABS = [
+  { id: "payments", label: "Payments" },
   { id: "invoices", label: "Invoices" },
   { id: "vat", label: "VAT report" },
 ];
@@ -19,7 +21,7 @@ function today(): string {
 }
 
 export function FinanceScreen({ nav: _nav }: { nav: Nav }) {
-  const [tab, setTab] = useState("invoices");
+  const [tab, setTab] = useState("payments");
   return (
     <div style={{ display: "grid", gap: 14 }}>
       <h1 style={{ fontFamily: AT.body, fontSize: 20, fontWeight: 700, color: AT.ink }}>Finance</h1>
@@ -32,7 +34,119 @@ export function FinanceScreen({ nav: _nav }: { nav: Nav }) {
           }}>{t.label}</button>
         ))}
       </div>
-      {tab === "invoices" ? <InvoicesTab /> : <VatTab />}
+      {tab === "payments" ? <PaymentsTab /> : tab === "invoices" ? <InvoicesTab /> : <VatTab />}
+    </div>
+  );
+}
+
+interface PaymentRow {
+  id: string;
+  provider: string;
+  channel: string;
+  providerId: string | null;
+  status: string;
+  providerStatus: string | null;
+  method: string | null;
+  raw: Record<string, unknown> | null;
+  amountCents: number;
+  createdAt: string;
+  orderRef: string;
+  orderStatus: string;
+  customerAlias: string;
+  itemTitle: string;
+}
+
+const PAYMENT_TONE: Record<string, "ok" | "warn" | "danger" | "neutral"> = {
+  paid: "ok",
+  created: "warn",
+  failed: "danger",
+  expired: "neutral",
+};
+
+const STATUS_PILLS = [
+  { id: "all", label: "All" },
+  { id: "paid", label: "Paid" },
+  { id: "created", label: "In flight" },
+  { id: "failed", label: "Failed" },
+  { id: "expired", label: "Expired" },
+];
+const PROVIDER_PILLS = [
+  { id: "all", label: "All providers" },
+  { id: "klix", label: "Klix" },
+  { id: "inbank", label: "Inbank" },
+];
+
+/**
+ * Every online payment attempt across all orders in one place: provider,
+ * exact method (card / banklink / BNPL — with terms in the details), where
+ * it was started (web or email link), and its current state.
+ */
+function PaymentsTab() {
+  const [rows, setRows] = useState<PaymentRow[]>([]);
+  const [status, setStatus] = useState("all");
+  const [provider, setProvider] = useState("all");
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (status !== "all") params.set("status", status);
+    if (provider !== "all") params.set("provider", provider);
+    const qs = params.toString();
+    void api
+      .get<{ payments: PaymentRow[] }>(`/api/payments${qs ? `?${qs}` : ""}`)
+      .then((r) => setRows(r.payments))
+      .catch(() => undefined);
+  }, [status, provider]);
+
+  return (
+    <div style={{ display: "grid", gap: 10 }}>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <APills options={STATUS_PILLS} value={status} onChange={setStatus} />
+        <APills options={PROVIDER_PILLS} value={provider} onChange={setProvider} />
+      </div>
+      <ACard pad={false}>
+        {rows.length === 0 ? (
+          <AEmpty text="No online payment attempts match — they appear here the moment a customer opens a checkout." />
+        ) : (
+          <ATable head={["When", "Order", "Customer", "Provider", "Method", "Via", "Status", "Amount", ""]}>
+            {rows.map((p) => (
+              <ATr key={p.id}>
+                <ATd>{formatDate(p.createdAt)}</ATd>
+                <ATd mono>
+                  <strong>{p.orderRef}</strong>
+                  <div style={{ fontSize: 10.5, color: AT.inkSoft, fontFamily: AT.body }}>{p.itemTitle}</div>
+                </ATd>
+                <ATd>{p.customerAlias}</ATd>
+                <ATd><span style={{ fontWeight: 600, fontSize: 12 }}>{providerLabel(p.provider)}</span></ATd>
+                <ATd>
+                  <span style={{ fontSize: 12 }}>{methodLabel(p.method)}</span>
+                  {isBnpl(p.method) && <span style={{ marginLeft: 6 }}><ABadge tone="accent">BNPL</ABadge></span>}
+                </ATd>
+                <ATd><span style={{ fontSize: 12, color: AT.inkSoft }}>{p.channel === "email" ? "Email link" : "Web"}</span></ATd>
+                <ATd>
+                  <ABadge tone={PAYMENT_TONE[p.status] ?? "neutral"}>{p.status}</ABadge>
+                  {p.providerStatus && p.providerStatus !== p.status && (
+                    <div style={{ fontSize: 10, color: AT.inkSoft, marginTop: 2 }}>{p.providerStatus}</div>
+                  )}
+                </ATd>
+                <ATd mono right><strong>{formatEur(p.amountCents)}</strong></ATd>
+                <ATd>
+                  <details>
+                    <summary style={{ cursor: "pointer", fontSize: 11, color: AT.inkSoft }}>details</summary>
+                    <div style={{ fontFamily: AT.mono, fontSize: 10.5, color: AT.inkSoft, marginTop: 4 }}>
+                      <div>provider ref: {p.providerId ?? "—"}</div>
+                      {p.raw && (
+                        <pre style={{ margin: "4px 0 0", whiteSpace: "pre-wrap", maxWidth: 380, maxHeight: 220, overflow: "auto", background: "#F6F6F4", borderRadius: 6, padding: 6 }}>
+                          {JSON.stringify(p.raw, null, 1)}
+                        </pre>
+                      )}
+                    </div>
+                  </details>
+                </ATd>
+              </ATr>
+            ))}
+          </ATable>
+        )}
+      </ACard>
     </div>
   );
 }

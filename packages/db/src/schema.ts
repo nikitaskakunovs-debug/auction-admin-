@@ -489,6 +489,18 @@ export const payments = pgTable(
     checkoutUrl: text("checkout_url"),
     /** Last raw provider status observed (diagnostics). */
     providerStatus: text("provider_status"),
+    /**
+     * Payment method the customer actually used, as the provider reports it
+     * (e.g. klix_pay_later, swedbank_lv_pis, klix card) — how an admin tells
+     * a BNPL payment from a banklink from a card.
+     */
+    method: text("method"),
+    /**
+     * Full last provider response (purchase/session object). Everything the
+     * provider knows — BNPL terms, contract ids, timestamps — stays visible
+     * in admin even for fields the integration doesn't model explicitly.
+     */
+    raw: jsonb("raw"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

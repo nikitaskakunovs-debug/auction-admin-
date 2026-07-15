@@ -30,6 +30,41 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext, perms
     return { orders: rows.map((r) => ({ ...r.order, itemSku: r.itemSku, itemStatus: r.itemStatus })) };
   });
 
+  /**
+   * All online payment attempts across orders — the admin "Payments" view.
+   * One row per checkout attempt with provider, method (BNPL vs banklink vs
+   * card), channel, status, and the order it belongs to.
+   */
+  app.get("/api/payments", guard("orders.view"), async (req) => {
+    const q = req.query as { status?: string; provider?: string };
+    const conds = [];
+    if (q.status) conds.push(eq(payments.status, q.status));
+    if (q.provider) conds.push(eq(payments.provider, q.provider));
+    const rows = await ctx.db
+      .select({
+        payment: payments,
+        orderRef: orders.ref,
+        orderStatus: orders.status,
+        customerAlias: orders.customerAlias,
+        itemTitle: items.title,
+      })
+      .from(payments)
+      .innerJoin(orders, eq(payments.orderId, orders.id))
+      .innerJoin(items, eq(orders.itemId, items.id))
+      .where(conds.length ? and(...conds) : undefined)
+      .orderBy(desc(payments.createdAt))
+      .limit(500);
+    return {
+      payments: rows.map((r) => ({
+        ...r.payment,
+        orderRef: r.orderRef,
+        orderStatus: r.orderStatus,
+        customerAlias: r.customerAlias,
+        itemTitle: r.itemTitle,
+      })),
+    };
+  });
+
   app.get("/api/orders/:id", guard("orders.view"), async (req, reply) => {
     const { id } = req.params as { id: string };
     const [row] = await ctx.db

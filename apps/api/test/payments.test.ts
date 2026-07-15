@@ -635,6 +635,69 @@ describe("Pay Later calculator support", () => {
   });
 });
 
+describe("admin payment visibility", () => {
+  it("reconcile persists the method the customer used (BNPL vs banklink) + the raw snapshot", async () => {
+    const buyer = await registerBidder("vis_method");
+    const { orderId, ref } = await unpaidOrder(buyer.accessToken);
+    await startCheckout(ref, buyer.accessToken);
+    const [p] = await paymentRow(orderId);
+    // Customer picked Pay Later on the Klix checkout page.
+    klix.setStatus(p!.providerId!, "paid", "klix_pay_later");
+    await world.server.app.inject({ method: "POST", url: `/api/public/payments/klix/callback?payment=${p!.id}` });
+    const [after] = await paymentRow(orderId);
+    expect(after!.method).toBe("klix_pay_later");
+    expect(after!.raw).toMatchObject({ transaction_data: { payment_method: "klix_pay_later" } });
+    // …and it shows on the admin order detail.
+    const detail = await world.server.app.inject({ method: "GET", url: `/api/orders/${orderId}`, headers: auth(adminToken) });
+    const payments = (detail.json() as { payments: Array<{ method: string | null; raw: unknown }> }).payments;
+    expect(payments[0]!.method).toBe("klix_pay_later");
+  });
+
+  it("GET /api/payments lists attempts across orders with provider/status filters, admin-only", async () => {
+    const buyer = await registerBidder("vis_list");
+    const { ref } = await unpaidOrder(buyer.accessToken);
+    await startCheckout(ref, buyer.accessToken);
+
+    const anon = await world.server.app.inject({ method: "GET", url: "/api/payments" });
+    expect(anon.statusCode).toBe(401);
+    const asBidder = await world.server.app.inject({ method: "GET", url: "/api/payments", headers: auth(buyer.accessToken) });
+    expect([401, 403]).toContain(asBidder.statusCode);
+
+    const all = await world.server.app.inject({ method: "GET", url: "/api/payments", headers: auth(adminToken) });
+    expect(all.statusCode).toBe(200);
+    const rows = (all.json() as { payments: Array<{ orderRef: string; provider: string; customerAlias: string; status: string }> }).payments;
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.find((r) => r.orderRef === ref)).toMatchObject({ provider: "klix", customerAlias: "vis_list" });
+
+    const inbankOnly = await world.server.app.inject({ method: "GET", url: "/api/payments?provider=inbank", headers: auth(adminToken) });
+    const inbankRows = (inbankOnly.json() as { payments: Array<{ provider: string }> }).payments;
+    expect(inbankRows.length).toBeGreaterThan(0); // earlier Inbank tests created attempts
+    expect(inbankRows.every((r) => r.provider === "inbank")).toBe(true);
+
+    const paidOnly = await world.server.app.inject({ method: "GET", url: "/api/payments?status=paid", headers: auth(adminToken) });
+    const paidRows = (paidOnly.json() as { payments: Array<{ status: string }> }).payments;
+    expect(paidRows.every((r) => r.status === "paid")).toBe(true);
+  });
+
+  it("Inbank attempts carry the inbank_installments method after reconcile", async () => {
+    const buyer = await registerBidder("vis_inb");
+    const { orderId, ref } = await unpaidOrder(buyer.accessToken);
+    await world.server.app.inject({
+      method: "POST",
+      url: `/api/public/orders/${ref}/pay`,
+      headers: auth(buyer.accessToken),
+      payload: { provider: "inbank" },
+    });
+    const [p] = await paymentRow(orderId);
+    inbank.setStatus(p!.providerId!, "completed", { creditContractUuid: "cc-123", period: 12 });
+    await world.server.app.inject({ method: "POST", url: `/api/public/payments/inbank/callback?payment=${p!.id}` });
+    const [after] = await paymentRow(orderId);
+    expect(after!.method).toBe("inbank_installments");
+    // The contract terms Inbank reported are preserved for admin.
+    expect(after!.raw).toMatchObject({ creditContractUuid: "cc-123", period: 12 });
+  });
+});
+
 describe("mode gating", () => {
   it("pay returns 503 when every provider is off", async () => {
     const buyer = await registerBidder("pay_off");

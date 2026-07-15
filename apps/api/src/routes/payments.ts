@@ -77,17 +77,25 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
     return row ?? null;
   }
 
+  interface ProviderState {
+    status: string;
+    /** Payment method used (Klix) — how BNPL/banklink/card is told apart. */
+    method: string | null;
+    /** Full provider object — persisted so admin sees terms/contract data. */
+    raw: Record<string, unknown>;
+  }
+
   /** Fetch the provider-side state of a payment row (null = unknown/gone). */
-  async function fetchProviderStatus(payment: typeof payments.$inferSelect): Promise<string | null> {
+  async function fetchProviderState(payment: typeof payments.$inferSelect): Promise<ProviderState | null> {
     if (!payment.providerId) return null;
     if (payment.provider === "inbank") {
       if (!ctx.inbank) return null;
       const session = await ctx.inbank.getSession(payment.providerId);
-      return session?.status ?? null;
+      return session ? { status: session.status, method: "inbank_installments", raw: session.raw } : null;
     }
     if (!ctx.klix) return null;
     const purchase = await ctx.klix.getPurchase(payment.providerId);
-    return purchase?.status ?? null;
+    return purchase ? { status: purchase.status, method: purchase.method, raw: purchase.raw } : null;
   }
 
   /**
@@ -95,13 +103,14 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
    * the purchase/session is paid. Used by the callbacks and the poll.
    */
   async function reconcilePayment(payment: typeof payments.$inferSelect): Promise<string> {
-    const providerStatus = await fetchProviderStatus(payment);
-    if (providerStatus === null) return payment.status;
+    const state = await fetchProviderState(payment);
+    if (state === null) return payment.status;
+    const providerStatus = state.status;
     const status = mapProviderStatus(payment.provider, providerStatus);
-    if (status !== payment.status || providerStatus !== payment.providerStatus) {
+    if (status !== payment.status || providerStatus !== payment.providerStatus || state.method !== payment.method) {
       await ctx.db
         .update(payments)
-        .set({ status, providerStatus, updatedAt: ctx.now() })
+        .set({ status, providerStatus, method: state.method ?? payment.method, raw: state.raw, updatedAt: ctx.now() })
         .where(eq(payments.id, payment.id));
     }
     if (status === "paid") {
