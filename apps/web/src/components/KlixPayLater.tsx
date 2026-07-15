@@ -13,16 +13,19 @@ import { useT } from "@/lib/i18n";
  * pages need no gating logic of their own.
  */
 
-interface PaymentsConfig {
+export interface PaymentsConfig {
   enabled: boolean;
   payLaterBrandId: string | null;
+  providers?: { klix: boolean; inbank: boolean };
 }
 
+const OFF: PaymentsConfig = { enabled: false, payLaterBrandId: null, providers: { klix: false, inbank: false } };
+
 let configPromise: Promise<PaymentsConfig> | null = null;
-function loadConfig(): Promise<PaymentsConfig> {
+export function loadPaymentsConfig(): Promise<PaymentsConfig> {
   configPromise ??= fetch(`${PUBLIC_API_URL}/api/public/payments/config`)
-    .then((r) => (r.ok ? (r.json() as Promise<PaymentsConfig>) : { enabled: false, payLaterBrandId: null }))
-    .catch(() => ({ enabled: false, payLaterBrandId: null }));
+    .then((r) => (r.ok ? (r.json() as Promise<PaymentsConfig>) : OFF))
+    .catch(() => OFF);
   return configPromise;
 }
 
@@ -54,7 +57,7 @@ export function KlixPayLater({
 
   useEffect(() => {
     let alive = true;
-    void loadConfig().then((c) => {
+    void loadPaymentsConfig().then((c) => {
       if (!alive || !c.enabled || !c.payLaterBrandId) return;
       injectWidgetScript();
       setBrandId(c.payLaterBrandId);

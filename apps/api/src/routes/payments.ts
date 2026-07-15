@@ -4,35 +4,57 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { verifyPayLinkToken } from "../auth/jwt.js";
 import type { AppContext } from "../context.js";
+import { InbankError } from "../engine/inbank.js";
 import { KlixError } from "../engine/klix.js";
 import { settleOrderPaid } from "../engine/settlement.js";
 
 /**
- * Online payment (Klix hosted checkout: cards, BNPL "klix_pay_later",
- * Baltic banklinks). Bidder-facing flow:
+ * Online payment through two hosted providers:
+ *  - Klix   — cards, banklinks, Klix Pay Later (BNPL)
+ *  - Inbank — hire purchase / installments (BNPL) via the e-POS flow
  *
- *   POST /api/public/orders/:ref/pay      → { checkoutUrl }  (redirect there)
- *   …customer pays on the Klix page…
- *   Klix → POST /api/public/payments/klix/callback?payment=<id>  (server-to-server)
+ * Bidder-facing flow (identical for both):
+ *
+ *   POST /api/public/orders/:ref/pay {provider} → { checkoutUrl } (redirect)
+ *   …customer completes the flow on the provider's page…
+ *   provider → POST /api/public/payments/<provider>/callback?payment=<id>
  *   browser → back to /account?paid=1&order=<ref>, which polls
  *   GET  /api/public/orders/:ref/payment  until the order flips to paid.
  *
- * Trust model per the Klix docs: the callback body is NEVER trusted — on any
- * callback (or poll) we re-fetch the purchase from Klix by id and settle only
- * when the provider reports status "paid". Settlement is idempotent.
+ * Trust model (both providers document it identically): callbacks are hints,
+ * never proof — on any callback or poll we re-fetch the purchase/session by
+ * id and settle only on the provider's own paid-equivalent status ("paid"
+ * for Klix, "completed" for Inbank). Settlement is idempotent.
  */
+
+export type PayProvider = "klix" | "inbank";
 
 /** How long a created checkout stays reusable before we mint a fresh one. */
 const CHECKOUT_REUSE_MS = 30 * 60 * 1000;
 
-const SYSTEM_ACTOR = { id: null, label: "Klix" };
+const ACTORS: Record<PayProvider, { id: null; label: string }> = {
+  klix: { id: null, label: "Klix" },
+  inbank: { id: null, label: "Inbank" },
+};
 
-function mapProviderStatus(providerStatus: string): "created" | "paid" | "failed" | "expired" {
+function mapKlixStatus(providerStatus: string): "created" | "paid" | "failed" | "expired" {
   if (providerStatus === "paid") return "paid";
   if (providerStatus === "expired") return "expired";
   if (["error", "blocked", "cancelled", "released", "chargeback"].includes(providerStatus)) return "failed";
   return "created"; // created / pending_execute / viewed / hold — still in flight
 }
+
+function mapInbankStatus(providerStatus: string): "created" | "paid" | "failed" | "expired" {
+  // Docs: ONLY "completed" means the order is paid. "granted" is credit
+  // approval — the contract may still need signing — so it stays in flight.
+  if (providerStatus === "completed") return "paid";
+  if (providerStatus === "expired") return "expired";
+  if (["rejected", "cancelled", "failed", "terminated"].includes(providerStatus)) return "failed";
+  return "created"; // pending / granted / processing — still in flight
+}
+
+const mapProviderStatus = (provider: string, providerStatus: string) =>
+  provider === "inbank" ? mapInbankStatus(providerStatus) : mapKlixStatus(providerStatus);
 
 /** Checkout-page language per market when the bidder didn't state one. */
 const MARKET_LANGUAGE: Record<string, string> = { LV: "lv", EE: "et", LT: "lt" };
@@ -55,26 +77,38 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
     return row ?? null;
   }
 
+  /** Fetch the provider-side state of a payment row (null = unknown/gone). */
+  async function fetchProviderStatus(payment: typeof payments.$inferSelect): Promise<string | null> {
+    if (!payment.providerId) return null;
+    if (payment.provider === "inbank") {
+      if (!ctx.inbank) return null;
+      const session = await ctx.inbank.getSession(payment.providerId);
+      return session?.status ?? null;
+    }
+    if (!ctx.klix) return null;
+    const purchase = await ctx.klix.getPurchase(payment.providerId);
+    return purchase?.status ?? null;
+  }
+
   /**
-   * Re-check one payment row against the provider and settle the order if the
-   * purchase is paid. Used by both the Klix callback and the storefront poll.
+   * Re-check one payment row against its provider and settle the order if
+   * the purchase/session is paid. Used by the callbacks and the poll.
    */
   async function reconcilePayment(payment: typeof payments.$inferSelect): Promise<string> {
-    if (!ctx.klix || !payment.providerId) return payment.status;
-    const purchase = await ctx.klix.getPurchase(payment.providerId);
-    if (!purchase) return payment.status;
-    const status = mapProviderStatus(purchase.status);
-    if (status !== payment.status || purchase.status !== payment.providerStatus) {
+    const providerStatus = await fetchProviderStatus(payment);
+    if (providerStatus === null) return payment.status;
+    const status = mapProviderStatus(payment.provider, providerStatus);
+    if (status !== payment.status || providerStatus !== payment.providerStatus) {
       await ctx.db
         .update(payments)
-        .set({ status, providerStatus: purchase.status, updatedAt: ctx.now() })
+        .set({ status, providerStatus, updatedAt: ctx.now() })
         .where(eq(payments.id, payment.id));
     }
     if (status === "paid") {
       // Idempotent: a second callback (or a poll racing the callback) finds
       // the order already paid and no-ops.
-      await settleOrderPaid(ctx, payment.orderId, SYSTEM_ACTOR, {
-        via: "klix",
+      await settleOrderPaid(ctx, payment.orderId, ACTORS[payment.provider as PayProvider] ?? ACTORS.klix, {
+        via: payment.provider,
         paymentId: payment.id,
         purchaseId: payment.providerId,
       });
@@ -83,39 +117,50 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
   }
 
   /**
-   * One open checkout per order, shared by EVERY entry point (storefront
-   * button and email pay link). Both channels landing on the same Klix
-   * purchase is the double-payment guard: one purchase can only be paid
-   * once. A stale open checkout (>30 min) is superseded — cancelled at the
-   * provider first, so its link stops accepting money — before a fresh one
+   * ONE open checkout per order — across every entry point (web button,
+   * email pay link) AND across providers. That is the double-payment guard:
+   * a single provider purchase/session can only be paid once, and switching
+   * provider (or going stale after 30 min) supersedes the previous checkout
+   * — cancelled at the provider where supported (Klix) — before a fresh one
    * is created. `channel` records which door the customer came through.
    */
   async function openCheckout(
     row: { order: typeof orders.$inferSelect; itemTitle: string },
+    provider: PayProvider,
     channel: "web" | "email",
     language: string,
   ): Promise<{ ok: true; checkoutUrl: string } | { ok: false; status: number; error: string }> {
-    if (!ctx.klix) return { ok: false, status: 503, error: "payments_unavailable" };
+    if ((provider === "klix" && !ctx.klix) || (provider === "inbank" && !ctx.inbank)) {
+      return { ok: false, status: 503, error: "payments_unavailable" };
+    }
     const [existing] = await ctx.db
       .select()
       .from(payments)
       .where(and(eq(payments.orderId, row.order.id), eq(payments.status, "created")))
       .orderBy(desc(payments.createdAt))
       .limit(1);
-    if (existing?.checkoutUrl && ctx.now().getTime() - existing.createdAt.getTime() < CHECKOUT_REUSE_MS) {
+    if (
+      existing?.checkoutUrl &&
+      existing.provider === provider &&
+      ctx.now().getTime() - existing.createdAt.getTime() < CHECKOUT_REUSE_MS
+    ) {
       return { ok: true, checkoutUrl: existing.checkoutUrl };
     }
     if (existing) {
-      // Kill the stale checkout at Klix before superseding it locally, so
-      // an old tab or old email link can't pay the order a second time.
-      // Best-effort: if the purchase meanwhile got paid, the cancel fails
-      // and the callback/poll will settle it — never mask real money.
-      if (existing.providerId) {
+      // Supersede the previous checkout (stale, or the customer switched
+      // provider). First make sure it wasn't just paid — never mask real
+      // money — then kill it at the provider where an API exists (Klix;
+      // Inbank sessions can't be cancelled remotely, but a superseded row
+      // is dropped locally and a late "completed" on it still settles the
+      // order idempotently or surfaces as an extra paid attempt in admin).
+      const status = await reconcilePayment(existing);
+      if (status === "paid") return { ok: false, status: 409, error: "order_not_awaiting_payment" };
+      if (existing.provider === "klix" && existing.providerId && ctx.klix) {
         try {
           await ctx.klix.cancelPurchase(existing.providerId);
         } catch {
-          const status = await reconcilePayment(existing);
-          if (status === "paid") return { ok: false, status: 409, error: "order_not_awaiting_payment" };
+          // already dead at the provider, or transient — the reconcile above
+          // is the safety net either way
         }
       }
       await ctx.db
@@ -125,40 +170,61 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
     }
 
     const accountUrl = `${ctx.config.storefrontBaseUrl}/account`;
+    const ref = encodeURIComponent(row.order.ref);
     const [payment] = await ctx.db
       .insert(payments)
-      .values({ orderId: row.order.id, provider: "klix", channel, amountCents: row.order.totalCents })
+      .values({ orderId: row.order.id, provider, channel, amountCents: row.order.totalCents })
       .returning();
+    const callbackUrl = `${ctx.config.publicBaseUrl}/api/public/payments/${provider}/callback?payment=${payment!.id}`;
     try {
-      const purchase = await ctx.klix.createPurchase({
-        amountCents: row.order.totalCents,
-        name: `${row.order.ref} — ${row.itemTitle}`.slice(0, 250),
-        reference: row.order.ref,
-        clientEmail: row.order.customerEmail,
-        language,
-        successCallback: `${ctx.config.publicBaseUrl}/api/public/payments/klix/callback?payment=${payment!.id}`,
-        successRedirect: `${accountUrl}?paid=1&order=${encodeURIComponent(row.order.ref)}`,
-        failureRedirect: `${accountUrl}?paid=0&order=${encodeURIComponent(row.order.ref)}`,
-        cancelRedirect: `${accountUrl}?paid=cancel&order=${encodeURIComponent(row.order.ref)}`,
-        // Hard-expire the checkout at the payment deadline so a stale link
-        // can't collect money for an order that was cancelled as unpaid.
-        dueAt:
-          row.order.paymentDeadlineAt && row.order.paymentDeadlineAt.getTime() > ctx.now().getTime()
-            ? row.order.paymentDeadlineAt
-            : null,
-      });
+      let checkoutUrl: string | null;
+      let providerId: string;
+      let providerStatus: string;
+      if (provider === "inbank") {
+        const session = await ctx.inbank!.createSession({
+          amountCents: row.order.totalCents,
+          reference: row.order.ref,
+          redirectUrl: `${accountUrl}?paid=1&order=${ref}`,
+          cancelUrl: `${accountUrl}?paid=cancel&order=${ref}`,
+          callbackUrl,
+        });
+        checkoutUrl = session.redirectUrl;
+        providerId = session.id;
+        providerStatus = session.status;
+      } else {
+        const purchase = await ctx.klix!.createPurchase({
+          amountCents: row.order.totalCents,
+          name: `${row.order.ref} — ${row.itemTitle}`.slice(0, 250),
+          reference: row.order.ref,
+          clientEmail: row.order.customerEmail,
+          language,
+          successCallback: callbackUrl,
+          successRedirect: `${accountUrl}?paid=1&order=${ref}`,
+          failureRedirect: `${accountUrl}?paid=0&order=${ref}`,
+          cancelRedirect: `${accountUrl}?paid=cancel&order=${ref}`,
+          // Hard-expire the checkout at the payment deadline so a stale link
+          // can't collect money for an order that was cancelled as unpaid.
+          dueAt:
+            row.order.paymentDeadlineAt && row.order.paymentDeadlineAt.getTime() > ctx.now().getTime()
+              ? row.order.paymentDeadlineAt
+              : null,
+        });
+        checkoutUrl = purchase.checkoutUrl;
+        providerId = purchase.id;
+        providerStatus = purchase.status;
+      }
       await ctx.db
         .update(payments)
-        .set({ providerId: purchase.id, checkoutUrl: purchase.checkoutUrl, providerStatus: purchase.status, updatedAt: ctx.now() })
+        .set({ providerId, checkoutUrl, providerStatus, updatedAt: ctx.now() })
         .where(eq(payments.id, payment!.id));
-      return { ok: true, checkoutUrl: purchase.checkoutUrl! };
+      return { ok: true, checkoutUrl: checkoutUrl! };
     } catch (err) {
       await ctx.db
         .update(payments)
         .set({ status: "failed", providerStatus: "create_error", updatedAt: ctx.now() })
         .where(eq(payments.id, payment!.id));
-      app.log?.error({ err, orderRef: row.order.ref }, "klix purchase creation failed");
-      return { ok: false, status: err instanceof KlixError ? 502 : 500, error: "payment_provider_error" };
+      app.log?.error({ err, orderRef: row.order.ref, provider }, "checkout creation failed");
+      return { ok: false, status: err instanceof KlixError || err instanceof InbankError ? 502 : 500, error: "payment_provider_error" };
     }
   }
 
@@ -169,25 +235,36 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
    * the Secret key is confidential and never leaves the server).
    */
   app.get("/api/public/payments/config", async () => ({
-    enabled: ctx.klix !== null,
+    enabled: ctx.klix !== null || ctx.inbank !== null,
     payLaterBrandId: ctx.klix !== null && ctx.config.klix?.brandId ? ctx.config.klix.brandId : null,
+    providers: {
+      klix: ctx.klix !== null,
+      inbank: ctx.inbank !== null,
+    },
   }));
 
-  const paySchema = z.object({ language: z.enum(["lv", "ru", "en", "et", "lt"]).optional() });
+  /** The provider the email pay link (no explicit choice) lands on. */
+  const defaultProvider = (): PayProvider | null => (ctx.klix ? "klix" : ctx.inbank ? "inbank" : null);
+
+  const paySchema = z.object({
+    language: z.enum(["lv", "ru", "en", "et", "lt"]).optional(),
+    provider: z.enum(["klix", "inbank"]).optional(),
+  });
 
   /** Start (or resume) checkout for the bidder's own unpaid order. */
   app.post("/api/public/orders/:ref/pay", async (req, reply) => {
     const bidderId = requireBidder(req, reply);
     if (!bidderId) return;
-    if (!ctx.klix) return reply.code(503).send({ error: "payments_unavailable" });
     const body = paySchema.safeParse(req.body ?? {});
     if (!body.success) return reply.code(400).send({ error: "invalid_body" });
+    const provider = body.data.provider ?? defaultProvider();
+    if (!provider) return reply.code(503).send({ error: "payments_unavailable" });
     const { ref } = req.params as { ref: string };
     const row = await ownOrderByRef(ref, bidderId);
     if (!row) return reply.code(404).send({ error: "not_found" });
     if (row.order.status !== "awaiting_payment") return reply.code(409).send({ error: "order_not_awaiting_payment" });
     const language = body.data.language ?? MARKET_LANGUAGE[row.order.marketCode] ?? "en";
-    const result = await openCheckout(row, "web", language);
+    const result = await openCheckout(row, provider, "web", language);
     if (!result.ok) return reply.code(result.status).send({ error: result.error });
     return { checkoutUrl: result.checkoutUrl };
   });
@@ -217,9 +294,10 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
     if (row.order.status !== "awaiting_payment") {
       return reply.redirect(accountUrl);
     }
-    if (!ctx.klix) return reply.redirect(accountUrl);
+    const provider = defaultProvider();
+    if (!provider) return reply.redirect(accountUrl);
     const language = MARKET_LANGUAGE[row.order.marketCode] ?? "en";
-    const result = await openCheckout(row, "email", language);
+    const result = await openCheckout(row, provider, "email", language);
     if (!result.ok) {
       return result.error === "order_not_awaiting_payment"
         ? reply.redirect(`${accountUrl}?paid=1&order=${encodeURIComponent(ref)}`)
@@ -229,19 +307,24 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
   });
 
   /**
-   * Klix success callback (server-to-server). Deliberately unauthenticated —
+   * Provider callbacks (server-to-server). Deliberately unauthenticated —
    * the payment id is an unguessable UUID and the handler only acts on what
-   * the provider itself reports when we re-fetch the purchase. Always 200 so
-   * Klix doesn't retry forever on states we consider final.
+   * the provider itself reports when we re-fetch the purchase/session.
+   * Always 200 on known payments so providers don't retry forever on states
+   * we consider final. Inbank's callback also accepts GET — their docs allow
+   * both browser-borne and server-to-server notifications.
    */
-  app.post("/api/public/payments/klix/callback", async (req, reply) => {
+  const callbackHandler = async (req: FastifyRequest, reply: FastifyReply) => {
     const { payment: paymentId } = req.query as { payment?: string };
     if (!paymentId || !/^[0-9a-f-]{36}$/i.test(paymentId)) return reply.code(400).send({ error: "bad_payment_id" });
     const [payment] = await ctx.db.select().from(payments).where(eq(payments.id, paymentId));
     if (!payment) return reply.code(404).send({ error: "not_found" });
     await reconcilePayment(payment);
     return { ok: true };
-  });
+  };
+  app.post("/api/public/payments/klix/callback", callbackHandler);
+  app.post("/api/public/payments/inbank/callback", callbackHandler);
+  app.get("/api/public/payments/inbank/callback", callbackHandler);
 
   /**
    * Storefront poll after the redirect back. Reconciles against the provider
@@ -268,6 +351,8 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
       .select({ status: orders.status })
       .from(orders)
       .where(eq(orders.id, row.order.id));
-    return { orderStatus: fresh!.status, paymentStatus };
+    // provider lets the storefront tell a slow BNPL approval ("processing,
+    // you'll get an email") apart from an abandoned card payment.
+    return { orderStatus: fresh!.status, paymentStatus, provider: payment?.provider ?? null };
   });
 }

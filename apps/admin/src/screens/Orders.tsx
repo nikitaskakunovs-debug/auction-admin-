@@ -273,11 +273,12 @@ export function OrdersScreen({ nav: _nav }: { nav: Nav }) {
             </ACard>
 
             {detail.payments.length > 0 && (
-              <ACard title="Online payments (Klix)" pad={false}>
-                <ATable head={["When", "Status", "Via", "Amount", "Purchase"]}>
+              <ACard title="Online payments" pad={false}>
+                <ATable head={["When", "Provider", "Status", "Via", "Amount", "Purchase"]}>
                   {detail.payments.map((p) => (
                     <ATr key={p.id}>
                       <ATd>{formatDate(p.createdAt)}</ATd>
+                      <ATd><span style={{ fontSize: 12, fontWeight: 600 }}>{p.provider === "inbank" ? "Inbank" : "Klix"}</span></ATd>
                       <ATd><ABadge tone={PAYMENT_TONE[p.status] ?? "neutral"}>{p.status}</ABadge></ATd>
                       <ATd><span style={{ fontSize: 12, color: AT.inkSoft }}>{p.channel === "email" ? "Email link" : "Web"}</span></ATd>
                       <ATd mono right>{formatEur(p.amountCents)}</ATd>
@@ -303,7 +304,8 @@ export function OrdersScreen({ nav: _nav }: { nav: Nav }) {
             )}
 
             {detail.order.status === "paid" && can("orders.refund") && (() => {
-              const klixPaid = detail.payments.some((p) => p.status === "paid" && p.providerId);
+              const paidVia = detail.payments.find((p) => p.status === "paid" && p.providerId)?.provider ?? null;
+              const klixPaid = paidVia === "klix";
               return (
                 <ACard title="Refund">
                   <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
@@ -325,6 +327,10 @@ export function OrdersScreen({ nav: _nav }: { nav: Nav }) {
                       >
                         Record only (already refunded elsewhere)
                       </button>
+                    </div>
+                  ) : paidVia === "inbank" ? (
+                    <div style={{ fontSize: 11.5, color: AT.inkSoft, marginTop: 8 }}>
+                      Paid through Inbank — credit/terminate the contract in the Inbank partner portal first; this button then records it.
                     </div>
                   ) : (
                     <div style={{ fontSize: 11.5, color: AT.inkSoft, marginTop: 8 }}>

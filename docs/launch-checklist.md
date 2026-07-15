@@ -27,6 +27,11 @@ State as of 2026-07-15: platform deployed and hardened on the FRA1 droplet
       Secret key arrive, set `KLIX_MODE=live` + the two keys in
       `deploy/.env`, restart the api container, and test with a Klix test
       card first (see docs/deploy.md → "Klix payments")
+- [ ] **Inbank** partner application (BNPL/installments — also built and
+      env-gated): when the shop UUID + API key arrive, test against
+      `demo-api.inbank.eu` first, verify the pos-session field names with
+      their docs, then `INBANK_MODE=live` (see docs/deploy.md → "Inbank
+      BNPL")
 - [ ] **Hardware**: thermal label printer (labels ≈57×32 mm), one or two **2D**
       barcode scanners (must read QR), photo-station lamp, 2 TVs for the
       pickup boards

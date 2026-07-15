@@ -166,6 +166,33 @@ cash. Checkouts carry the order's payment deadline as a strict expiry, so a
 stale payment link can't collect money for an order you've since cancelled.
 Chargebacks/disputes are handled in the Klix merchant portal.
 
+## Inbank BNPL (hire purchase / installments)
+
+A second, independent BNPL provider next to Klix — also OFF by default
+(`INBANK_MODE=off`). When the Inbank partner agreement is signed and they
+issue the shop UUID + API key:
+
+1. Fill `INBANK_MODE=live`, `INBANK_SHOP_UUID=…`, `INBANK_API_KEY=…` in
+   `/opt/auction/deploy/.env` (for partner testing first:
+   `INBANK_API_URL=https://demo-api.inbank.eu`).
+2. Restart the api container. The storefront account page then shows an
+   extra "Inbank installments" button next to Pay now.
+3. During onboarding, confirm the pos-session request field names against
+   the partner docs (the mapping is one function in
+   `apps/api/src/engine/inbank.ts` — see the note there).
+
+Flow: the API creates an e-POS session and redirects the customer to
+Inbank's environment, where the whole credit application happens. Inbank
+notifies our callback on status changes; the order settles ONLY when a
+direct status check shows `completed` (credit approval alone — `granted` —
+is not payment). BNPL approvals can take a while: the storefront shows
+"payment is being processed" and the customer gets the paid email whenever
+the callback lands. One open checkout per order is enforced across BOTH
+providers, so a customer can't pay the same order twice via Klix and
+Inbank. Refunds for Inbank-paid orders are done in the Inbank partner
+portal (contract credit/termination), then recorded in admin with the
+"Record only" path — the API refuses to fake-refund them automatically.
+
 ## Notes
 
 - CORS, `PUBLIC_BASE_URL`, `STOREFRONT_BASE_URL`, and trust-proxy are derived

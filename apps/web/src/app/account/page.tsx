@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
+import { loadPaymentsConfig, type PaymentsConfig } from "@/components/KlixPayLater";
 import { useT } from "@/lib/i18n";
 import { formatEur, type MyOrder, type PublicAuction } from "@/lib/types";
 import { Countdown } from "@/components/Countdown";
@@ -12,8 +13,8 @@ import { PickupPass } from "@/components/PickupPass";
 
 type MyBidAuction = PublicAuction & { youLead: boolean };
 
-/** Banner state after coming back from the Klix checkout page. */
-type PayBanner = "confirming" | "success" | "failed" | "cancelled" | "unavailable" | null;
+/** Banner state after coming back from a provider's checkout page. */
+type PayBanner = "confirming" | "success" | "failed" | "cancelled" | "unavailable" | "processing" | null;
 
 export default function AccountPage() {
   const { t, lang } = useT();
@@ -23,6 +24,7 @@ export default function AccountPage() {
   const [suspended, setSuspended] = useState(false);
   const [payBanner, setPayBanner] = useState<PayBanner>(null);
   const [payingRef, setPayingRef] = useState<string | null>(null);
+  const [payConfig, setPayConfig] = useState<PaymentsConfig | null>(null);
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadOrders = useCallback(() => {
@@ -35,6 +37,7 @@ export default function AccountPage() {
       return;
     }
     setSignedIn(true);
+    void loadPaymentsConfig().then(setPayConfig);
     void publicApi.get<{ bidder: { blocked: boolean } }>("/api/public/auth/me").then((r) => setSuspended(r.bidder.blocked)).catch(() => undefined);
     void publicApi.get<{ bids: MyBidAuction[] }>("/api/public/me/bids").then((r) => setBids(r.bids)).catch(() => undefined);
     loadOrders();
@@ -60,10 +63,11 @@ export default function AccountPage() {
     }
     setPayBanner("confirming");
     let attempts = 0;
+    let stillInFlight = false;
     const poll = async () => {
       attempts += 1;
       try {
-        const r = await publicApi.get<{ orderStatus: string; paymentStatus: string | null }>(
+        const r = await publicApi.get<{ orderStatus: string; paymentStatus: string | null; provider: string | null }>(
           `/api/public/orders/${encodeURIComponent(ref)}/payment`,
         );
         if (r.orderStatus === "paid") {
@@ -75,11 +79,14 @@ export default function AccountPage() {
           setPayBanner("failed");
           return;
         }
+        stillInFlight = r.paymentStatus === "created";
       } catch {
         // transient — keep polling
       }
       if (attempts < 10) pollTimer.current = setTimeout(poll, 2000);
-      else setPayBanner("failed");
+      // BNPL approvals (Inbank, Klix Pay Later) can take minutes — a payment
+      // still in flight is "processing", not failed; the email confirms it.
+      else setPayBanner(stillInFlight ? "processing" : "failed");
     };
     void poll();
     return () => {
@@ -87,10 +94,13 @@ export default function AccountPage() {
     };
   }, [signedIn, loadOrders]);
 
-  async function payOrder(ref: string) {
+  async function payOrder(ref: string, provider?: "klix" | "inbank") {
     setPayingRef(ref);
     try {
-      const r = await publicApi.post<{ checkoutUrl: string }>(`/api/public/orders/${encodeURIComponent(ref)}/pay`, { language: lang });
+      const r = await publicApi.post<{ checkoutUrl: string }>(`/api/public/orders/${encodeURIComponent(ref)}/pay`, {
+        language: lang,
+        ...(provider ? { provider } : {}),
+      });
       window.location.assign(r.checkoutUrl);
     } catch (err) {
       setPayingRef(null);
@@ -109,21 +119,25 @@ export default function AccountPage() {
   const card: React.CSSProperties = { background: "#fff", border: "1px solid rgba(10,10,10,0.10)", borderRadius: 14, overflow: "hidden" };
   const row: React.CSSProperties = { display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: "1px solid rgba(10,10,10,0.05)", fontSize: 13.5, textDecoration: "none", color: "#0A0A0A" };
 
-  const bannerStyle = (kind: PayBanner): React.CSSProperties => ({
-    borderRadius: 14,
-    padding: "14px 18px",
-    fontSize: 14,
-    fontWeight: 700,
-    background: kind === "success" ? "#E4F4EA" : kind === "confirming" ? "#EAF0FE" : "#FCEFD9",
-    border: `1px solid ${kind === "success" ? "#B5DFC4" : kind === "confirming" ? "#C4D3F9" : "#EBD5AB"}`,
-    color: kind === "success" ? "#1F8A4C" : kind === "confirming" ? "#2D4BFF" : "#9A5B00",
-  });
+  const bannerStyle = (kind: PayBanner): React.CSSProperties => {
+    const blue = kind === "confirming" || kind === "processing";
+    return {
+      borderRadius: 14,
+      padding: "14px 18px",
+      fontSize: 14,
+      fontWeight: 700,
+      background: kind === "success" ? "#E4F4EA" : blue ? "#EAF0FE" : "#FCEFD9",
+      border: `1px solid ${kind === "success" ? "#B5DFC4" : blue ? "#C4D3F9" : "#EBD5AB"}`,
+      color: kind === "success" ? "#1F8A4C" : blue ? "#2D4BFF" : "#9A5B00",
+    };
+  };
   const bannerText: Record<Exclude<PayBanner, null>, string> = {
     confirming: t("acc.payConfirming"),
     success: t("acc.paySuccess"),
     failed: t("acc.payFailed"),
     cancelled: t("acc.payCancelled"),
     unavailable: t("acc.payUnavailable"),
+    processing: t("acc.payProcessing"),
   };
 
   return (
@@ -185,17 +199,35 @@ export default function AccountPage() {
                   </span>
                   <span style={{ fontFamily: '"Geist Mono", ui-monospace, monospace', fontWeight: 700 }}>{formatEur(o.totalCents)}</span>
                   {o.status === "awaiting_payment" && (
-                    <button
-                      onClick={() => void payOrder(o.ref)}
-                      disabled={payingRef !== null}
-                      style={{
-                        border: "none", borderRadius: 99, padding: "6px 14px", fontSize: 12, fontWeight: 700,
-                        background: "#2D4BFF", color: "#fff", cursor: payingRef ? "wait" : "pointer",
-                        opacity: payingRef && payingRef !== o.ref ? 0.5 : 1,
-                      }}
-                    >
-                      {payingRef === o.ref ? t("acc.payRedirecting") : t("acc.pay")}
-                    </button>
+                    <span style={{ display: "flex", gap: 6 }}>
+                      {payConfig?.providers?.klix !== false && (
+                        <button
+                          onClick={() => void payOrder(o.ref, payConfig?.providers?.klix ? "klix" : undefined)}
+                          disabled={payingRef !== null}
+                          style={{
+                            border: "none", borderRadius: 99, padding: "6px 14px", fontSize: 12, fontWeight: 700,
+                            background: "#2D4BFF", color: "#fff", cursor: payingRef ? "wait" : "pointer",
+                            opacity: payingRef && payingRef !== o.ref ? 0.5 : 1,
+                          }}
+                        >
+                          {payingRef === o.ref ? t("acc.payRedirecting") : t("acc.pay")}
+                        </button>
+                      )}
+                      {payConfig?.providers?.inbank && (
+                        <button
+                          onClick={() => void payOrder(o.ref, "inbank")}
+                          disabled={payingRef !== null}
+                          style={{
+                            borderRadius: 99, padding: "6px 14px", fontSize: 12, fontWeight: 700,
+                            background: "#fff", color: "#2D4BFF", border: "1.5px solid #2D4BFF",
+                            cursor: payingRef ? "wait" : "pointer",
+                            opacity: payingRef && payingRef !== o.ref ? 0.5 : 1,
+                          }}
+                        >
+                          {t("acc.payInbank")}
+                        </button>
+                      )}
+                    </span>
                   )}
                 </div>
                 {o.status === "awaiting_payment" && (
