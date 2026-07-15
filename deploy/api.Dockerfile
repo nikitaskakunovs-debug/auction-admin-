@@ -1,6 +1,7 @@
 # Auction API — build from the monorepo root:
 #   docker build -f deploy/api.Dockerfile .
 FROM node:22-alpine AS build
+ENV CI=true
 RUN corepack enable
 WORKDIR /repo
 COPY . .
