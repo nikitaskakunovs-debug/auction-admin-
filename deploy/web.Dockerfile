@@ -17,7 +17,7 @@ WORKDIR /repo
 COPY . .
 RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @auction/web build
-RUN pnpm prune --prod
+RUN pnpm install --prod --frozen-lockfile
 
 FROM node:22-alpine
 RUN corepack enable

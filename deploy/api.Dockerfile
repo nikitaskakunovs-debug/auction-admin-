@@ -10,7 +10,7 @@ RUN pnpm --filter @auction/domain build \
  && pnpm --filter @auction/db build \
  && pnpm --filter @auction/api build
 # Drop dev dependencies for the runtime image.
-RUN pnpm prune --prod
+RUN pnpm install --prod --frozen-lockfile
 
 FROM node:22-alpine
 WORKDIR /repo
