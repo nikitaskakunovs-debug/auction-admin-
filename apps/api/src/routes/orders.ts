@@ -55,11 +55,65 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext, perms
     return { ok: true };
   });
 
-  const refundSchema = z.object({ amountCents: z.number().int().positive(), reason: z.string().min(3) });
+  const refundSchema = z.object({
+    amountCents: z.number().int().positive(),
+    reason: z.string().min(3),
+    /**
+     * When the order was paid through Klix, also return the money via the
+     * provider (the default). Untick to record-only — e.g. the money was
+     * already sent back manually in the Klix portal, or refunded in cash.
+     */
+    viaProvider: z.boolean().default(true),
+  });
   app.post("/api/orders/:id/refund", guard("orders.refund"), async (req, reply) => {
     const { id } = req.params as { id: string };
     const body = refundSchema.safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: "amount + reason required" });
+
+    // Pre-flight the ledger rules BEFORE any provider call: money must never
+    // leave Klix for a refund our own bookkeeping would then reject.
+    {
+      const [order] = await ctx.db.select().from(orders).where(eq(orders.id, id));
+      if (!order) return reply.code(404).send({ error: "not_found" });
+      if (order.status !== "paid" && order.status !== "refunded") return reply.code(409).send({ error: "order_not_paid" });
+      const [sumRow] = await ctx.db
+        .select({ refunded: sql<string>`coalesce(sum(${refunds.amountCents}), 0)` })
+        .from(refunds)
+        .where(eq(refunds.orderId, id));
+      if (Number(sumRow!.refunded) + body.data.amountCents > order.totalCents) {
+        return reply.code(422).send({ error: "refund_exceeds_total" });
+      }
+    }
+
+    // If this order was collected through Klix, the money moves back through
+    // Klix too — and only what the provider confirms gets recorded. The
+    // provider call happens before the ledger write: a rejected refund
+    // (already refunded in the portal, amount over the remainder, expired)
+    // must not leave a phantom refund row.
+    let providerMeta: Record<string, unknown> = {};
+    if (body.data.viaProvider) {
+      const [klixPayment] = await ctx.db
+        .select()
+        .from(payments)
+        .where(and(eq(payments.orderId, id), eq(payments.status, "paid")))
+        .orderBy(desc(payments.createdAt))
+        .limit(1);
+      if (klixPayment?.providerId) {
+        if (!ctx.klix) return reply.code(503).send({ error: "payments_unavailable", detail: "KLIX_MODE is off — refund in the Klix portal, then record with viaProvider=false" });
+        try {
+          const purchase = await ctx.klix.refundPurchase(klixPayment.providerId, body.data.amountCents);
+          await ctx.db
+            .update(payments)
+            .set({ providerStatus: purchase.status, updatedAt: ctx.now() })
+            .where(eq(payments.id, klixPayment.id));
+          providerMeta = { via: "klix", purchaseId: klixPayment.providerId };
+        } catch (err) {
+          req.log?.error({ err, orderId: id }, "klix refund failed");
+          return reply.code(502).send({ error: "klix_refund_failed", detail: err instanceof Error ? err.message : "provider error" });
+        }
+      }
+    }
+
     const result = await ctx.db.transaction(async (tx) => {
       const [order] = await tx.select().from(orders).where(eq(orders.id, id)).for("update");
       if (!order) return null;
@@ -82,6 +136,7 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext, perms
       await writeAudit(tx, actor(req), "order", "refunded", order.ref, {
         amountCents: body.data.amountCents,
         reason: body.data.reason,
+        ...providerMeta,
       });
       return order;
     });

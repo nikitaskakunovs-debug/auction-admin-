@@ -130,6 +130,12 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
         successRedirect: `${accountUrl}?paid=1&order=${encodeURIComponent(row.order.ref)}`,
         failureRedirect: `${accountUrl}?paid=0&order=${encodeURIComponent(row.order.ref)}`,
         cancelRedirect: `${accountUrl}?paid=cancel&order=${encodeURIComponent(row.order.ref)}`,
+        // Hard-expire the checkout at the payment deadline so a stale link
+        // can't collect money for an order that was cancelled as unpaid.
+        dueAt:
+          row.order.paymentDeadlineAt && row.order.paymentDeadlineAt.getTime() > ctx.now().getTime()
+            ? row.order.paymentDeadlineAt
+            : null,
       });
       await ctx.db
         .update(payments)

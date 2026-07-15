@@ -1,4 +1,4 @@
-import { orders, payments } from "@auction/db";
+import { orders, payments, refunds } from "@auction/db";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { SimulatedKlixClient } from "../src/engine/klix.js";
@@ -226,6 +226,117 @@ describe("storefront poll fallback", () => {
       headers: auth(other.accessToken),
     });
     expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("refunds through the provider", () => {
+  /** Order paid via the full Klix flow; returns ids + the provider purchase id. */
+  async function klixPaidOrder(alias: string) {
+    const buyer = await registerBidder(alias);
+    const { orderId, ref } = await unpaidOrder(buyer.accessToken);
+    await startCheckout(ref, buyer.accessToken);
+    const [p] = await paymentRow(orderId);
+    klix.setStatus(p!.providerId!, "paid");
+    await world.server.app.inject({ method: "POST", url: `/api/public/payments/klix/callback?payment=${p!.id}` });
+    return { orderId, ref, providerId: p!.providerId! };
+  }
+
+  it("admin refund on a Klix-paid order returns the money via the provider", async () => {
+    const { orderId, providerId } = await klixPaidOrder("ref_full");
+    const res = await world.server.app.inject({
+      method: "POST",
+      url: `/api/orders/${orderId}/refund`,
+      headers: auth(adminToken),
+      payload: { amountCents: 13_310, reason: "item damaged in storage" },
+    });
+    expect(res.statusCode).toBe(200);
+    // The simulated provider actually moved the money back.
+    expect(klix.inspect(providerId)!.refundedCents).toBe(13_310);
+    expect(klix.inspect(providerId)!.status).toBe("refunded");
+    const [order] = await world.ctx.db.select().from(orders).where(eq(orders.id, orderId));
+    expect(order!.status).toBe("refunded");
+  });
+
+  it("partial refund keeps the order paid and tracks the provider remainder", async () => {
+    const { orderId, providerId } = await klixPaidOrder("ref_part");
+    const res = await world.server.app.inject({
+      method: "POST",
+      url: `/api/orders/${orderId}/refund`,
+      headers: auth(adminToken),
+      payload: { amountCents: 3_000, reason: "goodwill partial refund" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(klix.inspect(providerId)!.refundedCents).toBe(3_000);
+    expect(klix.inspect(providerId)!.status).toBe("paid");
+    const [order] = await world.ctx.db.select().from(orders).where(eq(orders.id, orderId));
+    expect(order!.status).toBe("paid");
+  });
+
+  it("provider rejection blocks the refund — no phantom ledger row", async () => {
+    const { orderId, providerId } = await klixPaidOrder("ref_reject");
+    // Simulate a purchase Klix would refuse to refund (e.g. released/blocked).
+    klix.setStatus(providerId, "blocked");
+    const res = await world.server.app.inject({
+      method: "POST",
+      url: `/api/orders/${orderId}/refund`,
+      headers: auth(adminToken),
+      payload: { amountCents: 1_000, reason: "should not be recorded" },
+    });
+    expect(res.statusCode).toBe(502);
+    expect((res.json() as { error: string }).error).toBe("klix_refund_failed");
+    const rows = await world.ctx.db.select().from(refunds).where(eq(refunds.orderId, orderId));
+    expect(rows.length).toBe(0);
+  });
+
+  it("over-total refund is rejected before any provider call", async () => {
+    const { orderId, providerId } = await klixPaidOrder("ref_over");
+    const res = await world.server.app.inject({
+      method: "POST",
+      url: `/api/orders/${orderId}/refund`,
+      headers: auth(adminToken),
+      payload: { amountCents: 99_999, reason: "way too much" },
+    });
+    expect(res.statusCode).toBe(422);
+    expect(klix.inspect(providerId)!.refundedCents).toBe(0);
+  });
+
+  it("viaProvider=false records only — the provider is untouched", async () => {
+    const { orderId, providerId } = await klixPaidOrder("ref_manual");
+    const res = await world.server.app.inject({
+      method: "POST",
+      url: `/api/orders/${orderId}/refund`,
+      headers: auth(adminToken),
+      payload: { amountCents: 13_310, reason: "refunded in the Klix portal", viaProvider: false },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(klix.inspect(providerId)!.refundedCents).toBe(0);
+    const [order] = await world.ctx.db.select().from(orders).where(eq(orders.id, orderId));
+    expect(order!.status).toBe("refunded");
+  });
+
+  it("manually-paid orders (no Klix payment) refund record-only as before", async () => {
+    const buyer = await registerBidder("ref_cash");
+    const { orderId } = await unpaidOrder(buyer.accessToken);
+    await world.server.app.inject({ method: "POST", url: `/api/orders/${orderId}/mark-paid`, headers: auth(adminToken) });
+    const res = await world.server.app.inject({
+      method: "POST",
+      url: `/api/orders/${orderId}/refund`,
+      headers: auth(adminToken),
+      payload: { amountCents: 5_000, reason: "cash refund at the counter" },
+    });
+    expect(res.statusCode).toBe(200);
+  });
+});
+
+describe("checkout hard-expiry", () => {
+  it("the purchase carries the order's payment deadline as a strict due", async () => {
+    const buyer = await registerBidder("due_check");
+    const { orderId, ref } = await unpaidOrder(buyer.accessToken);
+    await startCheckout(ref, buyer.accessToken);
+    const [p] = await paymentRow(orderId);
+    const [order] = await world.ctx.db.select().from(orders).where(eq(orders.id, orderId));
+    const input = klix.inspect(p!.providerId!)!.input;
+    expect(input.dueAt?.getTime()).toBe(order!.paymentDeadlineAt!.getTime());
   });
 });
 

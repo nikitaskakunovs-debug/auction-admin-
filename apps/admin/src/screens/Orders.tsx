@@ -88,7 +88,7 @@ export function OrdersScreen({ nav: _nav }: { nav: Nav }) {
     }
   };
 
-  const refund = async (o: Order) => {
+  const refund = async (o: Order, viaProvider: boolean) => {
     const cents = Math.round(parseFloat(refundAmount.replace(",", ".")) * 100);
     if (!Number.isFinite(cents) || cents <= 0) {
       toast("Enter a valid refund amount", "danger");
@@ -96,13 +96,16 @@ export function OrdersScreen({ nav: _nav }: { nav: Nav }) {
     }
     const r = await confirm({
       title: `Refund ${formatEur(cents)} on ${o.ref}?`,
+      body: viaProvider
+        ? "The money is returned to the customer through Klix and the refund is recorded."
+        : "Record-only: no money moves — use when the refund was already made in the Klix portal or in cash.",
       requireReason: true,
       confirmLabel: "Refund",
     });
     if (!r.ok) return;
     try {
-      await api.post(`/api/orders/${o.id}/refund`, { amountCents: cents, reason: r.reason });
-      toast("Refund recorded", "ok");
+      await api.post(`/api/orders/${o.id}/refund`, { amountCents: cents, reason: r.reason, viaProvider });
+      toast(viaProvider ? "Refund sent + recorded" : "Refund recorded", "ok");
       openDetail(o.id);
       load();
     } catch (err) {
@@ -296,18 +299,38 @@ export function OrdersScreen({ nav: _nav }: { nav: Nav }) {
               </ACard>
             )}
 
-            {detail.order.status === "paid" && can("orders.refund") && (
-              <ACard title="Refund">
-                <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
-                  <div style={{ flex: 1 }}>
-                    <AField label="Amount €">
-                      <AInput value={refundAmount} onChange={setRefundAmount} />
-                    </AField>
+            {detail.order.status === "paid" && can("orders.refund") && (() => {
+              const klixPaid = detail.payments.some((p) => p.status === "paid" && p.providerId);
+              return (
+                <ACard title="Refund">
+                  <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+                    <div style={{ flex: 1 }}>
+                      <AField label="Amount €">
+                        <AInput value={refundAmount} onChange={setRefundAmount} />
+                      </AField>
+                    </div>
+                    <ABtn kind="ghost" onClick={() => void refund(detail.order, klixPaid)}>
+                      {klixPaid ? "Refund via Klix…" : "Refund…"}
+                    </ABtn>
                   </div>
-                  <ABtn kind="ghost" onClick={() => void refund(detail.order)}>Refund…</ABtn>
-                </div>
-              </ACard>
-            )}
+                  {klixPaid ? (
+                    <div style={{ fontSize: 11.5, color: AT.inkSoft, marginTop: 8 }}>
+                      Paid through Klix — the money is returned to the customer automatically.{" "}
+                      <button
+                        onClick={() => void refund(detail.order, false)}
+                        style={{ border: "none", background: "none", padding: 0, font: "inherit", color: AT.inkSoft, textDecoration: "underline", cursor: "pointer" }}
+                      >
+                        Record only (already refunded elsewhere)
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 11.5, color: AT.inkSoft, marginTop: 8 }}>
+                      Paid manually — this records the refund; return the money the way it was received.
+                    </div>
+                  )}
+                </ACard>
+              );
+            })()}
           </div>
         </ADrawer>
       )}

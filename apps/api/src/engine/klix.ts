@@ -25,6 +25,12 @@ export interface KlixPurchaseInput {
   successRedirect: string;
   failureRedirect: string;
   cancelRedirect: string;
+  /**
+   * Hard checkout expiry (the order's payment deadline). With due_strict the
+   * purchase stops being payable past this moment — a stale checkout link
+   * can't collect money for an order the admin has since cancelled.
+   */
+  dueAt?: Date | null;
 }
 
 export interface KlixPurchase {
@@ -37,6 +43,13 @@ export interface KlixPurchase {
 export interface KlixClient {
   createPurchase(input: KlixPurchaseInput): Promise<KlixPurchase>;
   getPurchase(id: string): Promise<KlixPurchase | null>;
+  /**
+   * Return money to the customer (POST /purchases/<id>/refund/). Omitting
+   * amountCents refunds the full remaining amount; passing it refunds
+   * partially. Throws KlixError when the provider rejects (not paid, amount
+   * exceeds the refundable remainder, already fully refunded…).
+   */
+  refundPurchase(id: string, amountCents?: number): Promise<KlixPurchase>;
 }
 
 export class KlixError extends Error {
@@ -81,7 +94,9 @@ class LiveKlixClient implements KlixClient {
       purchase: {
         language: input.language,
         products: [{ name: input.name, price: input.amountCents }],
+        ...(input.dueAt ? { due_strict: true } : {}),
       },
+      ...(input.dueAt ? { due: Math.floor(input.dueAt.getTime() / 1000) } : {}),
       success_callback: input.successCallback,
       success_redirect: input.successRedirect,
       failure_redirect: input.failureRedirect,
@@ -99,6 +114,15 @@ class LiveKlixClient implements KlixClient {
     const json = await this.call(`/purchases/${id}/`, { method: "GET" });
     return json ? toPurchase(json) : null;
   }
+
+  async refundPurchase(id: string, amountCents?: number): Promise<KlixPurchase> {
+    const json = await this.call(`/purchases/${id}/refund/`, {
+      method: "POST",
+      body: JSON.stringify(amountCents !== undefined ? { amount: amountCents } : {}),
+    });
+    if (!json) throw new KlixError(`Klix /purchases/${id}/refund/ returned 404`, 404);
+    return toPurchase(json);
+  }
 }
 
 function toPurchase(json: Record<string, unknown>): KlixPurchase {
@@ -114,23 +138,57 @@ function toPurchase(json: Record<string, unknown>): KlixPurchase {
  * provider status via `setStatus` and then exercises the callback exactly the
  * way Klix would (hit the endpoint → handler re-fetches → settles).
  */
+interface SimulatedPurchase extends KlixPurchase {
+  reference: string;
+  amountCents: number;
+  refundedCents: number;
+  /** The full creation input, kept so tests can assert on due/redirects. */
+  input: KlixPurchaseInput;
+}
+
 export class SimulatedKlixClient implements KlixClient {
-  private purchases = new Map<string, KlixPurchase & { reference: string }>();
+  private purchases = new Map<string, SimulatedPurchase>();
   private seq = 0;
 
   async createPurchase(input: KlixPurchaseInput): Promise<KlixPurchase> {
     const id = `sim-${++this.seq}-${input.reference}`;
-    const purchase = {
+    const purchase: SimulatedPurchase = {
       id,
       status: "created",
       checkoutUrl: `https://klix.simulated/checkout/${id}`,
       reference: input.reference,
+      amountCents: input.amountCents,
+      refundedCents: 0,
+      input,
     };
     this.purchases.set(id, purchase);
     return purchase;
   }
 
   async getPurchase(id: string): Promise<KlixPurchase | null> {
+    return this.purchases.get(id) ?? null;
+  }
+
+  async refundPurchase(id: string, amountCents?: number): Promise<KlixPurchase> {
+    const p = this.purchases.get(id);
+    if (!p) throw new KlixError(`no simulated purchase ${id}`, 404);
+    // Mirror the provider's rules: only money that was actually collected
+    // (and not yet returned) can go back.
+    if (p.status !== "paid" && p.status !== "refunded") {
+      throw new KlixError(`purchase ${id} is not refundable (status ${p.status})`, 400);
+    }
+    const remaining = p.amountCents - p.refundedCents;
+    const amount = amountCents ?? remaining;
+    if (amount <= 0 || amount > remaining) {
+      throw new KlixError(`refund amount ${amount} exceeds refundable remainder ${remaining}`, 400);
+    }
+    p.refundedCents += amount;
+    if (p.refundedCents >= p.amountCents) p.status = "refunded";
+    return p;
+  }
+
+  /** Inspect a purchase with simulator-only fields (refund totals, input). */
+  inspect(id: string): SimulatedPurchase | null {
     return this.purchases.get(id) ?? null;
   }
 

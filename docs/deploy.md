@@ -140,6 +140,14 @@ itself reports `paid` (spoofed callbacks are harmless). If the callback is
 ever lost, the account page's status poll reconciles on the next visit.
 Payment attempts are visible per order in admin → Orders.
 
+**Refunds**: on a Klix-paid order the admin Refund action returns the money
+to the customer through the Klix API automatically (partial or full) and
+records it — if Klix rejects the refund, nothing is recorded. The
+"Record only" link covers refunds already made in the Klix portal or in
+cash. Checkouts carry the order's payment deadline as a strict expiry, so a
+stale payment link can't collect money for an order you've since cancelled.
+Chargebacks/disputes are handled in the Klix merchant portal.
+
 ## Notes
 
 - CORS, `PUBLIC_BASE_URL`, `STOREFRONT_BASE_URL`, and trust-proxy are derived
