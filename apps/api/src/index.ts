@@ -16,7 +16,7 @@ const ctx: AppContext = {
   pool,
   redis,
   config,
-  email: createEmailAdapter(config.emailMode),
+  email: createEmailAdapter(config.emailMode, config.smtp),
   storage: createStorage(config),
   now: () => new Date(),
 };

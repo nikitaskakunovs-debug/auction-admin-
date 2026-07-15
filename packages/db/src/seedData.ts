@@ -35,13 +35,20 @@ const ROLE_EMAILS: Record<string, string> = {
 };
 
 interface SeedOptions {
-  /** Skip demo data (markets/roles/users are always ensured). */
+  /** Skip demo data (markets/roles are always ensured). */
   demoData?: boolean;
+  /**
+   * Create the 7 demo role admins with the PUBLISHED password + fixed TOTP
+   * secret. Dev/test convenience only — MUST stay off in production (the
+   * seed CLI enforces this; see seed.ts).
+   */
+  demoAdmins?: boolean;
   now?: Date;
 }
 
 export async function seedDatabase(db: Db, opts: SeedOptions = {}): Promise<void> {
   const demoData = opts.demoData ?? true;
+  const demoAdmins = opts.demoAdmins ?? true;
   const now = opts.now ?? new Date();
 
   // ── Markets ────────────────────────────────────────────────────────────────
@@ -85,17 +92,19 @@ export async function seedDatabase(db: Db, opts: SeedOptions = {}): Promise<void
     for (const permission of DEFAULT_ROLE_PERMISSIONS[roleId]) {
       await db.insert(t.rolePermissions).values({ roleId, permission }).onConflictDoNothing();
     }
-    await db
-      .insert(t.adminUsers)
-      .values({
-        email: ROLE_EMAILS[roleId]!,
-        name: ROLE_LABELS[roleId],
-        passwordHash: await hashPassword(SEED_ADMIN_PASSWORD),
-        roleId,
-        totpSecret: SEED_ADMIN_TOTP_SECRET,
-        totpEnabled: true,
-      })
-      .onConflictDoNothing();
+    if (demoAdmins) {
+      await db
+        .insert(t.adminUsers)
+        .values({
+          email: ROLE_EMAILS[roleId]!,
+          name: ROLE_LABELS[roleId],
+          passwordHash: await hashPassword(SEED_ADMIN_PASSWORD),
+          roleId,
+          totpSecret: SEED_ADMIN_TOTP_SECRET,
+          totpEnabled: true,
+        })
+        .onConflictDoNothing();
+    }
   }
 
   await db.insert(t.counters).values({ key: "order_ref", value: 1000 }).onConflictDoNothing();
@@ -400,4 +409,30 @@ export async function seedDatabase(db: Db, opts: SeedOptions = {}): Promise<void
     target: "database",
     detail: { note: "demo data seeded" },
   });
+}
+
+/**
+ * Production bootstrap: ensure exactly one real super admin exists, created
+ * from env-provided credentials. 2FA starts unenrolled — the mandatory-2FA
+ * login flow forces the owner to enroll their own secret on first sign-in.
+ * No-op when any admin user already exists.
+ */
+export async function bootstrapAdmin(db: Db, email: string, password: string, name = "Owner"): Promise<"created" | "exists"> {
+  const existing = await db.select({ id: t.adminUsers.id }).from(t.adminUsers).limit(1);
+  if (existing.length > 0) return "exists";
+  if (password.length < 12) throw new Error("INITIAL_ADMIN_PASSWORD must be at least 12 characters");
+  await db.insert(t.adminUsers).values({
+    email: email.toLowerCase(),
+    name,
+    passwordHash: await hashPassword(password),
+    roleId: "super_admin",
+  });
+  await db.insert(t.auditLog).values({
+    actorId: null,
+    actorLabel: "System",
+    type: "team",
+    action: "bootstrap_admin",
+    target: email.toLowerCase(),
+  });
+  return "created";
 }

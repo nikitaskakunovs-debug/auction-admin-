@@ -31,7 +31,10 @@ export interface BuiltServer {
 }
 
 export async function buildServer(ctx: AppContext, opts: { logger?: boolean } = {}): Promise<BuiltServer> {
-  const app = Fastify({ logger: opts.logger ?? false });
+  // trustProxy: behind Caddy the client IP arrives in X-Forwarded-For; without
+  // this the rate limiter and login lockout would key every visitor to the
+  // proxy's address (one shared bucket for the whole site).
+  const app = Fastify({ logger: opts.logger ?? false, trustProxy: ctx.config.trustProxy });
 
   // Parse the httpOnly refresh cookie.
   await app.register(cookie);

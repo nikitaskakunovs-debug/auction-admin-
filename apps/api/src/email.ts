@@ -41,6 +41,45 @@ export class CapturingEmailAdapter implements EmailAdapter {
   }
 }
 
-export function createEmailAdapter(mode: "console"): EmailAdapter {
+/**
+ * SMTP adapter — "our own sender": mails go out from OUR domain through
+ * whatever SMTP endpoint the env points at (a relay like Resend/Brevo/SES,
+ * or a self-hosted Postfix later). Swapping providers is an env change.
+ */
+export interface SmtpConfig {
+  host: string;
+  port: number;
+  secure: boolean;
+  user: string;
+  pass: string;
+  /** e.g. "Baltic Auctions <noreply@example.lv>" */
+  from: string;
+}
+
+export class SmtpEmailAdapter implements EmailAdapter {
+  private transporter: import("nodemailer").Transporter | null = null;
+  constructor(private readonly cfg: SmtpConfig) {}
+
+  private async transport(): Promise<import("nodemailer").Transporter> {
+    if (!this.transporter) {
+      const { default: nodemailer } = await import("nodemailer");
+      this.transporter = nodemailer.createTransport({
+        host: this.cfg.host,
+        port: this.cfg.port,
+        secure: this.cfg.secure,
+        auth: this.cfg.user ? { user: this.cfg.user, pass: this.cfg.pass } : undefined,
+      });
+    }
+    return this.transporter;
+  }
+
+  async send(msg: EmailMessage): Promise<void> {
+    const t = await this.transport();
+    await t.sendMail({ from: this.cfg.from, to: msg.to, subject: msg.subject, text: msg.text });
+  }
+}
+
+export function createEmailAdapter(mode: "console" | "smtp", smtp?: SmtpConfig | null): EmailAdapter {
+  if (mode === "smtp" && smtp) return new SmtpEmailAdapter(smtp);
   return new ConsoleEmailAdapter();
 }

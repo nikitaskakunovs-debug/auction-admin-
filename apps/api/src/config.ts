@@ -31,8 +31,11 @@ export interface ApiConfig {
    * consultation (format-valid ⇒ valid) for dev/tests without network.
    */
   viesMode: "live" | "simulate";
-  /** Email transport. Only "console" is wired today; SMTP lands with a provider. */
-  emailMode: "console";
+  /** Email transport: console (dev) or smtp (any relay / self-hosted sender). */
+  emailMode: "console" | "smtp";
+  smtp: { host: string; port: number; secure: boolean; user: string; pass: string; from: string } | null;
+  /** Honor X-Forwarded-For — MUST be on behind Caddy/nginx, off when exposed directly. */
+  trustProxy: boolean;
   /** Hours before the payment deadline to send the unpaid-winner reminder. */
   paymentReminderLeadHours: number;
   /**
@@ -74,6 +77,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     .map((o) => o.trim())
     .filter(Boolean);
   const port = Number(env.PORT ?? 4000);
+  const emailMode: "console" | "smtp" = env.EMAIL_MODE === "smtp" ? "smtp" : "console";
+  if (emailMode === "smtp") {
+    for (const key of ["SMTP_HOST", "EMAIL_FROM"] as const) {
+      if (!env[key]) throw new Error(`${key} must be set when EMAIL_MODE=smtp`);
+    }
+  }
   const storageDriver: "local" | "s3" = env.STORAGE_DRIVER === "s3" ? "s3" : "local";
   if (storageDriver === "s3") {
     for (const key of ["S3_BUCKET", "S3_ACCESS_KEY", "S3_SECRET_KEY", "S3_PUBLIC_URL"] as const) {
@@ -101,7 +110,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     allowBidSimulation: (env.ALLOW_BID_SIMULATION ?? (env.NODE_ENV === "production" ? "0" : "1")) === "1",
     schedulerEnabled: (env.SCHEDULER_ENABLED ?? "1") === "1",
     viesMode: (env.VIES_MODE ?? (env.NODE_ENV === "production" ? "live" : "simulate")) === "live" ? "live" : "simulate",
-    emailMode: "console",
+    emailMode,
+    smtp:
+      emailMode === "smtp"
+        ? {
+            host: env.SMTP_HOST ?? "",
+            port: Number(env.SMTP_PORT ?? 587),
+            secure: (env.SMTP_SECURE ?? "0") === "1",
+            user: env.SMTP_USER ?? "",
+            pass: env.SMTP_PASS ?? "",
+            from: env.EMAIL_FROM ?? "",
+          }
+        : null,
+    // Behind the bundled Caddy proxy in production; direct exposure in dev.
+    trustProxy: (env.TRUST_PROXY ?? (isProduction ? "1" : "0")) === "1",
     paymentReminderLeadHours: Number(env.PAYMENT_REMINDER_LEAD_HOURS ?? 24),
     storageDriver,
     uploadDir: env.UPLOAD_DIR ?? "var/uploads",

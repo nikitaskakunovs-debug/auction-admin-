@@ -1,0 +1,34 @@
+{
+	email {$ACME_EMAIL}
+}
+
+# Storefront
+{$DOMAIN}, www.{$DOMAIN} {
+	encode gzip
+	reverse_proxy web:3000
+}
+
+# Public API (browser-side REST + WebSocket for the storefront)
+api.{$DOMAIN} {
+	encode gzip
+	reverse_proxy api:4000
+}
+
+# Admin SPA — static files + same-origin proxy to the API (REST, uploads, WS)
+admin.{$DOMAIN} {
+	encode gzip
+	handle /api/* {
+		reverse_proxy api:4000
+	}
+	handle /uploads/* {
+		reverse_proxy api:4000
+	}
+	handle /ws* {
+		reverse_proxy api:4000
+	}
+	handle {
+		root * /srv/admin
+		try_files {path} /index.html
+		file_server
+	}
+}
