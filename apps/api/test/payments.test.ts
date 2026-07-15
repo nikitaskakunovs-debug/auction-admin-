@@ -1,6 +1,7 @@
 import { notifications, orders, payments, refunds } from "@auction/db";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { SimulatedInbankClient } from "../src/engine/inbank.js";
 import { SimulatedKlixClient } from "../src/engine/klix.js";
 import { auth, createWorld, loginAs, type TestWorld } from "./helpers.js";
 
@@ -14,12 +15,15 @@ import { auth, createWorld, loginAs, type TestWorld } from "./helpers.js";
 let world: TestWorld;
 let adminToken: string;
 let klix: SimulatedKlixClient;
+let inbank: SimulatedInbankClient;
 
 beforeAll(async () => {
   world = await createWorld();
   adminToken = await loginAs(world, "super@auction.test");
   klix = world.ctx.klix as SimulatedKlixClient;
+  inbank = world.ctx.inbank as SimulatedInbankClient;
   expect(klix).toBeInstanceOf(SimulatedKlixClient);
+  expect(inbank).toBeInstanceOf(SimulatedInbankClient);
 });
 afterAll(async () => {
   await world.close();
@@ -422,6 +426,145 @@ describe("checkout hard-expiry", () => {
   });
 });
 
+describe("Inbank BNPL (e-POS sessions)", () => {
+  async function startInbank(ref: string, token: string) {
+    const res = await world.server.app.inject({
+      method: "POST",
+      url: `/api/public/orders/${ref}/pay`,
+      headers: auth(token),
+      payload: { provider: "inbank" },
+    });
+    expect(res.statusCode).toBe(200);
+    return res.json() as { checkoutUrl: string };
+  }
+
+  it("creates a pos-session and records the inbank/web attempt", async () => {
+    const buyer = await registerBidder("inb_anna");
+    const { orderId, ref } = await unpaidOrder(buyer.accessToken);
+    const { checkoutUrl } = await startInbank(ref, buyer.accessToken);
+    expect(checkoutUrl).toContain("https://inbank.simulated/session/");
+    const [p] = await paymentRow(orderId);
+    expect(p!.provider).toBe("inbank");
+    expect(p!.channel).toBe("web");
+    expect(p!.status).toBe("created");
+    expect(p!.amountCents).toBe(13_310);
+    // Inbank receives the reference + our callback URL.
+    const input = inbank.inspect(p!.providerId!)!.input;
+    expect(input.reference).toBe(ref);
+    expect(input.callbackUrl).toContain(`/api/public/payments/inbank/callback?payment=${p!.id}`);
+  });
+
+  it("'granted' (credit approved) does NOT settle — only 'completed' does", async () => {
+    const buyer = await registerBidder("inb_granted");
+    const { orderId, ref } = await unpaidOrder(buyer.accessToken);
+    await startInbank(ref, buyer.accessToken);
+    const [p] = await paymentRow(orderId);
+
+    inbank.setStatus(p!.providerId!, "granted");
+    await world.server.app.inject({ method: "POST", url: `/api/public/payments/inbank/callback?payment=${p!.id}` });
+    let [order] = await world.ctx.db.select().from(orders).where(eq(orders.id, orderId));
+    expect(order!.status).toBe("awaiting_payment"); // approval ≠ payment
+
+    inbank.setStatus(p!.providerId!, "completed");
+    const cb = await world.server.app.inject({ method: "POST", url: `/api/public/payments/inbank/callback?payment=${p!.id}` });
+    expect(cb.statusCode).toBe(200);
+    [order] = await world.ctx.db.select().from(orders).where(eq(orders.id, orderId));
+    expect(order!.status).toBe("paid");
+    expect(order!.pickupCode).toMatch(/^\d{6}$/);
+    const [pAfter] = await paymentRow(orderId);
+    expect(pAfter!.status).toBe("paid");
+    expect(pAfter!.providerStatus).toBe("completed");
+  });
+
+  it("rejected session marks the attempt failed; the order stays payable", async () => {
+    const buyer = await registerBidder("inb_reject");
+    const { orderId, ref } = await unpaidOrder(buyer.accessToken);
+    await startInbank(ref, buyer.accessToken);
+    const [p] = await paymentRow(orderId);
+    inbank.setStatus(p!.providerId!, "rejected");
+    await world.server.app.inject({ method: "POST", url: `/api/public/payments/inbank/callback?payment=${p!.id}` });
+    const [pAfter] = await paymentRow(orderId);
+    expect(pAfter!.status).toBe("failed");
+    const [order] = await world.ctx.db.select().from(orders).where(eq(orders.id, orderId));
+    expect(order!.status).toBe("awaiting_payment");
+    // The customer can immediately retry — with either provider.
+    const retry = await startCheckout(ref, buyer.accessToken);
+    expect(retry.checkoutUrl).toContain("klix.simulated");
+  });
+
+  it("switching provider supersedes the open Klix checkout (cancelled at Klix) — one open checkout ever", async () => {
+    const buyer = await registerBidder("inb_switch");
+    const { orderId, ref } = await unpaidOrder(buyer.accessToken);
+    const klixFirst = await startCheckout(ref, buyer.accessToken);
+    const [pKlix] = await paymentRow(orderId);
+    expect(klixFirst.checkoutUrl).toContain("klix.simulated");
+
+    const inbankSecond = await startInbank(ref, buyer.accessToken);
+    expect(inbankSecond.checkoutUrl).toContain("inbank.simulated");
+    // The Klix purchase is dead at the provider — its link can't take money.
+    expect(klix.inspect(pKlix!.providerId!)!.status).toBe("cancelled");
+    const rows = await paymentRow(orderId);
+    expect(rows.filter((r) => r.status === "created").length).toBe(1);
+    expect(rows.find((r) => r.id === pKlix!.id)!.status).toBe("expired");
+  });
+
+  it("a paid Klix checkout blocks opening an Inbank session (and vice versa)", async () => {
+    const buyer = await registerBidder("inb_block");
+    const { orderId, ref } = await unpaidOrder(buyer.accessToken);
+    await startCheckout(ref, buyer.accessToken);
+    const [pKlix] = await paymentRow(orderId);
+    // Customer paid at Klix but neither callback nor poll has landed yet.
+    klix.setStatus(pKlix!.providerId!, "paid");
+    const res = await world.server.app.inject({
+      method: "POST",
+      url: `/api/public/orders/${ref}/pay`,
+      headers: auth(buyer.accessToken),
+      payload: { provider: "inbank" },
+    });
+    // The supersede path reconciles first, finds real money, and refuses —
+    // settling the order in the process.
+    expect(res.statusCode).toBe(409);
+    const [order] = await world.ctx.db.select().from(orders).where(eq(orders.id, orderId));
+    expect(order!.status).toBe("paid");
+  });
+
+  it("refund on an Inbank-paid order refuses the API path and records manually", async () => {
+    const buyer = await registerBidder("inb_refund");
+    const { orderId, ref } = await unpaidOrder(buyer.accessToken);
+    await startInbank(ref, buyer.accessToken);
+    const [p] = await paymentRow(orderId);
+    inbank.setStatus(p!.providerId!, "completed");
+    await world.server.app.inject({ method: "POST", url: `/api/public/payments/inbank/callback?payment=${p!.id}` });
+
+    // viaProvider (default) must refuse — there is no Inbank refund API.
+    const auto = await world.server.app.inject({
+      method: "POST",
+      url: `/api/orders/${orderId}/refund`,
+      headers: auth(adminToken),
+      payload: { amountCents: 13_310, reason: "customer returned the item" },
+    });
+    expect(auto.statusCode).toBe(409);
+    expect((auto.json() as { error: string }).error).toBe("provider_refund_unsupported");
+    expect((await world.ctx.db.select().from(refunds).where(eq(refunds.orderId, orderId))).length).toBe(0);
+
+    // After crediting the contract in the Inbank portal: record-only works.
+    const manual = await world.server.app.inject({
+      method: "POST",
+      url: `/api/orders/${orderId}/refund`,
+      headers: auth(adminToken),
+      payload: { amountCents: 13_310, reason: "credited in Inbank portal", viaProvider: false },
+    });
+    expect(manual.statusCode).toBe(200);
+    const [order] = await world.ctx.db.select().from(orders).where(eq(orders.id, orderId));
+    expect(order!.status).toBe("refunded");
+  });
+
+  it("config lists both providers", async () => {
+    const res = await world.server.app.inject({ method: "GET", url: "/api/public/payments/config" });
+    expect(res.json()).toMatchObject({ enabled: true, providers: { klix: true, inbank: true } });
+  });
+});
+
 describe("Pay Later calculator support", () => {
   it("payments config exposes enablement + the widget brand id", async () => {
     const res = await world.server.app.inject({ method: "GET", url: "/api/public/payments/config" });
@@ -429,13 +572,16 @@ describe("Pay Later calculator support", () => {
     // Simulate mode: enabled, but no real brand id → the web widget stays hidden.
     expect(res.json()).toMatchObject({ enabled: true, payLaterBrandId: null });
 
-    const saved = world.ctx.klix;
+    const savedKlix = world.ctx.klix;
+    const savedInbank = world.ctx.inbank;
     world.ctx.klix = null;
+    world.ctx.inbank = null;
     try {
       const off = await world.server.app.inject({ method: "GET", url: "/api/public/payments/config" });
-      expect(off.json()).toMatchObject({ enabled: false, payLaterBrandId: null });
+      expect(off.json()).toMatchObject({ enabled: false, payLaterBrandId: null, providers: { klix: false, inbank: false } });
     } finally {
-      world.ctx.klix = saved;
+      world.ctx.klix = savedKlix;
+      world.ctx.inbank = savedInbank;
     }
   });
 
@@ -443,7 +589,7 @@ describe("Pay Later calculator support", () => {
     const buyer = await registerBidder("pl_email");
     const { ref } = await unpaidOrder(buyer.accessToken);
     const { dispatchNotifications } = await import("../src/engine/notifications.js");
-    await dispatchNotifications(world.ctx);
+    await dispatchNotifications(world.ctx, 1000);
     const sent = world.email.sent.find((e) => e.text.includes(ref) && e.text.includes("[purchased]"));
     expect(sent).toBeDefined();
     // The placeholder resolved into the (simulated) legal wording…
@@ -460,7 +606,7 @@ describe("Pay Later calculator support", () => {
     world.ctx.klix = null;
     try {
       const { dispatchNotifications } = await import("../src/engine/notifications.js");
-      await dispatchNotifications(world.ctx);
+      await dispatchNotifications(world.ctx, 1000);
     } finally {
       world.ctx.klix = saved;
     }
@@ -489,12 +635,77 @@ describe("Pay Later calculator support", () => {
   });
 });
 
+describe("admin payment visibility", () => {
+  it("reconcile persists the method the customer used (BNPL vs banklink) + the raw snapshot", async () => {
+    const buyer = await registerBidder("vis_method");
+    const { orderId, ref } = await unpaidOrder(buyer.accessToken);
+    await startCheckout(ref, buyer.accessToken);
+    const [p] = await paymentRow(orderId);
+    // Customer picked Pay Later on the Klix checkout page.
+    klix.setStatus(p!.providerId!, "paid", "klix_pay_later");
+    await world.server.app.inject({ method: "POST", url: `/api/public/payments/klix/callback?payment=${p!.id}` });
+    const [after] = await paymentRow(orderId);
+    expect(after!.method).toBe("klix_pay_later");
+    expect(after!.raw).toMatchObject({ transaction_data: { payment_method: "klix_pay_later" } });
+    // …and it shows on the admin order detail.
+    const detail = await world.server.app.inject({ method: "GET", url: `/api/orders/${orderId}`, headers: auth(adminToken) });
+    const payments = (detail.json() as { payments: Array<{ method: string | null; raw: unknown }> }).payments;
+    expect(payments[0]!.method).toBe("klix_pay_later");
+  });
+
+  it("GET /api/payments lists attempts across orders with provider/status filters, admin-only", async () => {
+    const buyer = await registerBidder("vis_list");
+    const { ref } = await unpaidOrder(buyer.accessToken);
+    await startCheckout(ref, buyer.accessToken);
+
+    const anon = await world.server.app.inject({ method: "GET", url: "/api/payments" });
+    expect(anon.statusCode).toBe(401);
+    const asBidder = await world.server.app.inject({ method: "GET", url: "/api/payments", headers: auth(buyer.accessToken) });
+    expect([401, 403]).toContain(asBidder.statusCode);
+
+    const all = await world.server.app.inject({ method: "GET", url: "/api/payments", headers: auth(adminToken) });
+    expect(all.statusCode).toBe(200);
+    const rows = (all.json() as { payments: Array<{ orderRef: string; provider: string; customerAlias: string; status: string }> }).payments;
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.find((r) => r.orderRef === ref)).toMatchObject({ provider: "klix", customerAlias: "vis_list" });
+
+    const inbankOnly = await world.server.app.inject({ method: "GET", url: "/api/payments?provider=inbank", headers: auth(adminToken) });
+    const inbankRows = (inbankOnly.json() as { payments: Array<{ provider: string }> }).payments;
+    expect(inbankRows.length).toBeGreaterThan(0); // earlier Inbank tests created attempts
+    expect(inbankRows.every((r) => r.provider === "inbank")).toBe(true);
+
+    const paidOnly = await world.server.app.inject({ method: "GET", url: "/api/payments?status=paid", headers: auth(adminToken) });
+    const paidRows = (paidOnly.json() as { payments: Array<{ status: string }> }).payments;
+    expect(paidRows.every((r) => r.status === "paid")).toBe(true);
+  });
+
+  it("Inbank attempts carry the inbank_installments method after reconcile", async () => {
+    const buyer = await registerBidder("vis_inb");
+    const { orderId, ref } = await unpaidOrder(buyer.accessToken);
+    await world.server.app.inject({
+      method: "POST",
+      url: `/api/public/orders/${ref}/pay`,
+      headers: auth(buyer.accessToken),
+      payload: { provider: "inbank" },
+    });
+    const [p] = await paymentRow(orderId);
+    inbank.setStatus(p!.providerId!, "completed", { creditContractUuid: "cc-123", period: 12 });
+    await world.server.app.inject({ method: "POST", url: `/api/public/payments/inbank/callback?payment=${p!.id}` });
+    const [after] = await paymentRow(orderId);
+    expect(after!.method).toBe("inbank_installments");
+    // The contract terms Inbank reported are preserved for admin.
+    expect(after!.raw).toMatchObject({ creditContractUuid: "cc-123", period: 12 });
+  });
+});
+
 describe("mode gating", () => {
-  it("pay returns 503 when KLIX_MODE=off", async () => {
+  it("pay returns 503 when every provider is off", async () => {
     const buyer = await registerBidder("pay_off");
     const { ref } = await unpaidOrder(buyer.accessToken);
-    const saved = world.ctx.klix;
+    const savedKlix = world.ctx.klix;
+    const savedInbank = world.ctx.inbank;
     world.ctx.klix = null;
+    world.ctx.inbank = null;
     try {
       const res = await world.server.app.inject({
         method: "POST",
@@ -505,7 +716,34 @@ describe("mode gating", () => {
       expect(res.statusCode).toBe(503);
       expect(res.json()).toMatchObject({ error: "payments_unavailable" });
     } finally {
-      world.ctx.klix = saved;
+      world.ctx.klix = savedKlix;
+      world.ctx.inbank = savedInbank;
+    }
+  });
+
+  it("falls back to Inbank when only Inbank is on, and 503s an explicit klix request", async () => {
+    const buyer = await registerBidder("pay_inb_only");
+    const { ref } = await unpaidOrder(buyer.accessToken);
+    const savedKlix = world.ctx.klix;
+    world.ctx.klix = null;
+    try {
+      const explicit = await world.server.app.inject({
+        method: "POST",
+        url: `/api/public/orders/${ref}/pay`,
+        headers: auth(buyer.accessToken),
+        payload: { provider: "klix" },
+      });
+      expect(explicit.statusCode).toBe(503);
+      const fallback = await world.server.app.inject({
+        method: "POST",
+        url: `/api/public/orders/${ref}/pay`,
+        headers: auth(buyer.accessToken),
+        payload: {},
+      });
+      expect(fallback.statusCode).toBe(200);
+      expect((fallback.json() as { checkoutUrl: string }).checkoutUrl).toContain("inbank.simulated");
+    } finally {
+      world.ctx.klix = savedKlix;
     }
   });
 });

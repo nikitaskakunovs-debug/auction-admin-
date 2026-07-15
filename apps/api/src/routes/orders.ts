@@ -30,6 +30,41 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext, perms
     return { orders: rows.map((r) => ({ ...r.order, itemSku: r.itemSku, itemStatus: r.itemStatus })) };
   });
 
+  /**
+   * All online payment attempts across orders — the admin "Payments" view.
+   * One row per checkout attempt with provider, method (BNPL vs banklink vs
+   * card), channel, status, and the order it belongs to.
+   */
+  app.get("/api/payments", guard("orders.view"), async (req) => {
+    const q = req.query as { status?: string; provider?: string };
+    const conds = [];
+    if (q.status) conds.push(eq(payments.status, q.status));
+    if (q.provider) conds.push(eq(payments.provider, q.provider));
+    const rows = await ctx.db
+      .select({
+        payment: payments,
+        orderRef: orders.ref,
+        orderStatus: orders.status,
+        customerAlias: orders.customerAlias,
+        itemTitle: items.title,
+      })
+      .from(payments)
+      .innerJoin(orders, eq(payments.orderId, orders.id))
+      .innerJoin(items, eq(orders.itemId, items.id))
+      .where(conds.length ? and(...conds) : undefined)
+      .orderBy(desc(payments.createdAt))
+      .limit(500);
+    return {
+      payments: rows.map((r) => ({
+        ...r.payment,
+        orderRef: r.orderRef,
+        orderStatus: r.orderStatus,
+        customerAlias: r.customerAlias,
+        itemTitle: r.itemTitle,
+      })),
+    };
+  });
+
   app.get("/api/orders/:id", guard("orders.view"), async (req, reply) => {
     const { id } = req.params as { id: string };
     const [row] = await ctx.db
@@ -85,28 +120,37 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext, perms
       }
     }
 
-    // If this order was collected through Klix, the money moves back through
-    // Klix too — and only what the provider confirms gets recorded. The
+    // If this order was collected online, the money moves back through the
+    // provider too — and only what the provider confirms gets recorded. The
     // provider call happens before the ledger write: a rejected refund
     // (already refunded in the portal, amount over the remainder, expired)
-    // must not leave a phantom refund row.
+    // must not leave a phantom refund row. Klix exposes a refund API;
+    // Inbank credit contracts are terminated/credited in their partner
+    // portal, so Inbank-paid orders must be refunded there first and then
+    // recorded here with viaProvider=false — never silently skipped.
     let providerMeta: Record<string, unknown> = {};
     if (body.data.viaProvider) {
-      const [klixPayment] = await ctx.db
+      const [paidPayment] = await ctx.db
         .select()
         .from(payments)
         .where(and(eq(payments.orderId, id), eq(payments.status, "paid")))
         .orderBy(desc(payments.createdAt))
         .limit(1);
-      if (klixPayment?.providerId) {
+      if (paidPayment?.provider === "inbank") {
+        return reply.code(409).send({
+          error: "provider_refund_unsupported",
+          detail: "Paid via Inbank — credit the contract in the Inbank partner portal, then record with viaProvider=false",
+        });
+      }
+      if (paidPayment?.providerId) {
         if (!ctx.klix) return reply.code(503).send({ error: "payments_unavailable", detail: "KLIX_MODE is off — refund in the Klix portal, then record with viaProvider=false" });
         try {
-          const purchase = await ctx.klix.refundPurchase(klixPayment.providerId, body.data.amountCents);
+          const purchase = await ctx.klix.refundPurchase(paidPayment.providerId, body.data.amountCents);
           await ctx.db
             .update(payments)
             .set({ providerStatus: purchase.status, updatedAt: ctx.now() })
-            .where(eq(payments.id, klixPayment.id));
-          providerMeta = { via: "klix", purchaseId: klixPayment.providerId };
+            .where(eq(payments.id, paidPayment.id));
+          providerMeta = { via: "klix", purchaseId: paidPayment.providerId };
         } catch (err) {
           req.log?.error({ err, orderId: id }, "klix refund failed");
           return reply.code(502).send({ error: "klix_refund_failed", detail: err instanceof Error ? err.message : "provider error" });

@@ -74,6 +74,21 @@ export interface ApiConfig {
     /** Optional payment_method_whitelist; empty = all methods enabled on the brand. */
     methods: string[];
   } | null;
+  /**
+   * Inbank BNPL (hire purchase / installments) via the hosted e-POS flow:
+   * we create a pos-session, redirect the customer to Inbank's environment,
+   * and settle only when Inbank reports the session `completed`. Same gating
+   * pattern as Klix: "off" until the partner credentials arrive.
+   */
+  inbankMode: "off" | "live" | "simulate";
+  inbank: {
+    /** api.inbank.eu in production; demo-api.inbank.eu for partner testing. */
+    apiUrl: string;
+    shopUuid: string;
+    apiKey: string;
+    /** Optional financing product code if the shop has several configured. */
+    productCode: string | null;
+  } | null;
   /** Storefront origin used for post-checkout redirects (success/failure/cancel). */
   storefrontBaseUrl: string;
 }
@@ -105,6 +120,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   if (klixMode === "live") {
     for (const key of ["KLIX_BRAND_ID", "KLIX_SECRET_KEY"] as const) {
       if (!env[key]) throw new Error(`${key} must be set when KLIX_MODE=live`);
+    }
+  }
+  const inbankMode: "off" | "live" | "simulate" =
+    env.INBANK_MODE === "live" ? "live" : env.INBANK_MODE === "simulate" ? "simulate" : "off";
+  if (inbankMode === "live") {
+    for (const key of ["INBANK_SHOP_UUID", "INBANK_API_KEY"] as const) {
+      if (!env[key]) throw new Error(`${key} must be set when INBANK_MODE=live`);
     }
   }
   const storageDriver: "local" | "s3" = env.STORAGE_DRIVER === "s3" ? "s3" : "local";
@@ -176,6 +198,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
               .split(",")
               .map((m) => m.trim())
               .filter(Boolean),
+          },
+    inbankMode,
+    inbank:
+      inbankMode === "off"
+        ? null
+        : {
+            apiUrl: (env.INBANK_API_URL ?? "https://api.inbank.eu").replace(/\/$/, ""),
+            shopUuid: env.INBANK_SHOP_UUID ?? "",
+            apiKey: env.INBANK_API_KEY ?? "",
+            productCode: env.INBANK_PRODUCT_CODE || null,
           },
     // Post-checkout redirect target. Production compose sets https://<DOMAIN>;
     // dev falls back to the Next.js storefront.

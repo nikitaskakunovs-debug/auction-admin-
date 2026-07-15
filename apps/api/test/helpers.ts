@@ -9,6 +9,7 @@ import pg from "pg";
 import { loadConfig } from "../src/config.js";
 import type { AppContext } from "../src/context.js";
 import { CapturingEmailAdapter } from "../src/email.js";
+import { createInbankClient } from "../src/engine/inbank.js";
 import { createKlixClient } from "../src/engine/klix.js";
 import { buildServer, type BuiltServer } from "../src/server.js";
 import { createStorage } from "../src/storage.js";
@@ -73,9 +74,10 @@ export async function createWorld(): Promise<TestWorld> {
     // Photo uploads land on local disk under the (gitignored) var/ dir.
     STORAGE_DRIVER: "local",
     UPLOAD_DIR: path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../var/test-uploads"),
-    // In-memory Klix driver — the payments suite flips purchase statuses and
-    // exercises the callback exactly the way the provider would.
+    // In-memory payment drivers — the payments suite flips purchase/session
+    // statuses and exercises the callbacks exactly the way providers would.
     KLIX_MODE: "simulate",
+    INBANK_MODE: "simulate",
   });
   const email = new CapturingEmailAdapter();
   const ctx: AppContext = {
@@ -86,6 +88,7 @@ export async function createWorld(): Promise<TestWorld> {
     email,
     storage: createStorage(config),
     klix: createKlixClient(config),
+    inbank: createInbankClient(config),
     now: () => fakeNow ?? new Date(),
   };
   const server = await buildServer(ctx);

@@ -3,6 +3,7 @@ import type pg from "pg";
 import type { Redis } from "ioredis";
 import type { ApiConfig } from "./config.js";
 import type { EmailAdapter } from "./email.js";
+import type { InbankClient } from "./engine/inbank.js";
 import type { KlixClient } from "./engine/klix.js";
 import type { PhotoStorage } from "./storage.js";
 
@@ -18,6 +19,8 @@ export interface AppContext {
   storage: PhotoStorage;
   /** Klix payment client (null when KLIX_MODE=off — pay endpoints 503). */
   klix: KlixClient | null;
+  /** Inbank BNPL client (null when INBANK_MODE=off — the option is hidden). */
+  inbank: InbankClient | null;
   /** Injectable clock so tests control time. */
   now: () => Date;
 }

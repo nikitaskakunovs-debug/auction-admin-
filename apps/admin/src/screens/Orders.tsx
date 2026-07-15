@@ -3,6 +3,7 @@ import { api, ApiError, type Item, type Order } from "../api.js";
 import type { Nav } from "../App.js";
 import { useAuth } from "../auth.js";
 import { formatDate, formatEur } from "../format.js";
+import { isBnpl, methodLabel, providerLabel } from "../paymentLabels.js";
 import { AT, ITEM_STATUS_TONE, ORDER_STATUS_TONE } from "../theme.js";
 import {
   AAvatar, ABadge, ABtn, ACard, ADrawer, AEmpty, AField, AInput, APills,
@@ -24,6 +25,10 @@ interface Payment {
   providerId: string | null;
   status: string; // created | paid | failed | expired
   providerStatus: string | null;
+  /** Provider-reported method (klix_pay_later, swedbank_lv_pis, …). */
+  method: string | null;
+  /** Full last provider snapshot (BNPL terms, contract ids, …). */
+  raw: Record<string, unknown> | null;
   amountCents: number;
   createdAt: string;
 }
@@ -273,15 +278,40 @@ export function OrdersScreen({ nav: _nav }: { nav: Nav }) {
             </ACard>
 
             {detail.payments.length > 0 && (
-              <ACard title="Online payments (Klix)" pad={false}>
-                <ATable head={["When", "Status", "Via", "Amount", "Purchase"]}>
+              <ACard title="Online payments" pad={false}>
+                <ATable head={["When", "Provider", "Method", "Status", "Via", "Amount", ""]}>
                   {detail.payments.map((p) => (
                     <ATr key={p.id}>
                       <ATd>{formatDate(p.createdAt)}</ATd>
-                      <ATd><ABadge tone={PAYMENT_TONE[p.status] ?? "neutral"}>{p.status}</ABadge></ATd>
+                      <ATd><span style={{ fontSize: 12, fontWeight: 600 }}>{providerLabel(p.provider)}</span></ATd>
+                      <ATd>
+                        <span style={{ fontSize: 12 }}>{methodLabel(p.method)}</span>
+                        {isBnpl(p.method) && <span style={{ marginLeft: 6 }}><ABadge tone="accent">BNPL</ABadge></span>}
+                      </ATd>
+                      <ATd>
+                        <ABadge tone={PAYMENT_TONE[p.status] ?? "neutral"}>{p.status}</ABadge>
+                        {p.providerStatus && p.providerStatus !== p.status && (
+                          <div style={{ fontSize: 10, color: AT.inkSoft, marginTop: 2 }}>{p.providerStatus}</div>
+                        )}
+                      </ATd>
                       <ATd><span style={{ fontSize: 12, color: AT.inkSoft }}>{p.channel === "email" ? "Email link" : "Web"}</span></ATd>
                       <ATd mono right>{formatEur(p.amountCents)}</ATd>
-                      <ATd><span style={{ fontFamily: AT.mono, fontSize: 11, color: AT.inkSoft }}>{p.providerId ?? "—"}</span></ATd>
+                      <ATd>
+                        {/* Everything the provider reported — terms, contract
+                            ids, timestamps — nothing is hidden from the admin. */}
+                        <details>
+                          <summary style={{ cursor: "pointer", fontSize: 11, color: AT.inkSoft }}>details</summary>
+                          <div style={{ fontFamily: AT.mono, fontSize: 10.5, color: AT.inkSoft, marginTop: 4 }}>
+                            <div>attempt: {p.id}</div>
+                            <div>provider ref: {p.providerId ?? "—"}</div>
+                            {p.raw && (
+                              <pre style={{ margin: "4px 0 0", whiteSpace: "pre-wrap", maxWidth: 380, maxHeight: 220, overflow: "auto", background: "#F6F6F4", borderRadius: 6, padding: 6 }}>
+                                {JSON.stringify(p.raw, null, 1)}
+                              </pre>
+                            )}
+                          </div>
+                        </details>
+                      </ATd>
                     </ATr>
                   ))}
                 </ATable>
@@ -303,7 +333,8 @@ export function OrdersScreen({ nav: _nav }: { nav: Nav }) {
             )}
 
             {detail.order.status === "paid" && can("orders.refund") && (() => {
-              const klixPaid = detail.payments.some((p) => p.status === "paid" && p.providerId);
+              const paidVia = detail.payments.find((p) => p.status === "paid" && p.providerId)?.provider ?? null;
+              const klixPaid = paidVia === "klix";
               return (
                 <ACard title="Refund">
                   <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
@@ -325,6 +356,10 @@ export function OrdersScreen({ nav: _nav }: { nav: Nav }) {
                       >
                         Record only (already refunded elsewhere)
                       </button>
+                    </div>
+                  ) : paidVia === "inbank" ? (
+                    <div style={{ fontSize: 11.5, color: AT.inkSoft, marginTop: 8 }}>
+                      Paid through Inbank — credit/terminate the contract in the Inbank partner portal first; this button then records it.
                     </div>
                   ) : (
                     <div style={{ fontSize: 11.5, color: AT.inkSoft, marginTop: 8 }}>

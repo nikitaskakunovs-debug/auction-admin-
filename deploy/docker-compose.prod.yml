@@ -66,6 +66,12 @@ services:
       KLIX_BRAND_ID: ${KLIX_BRAND_ID:-}
       KLIX_SECRET_KEY: ${KLIX_SECRET_KEY:-}
       KLIX_METHODS: ${KLIX_METHODS:-}
+      # Inbank BNPL (off until the partner credentials arrive; then INBANK_MODE=live).
+      INBANK_MODE: ${INBANK_MODE:-off}
+      INBANK_API_URL: ${INBANK_API_URL:-}
+      INBANK_SHOP_UUID: ${INBANK_SHOP_UUID:-}
+      INBANK_API_KEY: ${INBANK_API_KEY:-}
+      INBANK_PRODUCT_CODE: ${INBANK_PRODUCT_CODE:-}
     volumes:
       # Only used if STORAGE_DRIVER=local; harmless otherwise.
       - uploads:/repo/apps/api/var/uploads
