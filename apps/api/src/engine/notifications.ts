@@ -49,10 +49,16 @@ function render(type: NotificationType, lang: Lang, i: TemplateInput): { subject
   const money = (c: number | undefined) => (c === undefined ? "" : formatEur(c));
   // Appended to payment-due emails when online payments are on: one click
   // opens the Klix checkout (cards, Pay Later, banklinks) — no login needed.
+  // The KLIX_PL_EXAMPLE placeholder is resolved at DISPATCH time (see
+  // resolvePayLaterExample) into Klix's representative example — the
+  // legally-required consumer-credit wording with the real monthly payment
+  // for this exact amount. Enqueue stays free of network calls (it runs
+  // inside the caller's transaction).
+  const plExample = i.payUrl && i.totalCents ? `{{KLIX_PL_EXAMPLE:${i.totalCents}:${lang}}}` : "";
   const payLine = i.payUrl
     ? lang === "lv"
-      ? `\nApmaksāt tiešsaistē (karte, banklinks, Klix Pay Later):\n${i.payUrl}\n`
-      : `\nPay online (card, bank link, Klix Pay Later):\n${i.payUrl}\n`
+      ? `\nApmaksāt tiešsaistē (karte, banklinks, Klix Pay Later):\n${i.payUrl}\n${plExample}`
+      : `\nPay online (card, bank link, Klix Pay Later):\n${i.payUrl}\n${plExample}`
     : "";
   const t: Record<NotificationType, Record<Lang, { subject: string; body: string }>> = {
     outbid: {
@@ -185,6 +191,38 @@ export async function enqueueNotification(
 
 const MAX_ATTEMPTS = 5;
 
+const PL_EXAMPLE_TOKEN = /\{\{KLIX_PL_EXAMPLE:(\d+):(\w+)\}\}/;
+const PL_EXAMPLE_CACHE_TTL_SEC = 24 * 3600;
+
+/**
+ * Resolve the Pay Later representative-example placeholder into Klix's
+ * actual consumer-credit text for the amount (cached in Redis for a day —
+ * the financing endpoint is rate-limited and the text is deterministic per
+ * amount/language). Degrades to removing the placeholder: a Klix hiccup
+ * must never block the "you won" email.
+ */
+async function resolvePayLaterExample(ctx: AppContext, body: string): Promise<string> {
+  const m = body.match(PL_EXAMPLE_TOKEN);
+  if (!m) return body;
+  let text = "";
+  if (ctx.klix) {
+    const [, amount, lang] = m as unknown as [string, string, string];
+    const cacheKey = `klix:pl_example:${amount}:${lang}`;
+    try {
+      const cached = await ctx.redis.get(cacheKey);
+      if (cached !== null) {
+        text = cached;
+      } else {
+        text = (await ctx.klix.representativeExample(Number(amount), lang)) ?? "";
+        await ctx.redis.set(cacheKey, text, "EX", PL_EXAMPLE_CACHE_TTL_SEC);
+      }
+    } catch {
+      text = "";
+    }
+  }
+  return body.replace(PL_EXAMPLE_TOKEN, text ? `${text}\n` : "");
+}
+
 /** Drain pending notifications and send them. Returns how many were sent. */
 export async function dispatchNotifications(ctx: AppContext, batch = 50): Promise<number> {
   const pending = await ctx.db
@@ -197,10 +235,11 @@ export async function dispatchNotifications(ctx: AppContext, batch = 50): Promis
   let sent = 0;
   for (const n of pending) {
     try {
-      await ctx.email.send({ to: n.toEmail, subject: n.subject, text: n.body });
+      const body = await resolvePayLaterExample(ctx, n.body);
+      await ctx.email.send({ to: n.toEmail, subject: n.subject, text: body });
       await ctx.db
         .update(notifications)
-        .set({ status: "sent", sentAt: ctx.now(), attempts: n.attempts + 1 })
+        .set({ status: "sent", sentAt: ctx.now(), attempts: n.attempts + 1, body })
         .where(eq(notifications.id, n.id));
       sent += 1;
     } catch (err) {

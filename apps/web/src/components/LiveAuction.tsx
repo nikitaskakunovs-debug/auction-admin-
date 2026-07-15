@@ -7,6 +7,7 @@ import { PUBLIC_API_URL } from "@/lib/config";
 import { useT } from "@/lib/i18n";
 import { PhotoGallery } from "./PhotoGallery";
 import { formatEur, type AuctionDetail } from "@/lib/types";
+import { KlixPayLater } from "@/components/KlixPayLater";
 import { Countdown } from "./Countdown";
 
 export function LiveAuction({ initial }: { initial: AuctionDetail }) {
@@ -157,6 +158,13 @@ export function LiveAuction({ initial }: { initial: AuctionDetail }) {
               {a.reserveMet ? t("a.reserveMet") : t("a.reserveNotMet")}
             </div>
           )}
+
+          {/* Pay Later monthly-payment calculator on the full cost of the
+              current price (premium + VAT included). Renders only when Klix
+              is enabled; the numbers come from Klix's financing API. */}
+          <div style={{ marginTop: 12 }}>
+            <KlixPayLater amountCents={detail.estimatedTotalCents} view="product" />
+          </div>
 
           {live && (
             <div style={{ marginTop: 16, borderTop: "1px solid rgba(10,10,10,0.08)", paddingTop: 16 }}>

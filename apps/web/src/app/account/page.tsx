@@ -7,6 +7,7 @@ import { useT } from "@/lib/i18n";
 import { formatEur, type MyOrder, type PublicAuction } from "@/lib/types";
 import { Countdown } from "@/components/Countdown";
 import { FeesNotice } from "@/components/FeesNotice";
+import { KlixPayLater } from "@/components/KlixPayLater";
 import { PickupPass } from "@/components/PickupPass";
 
 type MyBidAuction = PublicAuction & { youLead: boolean };
@@ -171,29 +172,37 @@ export default function AccountPage() {
             <div style={{ padding: 22, color: "#6B6B68", fontSize: 13 }}>{t("acc.empty")}</div>
           ) : (
             orders.map((o) => (
-              <div key={o.ref} style={row}>
-                <span style={{ fontFamily: '"Geist Mono", ui-monospace, monospace', fontSize: 12 }}>{o.ref}</span>
-                <span style={{ fontWeight: 600, flex: 1 }}>{o.itemTitle}</span>
-                <span style={{
-                  fontSize: 11, fontWeight: 700, borderRadius: 99, padding: "2px 9px",
-                  background: o.status === "awaiting_payment" ? "#FCEFD9" : "#E4F4EA",
-                  color: o.status === "awaiting_payment" ? "#9A5B00" : "#1F8A4C",
-                }}>
-                  {o.status === "awaiting_payment" ? t("acc.awaiting") : t("acc.paid")}
-                </span>
-                <span style={{ fontFamily: '"Geist Mono", ui-monospace, monospace', fontWeight: 700 }}>{formatEur(o.totalCents)}</span>
+              <div key={o.ref} style={{ borderBottom: "1px solid rgba(10,10,10,0.05)" }}>
+                <div style={{ ...row, borderBottom: "none" }}>
+                  <span style={{ fontFamily: '"Geist Mono", ui-monospace, monospace', fontSize: 12 }}>{o.ref}</span>
+                  <span style={{ fontWeight: 600, flex: 1 }}>{o.itemTitle}</span>
+                  <span style={{
+                    fontSize: 11, fontWeight: 700, borderRadius: 99, padding: "2px 9px",
+                    background: o.status === "awaiting_payment" ? "#FCEFD9" : "#E4F4EA",
+                    color: o.status === "awaiting_payment" ? "#9A5B00" : "#1F8A4C",
+                  }}>
+                    {o.status === "awaiting_payment" ? t("acc.awaiting") : t("acc.paid")}
+                  </span>
+                  <span style={{ fontFamily: '"Geist Mono", ui-monospace, monospace', fontWeight: 700 }}>{formatEur(o.totalCents)}</span>
+                  {o.status === "awaiting_payment" && (
+                    <button
+                      onClick={() => void payOrder(o.ref)}
+                      disabled={payingRef !== null}
+                      style={{
+                        border: "none", borderRadius: 99, padding: "6px 14px", fontSize: 12, fontWeight: 700,
+                        background: "#2D4BFF", color: "#fff", cursor: payingRef ? "wait" : "pointer",
+                        opacity: payingRef && payingRef !== o.ref ? 0.5 : 1,
+                      }}
+                    >
+                      {payingRef === o.ref ? t("acc.payRedirecting") : t("acc.pay")}
+                    </button>
+                  )}
+                </div>
                 {o.status === "awaiting_payment" && (
-                  <button
-                    onClick={() => void payOrder(o.ref)}
-                    disabled={payingRef !== null}
-                    style={{
-                      border: "none", borderRadius: 99, padding: "6px 14px", fontSize: 12, fontWeight: 700,
-                      background: "#2D4BFF", color: "#fff", cursor: payingRef ? "wait" : "pointer",
-                      opacity: payingRef && payingRef !== o.ref ? 0.5 : 1,
-                    }}
-                  >
-                    {payingRef === o.ref ? t("acc.payRedirecting") : t("acc.pay")}
-                  </button>
+                  <div style={{ padding: "0 16px 10px" }}>
+                    {/* Pay Later monthly-payment preview on the exact amount due. */}
+                    <KlixPayLater amountCents={o.totalCents} view="checkout" micro />
+                  </div>
                 )}
               </div>
             ))

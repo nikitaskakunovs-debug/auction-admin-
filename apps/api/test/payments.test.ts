@@ -422,6 +422,73 @@ describe("checkout hard-expiry", () => {
   });
 });
 
+describe("Pay Later calculator support", () => {
+  it("payments config exposes enablement + the widget brand id", async () => {
+    const res = await world.server.app.inject({ method: "GET", url: "/api/public/payments/config" });
+    expect(res.statusCode).toBe(200);
+    // Simulate mode: enabled, but no real brand id → the web widget stays hidden.
+    expect(res.json()).toMatchObject({ enabled: true, payLaterBrandId: null });
+
+    const saved = world.ctx.klix;
+    world.ctx.klix = null;
+    try {
+      const off = await world.server.app.inject({ method: "GET", url: "/api/public/payments/config" });
+      expect(off.json()).toMatchObject({ enabled: false, payLaterBrandId: null });
+    } finally {
+      world.ctx.klix = saved;
+    }
+  });
+
+  it("payment-due emails carry the representative example, resolved at dispatch", async () => {
+    const buyer = await registerBidder("pl_email");
+    const { ref } = await unpaidOrder(buyer.accessToken);
+    const { dispatchNotifications } = await import("../src/engine/notifications.js");
+    await dispatchNotifications(world.ctx);
+    const sent = world.email.sent.find((e) => e.text.includes(ref) && e.text.includes("[purchased]"));
+    expect(sent).toBeDefined();
+    // The placeholder resolved into the (simulated) legal wording…
+    expect(sent!.text).toContain("Representative example");
+    expect(sent!.text).toContain("monthly payments");
+    // …and no raw token leaked into the email.
+    expect(sent!.text).not.toContain("KLIX_PL_EXAMPLE");
+  });
+
+  it("placeholder is stripped cleanly when Klix is off at dispatch time", async () => {
+    const buyer = await registerBidder("pl_email_off");
+    const { ref } = await unpaidOrder(buyer.accessToken);
+    const saved = world.ctx.klix;
+    world.ctx.klix = null;
+    try {
+      const { dispatchNotifications } = await import("../src/engine/notifications.js");
+      await dispatchNotifications(world.ctx);
+    } finally {
+      world.ctx.klix = saved;
+    }
+    const sent = world.email.sent.find((e) => e.text.includes(ref) && e.text.includes("[purchased]"));
+    expect(sent).toBeDefined();
+    expect(sent!.text).not.toContain("KLIX_PL_EXAMPLE");
+    expect(sent!.text).not.toContain("Representative example");
+  });
+
+  it("public auction + listing detail expose the exact checkout total", async () => {
+    const app = world.server.app;
+    // Fixed listing: price 11000 + 21% VAT, no premium → 13310.
+    const sku = `PLT-${Math.random().toString(36).slice(2, 9)}`;
+    const item = await app.inject({ method: "POST", url: "/api/items", headers: auth(adminToken), payload: { sku, title: `PL ${sku}`, marketCode: "LV" } });
+    const itemId = (item.json() as { item: { id: string } }).item.id;
+    const listing = await app.inject({
+      method: "POST",
+      url: "/api/listings",
+      headers: auth(adminToken),
+      payload: { itemId, type: "fixed", title: `PL ${sku}`, marketCode: "LV", priceCents: 11_000, quantity: 1 },
+    });
+    const listingId = (listing.json() as { listing: { id: string } }).listing.id;
+    await app.inject({ method: "POST", url: `/api/listings/${listingId}/publish`, headers: auth(adminToken) });
+    const detail = await app.inject({ method: "GET", url: `/api/public/listings/${listingId}` });
+    expect((detail.json() as { listing: { estimatedTotalCents: number } }).listing.estimatedTotalCents).toBe(13_310);
+  });
+});
+
 describe("mode gating", () => {
   it("pay returns 503 when KLIX_MODE=off", async () => {
     const buyer = await registerBidder("pay_off");

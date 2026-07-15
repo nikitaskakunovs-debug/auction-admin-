@@ -6,6 +6,7 @@ import { publicApi, PublicApiError } from "@/lib/api";
 import { conditionLabel } from "@/lib/conditions";
 import { useT } from "@/lib/i18n";
 import { formatEur, type FixedListing } from "@/lib/types";
+import { KlixPayLater } from "@/components/KlixPayLater";
 import { PhotoGallery } from "./PhotoGallery";
 
 export function BuyNow({ listing }: { listing: FixedListing }) {
@@ -69,6 +70,12 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
         <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6B68", textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("buy.price")}</div>
         <div style={{ fontSize: 34, fontWeight: 700, letterSpacing: "-0.02em" }}>{formatEur(listing.priceCents)}</div>
         <div style={{ fontSize: 11.5, color: "#6B6B68", marginBottom: 16 }}>{t("buy.vatNote")}</div>
+
+        {!soldOut && listing.estimatedTotalCents ? (
+          <div style={{ marginBottom: 14 }}>
+            <KlixPayLater amountCents={listing.estimatedTotalCents} view="product" />
+          </div>
+        ) : null}
 
         {soldOut ? (
           <div style={{ fontWeight: 700, color: "#B0282C", background: "#FBE3E3", borderRadius: 10, padding: "12px 14px", textAlign: "center" }}>{t("buy.soldOut")}</div>

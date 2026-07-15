@@ -56,6 +56,14 @@ export interface KlixClient {
    * one — the double-payment guard.
    */
   cancelPurchase(id: string): Promise<KlixPurchase>;
+  /**
+   * Klix Pay Later representative example for an amount — the legally-worded
+   * consumer-credit text (loan amount, duration, monthly payment, APR) that
+   * Klix computes from the merchant's actual financing products. Embedded in
+   * payment-due emails; the web uses Klix's live widget instead. Returns null
+   * when the financing service has no offer for the amount.
+   */
+  representativeExample(amountCents: number, lang: string): Promise<string | null>;
 }
 
 export class KlixError extends Error {
@@ -135,6 +143,17 @@ class LiveKlixClient implements KlixClient {
     if (!json) throw new KlixError(`Klix /purchases/${id}/cancel/ returned 404`, 404);
     return toPurchase(json);
   }
+
+  async representativeExample(amountCents: number, lang: string): Promise<string | null> {
+    // Public financing endpoint (no auth), separate host from the portal API.
+    const url =
+      `https://api.klix.app/financing/v2/preliminary-offers/pl/representative-example` +
+      `?b=${encodeURIComponent(this.brandId)}&a=${amountCents}&l=${encodeURIComponent(lang)}`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const json = (await res.json().catch(() => null)) as { representativeExample?: string } | null;
+    return typeof json?.representativeExample === "string" ? json.representativeExample : null;
+  }
 }
 
 function toPurchase(json: Record<string, unknown>): KlixPurchase {
@@ -207,6 +226,12 @@ export class SimulatedKlixClient implements KlixClient {
     }
     p.status = "cancelled";
     return p;
+  }
+
+  async representativeExample(amountCents: number, lang: string): Promise<string | null> {
+    // Deterministic stand-in with the same shape as the real text.
+    const monthly = ((amountCents / 12 / 100) * 1.03).toFixed(2);
+    return `Representative example (${lang}): loan amount €${(amountCents / 100).toFixed(2)}, 12 monthly payments of €${monthly}, APR 5.8%. [simulated]`;
   }
 
   /** Inspect a purchase with simulator-only fields (refund totals, input). */
