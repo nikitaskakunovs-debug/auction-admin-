@@ -242,6 +242,8 @@ export const items = pgTable(
     condition: text("condition").notNull().default("good"),
     /** Required for "(SEE NOTES)" condition grades — describes the issue. */
     conditionNotes: text("condition_notes").notNull().default(""),
+    /** Domain category code (storefront browse filter); "other" = unsorted. */
+    category: text("category").notNull().default("other"),
     location: text("location").notNull().default(""),
     /** Structured bin; the free-text `location` stays as display fallback. */
     locationId: uuid("location_id").references(() => warehouseLocations.id),

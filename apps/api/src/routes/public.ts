@@ -11,7 +11,7 @@ import {
   orders,
   verifyPassword,
 } from "@auction/db";
-import { and, asc, desc, eq, gt, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, gt, ilike, inArray, isNull } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { signAccessToken } from "../auth/jwt.js";
@@ -43,6 +43,7 @@ function publicAuction(row: {
     sku: item.sku,
     condition: item.condition,
     conditionNotes: item.conditionNotes,
+    category: item.category,
     photos: item.photos,
     marketCode: listing.marketCode,
     status: auction.status,
@@ -163,11 +164,20 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
 
   // ── Browse ────────────────────────────────────────────────────────────────
 
+  /** Catalog paging: ?q= title search, ?category= code, ?limit/?offset. */
+  const pageParams = (q: { limit?: string; offset?: string }) => ({
+    limit: Math.min(Math.max(Number(q.limit) || 48, 1), 100),
+    offset: Math.max(Number(q.offset) || 0, 0),
+  });
+
   app.get("/api/public/auctions", async (req) => {
-    const q = req.query as { status?: string; market?: string };
+    const q = req.query as { status?: string; market?: string; q?: string; category?: string; limit?: string; offset?: string };
     const statuses = q.status === "scheduled" ? ["scheduled"] : q.status === "ended" ? ["ended_won", "ended_reserve_not_met", "ended_no_bids"] : ["live", "scheduled"];
     const conditions = [inArray(auctions.status, statuses), eq(listings.status, "published")];
     if (q.market) conditions.push(eq(listings.marketCode, q.market.toUpperCase()));
+    if (q.category) conditions.push(eq(items.category, q.category));
+    if (q.q && q.q.trim().length >= 2) conditions.push(ilike(listings.title, `%${q.q.trim()}%`));
+    const { limit, offset } = pageParams(q);
     const rows = await ctx.db
       .select({ auction: auctions, listing: listings, item: items, leaderAlias: customers.alias })
       .from(auctions)
@@ -176,8 +186,9 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
       .leftJoin(customers, eq(auctions.leaderCustomerId, customers.id))
       .where(and(...conditions))
       .orderBy(asc(auctions.endsAt))
-      .limit(200);
-    return { auctions: rows.map(publicAuction) };
+      .limit(limit + 1)
+      .offset(offset);
+    return { auctions: rows.slice(0, limit).map(publicAuction), hasMore: rows.length > limit };
   });
 
   app.get("/api/public/auctions/:id", async (req, reply) => {
@@ -371,6 +382,7 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
       sku: item.sku,
       condition: item.condition,
       conditionNotes: item.conditionNotes,
+      category: item.category,
       photos: item.photos,
       marketCode: listing.marketCode,
       priceCents: listing.priceCents,
@@ -379,7 +391,7 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
   }
 
   app.get("/api/public/listings", async (req) => {
-    const q = req.query as { market?: string };
+    const q = req.query as { market?: string; q?: string; category?: string; limit?: string; offset?: string };
     const conds = [
       eq(listings.type, "fixed"),
       eq(listings.status, "published"),
@@ -387,14 +399,18 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
       eq(items.status, "listed"),
     ];
     if (q.market) conds.push(eq(listings.marketCode, q.market.toUpperCase()));
+    if (q.category) conds.push(eq(items.category, q.category));
+    if (q.q && q.q.trim().length >= 2) conds.push(ilike(listings.title, `%${q.q.trim()}%`));
+    const { limit, offset } = pageParams(q);
     const rows = await ctx.db
       .select({ listing: listings, item: items })
       .from(listings)
       .innerJoin(items, eq(listings.itemId, items.id))
       .where(and(...conds))
       .orderBy(desc(listings.createdAt))
-      .limit(200);
-    return { listings: rows.map(publicListing) };
+      .limit(limit + 1)
+      .offset(offset);
+    return { listings: rows.slice(0, limit).map(publicListing), hasMore: rows.length > limit };
   });
 
   app.get("/api/public/listings/:id", async (req, reply) => {

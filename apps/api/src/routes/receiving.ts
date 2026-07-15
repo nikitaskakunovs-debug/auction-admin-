@@ -4,6 +4,7 @@ import {
   conditionRequiresNotes,
   formatConsignmentRef,
   formatSku,
+  isKnownCategory,
 } from "@auction/domain";
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -136,6 +137,7 @@ export function registerReceivingRoutes(app: FastifyInstance, ctx: AppContext, p
     title: z.string().min(2),
     condition: z.string().default("brand_new"),
     conditionNotes: z.string().default(""),
+    category: z.string().refine(isKnownCategory, "unknown category").default("other"),
     description: z.string().default(""),
     weightGrams: z.number().int().positive().nullable().optional(),
   });

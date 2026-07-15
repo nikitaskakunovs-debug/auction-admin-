@@ -41,6 +41,7 @@ export interface Item {
   description: string;
   condition: string;
   conditionNotes: string;
+  category: string;
   location: string;
   locationId: string | null;
   weightGrams: number | null;

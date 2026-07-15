@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { items } from "@auction/db";
-import { assertItemTransition, conditionRequiresNotes, ITEM_STATUSES, type ItemStatus } from "@auction/domain";
+import { assertItemTransition, conditionRequiresNotes, isKnownCategory, ITEM_STATUSES, type ItemStatus } from "@auction/domain";
 import { desc, eq, ilike, or, and } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import sharp from "sharp";
@@ -21,6 +21,7 @@ const itemBody = z.object({
   description: z.string().default(""),
   condition: z.string().default("good"),
   conditionNotes: z.string().default(""),
+  category: z.string().refine(isKnownCategory, "unknown category").default("other"),
   location: z.string().default(""),
   weightGrams: z.number().int().positive().nullable().optional(),
   dims: z.object({ l: z.number(), w: z.number(), h: z.number() }).nullable().optional(),

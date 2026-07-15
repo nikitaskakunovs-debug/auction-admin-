@@ -1,4 +1,5 @@
 // Subpath import keeps the node-only parts of @auction/domain (TOTP) out of the browser bundle.
+import { CATEGORIES } from "@auction/domain/categories";
 import { CONDITIONS, conditionByCode, conditionRequiresNotes } from "@auction/domain/conditions";
 import { useEffect, useMemo, useState } from "react";
 import { api, ApiError, type Item, type Market } from "../api.js";
@@ -41,12 +42,13 @@ interface FormState {
   description: string;
   condition: string;
   conditionNotes: string;
+  category: string;
   location: string;
   weight: string;
   marketCode: string;
 }
 
-const emptyForm: FormState = { sku: "", title: "", description: "", condition: "brand_new", conditionNotes: "", location: "", weight: "", marketCode: "LV" };
+const emptyForm: FormState = { sku: "", title: "", description: "", condition: "brand_new", conditionNotes: "", category: "other", location: "", weight: "", marketCode: "LV" };
 
 interface Bin { id: string; label: string; zone: string; active: boolean }
 interface Movement { id: string; type: string; toLabel: string | null; actorLabel: string; reason: string; createdAt: string }
@@ -140,6 +142,7 @@ export function InventoryScreen({ nav: _nav }: { nav: Nav }) {
       description: form.description,
       condition: form.condition,
       conditionNotes: form.conditionNotes,
+      category: form.category,
       location: form.location,
       weightGrams: form.weight ? Number(form.weight) : null,
       marketCode: form.marketCode,
@@ -249,7 +252,7 @@ export function InventoryScreen({ nav: _nav }: { nav: Nav }) {
                 setEditing(i);
                 setForm({
                   sku: i.sku, title: i.title, description: i.description, condition: i.condition,
-                  conditionNotes: i.conditionNotes ?? "",
+                  conditionNotes: i.conditionNotes ?? "", category: i.category ?? "other",
                   location: i.location, weight: i.weightGrams == null ? "" : String(i.weightGrams), marketCode: i.marketCode,
                 });
               }}>
@@ -317,6 +320,9 @@ export function InventoryScreen({ nav: _nav }: { nav: Nav }) {
               </AField>
               <AField label="Market">
                 <ASelect value={form.marketCode} onChange={(v) => set({ marketCode: v })} options={markets.map((m) => ({ value: m.code, label: m.code }))} />
+              </AField>
+              <AField label="Category">
+                <ASelect value={form.category} onChange={(v) => set({ category: v })} options={CATEGORIES.map((c) => ({ value: c.code, label: c.label }))} />
               </AField>
               <AField label="Location (note)"><AInput value={form.location} onChange={(v) => set({ location: v })} placeholder="A-01-03" /></AField>
               <AField label="Weight (grams)"><AInput value={form.weight} onChange={(v) => set({ weight: v })} placeholder="1200" /></AField>

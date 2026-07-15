@@ -7,6 +7,7 @@ export interface PublicAuction {
   sku: string;
   condition: string;
   conditionNotes: string;
+  category: string;
   photos: string[];
   marketCode: string;
   status: string;
@@ -49,6 +50,7 @@ export interface FixedListing {
   sku: string;
   condition: string;
   conditionNotes: string;
+  category: string;
   photos: string[];
   marketCode: string;
   priceCents: number;

@@ -13,6 +13,10 @@
     "./conditions": {
       "types": "./dist/conditions.d.ts",
       "import": "./dist/conditions.js"
+    },
+    "./categories": {
+      "types": "./dist/categories.d.ts",
+      "import": "./dist/categories.js"
     }
   },
   "scripts": {

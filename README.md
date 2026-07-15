@@ -264,6 +264,18 @@ every scan box (HID scanners type + Enter — the kiosk trick). Flows:
   (picked/missing/damaged), send to the NOW DELIVERING board, complete the
   handover with the client's 6-digit code.
 
+## Storefront catalog (search + categories)
+
+Items carry a **category** from a small fixed taxonomy
+(`packages/domain/src/categories.ts`, 12 codes, storefront labels in all five
+languages) — set at receiving, in Inventory, defaulting to "other". The home
+page gets a **search box** (title, 300 ms debounce), **category chips**, and
+**Show more** paging; the public browse endpoints accept
+`?q= / ?category= / ?limit= / ?offset=` and return `hasMore` (page size 48,
+capped at 100). The SSR payload stays the unfiltered first page, so SEO and
+the no-JS view are unchanged; unknown category codes are rejected at item
+creation.
+
 ## Listing desk (ready-to-list queue)
 
 Listings → **Ready to list (N)**: every draft item that has photos and a

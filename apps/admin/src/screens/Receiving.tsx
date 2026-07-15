@@ -1,3 +1,4 @@
+import { CATEGORIES } from "@auction/domain/categories";
 import { CONDITIONS, conditionByCode, conditionRequiresNotes } from "@auction/domain/conditions";
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError, type Item, type Market } from "../api.js";
@@ -24,7 +25,7 @@ interface Consignment {
   closedAt: string | null;
 }
 
-const emptyReceive = { title: "", condition: "brand_new", conditionNotes: "", weight: "" };
+const emptyReceive = { title: "", condition: "brand_new", conditionNotes: "", category: "other", weight: "" };
 
 export function ReceivingScreen({ nav: _nav }: { nav: Nav }) {
   const { can } = useAuth();
@@ -87,6 +88,7 @@ export function ReceivingScreen({ nav: _nav }: { nav: Nav }) {
         title: form.title.trim(),
         condition: form.condition,
         conditionNotes: form.conditionNotes,
+        category: form.category,
         weightGrams: form.weight ? Number(form.weight) : null,
       });
       setReceived((prev) => [r.item, ...prev]);
@@ -176,6 +178,9 @@ export function ReceivingScreen({ nav: _nav }: { nav: Nav }) {
                   <AInput value={form.weight} onChange={(v) => setForm({ ...form, weight: v })} placeholder="1200" />
                 </AField>
               </div>
+              <AField label="Category">
+                <ASelect value={form.category} onChange={(v) => setForm({ ...form, category: v })} options={CATEGORIES.map((c) => ({ value: c.code, label: c.label }))} />
+              </AField>
               {conditionByCode(form.condition) && (
                 <div style={{ fontSize: 12, color: AT.inkSoft, marginTop: -6 }}>{conditionByCode(form.condition)!.description}</div>
               )}

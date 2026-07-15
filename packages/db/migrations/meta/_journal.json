@@ -71,6 +71,13 @@
       "when": 1784067760289,
       "tag": "0009_solid_ego",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784073784054,
+      "tag": "0010_marvelous_shaman",
+      "breakpoints": true
     }
   ]
 }
