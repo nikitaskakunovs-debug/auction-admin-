@@ -11,6 +11,7 @@ import type { AppContext } from "../src/context.js";
 import { CapturingEmailAdapter } from "../src/email.js";
 import { createInbankClient } from "../src/engine/inbank.js";
 import { createKlixClient } from "../src/engine/klix.js";
+import { createOmnivaClient } from "../src/engine/omniva.js";
 import { buildServer, type BuiltServer } from "../src/server.js";
 import { createStorage } from "../src/storage.js";
 
@@ -58,7 +59,7 @@ export async function createWorld(): Promise<TestWorld> {
       customers, customer_refresh_tokens, items, listings, auctions, bids, orders,
       refunds, invoices, counters, audit_log, cms_pages, notifications,
       warehouse_locations, stock_movements, pickup_tickets, pickup_ticket_items,
-      customer_fees, consignments, payments cascade
+      customer_fees, consignments, payments, shipments cascade
   `);
   await seedDatabase(handle.db, { demoData: false });
 
@@ -78,6 +79,7 @@ export async function createWorld(): Promise<TestWorld> {
     // statuses and exercises the callbacks exactly the way providers would.
     KLIX_MODE: "simulate",
     INBANK_MODE: "simulate",
+    OMNIVA_MODE: "simulate",
   });
   const email = new CapturingEmailAdapter();
   const ctx: AppContext = {
@@ -89,6 +91,7 @@ export async function createWorld(): Promise<TestWorld> {
     storage: createStorage(config),
     klix: createKlixClient(config),
     inbank: createInbankClient(config),
+    omniva: createOmnivaClient(config),
     now: () => fakeNow ?? new Date(),
   };
   const server = await buildServer(ctx);

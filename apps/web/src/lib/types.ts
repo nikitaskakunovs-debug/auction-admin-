@@ -69,10 +69,30 @@ export interface MyOrder {
   hammerCents: number;
   premiumCents: number;
   vatCents: number;
+  shippingCents: number;
   totalCents: number;
   status: string;
   paymentDeadlineAt: string | null;
   createdAt: string;
+  /** pickup | omniva_pm */
+  fulfilment: string;
+  shippingTo: { provider: string; machineId: string; name: string; zip: string; country: string; address?: string } | null;
+  shipment: { barcode: string; status: string } | null;
+}
+
+export interface ShippingOption {
+  method: string;
+  priceCents: number;
+}
+
+export interface ParcelLocation {
+  id: string;
+  name: string;
+  zip: string;
+  country: string;
+  county: string;
+  city: string;
+  address: string;
 }
 
 export function formatEur(cents: number): string {

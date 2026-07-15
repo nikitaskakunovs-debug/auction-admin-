@@ -193,6 +193,32 @@ Inbank. Refunds for Inbank-paid orders are done in the Inbank partner
 portal (contract credit/termination), then recorded in admin with the
 "Record only" path — the API refuses to fake-refund them automatically.
 
+## Omniva parcel shipping
+
+Built in and OFF by default (`OMNIVA_MODE=off`) — until then every order is
+warehouse pickup. When the Omniva business contract is signed and they issue
+the customer code + password:
+
+1. Fill `OMNIVA_MODE=live`, `OMNIVA_USERNAME`, `OMNIVA_PASSWORD` and the
+   `SHIP_SENDER_*` block (warehouse address on the labels) in
+   `/opt/auction/deploy/.env`. For their sandbox first:
+   `OMNIVA_API_URL=https://test-omx.omniva.eu/api/v01/omx`.
+2. Restart the api container.
+3. The buyer's account page then offers "Omniva parcel machine" next to
+   pickup: they choose a machine + leave a phone (for the locker SMS) BEFORE
+   paying — the delivery price (Settings → Markets, per market) joins the
+   order total, the invoice is reissued as a correction, and any open
+   checkout reprices.
+4. After payment, admin → Orders → the order → **Shipping** card:
+   **Register Omniva shipment** (barcode issued, customer gets the tracking
+   email) → **Print label** (PDF opens in a tab — print, stick, hand the
+   parcel to Omniva) → tracking events update on **Refresh tracking** and
+   automatically every 30 minutes. The item walks paid → packed → shipped →
+   delivered with the parcel.
+
+Refunds/returns of shipped goods and courier pickup orders stay manual for
+now; DPD arrives next on the same seam.
+
 ## Notes
 
 - CORS, `PUBLIC_BASE_URL`, `STOREFRONT_BASE_URL`, and trust-proxy are derived

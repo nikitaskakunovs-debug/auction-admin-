@@ -32,6 +32,11 @@ State as of 2026-07-15: platform deployed and hardened on the FRA1 droplet
       `demo-api.inbank.eu` first, verify the pos-session field names with
       their docs, then `INBANK_MODE=live` (see docs/deploy.md → "Inbank
       BNPL")
+- [ ] **Omniva** business contract (parcel machines — built and env-gated):
+      when the customer code + password arrive, test against
+      `test-omx.omniva.eu` first, fill the `SHIP_SENDER_*` warehouse address,
+      then `OMNIVA_MODE=live`; set the delivery price per market in
+      Settings → Markets (see docs/deploy.md → "Omniva parcel shipping")
 - [ ] **Hardware**: thermal label printer (labels ≈57×32 mm), one or two **2D**
       barcode scanners (must read QR), photo-station lamp, 2 TVs for the
       pickup boards

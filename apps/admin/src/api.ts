@@ -31,6 +31,7 @@ export interface Market {
   incrementTable: Array<{ fromCents: number; incrementCents: number }>;
   pickupDeadlineDays: number;
   restockFeeBp: number;
+  omnivaPmPriceCents: number;
   active: boolean;
 }
 
@@ -124,6 +125,12 @@ export interface Order {
   paymentDeadlineAt: string | null;
   paidAt: string | null;
   createdAt: string;
+  /** pickup | omniva_pm — how the buyer receives the goods. */
+  fulfilment: string;
+  pickupCode: string | null;
+  shippingTo: { provider: string; machineId: string; name: string; zip: string; country: string; address?: string } | null;
+  recipientName: string | null;
+  recipientPhone: string | null;
   itemSku?: string;
   itemStatus?: string;
 }

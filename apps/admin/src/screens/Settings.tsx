@@ -66,6 +66,7 @@ interface MarketDraft {
   antiSnipe: string;
   pickupDays: string;
   restockFee: string;
+  omnivaPrice: string;
   active: boolean;
   tiers: Array<{ from: string; inc: string }>;
 }
@@ -90,6 +91,7 @@ function MarketsTab() {
               antiSnipe: String(m.antiSnipeSec),
               pickupDays: String(m.pickupDeadlineDays),
               restockFee: (m.restockFeeBp / 100).toFixed(1),
+              omnivaPrice: ((m.omnivaPmPriceCents ?? 399) / 100).toFixed(2),
               active: m.active,
               tiers: m.incrementTable.map((t) => ({ from: (t.fromCents / 100).toFixed(2), inc: (t.incrementCents / 100).toFixed(2) })),
             },
@@ -131,6 +133,7 @@ function MarketsTab() {
         antiSnipeSec: Number(d.antiSnipe),
         pickupDeadlineDays: Number(d.pickupDays),
         restockFeeBp: Math.round(parseFloat(d.restockFee.replace(",", ".")) * 100),
+        omnivaPmPriceCents: Math.round(parseFloat(d.omnivaPrice.replace(",", ".")) * 100),
         active: d.active,
         incrementTable: tiers,
       });
@@ -174,6 +177,9 @@ function MarketsTab() {
                 </AField>
                 <AField label="Restock fee %" hint="Retained on no-show.">
                   <AInput value={d.restockFee} onChange={(v) => setDraft(m.code, { restockFee: v })} style={{ opacity: editable ? 1 : 0.6 }} />
+                </AField>
+                <AField label="Omniva parcel machine €" hint="Delivery price charged to the buyer.">
+                  <AInput value={d.omnivaPrice} onChange={(v) => setDraft(m.code, { omnivaPrice: v })} style={{ opacity: editable ? 1 : 0.6 }} />
                 </AField>
                 <AField label="Languages">
                   <div style={{ display: "flex", gap: 5, paddingTop: 8 }}>

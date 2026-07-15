@@ -151,6 +151,9 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
     if (
       existing?.checkoutUrl &&
       existing.provider === provider &&
+      // A fulfilment change reprices the order — a checkout carrying a stale
+      // amount must never be reused, only superseded.
+      existing.amountCents === row.order.totalCents &&
       ctx.now().getTime() - existing.createdAt.getTime() < CHECKOUT_REUSE_MS
     ) {
       return { ok: true, checkoutUrl: existing.checkoutUrl };

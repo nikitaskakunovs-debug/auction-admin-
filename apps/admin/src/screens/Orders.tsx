@@ -6,7 +6,7 @@ import { formatDate, formatEur } from "../format.js";
 import { isBnpl, methodLabel, providerLabel } from "../paymentLabels.js";
 import { AT, ITEM_STATUS_TONE, ORDER_STATUS_TONE } from "../theme.js";
 import {
-  AAvatar, ABadge, ABtn, ACard, ADrawer, AEmpty, AField, AInput, APills,
+  AAvatar, ABadge, ABtn, ACard, ADrawer, AEmpty, AField, AIcon, AInput, APills,
   ATable, ATd, ATr, useConfirm, useToast,
 } from "../ui.js";
 
@@ -33,13 +33,33 @@ interface Payment {
   createdAt: string;
 }
 
+interface Shipment {
+  id: string;
+  provider: string;
+  barcode: string;
+  status: string; // registered | in_transit | delivered | cancelled | error
+  providerStatus: string | null;
+  events: Array<{ code: string; at: string; description?: string; location?: string }>;
+  labelPrintedAt: string | null;
+  createdAt: string;
+}
+
 interface OrderDetail {
   order: Order;
   item: Item;
   refunds: Refund[];
   invoice: { id: string; number: string; issuedAt: string } | null;
   payments: Payment[];
+  shipments: Shipment[];
 }
+
+const SHIPMENT_TONE: Record<string, "ok" | "warn" | "danger" | "neutral" | "accent"> = {
+  delivered: "ok",
+  in_transit: "accent",
+  registered: "warn",
+  cancelled: "neutral",
+  error: "danger",
+};
 
 const PAYMENT_TONE: Record<string, "ok" | "warn" | "danger" | "neutral"> = {
   paid: "ok",
@@ -117,6 +137,36 @@ export function OrdersScreen({ nav: _nav }: { nav: Nav }) {
       load();
     } catch (err) {
       toast(err instanceof ApiError ? err.message : "Refund failed", "danger");
+    }
+  };
+
+  const registerShipment = async (o: Order) => {
+    const r = await confirm({
+      title: `Register Omniva shipment for ${o.ref}?`,
+      body: "The parcel is registered with Omniva, a tracking barcode is issued, and the customer gets the tracking email. Print the label right after.",
+      confirmLabel: "Register",
+    });
+    if (!r.ok) return;
+    try {
+      await api.post(`/api/orders/${o.id}/shipment`);
+      toast("Shipment registered", "ok");
+      openDetail(o.id);
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Registration failed", "danger");
+    }
+  };
+
+  const openLabel = (shipmentId: string) => {
+    window.open(`/api/shipments/${shipmentId}/label?token=${encodeURIComponent(api.token ?? "")}`, "_blank");
+  };
+
+  const refreshShipment = async (shipmentId: string, orderId: string) => {
+    try {
+      await api.post(`/api/shipments/${shipmentId}/refresh`);
+      openDetail(orderId);
+      toast("Tracking refreshed", "ok");
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Refresh failed", "danger");
     }
   };
 
@@ -275,6 +325,69 @@ export function OrdersScreen({ nav: _nav }: { nav: Nav }) {
                   )}
                 </div>
               </div>
+            </ACard>
+
+            {/* Shipping — how the buyer receives the goods. Carrier orders
+                get the register → print label → track workflow here. */}
+            <ACard
+              title="Shipping"
+              actions={
+                detail.order.fulfilment === "omniva_pm" &&
+                detail.order.status === "paid" &&
+                detail.shipments.length === 0 &&
+                can("orders.mark_paid") ? (
+                  <ABtn size="sm" onClick={() => void registerShipment(detail.order)}>Register Omniva shipment</ABtn>
+                ) : undefined
+              }
+            >
+              {detail.order.fulfilment === "omniva_pm" && detail.order.shippingTo ? (
+                <div style={{ display: "grid", gap: 8, fontSize: 12.5 }}>
+                  <div>
+                    <ABadge tone="accent">Omniva parcel machine</ABadge>
+                    <span style={{ marginLeft: 8, fontWeight: 600 }}>{detail.order.shippingTo.name}</span>
+                    <span style={{ color: AT.inkSoft }}> — {detail.order.shippingTo.address} ({detail.order.shippingTo.country})</span>
+                  </div>
+                  <div style={{ color: AT.inkSoft }}>
+                    Recipient: <strong style={{ color: AT.ink }}>{detail.order.recipientName ?? detail.order.customerAlias}</strong>
+                    {detail.order.recipientPhone ? ` · ${detail.order.recipientPhone}` : ""} · shipping {formatEur(detail.order.shippingCents)}
+                  </div>
+                  {detail.shipments.map((s) => (
+                    <div key={s.id} style={{ border: `1px solid ${AT.rule}`, borderRadius: 10, padding: "10px 12px", display: "grid", gap: 6 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <span style={{ fontFamily: AT.mono, fontWeight: 700 }}>{s.barcode}</span>
+                        <ABadge tone={SHIPMENT_TONE[s.status] ?? "neutral"}>{s.status.replace("_", " ")}</ABadge>
+                        {s.providerStatus && <span style={{ fontSize: 11, color: AT.inkSoft }}>{s.providerStatus}</span>}
+                        <span style={{ flex: 1 }} />
+                        <ABtn size="sm" kind="ghost" onClick={() => openLabel(s.id)}>
+                          <AIcon name="download" size={13} /> Print label
+                        </ABtn>
+                        <ABtn size="sm" kind="ghost" onClick={() => void refreshShipment(s.id, detail.order.id)}>Refresh tracking</ABtn>
+                      </div>
+                      {s.labelPrintedAt && (
+                        <div style={{ fontSize: 11, color: AT.inkSoft }}>Label printed {formatDate(s.labelPrintedAt)}</div>
+                      )}
+                      {s.events.length > 0 && (
+                        <div style={{ display: "grid", gap: 3 }}>
+                          {s.events.slice(0, 6).map((e, i) => (
+                            <div key={i} style={{ fontSize: 11.5, color: AT.inkSoft, display: "flex", gap: 8 }}>
+                              <span style={{ fontFamily: AT.mono, minWidth: 130 }}>{e.at ? formatDate(e.at) : "—"}</span>
+                              <span style={{ color: AT.ink }}>{e.description ?? e.code}</span>
+                              {e.location && <span>· {e.location}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {detail.shipments.length === 0 && detail.order.status !== "paid" && (
+                    <div style={{ fontSize: 11.5, color: AT.inkSoft }}>Shipment can be registered once the order is paid.</div>
+                  )}
+                </div>
+              ) : (
+                <div style={{ fontSize: 12.5, color: AT.inkSoft }}>
+                  Warehouse pickup{detail.order.pickupCode ? <> — code <strong style={{ fontFamily: AT.mono, color: AT.ink }}>{detail.order.pickupCode}</strong></> : ""}.
+                </div>
+              )}
             </ACard>
 
             {detail.payments.length > 0 && (

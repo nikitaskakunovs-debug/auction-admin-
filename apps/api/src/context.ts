@@ -5,6 +5,7 @@ import type { ApiConfig } from "./config.js";
 import type { EmailAdapter } from "./email.js";
 import type { InbankClient } from "./engine/inbank.js";
 import type { KlixClient } from "./engine/klix.js";
+import type { OmnivaClient } from "./engine/omniva.js";
 import type { PhotoStorage } from "./storage.js";
 
 /** Shared dependencies threaded through routes and the engine. */
@@ -21,6 +22,8 @@ export interface AppContext {
   klix: KlixClient | null;
   /** Inbank BNPL client (null when INBANK_MODE=off — the option is hidden). */
   inbank: InbankClient | null;
+  /** Omniva parcel client (null when OMNIVA_MODE=off — shipping is hidden). */
+  omniva: OmnivaClient | null;
   /** Injectable clock so tests control time. */
   now: () => Date;
 }

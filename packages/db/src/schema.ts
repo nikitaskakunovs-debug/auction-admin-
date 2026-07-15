@@ -38,6 +38,8 @@ export const markets = pgTable("markets", {
   pickupDeadlineDays: integer("pickup_deadline_days").notNull().default(14),
   /** No-show restock fee in basis points of the paid total (5% = 500). */
   restockFeeBp: integer("restock_fee_bp").notNull().default(500),
+  /** Omniva parcel-machine delivery price for this market (flat, €3.99). */
+  omnivaPmPriceCents: integer("omniva_pm_price_cents").notNull().default(399),
   active: boolean("active").notNull().default(true),
 });
 
@@ -392,6 +394,20 @@ export const orders = pgTable(
     /** 6-digit collection credential, set at mark-paid (pickup fulfilment). */
     pickupCode: text("pickup_code"),
     pickupDeadlineAt: timestamp("pickup_deadline_at", { withTimezone: true }),
+    /** How the buyer receives the goods: warehouse pickup or a carrier. */
+    fulfilment: text("fulfilment").notNull().default("pickup"), // pickup | omniva_pm (| dpd_pm later)
+    /** Destination snapshot for carrier fulfilment (parcel machine). */
+    shippingTo: jsonb("shipping_to").$type<{
+      provider: string;
+      machineId: string;
+      name: string;
+      zip: string;
+      country: string;
+      address?: string;
+    } | null>(),
+    /** Recipient contact for the carrier (required for locker delivery). */
+    recipientName: text("recipient_name"),
+    recipientPhone: text("recipient_phone"),
     /** Retained no-show restock fee (5% of total by default). */
     restockFeeCents: integer("restock_fee_cents"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -523,8 +539,44 @@ export const invoices = pgTable(
     /** Full InvoiceBreakdown snapshot at issue time. */
     data: jsonb("data").notNull(),
     issuedAt: timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * Set when a corrected invoice replaced this one (e.g. shipping added to
+     * an unpaid order after issue). Voided numbers stay in the sequence for
+     * audit; the replacement gets the next number.
+     */
+    voidedAt: timestamp("voided_at", { withTimezone: true }),
   },
   (t) => [uniqueIndex("invoices_number_idx").on(t.number)],
+);
+
+// ── Carrier shipments (Omniva parcel machines; DPD next) ────────────────────
+
+export const shipments = pgTable(
+  "shipments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull().default("omniva"),
+    /** Carrier tracking barcode returned at registration. */
+    barcode: text("barcode").notNull(),
+    /** Our lifecycle: registered | in_transit | delivered | cancelled | error. */
+    status: text("status").notNull().default("registered"),
+    /** Last carrier event code observed (e.g. PACKET_DELIVERED_TO_CLIENT). */
+    providerStatus: text("provider_status"),
+    /** Full carrier event history, newest first. */
+    events: jsonb("events")
+      .$type<Array<{ code: string; at: string; description?: string | undefined; location?: string | undefined }>>()
+      .notNull()
+      .default([]),
+    /** Last raw carrier response (diagnostics; nothing hidden from admin). */
+    raw: jsonb("raw"),
+    labelPrintedAt: timestamp("label_printed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("shipments_order_idx").on(t.orderId), index("shipments_barcode_idx").on(t.barcode), index("shipments_status_idx").on(t.status)],
 );
 
 /**

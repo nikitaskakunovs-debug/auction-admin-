@@ -31,6 +31,7 @@ export function registerAdminRoutes(app: FastifyInstance, ctx: AppContext, perms
     incrementTable: z.array(z.object({ fromCents: z.number().int().min(0), incrementCents: z.number().int().positive() })).optional(),
     pickupDeadlineDays: z.number().int().min(1).max(90).optional(),
     restockFeeBp: z.number().int().min(0).max(5000).optional(),
+    omnivaPmPriceCents: z.number().int().min(0).max(100_000).optional(),
     active: z.boolean().optional(),
   });
   app.patch("/api/markets/:code", guard("markets.edit"), async (req, reply) => {

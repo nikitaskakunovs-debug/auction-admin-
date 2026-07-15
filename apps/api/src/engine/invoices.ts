@@ -1,6 +1,6 @@
 import { counters, customers, invoices, items, markets, orders } from "@auction/db";
 import { formatEur } from "@auction/domain";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import type { Db } from "@auction/db";
 
 /**
@@ -37,14 +37,24 @@ export interface InvoiceData {
 type Tx = Pick<Db, "select" | "insert" | "update">;
 
 /** Issue an invoice for an order inside the caller's transaction. Returns
- * null when the order already has one. */
+ * null when the order already has one (unless reissuing). */
 export async function issueInvoice(
   tx: Tx,
   orderId: string,
   now: Date,
+  opts: { reissue?: boolean } = {},
 ): Promise<{ id: string; number: string } | null> {
-  const [existing] = await tx.select({ id: invoices.id }).from(invoices).where(eq(invoices.orderId, orderId));
-  if (existing) return null;
+  const [existing] = await tx
+    .select({ id: invoices.id, voidedAt: invoices.voidedAt })
+    .from(invoices)
+    .where(and(eq(invoices.orderId, orderId), isNull(invoices.voidedAt)));
+  if (existing) {
+    if (!opts.reissue) return null;
+    // Correction flow (e.g. shipping added to an unpaid order): the old
+    // number stays in the sequence, marked voided; the replacement gets the
+    // next number. Never done after money moved.
+    await tx.update(invoices).set({ voidedAt: now }).where(eq(invoices.id, existing.id));
+  }
 
   const [order] = await tx.select().from(orders).where(eq(orders.id, orderId));
   if (!order) throw new Error("order not found");

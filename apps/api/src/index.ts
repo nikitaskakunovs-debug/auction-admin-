@@ -5,6 +5,7 @@ import type { AppContext } from "./context.js";
 import { createEmailAdapter } from "./email.js";
 import { createInbankClient } from "./engine/inbank.js";
 import { createKlixClient } from "./engine/klix.js";
+import { createOmnivaClient } from "./engine/omniva.js";
 import { AuctionScheduler } from "./engine/scheduler.js";
 import { buildServer } from "./server.js";
 import { createStorage } from "./storage.js";
@@ -22,6 +23,7 @@ const ctx: AppContext = {
   storage: createStorage(config),
   klix: createKlixClient(config),
   inbank: createInbankClient(config),
+  omniva: createOmnivaClient(config),
   now: () => new Date(),
 };
 
