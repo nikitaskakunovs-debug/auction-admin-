@@ -436,3 +436,204 @@ export async function bootstrapAdmin(db: Db, email: string, password: string, na
   });
   return "created";
 }
+
+/**
+ * Production starter content — real Izsoli.lv pages in lv/ru/en, seeded once
+ * (slug conflicts are skipped, so re-running never overwrites edits made in
+ * the admin). About + how-to-bid go live immediately; terms + privacy are
+ * seeded as DRAFTS: they contain the operative clauses (10% premium, 72h
+ * payment, 14-day pickup, 5% restock fee, zero-tolerance suspension, GDPR)
+ * but MUST be reviewed by a lawyer before publishing.
+ */
+export async function seedStarterContent(db: Db): Promise<void> {
+  const L = (lv: string, ru: string, en: string) => ({ lv, ru, en });
+  await db
+    .insert(t.cmsPages)
+    .values([
+      {
+        slug: "about",
+        title: L("Par mums", "О нас", "About us"),
+        status: "published",
+        position: 1,
+        blocks: [
+          { type: "heading", text: L("Izsoli.lv", "Izsoli.lv", "Izsoli.lv") },
+          {
+            type: "text",
+            text: L(
+              "Izsoli.lv ir tiešsaistes izsoļu nams, ko darbina Skakunov’s SIA. Pārdodam preces izsolēs un par fiksētu cenu — elektroniku, mēbeles, instrumentus un citas preces no mūsu noliktavas Rīgā. Katrai precei ir godīgs stāvokļa apraksts un fotogrāfijas.",
+              "Izsoli.lv — интернет-аукцион компании Skakunov’s SIA. Мы продаём товары на аукционах и по фиксированной цене — электронику, мебель, инструменты и многое другое с нашего склада в Риге. У каждого лота честное описание состояния и фотографии.",
+              "Izsoli.lv is an online auction house operated by Skakunov’s SIA. We sell goods by auction and at fixed prices — electronics, furniture, tools and more from our Riga warehouse. Every lot carries an honest condition grade and photos.",
+            ),
+          },
+          {
+            type: "text",
+            text: L(
+              "Uzvarētāji saņem preces mūsu noliktavā Rīgā, uzrādot saņemšanas kodu. Reģistrējieties, solījiet un laimīgu cenu!",
+              "Победители получают товары на нашем складе в Риге по коду получения. Регистрируйтесь, делайте ставки — удачной цены!",
+              "Winners collect their items at our Riga warehouse using a pickup code. Register, bid, and good luck!",
+            ),
+          },
+        ],
+        seo: {
+          title: L("Par mums · Izsoli.lv", "О нас · Izsoli.lv", "About us · Izsoli.lv"),
+          description: L(
+            "Tiešsaistes izsoles Latvijā — godīgi soļi, stāvokļa apraksti un saņemšana Rīgā.",
+            "Онлайн-аукционы в Латвии — честные ставки, описания состояния, выдача в Риге.",
+            "Online auctions in Latvia — fair bidding, condition grading, pickup in Riga.",
+          ),
+        },
+      },
+      {
+        slug: "how-to-bid",
+        title: L("Kā solīt", "Как делать ставки", "How to bid"),
+        status: "published",
+        position: 2,
+        blocks: [
+          { type: "heading", text: L("Kā darbojas solīšana", "Как работают ставки", "How bidding works") },
+          {
+            type: "text",
+            text: L(
+              "Norādiet savu maksimālo cenu — sistēma solīs jūsu vietā ar minimālo soli, tikai tik, cik nepieciešams, lai jūs paliktu vadībā. Jūsu maksimālā cena citiem nav redzama.",
+              "Укажите свой максимум — система будет ставить за вас с минимальным шагом, ровно столько, сколько нужно, чтобы вы оставались лидером. Ваш максимум никому не виден.",
+              "Enter your maximum bid — the system bids for you by the minimum increment, only as much as needed to keep you in the lead. Your maximum is never shown to anyone.",
+            ),
+          },
+          {
+            type: "faq",
+            question: L("Kas notiek izsoles beigās?", "Что происходит в конце аукциона?", "What happens at the end?"),
+            answer: L(
+              "Solījums pēdējās 60 sekundēs automātiski pagarina izsoli, tāpēc pēdējās sekundes triki nedarbojas. Uzvar augstākais solījums.",
+              "Ставка в последние 60 секунд автоматически продлевает аукцион, поэтому «снайпинг» не работает. Побеждает высшая ставка.",
+              "A bid in the final 60 seconds automatically extends the auction, so sniping does not work. The highest bid wins.",
+            ),
+          },
+          {
+            type: "faq",
+            question: L("Cik man būs jāmaksā?", "Сколько я заплачу?", "How much will I pay?"),
+            answer: L(
+              "Nosolītā cena + 10% komisija, plus PVN. Precīza summa ir redzama rēķinā uzreiz pēc uzvaras. Apmaksas termiņš — 72 stundas.",
+              "Цена молотка + комиссия 10%, плюс НДС. Точная сумма — в счёте сразу после победы. Срок оплаты — 72 часа.",
+              "The hammer price + a 10% buyer’s premium, plus VAT. The exact total is on your invoice immediately after winning. Payment is due within 72 hours.",
+            ),
+          },
+          {
+            type: "faq",
+            question: L("Kā saņemt preci?", "Как получить товар?", "How do I collect my item?"),
+            answer: L(
+              "Pēc apmaksas jūs saņemat 6 ciparu saņemšanas kodu. Ierodieties mūsu noliktavā Rīgā 14 dienu laikā, ievadiet kodu pašapkalpošanās kioskā, un jūsu pasūtījumu sagatavos dažu minūšu laikā.",
+              "После оплаты вы получите 6-значный код получения. Приезжайте на наш склад в Риге в течение 14 дней, введите код в киоске самообслуживания — заказ соберут за несколько минут.",
+              "After payment you receive a 6-digit pickup code. Visit our Riga warehouse within 14 days, enter the code at the self-service kiosk, and your order is picked within minutes.",
+            ),
+          },
+          {
+            type: "faq",
+            question: L("Kas ir stāvokļa apzīmējumi?", "Что такое обозначения состояния?", "What are condition grades?"),
+            answer: L(
+              "Katra prece ir novērtēta pēc mūsu 16 pakāpju skalas — no pilnīgi jaunas līdz “kā ir”. Pilns apraksts: izsoli.lv/conditions.",
+              "Каждый товар оценён по нашей 16-ступенчатой шкале — от совершенно нового до «как есть». Полное описание: izsoli.lv/conditions.",
+              "Every item is graded on our 16-step scale — from brand new to as-is. Full reference: izsoli.lv/conditions.",
+            ),
+          },
+        ],
+        seo: {
+          title: L("Kā solīt · Izsoli.lv", "Как делать ставки · Izsoli.lv", "How to bid · Izsoli.lv"),
+          description: L(
+            "Soli pa solim: maksimālā cena, 10% komisija, apmaksa 72h, saņemšana Rīgā 14 dienās.",
+            "Пошагово: максимум, комиссия 10%, оплата 72 часа, получение в Риге за 14 дней.",
+            "Step by step: set a maximum, 10% premium, pay in 72h, collect in Riga within 14 days.",
+          ),
+        },
+      },
+      {
+        slug: "terms",
+        title: L("Lietošanas noteikumi", "Условия использования", "Terms of service"),
+        status: "draft",
+        position: 3,
+        blocks: [
+          { type: "heading", text: L("Lietošanas noteikumi (projekts)", "Условия использования (проект)", "Terms of service (draft)") },
+          {
+            type: "text",
+            text: L(
+              "Pakalpojumu sniedz Skakunov’s SIA, Rīga (“Izsoli.lv”). Reģistrējoties jūs apliecināt, ka esat vismaz 18 gadus vecs un sniegtie dati ir patiesi.",
+              "Услуги предоставляет Skakunov’s SIA, Рига («Izsoli.lv»). Регистрируясь, вы подтверждаете, что вам не менее 18 лет и предоставленные данные верны.",
+              "The service is operated by Skakunov’s SIA, Riga (“Izsoli.lv”). By registering you confirm you are at least 18 years old and that the details you provide are accurate.",
+            ),
+          },
+          {
+            type: "text",
+            text: L(
+              "Solījums ir juridiski saistošs pirkuma piedāvājums. Uzvarot izsolē, jums 72 stundu laikā jāapmaksā rēķins: nosolītā cena + 10% komisija + PVN. Ja apmaksa netiek veikta termiņā, pasūtījums tiek atcelts un tiek piemērota atkārtotas izvietošanas maksa 5% apmērā no pasūtījuma kopsummas; konts tiek apturēts līdz tās nomaksai.",
+              "Ставка — юридически обязывающее предложение о покупке. Выиграв, вы обязаны оплатить счёт в течение 72 часов: цена молотка + комиссия 10% + НДС. При неоплате заказ отменяется и взимается сбор за повторное размещение в размере 5% от суммы заказа; аккаунт приостанавливается до его оплаты.",
+              "A bid is a legally binding offer to purchase. If you win, the invoice — hammer price + 10% buyer’s premium + VAT — is due within 72 hours. Unpaid orders are cancelled and a restocking fee of 5% of the order total applies; the account is paused until it is settled.",
+            ),
+          },
+          {
+            type: "text",
+            text: L(
+              "Apmaksātās preces jāizņem mūsu noliktavā Rīgā 14 dienu laikā. Ja prece netiek izņemta, pasūtījums tiek atcelts, tiek ieturēta 5% atkārtotas izvietošanas maksa, un atlikums tiek atmaksāts.",
+              "Оплаченные товары необходимо забрать на нашем складе в Риге в течение 14 дней. Если товар не забран, заказ отменяется, удерживается сбор 5%, остаток возвращается.",
+              "Paid items must be collected at our Riga warehouse within 14 days. Uncollected orders are cancelled, a 5% restocking fee is retained, and the remainder is refunded.",
+            ),
+          },
+          {
+            type: "text",
+            text: L(
+              "Preces tiek pārdotas ar norādīto stāvokļa novērtējumu (izsoli.lv/conditions) un piezīmēm. Agresīva, aizskaroša vai draudoša uzvedība pret darbiniekiem netiek pieļauta — konts var tikt apturēts nekavējoties.",
+              "Товары продаются с указанной оценкой состояния (izsoli.lv/conditions) и примечаниями. Агрессивное, оскорбительное или угрожающее поведение по отношению к персоналу не допускается — аккаунт может быть приостановлен немедленно.",
+              "Items are sold with the stated condition grade (izsoli.lv/conditions) and notes. Aggressive, abusive or threatening behaviour towards staff is not tolerated — accounts may be suspended immediately.",
+            ),
+          },
+          {
+            type: "text",
+            text: L(
+              "Noteikumiem piemērojami Latvijas Republikas tiesību akti. ⚠️ PROJEKTS — pirms publicēšanas jāapstiprina juristam.",
+              "К условиям применяется право Латвийской Республики. ⚠️ ПРОЕКТ — перед публикацией требуется утверждение юриста.",
+              "These terms are governed by the laws of the Republic of Latvia. ⚠️ DRAFT — must be approved by a lawyer before publishing.",
+            ),
+          },
+        ],
+        seo: {
+          title: L("Noteikumi · Izsoli.lv", "Условия · Izsoli.lv", "Terms · Izsoli.lv"),
+          description: L("Izsoli.lv lietošanas noteikumi.", "Условия использования Izsoli.lv.", "Izsoli.lv terms of service."),
+        },
+      },
+      {
+        slug: "privacy",
+        title: L("Privātuma politika", "Политика конфиденциальности", "Privacy policy"),
+        status: "draft",
+        position: 4,
+        blocks: [
+          { type: "heading", text: L("Privātuma politika (projekts)", "Политика конфиденциальности (проект)", "Privacy policy (draft)") },
+          {
+            type: "text",
+            text: L(
+              "Datu pārzinis: Skakunov’s SIA, Rīga. Mēs apstrādājam jūsu konta datus (e-pasts, vārds, valsts), solījumu un pirkumu vēsturi, kā arī rēķinu datus, lai sniegtu izsoļu pakalpojumu un izpildītu likumā noteiktos pienākumus.",
+              "Контролёр данных: Skakunov’s SIA, Рига. Мы обрабатываем данные аккаунта (e-mail, имя, страна), историю ставок и покупок, а также данные счетов — для оказания услуг аукциона и исполнения требований закона.",
+              "Data controller: Skakunov’s SIA, Riga. We process your account data (email, name, country), your bidding and purchase history, and invoicing data — to provide the auction service and to meet legal obligations.",
+            ),
+          },
+          {
+            type: "text",
+            text: L(
+              "Rēķinu dati tiek glabāti grāmatvedības likumos noteikto laiku. Jums ir tiesības piekļūt saviem datiem, tos labot un pieprasīt dzēšanu — dzēšot kontu, personas dati tiek neatgriezeniski anonimizēti, saglabājot tikai likumā prasītos rēķinu ierakstus. Sazinieties: info@izsoli.lv.",
+              "Данные счетов хранятся в течение срока, установленного законом о бухгалтерии. Вы вправе получить доступ к своим данным, исправить их и потребовать удаления — при удалении аккаунта персональные данные необратимо анонимизируются, сохраняются только записи счетов, требуемые законом. Контакт: info@izsoli.lv.",
+              "Invoice records are retained for the period required by accounting law. You may access and correct your data and request erasure — on account erasure, personal data is irreversibly anonymised, keeping only the invoice records the law requires. Contact: info@izsoli.lv.",
+            ),
+          },
+          {
+            type: "text",
+            text: L(
+              "Mēs izmantojam tikai darbībai nepieciešamās sīkdatnes (pieteikšanās sesija, valodas izvēle) — ne izsekošanai, ne reklāmai. ⚠️ PROJEKTS — pirms publicēšanas jāapstiprina juristam.",
+              "Мы используем только необходимые для работы cookies (сессия входа, выбор языка) — не для трекинга и рекламы. ⚠️ ПРОЕКТ — перед публикацией требуется утверждение юриста.",
+              "We use only strictly necessary cookies (login session, language choice) — no tracking, no advertising. ⚠️ DRAFT — must be approved by a lawyer before publishing.",
+            ),
+          },
+        ],
+        seo: {
+          title: L("Privātums · Izsoli.lv", "Конфиденциальность · Izsoli.lv", "Privacy · Izsoli.lv"),
+          description: L("Kā Izsoli.lv apstrādā jūsu datus.", "Как Izsoli.lv обрабатывает ваши данные.", "How Izsoli.lv handles your data."),
+        },
+      },
+    ])
+    .onConflictDoNothing();
+}

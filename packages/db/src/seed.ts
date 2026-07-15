@@ -1,5 +1,5 @@
 import { createDb } from "./client.js";
-import { bootstrapAdmin, seedDatabase } from "./seedData.js";
+import { bootstrapAdmin, seedDatabase, seedStarterContent } from "./seedData.js";
 
 /**
  * Seed CLI.
@@ -15,6 +15,10 @@ const { db, pool } = createDb();
 try {
   if (isProduction) {
     await seedDatabase(db, { demoData: false, demoAdmins: false });
+    // Real storefront pages (lv/ru/en): about + how-to-bid published,
+    // terms + privacy as drafts for legal review. Never overwrites edits.
+    await seedStarterContent(db);
+    console.log("starter content ensured (about, how-to-bid; terms/privacy as drafts)");
     const email = process.env.INITIAL_ADMIN_EMAIL;
     const password = process.env.INITIAL_ADMIN_PASSWORD;
     if (email && password) {
