@@ -34,6 +34,8 @@ export interface PublicBid {
 export interface AuctionDetail {
   auction: PublicAuction;
   minNextBidCents: number;
+  /** Current price + buyer premium + VAT — what winning right now costs. */
+  estimatedTotalCents: number;
   bids: PublicBid[];
 }
 
@@ -56,6 +58,8 @@ export interface FixedListing {
   priceCents: number;
   quantity: number;
   soldOut?: boolean;
+  /** Price + VAT — the checkout total (fixed-price buys carry no premium). */
+  estimatedTotalCents?: number;
 }
 
 export interface MyOrder {

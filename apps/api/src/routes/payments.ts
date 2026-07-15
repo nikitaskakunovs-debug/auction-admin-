@@ -162,6 +162,17 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
     }
   }
 
+  /**
+   * Public payment capabilities for the storefront: whether online payments
+   * are on and the Brand ID the Klix Pay Later calculator widget needs (the
+   * Brand ID is public — it appears in every merchant's page source; only
+   * the Secret key is confidential and never leaves the server).
+   */
+  app.get("/api/public/payments/config", async () => ({
+    enabled: ctx.klix !== null,
+    payLaterBrandId: ctx.klix !== null && ctx.config.klix?.brandId ? ctx.config.klix.brandId : null,
+  }));
+
   const paySchema = z.object({ language: z.enum(["lv", "ru", "en", "et", "lt"]).optional() });
 
   /** Start (or resume) checkout for the bidder's own unpaid order. */

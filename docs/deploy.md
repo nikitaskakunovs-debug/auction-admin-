@@ -140,6 +140,16 @@ itself reports `paid` (spoofed callbacks are harmless). If the callback is
 ever lost, the account page's status poll reconciles on the next visit.
 Payment attempts are visible per order in admin → Orders.
 
+**Pay Later calculator**: once `KLIX_MODE=live`, auction pages, buy-now pages
+and the account page show Klix's official monthly-payment widget on the full
+checkout amount (hammer + premium + VAT — computed server-side, so the
+calculator always matches the real total). The numbers come from Klix's
+financing API for the products in YOUR merchant agreement — never computed
+by us. Payment-due emails embed Klix's "representative example" text (the
+legally required consumer-credit wording with the actual monthly payment for
+that order's amount), fetched at send time and cached for a day. While
+`KLIX_MODE=off` neither the widget nor the example appears anywhere.
+
 **Pay by email link**: the "you won" / "purchase confirmed" / payment-reminder
 emails carry a one-click pay link (signed, order-specific, expires with the
 payment deadline) that opens the same Klix checkout without logging in.
