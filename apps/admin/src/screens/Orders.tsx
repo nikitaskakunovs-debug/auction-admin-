@@ -301,7 +301,8 @@ export function OrdersScreen({ nav: _nav }: { nav: Nav }) {
                 <Line k="Buyer's premium (10%)" v={formatEur(detail.order.premiumCents)} />
                 <Line k="Net" v={formatEur(detail.order.hammerCents + detail.order.premiumCents)} />
                 <Line k={`VAT (${(detail.order.vatRateBp / 100).toFixed(1).replace(/\.0$/, "")}%)`} v={formatEur(detail.order.vatCents)} />
-                {detail.order.shippingCents > 0 && <Line k="Shipping" v={formatEur(detail.order.shippingCents)} />}
+                {detail.order.shippingCents > 0 && <Line k="Shipping (Omniva)" v={formatEur(detail.order.shippingCents)} />}
+                {detail.order.handlingCents > 0 && <Line k="Packing & handling" v={formatEur(detail.order.handlingCents)} />}
                 <div style={{ borderTop: `1px solid ${AT.rule}`, paddingTop: 7 }}>
                   <Line k="Total due" v={formatEur(detail.order.totalCents)} bold />
                 </div>

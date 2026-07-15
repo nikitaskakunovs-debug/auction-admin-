@@ -30,6 +30,8 @@ export interface InvoiceData {
   vatCents: number;
   vatRateBp: number;
   shippingCents: number;
+  /** Packing/handling for carrier orders — like shipping, never premium'd. */
+  handlingCents: number;
   totalCents: number;
   reverseCharge: boolean;
 }
@@ -91,6 +93,7 @@ export async function issueInvoice(
     vatCents: order.vatCents,
     vatRateBp: order.vatRateBp,
     shippingCents: order.shippingCents,
+    handlingCents: order.handlingCents,
     totalCents: order.totalCents,
     reverseCharge: order.reverseCharge,
   };
@@ -157,7 +160,8 @@ export function renderInvoiceHtml(number: string, issuedAt: Date, d: InvoiceData
     ${line("Buyer's premium (10%)", formatEur(d.premiumCents))}
     ${line("Net amount", formatEur(d.netCents))}
     ${line(d.reverseCharge ? "VAT (reverse charge, 0%)" : `VAT (${vatPct}%)`, formatEur(d.vatCents))}
-    ${d.shippingCents > 0 ? line("Shipping", formatEur(d.shippingCents)) : ""}
+    ${d.shippingCents > 0 ? line("Shipping (Omniva)", formatEur(d.shippingCents)) : ""}
+    ${(d.handlingCents ?? 0) > 0 ? line("Packing & handling", formatEur(d.handlingCents)) : ""}
     <tr class="total" style="font-weight:700">
       <td style="padding:9px 0 0">Total due</td>
       <td style="padding:9px 0 0;text-align:right;font-family:ui-monospace,monospace">${formatEur(d.totalCents)}</td>

@@ -346,6 +346,7 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
           premiumCents: r.order.premiumCents,
           vatCents: r.order.vatCents,
           shippingCents: r.order.shippingCents,
+          handlingCents: r.order.handlingCents,
           totalCents: r.order.totalCents,
           status: r.order.status,
           paymentDeadlineAt: r.order.paymentDeadlineAt,

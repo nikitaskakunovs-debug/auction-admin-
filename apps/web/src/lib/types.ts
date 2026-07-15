@@ -70,6 +70,7 @@ export interface MyOrder {
   premiumCents: number;
   vatCents: number;
   shippingCents: number;
+  handlingCents: number;
   totalCents: number;
   status: string;
   paymentDeadlineAt: string | null;
@@ -83,6 +84,8 @@ export interface MyOrder {
 export interface ShippingOption {
   method: string;
   priceCents: number;
+  /** Packing/handling fee that rides along with carrier delivery. */
+  handlingCents: number;
 }
 
 export interface ParcelLocation {

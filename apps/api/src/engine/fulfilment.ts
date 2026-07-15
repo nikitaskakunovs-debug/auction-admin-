@@ -17,7 +17,7 @@ import type { OmnivaLocation } from "./omniva.js";
 export type FulfilmentMethod = "pickup" | "omniva_pm";
 
 export type SetFulfilmentResult =
-  | { ok: true; shippingCents: number; totalCents: number }
+  | { ok: true; shippingCents: number; handlingCents: number; totalCents: number }
   | { ok: false; code: "NOT_AWAITING" | "ALREADY_PAID" | "MACHINE_NOT_FOUND" | "SHIPPING_OFF" | "PHONE_REQUIRED" };
 
 export async function setFulfilment(
@@ -59,16 +59,22 @@ export async function setFulfilment(
     if (paidAttempt) return { ok: false as const, code: "ALREADY_PAID" as const };
 
     const [market] = await tx.select().from(markets).where(eq(markets.code, order.marketCode));
-    const shippingCents = input.method === "omniva_pm" ? (market?.omnivaPmPriceCents ?? 399) : 0;
-    // Shipping is a VAT-inclusive flat price on top of the goods total.
-    const goodsTotal = order.totalCents - order.shippingCents;
-    const totalCents = goodsTotal + shippingCents;
+    const carrier = input.method === "omniva_pm";
+    const shippingCents = carrier ? (market?.omnivaPmPriceCents ?? 399) : 0;
+    // Packing/handling fee rides along with carrier delivery only.
+    const handlingCents = carrier ? (market?.handlingFeeCents ?? 0) : 0;
+    // Shipping + handling are VAT-inclusive flat prices on top of the goods
+    // total. The 10% buyer premium NEVER applies to either — it was computed
+    // on the hammer price at close and is untouched here.
+    const goodsTotal = order.totalCents - order.shippingCents - order.handlingCents;
+    const totalCents = goodsTotal + shippingCents + handlingCents;
 
     await tx
       .update(orders)
       .set({
         fulfilment: input.method,
         shippingCents,
+        handlingCents,
         totalCents,
         shippingTo:
           input.method === "omniva_pm" && machine
@@ -97,10 +103,11 @@ export async function setFulfilment(
     await writeAudit(tx, input.actor, "order", "fulfilment_set", order.ref, {
       method: input.method,
       shippingCents,
+      handlingCents,
       totalCents,
       machine: machine ? `${machine.name} (${machine.zip})` : null,
     });
-    return { ok: true as const, shippingCents, totalCents };
+    return { ok: true as const, shippingCents, handlingCents, totalCents };
   });
   return result;
 }

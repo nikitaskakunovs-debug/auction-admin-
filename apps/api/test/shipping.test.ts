@@ -72,8 +72,8 @@ describe("delivery options + machine list", () => {
     const opts = await world.server.app.inject({ method: "GET", url: "/api/public/shipping/options?market=LV" });
     expect(opts.json()).toMatchObject({
       options: [
-        { method: "pickup", priceCents: 0 },
-        { method: "omniva_pm", priceCents: 399 },
+        { method: "pickup", priceCents: 0, handlingCents: 0 },
+        { method: "omniva_pm", priceCents: 399, handlingCents: 200 },
       ],
     });
     const locs = await world.server.app.inject({ method: "GET", url: "/api/public/shipping/locations?country=LV&q=ogre" });
@@ -95,11 +95,18 @@ describe("fulfilment selection (before payment)", () => {
 
     const res = await chooseOmniva(ref, buyer.accessToken);
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ shippingCents: 399, totalCents: 13_709 });
+    expect(res.json()).toMatchObject({ shippingCents: 399, handlingCents: 200, totalCents: 13_909 });
 
     const [order] = await world.ctx.db.select().from(orders).where(eq(orders.id, orderId));
     expect(order!.fulfilment).toBe("omniva_pm");
-    expect(order!.totalCents).toBe(13_709);
+    expect(order!.totalCents).toBe(13_909);
+    expect(order!.handlingCents).toBe(200);
+    // The 10% buyer premium NEVER touches shipping or handling: it stays
+    // exactly 10% of the hammer price (fixed-price buys carry 0 premium),
+    // and VAT stays computed on the goods only.
+    expect(order!.premiumCents).toBe(0);
+    expect(order!.vatCents).toBe(2_310); // 21% of the 11000 goods price
+    expect(order!.totalCents).toBe(order!.hammerCents + order!.premiumCents + order!.vatCents + order!.shippingCents + order!.handlingCents);
     expect(order!.shippingTo).toMatchObject({ provider: "omniva", machineId: "9910", zip: "9910" });
     expect(order!.recipientPhone).toBe("+371 26123456");
 
@@ -109,7 +116,8 @@ describe("fulfilment selection (before payment)", () => {
     const active = allInvoices.find((i) => i.voidedAt === null)!;
     const voided = allInvoices.find((i) => i.voidedAt !== null)!;
     expect(voided.id).toBe(invBefore!.id);
-    expect((active.data as { totalCents: number }).totalCents).toBe(13_709);
+    expect((active.data as { totalCents: number; handlingCents: number }).totalCents).toBe(13_909);
+    expect((active.data as { handlingCents: number }).handlingCents).toBe(200);
 
     // Switching back to pickup reprices to the goods total again.
     const back = await world.server.app.inject({
@@ -119,7 +127,54 @@ describe("fulfilment selection (before payment)", () => {
       payload: { method: "pickup" },
     });
     expect(back.statusCode).toBe(200);
-    expect(back.json()).toMatchObject({ shippingCents: 0, totalCents: 13_310 });
+    expect(back.json()).toMatchObject({ shippingCents: 0, handlingCents: 0, totalCents: 13_310 });
+  });
+
+  it("the 10% buyer premium is untouched by shipping — auction-shaped order", async () => {
+    const buyer = await registerBidder("ship_premium");
+    const { orderId, ref } = await unpaidOrder(buyer.accessToken);
+    // Shape the order like an auction win: hammer 11000 + 10% premium 1100
+    // + 21% VAT on both (2541) = 14641 goods total.
+    await world.ctx.db
+      .update(orders)
+      .set({ premiumCents: 1_100, vatCents: 2_541, totalCents: 14_641 })
+      .where(eq(orders.id, orderId));
+
+    const res = await chooseOmniva(ref, buyer.accessToken);
+    expect(res.statusCode).toBe(200);
+    const [order] = await world.ctx.db.select().from(orders).where(eq(orders.id, orderId));
+    // Premium and VAT unchanged — shipping + handling are flat add-ons.
+    expect(order!.premiumCents).toBe(1_100);
+    expect(order!.vatCents).toBe(2_541);
+    expect(order!.shippingCents).toBe(399);
+    expect(order!.handlingCents).toBe(200);
+    expect(order!.totalCents).toBe(14_641 + 399 + 200);
+  });
+
+  it("the handling fee is admin-editable per market and applies to the next reprice", async () => {
+    const patch = await world.server.app.inject({
+      method: "PATCH",
+      url: "/api/markets/LV",
+      headers: auth(adminToken),
+      payload: { handlingFeeCents: 350 },
+    });
+    expect(patch.statusCode).toBe(200);
+    try {
+      const opts = await world.server.app.inject({ method: "GET", url: "/api/public/shipping/options?market=LV" });
+      expect((opts.json() as { options: Array<{ method: string; handlingCents: number }> }).options.find((o) => o.method === "omniva_pm")!.handlingCents).toBe(350);
+
+      const buyer = await registerBidder("ship_fee_edit");
+      const { ref } = await unpaidOrder(buyer.accessToken);
+      const res = await chooseOmniva(ref, buyer.accessToken);
+      expect(res.json()).toMatchObject({ shippingCents: 399, handlingCents: 350, totalCents: 13_310 + 399 + 350 });
+    } finally {
+      await world.server.app.inject({
+        method: "PATCH",
+        url: "/api/markets/LV",
+        headers: auth(adminToken),
+        payload: { handlingFeeCents: 200 },
+      });
+    }
   });
 
   it("an open checkout is superseded on reprice — the new one charges the new total", async () => {
@@ -146,7 +201,7 @@ describe("fulfilment selection (before payment)", () => {
     expect(pay2.statusCode).toBe(200);
     const rows2 = await world.ctx.db.select().from(payments).where(eq(payments.orderId, orderId));
     const open = rows2.find((r) => r.status === "created")!;
-    expect(open.amountCents).toBe(13_709);
+    expect(open.amountCents).toBe(13_909);
   });
 
   it("validates: unknown machine 404, missing phone 400, foreign order 404, paid order 409", async () => {

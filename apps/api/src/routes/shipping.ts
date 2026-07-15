@@ -47,8 +47,18 @@ export function registerShippingRoutes(app: FastifyInstance, ctx: AppContext, pe
     const { market } = req.query as { market?: string };
     const code = (market ?? "LV").toUpperCase();
     const [m] = await ctx.db.select().from(markets).where(eq(markets.code, code));
-    const options: Array<{ method: string; priceCents: number }> = [{ method: "pickup", priceCents: 0 }];
-    if (ctx.omniva) options.push({ method: "omniva_pm", priceCents: m?.omnivaPmPriceCents ?? 399 });
+    const options: Array<{ method: string; priceCents: number; handlingCents: number }> = [
+      { method: "pickup", priceCents: 0, handlingCents: 0 },
+    ];
+    if (ctx.omniva) {
+      options.push({
+        method: "omniva_pm",
+        priceCents: m?.omnivaPmPriceCents ?? 399,
+        // Packing/handling rides along with carrier delivery; neither is
+        // ever part of the 10% buyer premium.
+        handlingCents: m?.handlingFeeCents ?? 0,
+      });
+    }
     return { options };
   });
 

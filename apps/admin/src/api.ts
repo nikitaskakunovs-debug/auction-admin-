@@ -32,6 +32,7 @@ export interface Market {
   pickupDeadlineDays: number;
   restockFeeBp: number;
   omnivaPmPriceCents: number;
+  handlingFeeCents: number;
   active: boolean;
 }
 
@@ -119,6 +120,7 @@ export interface Order {
   vatCents: number;
   vatRateBp: number;
   shippingCents: number;
+  handlingCents: number;
   totalCents: number;
   reverseCharge: boolean;
   status: string;

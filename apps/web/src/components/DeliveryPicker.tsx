@@ -25,7 +25,7 @@ export function DeliveryPicker({ order, onSaved }: { order: MyOrder; onSaved: ()
     void publicApi
       .get<{ options: ShippingOption[] }>(`/api/public/shipping/options?market=LV`)
       .then((r) => setOptions(r.options))
-      .catch(() => setOptions([{ method: "pickup", priceCents: 0 }]));
+      .catch(() => setOptions([{ method: "pickup", priceCents: 0, handlingCents: 0 }]));
   }, []);
 
   useEffect(() => {
@@ -86,7 +86,7 @@ export function DeliveryPicker({ order, onSaved }: { order: MyOrder; onSaved: ()
       <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6B68", textTransform: "uppercase", letterSpacing: "0.05em" }}>{t("acc.delivery")}</div>
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
         {radio("pickup", t("acc.deliveryPickup"))}
-        {radio("omniva_pm", `${t("acc.deliveryOmniva")} — ${formatEur(omniva.priceCents)}`)}
+        {radio("omniva_pm", `${t("acc.deliveryOmniva")} — ${formatEur(omniva.priceCents + omniva.handlingCents)}`)}
       </div>
       {method === "omniva_pm" && (
         <div style={{ display: "grid", gap: 6 }}>
@@ -117,7 +117,7 @@ export function DeliveryPicker({ order, onSaved }: { order: MyOrder; onSaved: ()
         {notice === "error" && <span style={{ fontSize: 12, color: "#B0282C", fontWeight: 600 }}>{t("acc.deliveryError")}</span>}
         {order.fulfilment === "omniva_pm" && order.shippingTo && (
           <span style={{ fontSize: 11.5, color: "#6B6B68" }}>
-            {order.shippingTo.name} · {t("acc.shippingCost")}: {formatEur(order.shippingCents)}
+            {order.shippingTo.name} · {t("acc.shippingCost")}: {formatEur(order.shippingCents + order.handlingCents)}
           </span>
         )}
       </div>

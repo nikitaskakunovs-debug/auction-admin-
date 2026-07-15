@@ -40,6 +40,12 @@ export const markets = pgTable("markets", {
   restockFeeBp: integer("restock_fee_bp").notNull().default(500),
   /** Omniva parcel-machine delivery price for this market (flat, €3.99). */
   omnivaPmPriceCents: integer("omniva_pm_price_cents").notNull().default(399),
+  /**
+   * Packing/handling fee added on top of carrier delivery (flat, €2.00).
+   * Like shipping, it is NEVER part of the 10% buyer premium — the premium
+   * applies to the hammer price only.
+   */
+  handlingFeeCents: integer("handling_fee_cents").notNull().default(200),
   active: boolean("active").notNull().default(true),
 });
 
@@ -383,6 +389,8 @@ export const orders = pgTable(
     vatCents: integer("vat_cents").notNull(),
     vatRateBp: integer("vat_rate_bp").notNull(),
     shippingCents: integer("shipping_cents").notNull().default(0),
+    /** Packing/handling fee for carrier orders (flat; no buyer premium). */
+    handlingCents: integer("handling_cents").notNull().default(0),
     totalCents: integer("total_cents").notNull(),
     reverseCharge: boolean("reverse_charge").notNull().default(false),
     status: text("status").notNull().default("awaiting_payment"), // awaiting_payment | paid | cancelled | refunded

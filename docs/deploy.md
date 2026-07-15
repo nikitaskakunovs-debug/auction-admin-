@@ -206,9 +206,11 @@ the customer code + password:
 2. Restart the api container.
 3. The buyer's account page then offers "Omniva parcel machine" next to
    pickup: they choose a machine + leave a phone (for the locker SMS) BEFORE
-   paying — the delivery price (Settings → Markets, per market) joins the
-   order total, the invoice is reissued as a correction, and any open
-   checkout reprices.
+   paying — the delivery price AND the packing/handling fee (both per market
+   in Settings → Markets) join the order total, the invoice is reissued as a
+   correction, and any open checkout reprices. Neither shipping nor handling
+   is ever part of the 10% buyer premium — that applies to the hammer price
+   only.
 4. After payment, admin → Orders → the order → **Shipping** card:
    **Register Omniva shipment** (barcode issued, customer gets the tracking
    email) → **Print label** (PDF opens in a tab — print, stick, hand the
