@@ -264,6 +264,18 @@ every scan box (HID scanners type + Enter — the kiosk trick). Flows:
   (picked/missing/damaged), send to the NOW DELIVERING board, complete the
   handover with the client's 6-digit code.
 
+## Listing desk (ready-to-list queue)
+
+Listings → **Ready to list (N)**: every draft item that has photos and a
+grade, straight from the warehouse pipeline (fresh receiving and returned
+no-show/unpaid stock alike). Picking one prefills the listing form from the
+item (title, description, market, grade + notes shown alongside the cover
+photo); the office polishes the copy, sets the price (reserve stays behind
+`listings.set_pricing`), and one click runs create → publish → auction
+schedule. The schedule is **sticky across the batch** — list twenty lots into
+the same Thursday-evening slot without retyping it. Drafts still missing
+photos are counted in the queue header so nothing stalls silently.
+
 ## Item photos
 
 Photos are captured at the warehouse (grading station phone/camera or the
