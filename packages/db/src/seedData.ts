@@ -125,7 +125,7 @@ export async function seedDatabase(db: Db, opts: SeedOptions = {}): Promise<void
         status: "published",
         position: 1,
         blocks: [
-          { type: "heading", text: L("Baltijas izsoļu nams", "Балтийский аукционный дом", "The Baltic auction house") },
+          { type: "heading", text: L("Izsoli.lv", "Izsoli.lv", "Izsoli.lv") },
           {
             type: "text",
             text: L(
@@ -136,7 +136,7 @@ export async function seedDatabase(db: Db, opts: SeedOptions = {}): Promise<void
           },
         ],
         seo: {
-          title: L("Par mums · Baltijas izsoļu nams", "О нас · Балтийский аукционный дом", "About us · Baltic Auction House"),
+          title: L("Par mums · Izsoli.lv", "О нас · Izsoli.lv", "About us · Izsoli.lv"),
           description: L(
             "Tiešsaistes izsoles Baltijā kopš pirmās dienas — godīgi soļi, slēptas rezerves cenas un tiešraides solīšana.",
             "Онлайн-аукционы в Балтии — честные шаги, скрытые резервы и живые торги.",
@@ -179,7 +179,7 @@ export async function seedDatabase(db: Db, opts: SeedOptions = {}): Promise<void
           },
         ],
         seo: {
-          title: L("Kā solīt · Baltijas izsoļu nams", "Как делать ставки", "How to bid · Baltic Auction House"),
+          title: L("Kā solīt · Izsoli.lv", "Как делать ставки", "How to bid · Izsoli.lv"),
           description: L("Soli pa solim: reģistrācija, maksimālā cena, uzvara un apmaksa.", "Пошагово: регистрация, максимум, победа и оплата.", "Step by step: register, set your max, win and pay."),
         },
       },

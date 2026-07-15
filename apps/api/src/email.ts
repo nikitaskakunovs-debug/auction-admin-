@@ -52,7 +52,7 @@ export interface SmtpConfig {
   secure: boolean;
   user: string;
   pass: string;
-  /** e.g. "Baltic Auctions <noreply@example.lv>" */
+  /** e.g. "Izsoli.lv <noreply@izsoli.lv>" */
   from: string;
 }
 

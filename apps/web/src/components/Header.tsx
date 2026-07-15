@@ -23,7 +23,7 @@ export function Header() {
       <div style={{ maxWidth: 1080, margin: "0 auto", padding: "14px 20px", display: "flex", alignItems: "center", gap: 18 }}>
         <Link href="/" style={{ color: "#fff", textDecoration: "none", fontWeight: 700, fontSize: 16, display: "flex", alignItems: "center", gap: 9 }}>
           <span style={{ width: 26, height: 26, borderRadius: 7, background: "#2D4BFF", display: "inline-grid", placeItems: "center", fontSize: 13 }}>⚖</span>
-          Baltic Auction House
+          Izsoli.lv
         </Link>
         <nav style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 16, fontSize: 13.5 }}>
           <Link href="/" style={{ color: "rgba(255,255,255,0.8)", textDecoration: "none", fontWeight: 600 }}>{t("nav.auctions")}</Link>

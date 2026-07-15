@@ -13,14 +13,14 @@ export async function generateMetadata(): Promise<Metadata> {
   const host = (await headers()).get("host");
   const country = resolveCountry(host);
   return {
-    title: { default: "Baltic Auction House", template: "%s · Baltic Auction House" },
+    title: { default: "Izsoli.lv — tiešsaistes izsoles", template: "%s · Izsoli.lv" },
     description: "Live auctions in Latvia, Estonia and Lithuania. Watches, art, design and collectibles.",
     metadataBase: new URL(SITE_ORIGINS[country.code]),
     // The current country's own domain is the canonical base; the ccTLD
     // siblings (.lv/.ee/.lt) reinforce each other via hreflang.
     alternates: alternatesFor(country, "/"),
     openGraph: {
-      siteName: "Baltic Auction House",
+      siteName: "Izsoli.lv",
       locale: country.defaultLang,
       type: "website",
     },

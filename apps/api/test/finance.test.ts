@@ -54,7 +54,7 @@ describe("invoice issuing", () => {
     const data = invA!.data as { totalCents: number; hammerCents: number; seller: { legalName: string } };
     expect(data.hammerCents).toBe(10_000);
     expect(data.totalCents).toBe(13_310); // €100 + 10% + 21% VAT
-    expect(data.seller.legalName).toBe("Baltic Auction House SIA");
+    expect(data.seller.legalName).toBe("Skakunov’s SIA");
   });
 
   it("issue-invoice endpoint is idempotent (409 when one exists)", async () => {

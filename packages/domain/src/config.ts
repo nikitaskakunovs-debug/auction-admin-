@@ -38,7 +38,7 @@ export const DEFAULT_MARKETS: readonly MarketConfig[] = [
   {
     code: "LV",
     name: "Latvia",
-    legalName: "Baltic Auction House SIA",
+    legalName: "Skakunov’s SIA",
     currency: "EUR",
     languages: ["lv", "ru", "en"],
     vatRateBp: 2100,
@@ -53,7 +53,7 @@ export const DEFAULT_MARKETS: readonly MarketConfig[] = [
   {
     code: "EE",
     name: "Estonia",
-    legalName: "Baltic Auction House OÜ",
+    legalName: "Skakunov’s SIA",
     currency: "EUR",
     languages: ["et", "ru", "en"],
     // 24% since 2025-07-01 — verify with the accountant per the design doc.
@@ -69,7 +69,7 @@ export const DEFAULT_MARKETS: readonly MarketConfig[] = [
   {
     code: "LT",
     name: "Lithuania",
-    legalName: "Baltic Auction House UAB",
+    legalName: "Skakunov’s SIA",
     currency: "EUR",
     languages: ["lt", "ru", "en"],
     vatRateBp: 2100,

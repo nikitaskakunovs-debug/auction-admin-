@@ -105,7 +105,7 @@ export function App() {
             <AIcon name="gavel" size={15} color="#fff" />
           </span>
           <div>
-            <div style={{ fontSize: 13.5, fontWeight: 700 }}>Auction Admin</div>
+            <div style={{ fontSize: 13.5, fontWeight: 700 }}>Izsoli.lv</div>
             <div style={{ fontSize: 10.5, color: AT.sideSoft }}>LV · EE · LT</div>
           </div>
         </div>

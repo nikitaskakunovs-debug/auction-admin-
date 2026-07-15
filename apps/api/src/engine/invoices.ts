@@ -65,7 +65,7 @@ export async function issueInvoice(
   const data: InvoiceData = {
     orderRef: order.ref,
     marketCode: order.marketCode,
-    seller: { legalName: market?.legalName || "Baltic Auction House", country: order.marketCode },
+    seller: { legalName: market?.legalName || "Skakunov’s SIA", country: order.marketCode },
     buyer: {
       alias: order.customerAlias,
       email: order.customerEmail,

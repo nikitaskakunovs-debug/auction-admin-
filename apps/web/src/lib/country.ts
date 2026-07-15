@@ -29,9 +29,9 @@ export const COUNTRIES: Record<Country, CountryConfig> = {
 
 /** Deploy origins per country — overridable via env for staging. */
 export const SITE_ORIGINS: Record<Country, string> = {
-  LV: process.env.NEXT_PUBLIC_ORIGIN_LV ?? "https://baltic-auctions.lv",
-  EE: process.env.NEXT_PUBLIC_ORIGIN_EE ?? "https://baltic-auctions.ee",
-  LT: process.env.NEXT_PUBLIC_ORIGIN_LT ?? "https://baltic-auctions.lt",
+  LV: process.env.NEXT_PUBLIC_ORIGIN_LV ?? "https://izsoli.lv",
+  EE: process.env.NEXT_PUBLIC_ORIGIN_EE ?? "https://izsoli.lv",
+  LT: process.env.NEXT_PUBLIC_ORIGIN_LT ?? "https://izsoli.lv",
 };
 
 /** Resolve the country from a Host header; Latvia is the default. */

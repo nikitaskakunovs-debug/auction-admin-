@@ -105,7 +105,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     // the limiter is relaxed under NODE_ENV=test (the per-account lockout,
     // which the suite does assert, is unaffected).
     rateLimitMax: Number(env.RATE_LIMIT_MAX ?? (env.NODE_ENV === "test" ? 100_000 : 300)),
-    totpIssuer: env.TOTP_ISSUER ?? "Baltic Auctions",
+    totpIssuer: env.TOTP_ISSUER ?? "Izsoli.lv",
     paymentDeadlineHours: Number(env.PAYMENT_DEADLINE_HOURS ?? 72),
     allowBidSimulation: (env.ALLOW_BID_SIMULATION ?? (env.NODE_ENV === "production" ? "0" : "1")) === "1",
     schedulerEnabled: (env.SCHEDULER_ENABLED ?? "1") === "1",

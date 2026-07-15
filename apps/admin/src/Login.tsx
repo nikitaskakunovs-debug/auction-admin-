@@ -87,7 +87,7 @@ export function LoginScreen() {
 
   if (stage === "password") {
     return (
-      <Panel title="Auction Admin" subtitle="Baltic auction house · operations panel">
+      <Panel title="Izsoli.lv" subtitle="Operations panel · LV EE LT">
         <form onSubmit={(e) => { e.preventDefault(); void submitPassword(); }} style={{ display: "grid", gap: 10 }}>
           <AInput value={email} onChange={setEmail} placeholder="email@company.com" type="email" autoFocus />
           <AInput value={password} onChange={setPassword} placeholder="Password" type="password" />
