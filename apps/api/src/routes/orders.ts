@@ -1,6 +1,6 @@
-import { customers, invoices, items, markets, orders, payments, refunds } from "@auction/db";
+import { customers, invoices, items, markets, orders, payments, refunds, shipments } from "@auction/db";
 import { assertItemTransition, computeNoShowSettlement, type ItemStatus } from "@auction/domain";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { writeAudit } from "../audit.js";
@@ -77,9 +77,10 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext, perms
     const [invoice] = await ctx.db
       .select({ id: invoices.id, number: invoices.number, issuedAt: invoices.issuedAt })
       .from(invoices)
-      .where(eq(invoices.orderId, id));
+      .where(and(eq(invoices.orderId, id), isNull(invoices.voidedAt)));
     const paymentRows = await ctx.db.select().from(payments).where(eq(payments.orderId, id)).orderBy(desc(payments.createdAt));
-    return { order: row.order, item: row.item, refunds: refundRows, invoice: invoice ?? null, payments: paymentRows };
+    const shipmentRows = await ctx.db.select().from(shipments).where(eq(shipments.orderId, id)).orderBy(desc(shipments.createdAt));
+    return { order: row.order, item: row.item, refunds: refundRows, invoice: invoice ?? null, payments: paymentRows, shipments: shipmentRows };
   });
 
   app.post("/api/orders/:id/mark-paid", guard("orders.mark_paid"), async (req, reply) => {

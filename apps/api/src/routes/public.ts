@@ -9,6 +9,7 @@ import {
   items,
   listings,
   orders,
+  shipments,
   verifyPassword,
 } from "@auction/db";
 import { and, asc, desc, eq, gt, ilike, inArray, isNull } from "drizzle-orm";
@@ -318,19 +319,43 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
       .where(eq(orders.customerId, bidderId))
       .orderBy(desc(orders.createdAt))
       .limit(100);
+    // Latest shipment per order — the bidder's tracking line.
+    const orderIds = rows.map((r) => r.order.id);
+    const shipmentRows = orderIds.length
+      ? await ctx.db
+          .select({
+            orderId: shipments.orderId,
+            barcode: shipments.barcode,
+            status: shipments.status,
+            createdAt: shipments.createdAt,
+          })
+          .from(shipments)
+          .where(inArray(shipments.orderId, orderIds))
+          .orderBy(desc(shipments.createdAt))
+      : [];
+    const shipmentByOrder = new Map<string, (typeof shipmentRows)[number]>();
+    for (const s of shipmentRows) if (!shipmentByOrder.has(s.orderId)) shipmentByOrder.set(s.orderId, s);
     return {
-      orders: rows.map((r) => ({
-        ref: r.order.ref,
-        itemTitle: r.itemTitle,
-        itemSku: r.itemSku,
-        hammerCents: r.order.hammerCents,
-        premiumCents: r.order.premiumCents,
-        vatCents: r.order.vatCents,
-        totalCents: r.order.totalCents,
-        status: r.order.status,
-        paymentDeadlineAt: r.order.paymentDeadlineAt,
-        createdAt: r.order.createdAt,
-      })),
+      orders: rows.map((r) => {
+        const shipment = shipmentByOrder.get(r.order.id) ?? null;
+        return {
+          ref: r.order.ref,
+          itemTitle: r.itemTitle,
+          itemSku: r.itemSku,
+          hammerCents: r.order.hammerCents,
+          premiumCents: r.order.premiumCents,
+          vatCents: r.order.vatCents,
+          shippingCents: r.order.shippingCents,
+          handlingCents: r.order.handlingCents,
+          totalCents: r.order.totalCents,
+          status: r.order.status,
+          paymentDeadlineAt: r.order.paymentDeadlineAt,
+          createdAt: r.order.createdAt,
+          fulfilment: r.order.fulfilment,
+          shippingTo: r.order.shippingTo,
+          shipment: shipment ? { barcode: shipment.barcode, status: shipment.status } : null,
+        };
+      }),
     };
   });
 

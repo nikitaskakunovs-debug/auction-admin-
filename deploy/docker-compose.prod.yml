@@ -72,6 +72,23 @@ services:
       INBANK_SHOP_UUID: ${INBANK_SHOP_UUID:-}
       INBANK_API_KEY: ${INBANK_API_KEY:-}
       INBANK_PRODUCT_CODE: ${INBANK_PRODUCT_CODE:-}
+      # Omniva parcel shipping (off until the business contract; then OMNIVA_MODE=live).
+      OMNIVA_MODE: ${OMNIVA_MODE:-off}
+      OMNIVA_API_URL: ${OMNIVA_API_URL:-}
+      OMNIVA_USERNAME: ${OMNIVA_USERNAME:-}
+      OMNIVA_PASSWORD: ${OMNIVA_PASSWORD:-}
+      SHIP_SENDER_NAME: ${SHIP_SENDER_NAME:-}
+      SHIP_SENDER_PHONE: ${SHIP_SENDER_PHONE:-}
+      SHIP_SENDER_EMAIL: ${SHIP_SENDER_EMAIL:-}
+      SHIP_SENDER_COUNTRY: ${SHIP_SENDER_COUNTRY:-LV}
+      SHIP_SENDER_POSTCODE: ${SHIP_SENDER_POSTCODE:-}
+      SHIP_SENDER_CITY: ${SHIP_SENDER_CITY:-}
+      SHIP_SENDER_STREET: ${SHIP_SENDER_STREET:-}
+      # DPD parcel lockers (off until the business contract; then DPD_MODE=live).
+      DPD_MODE: ${DPD_MODE:-off}
+      DPD_API_URL: ${DPD_API_URL:-}
+      DPD_API_TOKEN: ${DPD_API_TOKEN:-}
+      DPD_SERVICE_ALIAS: ${DPD_SERVICE_ALIAS:-}
     volumes:
       # Only used if STORAGE_DRIVER=local; harmless otherwise.
       - uploads:/repo/apps/api/var/uploads

@@ -32,6 +32,15 @@ State as of 2026-07-15: platform deployed and hardened on the FRA1 droplet
       `demo-api.inbank.eu` first, verify the pos-session field names with
       their docs, then `INBANK_MODE=live` (see docs/deploy.md → "Inbank
       BNPL")
+- [ ] **Omniva** business contract (parcel machines — built and env-gated):
+      when the customer code + password arrive, test against
+      `test-omx.omniva.eu` first, fill the `SHIP_SENDER_*` warehouse address,
+      then `OMNIVA_MODE=live`; set the delivery price per market in
+      Settings → Markets (see docs/deploy.md → "Omniva parcel shipping")
+- [ ] **DPD** business contract (lockers — built and env-gated): when the
+      API token arrives, test against `sandbox-eserviss.dpd.lv`, confirm the
+      locker service alias via GET /services, then `DPD_MODE=live`; price per
+      market in Settings → Markets (see docs/deploy.md → "DPD parcel lockers")
 - [ ] **Hardware**: thermal label printer (labels ≈57×32 mm), one or two **2D**
       barcode scanners (must read QR), photo-station lamp, 2 TVs for the
       pickup boards
@@ -65,7 +74,9 @@ The missing tier is human preview. At launch, add:
 
 - [x] Klix payment integration — built (BNPL + banklinks + cards via hosted
       checkout); switches on via `KLIX_MODE=live` once keys arrive (§2)
-- [ ] Carrier APIs (Omniva/DPD) if shipping is ever offered
+- [x] Carrier APIs — built (Omniva parcel machines + DPD lockers, labels,
+      tracking); switch on via `OMNIVA_MODE` / `DPD_MODE` once contracts
+      arrive (§2)
 - [ ] Error monitoring (Sentry) + an uptime check on `/api/health`
 - [ ] Managed PostgreSQL migration when scale demands (change `DATABASE_URL`,
       restore a dump — nothing else changes)

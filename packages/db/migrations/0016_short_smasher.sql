@@ -1,0 +1,1 @@
+ALTER TABLE "markets" ADD COLUMN "dpd_pm_price_cents" integer DEFAULT 399 NOT NULL;

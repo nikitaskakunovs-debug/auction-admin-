@@ -91,6 +91,41 @@ export interface ApiConfig {
   } | null;
   /** Storefront origin used for post-checkout redirects (success/failure/cancel). */
   storefrontBaseUrl: string;
+  /**
+   * Omniva parcel shipping (OMX API, HTTP Basic auth). "off" hides shipping
+   * options entirely; "live" talks to omx.omniva.eu (point OMNIVA_API_URL at
+   * test-omx.omniva.eu for the partner test environment); "simulate" is the
+   * in-memory driver for the test suite.
+   */
+  omnivaMode: "off" | "live" | "simulate";
+  omniva: {
+    apiUrl: string;
+    /** Customer code — doubles as the Basic-auth username. */
+    username: string;
+    password: string;
+  } | null;
+  /**
+   * DPD parcel lockers (DPD Baltic "Amber" API, Bearer token). Same gating
+   * pattern: "off" hides the option; "live" talks to eserviss.dpd.lv (point
+   * DPD_API_URL at sandbox-eserviss.dpd.lv for testing).
+   */
+  dpdMode: "off" | "live" | "simulate";
+  dpd: {
+    apiUrl: string;
+    apiToken: string;
+    /** Locker-delivery service alias (confirm via GET /services at onboarding). */
+    serviceAlias: string;
+  } | null;
+  /** Parcel sender identity printed on labels (the warehouse). */
+  shipSender: {
+    name: string;
+    phone: string;
+    email: string;
+    country: string;
+    postcode: string;
+    city: string;
+    street: string;
+  };
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
@@ -128,6 +163,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     for (const key of ["INBANK_SHOP_UUID", "INBANK_API_KEY"] as const) {
       if (!env[key]) throw new Error(`${key} must be set when INBANK_MODE=live`);
     }
+  }
+  const omnivaMode: "off" | "live" | "simulate" =
+    env.OMNIVA_MODE === "live" ? "live" : env.OMNIVA_MODE === "simulate" ? "simulate" : "off";
+  if (omnivaMode === "live") {
+    for (const key of ["OMNIVA_USERNAME", "OMNIVA_PASSWORD"] as const) {
+      if (!env[key]) throw new Error(`${key} must be set when OMNIVA_MODE=live`);
+    }
+  }
+  const dpdMode: "off" | "live" | "simulate" =
+    env.DPD_MODE === "live" ? "live" : env.DPD_MODE === "simulate" ? "simulate" : "off";
+  if (dpdMode === "live" && !env.DPD_API_TOKEN) {
+    throw new Error("DPD_API_TOKEN must be set when DPD_MODE=live");
   }
   const storageDriver: "local" | "s3" = env.STORAGE_DRIVER === "s3" ? "s3" : "local";
   if (storageDriver === "s3") {
@@ -212,5 +259,32 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     // Post-checkout redirect target. Production compose sets https://<DOMAIN>;
     // dev falls back to the Next.js storefront.
     storefrontBaseUrl: (env.STOREFRONT_BASE_URL ?? "http://localhost:3000").replace(/\/$/, ""),
+    omnivaMode,
+    omniva:
+      omnivaMode === "off"
+        ? null
+        : {
+            apiUrl: (env.OMNIVA_API_URL ?? "https://omx.omniva.eu/api/v01/omx").replace(/\/$/, ""),
+            username: env.OMNIVA_USERNAME ?? "",
+            password: env.OMNIVA_PASSWORD ?? "",
+          },
+    dpdMode,
+    dpd:
+      dpdMode === "off"
+        ? null
+        : {
+            apiUrl: (env.DPD_API_URL ?? "https://eserviss.dpd.lv/api/v1").replace(/\/$/, ""),
+            apiToken: env.DPD_API_TOKEN ?? "",
+            serviceAlias: env.DPD_SERVICE_ALIAS ?? "DPD PUDO",
+          },
+    shipSender: {
+      name: env.SHIP_SENDER_NAME ?? "Skakunov's SIA",
+      phone: env.SHIP_SENDER_PHONE ?? "",
+      email: env.SHIP_SENDER_EMAIL ?? "info@izsoli.lv",
+      country: env.SHIP_SENDER_COUNTRY ?? "LV",
+      postcode: env.SHIP_SENDER_POSTCODE ?? "",
+      city: env.SHIP_SENDER_CITY ?? "Rīga",
+      street: env.SHIP_SENDER_STREET ?? "",
+    },
   };
 }

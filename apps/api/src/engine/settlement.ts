@@ -32,12 +32,15 @@ export async function settleOrderPaid(
     if (order.status !== "awaiting_payment") return { outcome: "not_awaiting" as const, status: order.status };
     const [item] = await tx.select().from(items).where(eq(items.id, order.itemId)).for("update");
     assertItemTransition(item!.status as ItemStatus, "paid");
+    // Carrier orders get no pickup credential — they leave via Omniva/DPD,
+    // never through the warehouse pickup boards or the no-show machinery.
+    const forPickup = order.fulfilment === "pickup";
     const [market] = await tx.select().from(markets).where(eq(markets.code, order.marketCode));
     const deadlineDays = market?.pickupDeadlineDays ?? 14;
-    const pickupDeadlineAt = new Date(ctx.now().getTime() + deadlineDays * 24 * 3_600_000);
+    const pickupDeadlineAt = forPickup ? new Date(ctx.now().getTime() + deadlineDays * 24 * 3_600_000) : null;
     await tx
       .update(orders)
-      .set({ status: "paid", paidAt: ctx.now(), pickupCode, pickupDeadlineAt })
+      .set({ status: "paid", paidAt: ctx.now(), pickupCode: forPickup ? pickupCode : null, pickupDeadlineAt })
       .where(eq(orders.id, orderId));
     await tx.update(items).set({ status: "paid", updatedAt: ctx.now() }).where(eq(items.id, item!.id));
     await enqueueNotification(tx, {
@@ -45,13 +48,15 @@ export async function settleOrderPaid(
       type: "order_paid",
       template: { alias: "", lotTitle: "", orderRef: order.ref, totalCents: order.totalCents },
     });
-    // Pickup pass: collection code + deadline (design: 14 days, then 5% fee).
-    await enqueueNotification(tx, {
-      customerId: order.customerId,
-      type: "pickup_ready",
-      template: { alias: "", lotTitle: "", orderRef: order.ref, pickupCode, deadline: pickupDeadlineAt },
-    });
-    await writeAudit(tx, actor, "order", "marked_paid", order.ref, { totalCents: order.totalCents, ...meta });
+    if (forPickup) {
+      // Pickup pass: collection code + deadline (design: 14 days, 5% fee).
+      await enqueueNotification(tx, {
+        customerId: order.customerId,
+        type: "pickup_ready",
+        template: { alias: "", lotTitle: "", orderRef: order.ref, pickupCode, deadline: pickupDeadlineAt! },
+      });
+    }
+    await writeAudit(tx, actor, "order", "marked_paid", order.ref, { totalCents: order.totalCents, fulfilment: order.fulfilment, ...meta });
     return { outcome: "settled" as const, order };
   });
 }

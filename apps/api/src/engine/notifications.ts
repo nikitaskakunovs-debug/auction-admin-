@@ -18,7 +18,8 @@ export type NotificationType =
   | "pickup_ready"
   | "pickup_reminder"
   | "no_pickup_cancelled"
-  | "unpaid_cancelled";
+  | "unpaid_cancelled"
+  | "shipped";
 
 type Lang = "lv" | "en";
 
@@ -41,6 +42,11 @@ interface TemplateInput {
   refundCents?: number | undefined;
   /** One-click Klix checkout link (won / purchased / payment_reminder). */
   payUrl?: string | null | undefined;
+  /** Carrier tracking (shipped). */
+  barcode?: string | undefined;
+  machineName?: string | undefined;
+  carrier?: string | undefined;
+  trackingUrl?: string | undefined;
 }
 
 /** type → (lang → {subject, body}). Body carries a machine tag `[type]` used
@@ -139,6 +145,16 @@ function render(type: NotificationType, lang: Lang, i: TemplateInput): { subject
       en: {
         subject: `Order cancelled (not paid) — ${i.orderRef}`,
         body: `Hi ${i.alias},\n\nOrder ${i.orderRef} was not paid by the deadline and has been cancelled. Per our terms a 5% restocking fee applies: ${money(i.feeCents)}.\nBidding and buying on your account are paused until the fee is settled.\n\n[unpaid_cancelled]`,
+      },
+    },
+    shipped: {
+      lv: {
+        subject: `Sūtījums ceļā — ${i.orderRef}`,
+        body: `Sveiki, ${i.alias}!\n\nPasūtījums ${i.orderRef} ir nodots ${i.carrier ?? "Omniva"} un ceļā uz pakomātu "${i.machineName}".\nSūtījuma numurs: ${i.barcode}\nSekot sūtījumam: ${i.trackingUrl}\n\nKad paka būs pakomātā, ${i.carrier ?? "Omniva"} nosūtīs SMS ar durvju kodu.\n\n[shipped]`,
+      },
+      en: {
+        subject: `Your parcel is on its way — ${i.orderRef}`,
+        body: `Hi ${i.alias},\n\nOrder ${i.orderRef} has been handed to ${i.carrier ?? "Omniva"} and is on its way to the "${i.machineName}" locker.\nTracking number: ${i.barcode}\nTrack it here: ${i.trackingUrl}\n\n${i.carrier ?? "Omniva"} will text you a door code when the parcel arrives.\n\n[shipped]`,
       },
     },
     no_pickup_cancelled: {

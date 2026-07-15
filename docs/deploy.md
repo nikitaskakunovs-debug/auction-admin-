@@ -193,6 +193,48 @@ Inbank. Refunds for Inbank-paid orders are done in the Inbank partner
 portal (contract credit/termination), then recorded in admin with the
 "Record only" path — the API refuses to fake-refund them automatically.
 
+## Omniva parcel shipping
+
+Built in and OFF by default (`OMNIVA_MODE=off`) — until then every order is
+warehouse pickup. When the Omniva business contract is signed and they issue
+the customer code + password:
+
+1. Fill `OMNIVA_MODE=live`, `OMNIVA_USERNAME`, `OMNIVA_PASSWORD` and the
+   `SHIP_SENDER_*` block (warehouse address on the labels) in
+   `/opt/auction/deploy/.env`. For their sandbox first:
+   `OMNIVA_API_URL=https://test-omx.omniva.eu/api/v01/omx`.
+2. Restart the api container.
+3. The buyer's account page then offers "Omniva parcel machine" next to
+   pickup: they choose a machine + leave a phone (for the locker SMS) BEFORE
+   paying — the delivery price AND the packing/handling fee (both per market
+   in Settings → Markets) join the order total, the invoice is reissued as a
+   correction, and any open checkout reprices. Neither shipping nor handling
+   is ever part of the 10% buyer premium — that applies to the hammer price
+   only.
+4. After payment, admin → Orders → the order → **Shipping** card:
+   **Register Omniva shipment** (barcode issued, customer gets the tracking
+   email) → **Print label** (PDF opens in a tab — print, stick, hand the
+   parcel to Omniva) → tracking events update on **Refresh tracking** and
+   automatically every 30 minutes. The item walks paid → packed → shipped →
+   delivered with the parcel.
+
+Refunds/returns of shipped goods and courier pickup orders stay manual.
+
+## DPD parcel lockers
+
+The second carrier, on the same seam and also OFF by default
+(`DPD_MODE=off`). When the DPD business contract is signed:
+
+1. Fill `DPD_MODE=live` + `DPD_API_TOKEN` in `/opt/auction/deploy/.env`
+   (sandbox first: `DPD_API_URL=https://sandbox-eserviss.dpd.lv/api/v1`).
+   Confirm the locker service alias with `GET /services` and set
+   `DPD_SERVICE_ALIAS` if it differs from "DPD PUDO".
+2. Restart the api container. The account page then offers "DPD parcel
+   locker" next to Omniva and pickup, at its own per-market price
+   (Settings → Markets → "DPD locker €"); the same handling fee applies.
+3. Admin flow is identical to Omniva: Register DPD shipment → Print label
+   (A6 PDF) → tracking events, all in the order's Shipping card.
+
 ## Notes
 
 - CORS, `PUBLIC_BASE_URL`, `STOREFRONT_BASE_URL`, and trust-proxy are derived

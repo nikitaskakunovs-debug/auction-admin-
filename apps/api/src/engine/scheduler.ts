@@ -1,6 +1,6 @@
 import { auctions, customers, items, markets, orders } from "@auction/db";
 import { assertItemTransition, computeNoShowSettlement, type ItemStatus } from "@auction/domain";
-import { and, eq, gt, lte, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, lte, sql } from "drizzle-orm";
 import { writeAudit, SYSTEM_ACTOR } from "../audit.js";
 import type { AppContext } from "../context.js";
 import { closeAuction, openAuction } from "./close.js";
@@ -54,6 +54,9 @@ export class AuctionScheduler {
         // Pickup no-show flow: reminder → cancel + restock fee + strike.
         await remindPickupDue(this.ctx);
         await cancelNoShowDue(this.ctx);
+        // Carrier tracking: poll active shipments (rate-limited to every
+        // 30 min via its own Redis key — the per-second tick just asks).
+        await this.pollShipments();
         // Drain the outbox last so this tick's enqueues go out promptly.
         await dispatchNotifications(this.ctx);
       } finally {
@@ -70,6 +73,27 @@ export class AuctionScheduler {
       console.error("scheduler tick failed", err);
     } finally {
       this.running = false;
+    }
+  }
+
+  /**
+   * Refresh tracking for every shipment still moving. Guarded by a 30-minute
+   * Redis marker so the carrier API sees at most ~50 polls a day regardless
+   * of tick frequency or instance count.
+   */
+  private async pollShipments(): Promise<void> {
+    if (!this.ctx.omniva && !this.ctx.dpd) return;
+    const marker = await this.ctx.redis.set("shipments:poll", "1", "PX", 30 * 60 * 1000, "NX");
+    if (marker !== "OK") return;
+    const { shipments } = await import("@auction/db");
+    const { refreshShipment } = await import("../routes/shipping.js");
+    const active = await this.ctx.db
+      .select()
+      .from(shipments)
+      .where(inArray(shipments.status, ["registered", "in_transit"]))
+      .limit(200);
+    for (const shipment of active) {
+      await refreshShipment(this.ctx, shipment).catch(() => undefined);
     }
   }
 

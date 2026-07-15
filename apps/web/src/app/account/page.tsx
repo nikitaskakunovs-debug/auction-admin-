@@ -7,6 +7,7 @@ import { loadPaymentsConfig, type PaymentsConfig } from "@/components/KlixPayLat
 import { useT } from "@/lib/i18n";
 import { formatEur, type MyOrder, type PublicAuction } from "@/lib/types";
 import { Countdown } from "@/components/Countdown";
+import { DeliveryPicker, TrackingLine } from "@/components/DeliveryPicker";
 import { FeesNotice } from "@/components/FeesNotice";
 import { KlixPayLater } from "@/components/KlixPayLater";
 import { PickupPass } from "@/components/PickupPass";
@@ -231,11 +232,14 @@ export default function AccountPage() {
                   )}
                 </div>
                 {o.status === "awaiting_payment" && (
-                  <div style={{ padding: "0 16px 10px" }}>
+                  <div style={{ padding: "0 16px 10px", display: "grid", gap: 8 }}>
+                    {/* Delivery choice reprices the order — pay after choosing. */}
+                    <DeliveryPicker order={o} onSaved={loadOrders} />
                     {/* Pay Later monthly-payment preview on the exact amount due. */}
                     <KlixPayLater amountCents={o.totalCents} view="checkout" micro />
                   </div>
                 )}
+                {o.status === "paid" && o.fulfilment !== "pickup" && <TrackingLine order={o} />}
               </div>
             ))
           )}
