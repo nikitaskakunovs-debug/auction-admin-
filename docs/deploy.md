@@ -218,8 +218,22 @@ the customer code + password:
    automatically every 30 minutes. The item walks paid → packed → shipped →
    delivered with the parcel.
 
-Refunds/returns of shipped goods and courier pickup orders stay manual for
-now; DPD arrives next on the same seam.
+Refunds/returns of shipped goods and courier pickup orders stay manual.
+
+## DPD parcel lockers
+
+The second carrier, on the same seam and also OFF by default
+(`DPD_MODE=off`). When the DPD business contract is signed:
+
+1. Fill `DPD_MODE=live` + `DPD_API_TOKEN` in `/opt/auction/deploy/.env`
+   (sandbox first: `DPD_API_URL=https://sandbox-eserviss.dpd.lv/api/v1`).
+   Confirm the locker service alias with `GET /services` and set
+   `DPD_SERVICE_ALIAS` if it differs from "DPD PUDO".
+2. Restart the api container. The account page then offers "DPD parcel
+   locker" next to Omniva and pickup, at its own per-market price
+   (Settings → Markets → "DPD locker €"); the same handling fee applies.
+3. Admin flow is identical to Omniva: Register DPD shipment → Print label
+   (A6 PDF) → tracking events, all in the order's Shipping card.
 
 ## Notes
 

@@ -67,6 +67,7 @@ interface MarketDraft {
   pickupDays: string;
   restockFee: string;
   omnivaPrice: string;
+  dpdPrice: string;
   handlingFee: string;
   active: boolean;
   tiers: Array<{ from: string; inc: string }>;
@@ -93,6 +94,7 @@ function MarketsTab() {
               pickupDays: String(m.pickupDeadlineDays),
               restockFee: (m.restockFeeBp / 100).toFixed(1),
               omnivaPrice: ((m.omnivaPmPriceCents ?? 399) / 100).toFixed(2),
+              dpdPrice: ((m.dpdPmPriceCents ?? 399) / 100).toFixed(2),
               handlingFee: ((m.handlingFeeCents ?? 0) / 100).toFixed(2),
               active: m.active,
               tiers: m.incrementTable.map((t) => ({ from: (t.fromCents / 100).toFixed(2), inc: (t.incrementCents / 100).toFixed(2) })),
@@ -136,6 +138,7 @@ function MarketsTab() {
         pickupDeadlineDays: Number(d.pickupDays),
         restockFeeBp: Math.round(parseFloat(d.restockFee.replace(",", ".")) * 100),
         omnivaPmPriceCents: Math.round(parseFloat(d.omnivaPrice.replace(",", ".")) * 100),
+        dpdPmPriceCents: Math.round(parseFloat(d.dpdPrice.replace(",", ".")) * 100),
         handlingFeeCents: Math.round(parseFloat(d.handlingFee.replace(",", ".")) * 100),
         active: d.active,
         incrementTable: tiers,
@@ -183,6 +186,9 @@ function MarketsTab() {
                 </AField>
                 <AField label="Omniva parcel machine €" hint="Delivery price charged to the buyer.">
                   <AInput value={d.omnivaPrice} onChange={(v) => setDraft(m.code, { omnivaPrice: v })} style={{ opacity: editable ? 1 : 0.6 }} />
+                </AField>
+                <AField label="DPD locker €" hint="Delivery price charged to the buyer.">
+                  <AInput value={d.dpdPrice} onChange={(v) => setDraft(m.code, { dpdPrice: v })} style={{ opacity: editable ? 1 : 0.6 }} />
                 </AField>
                 <AField label="Handling fee €" hint="Packing fee on shipped orders. Never part of the 10% premium.">
                   <AInput value={d.handlingFee} onChange={(v) => setDraft(m.code, { handlingFee: v })} style={{ opacity: editable ? 1 : 0.6 }} />

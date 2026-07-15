@@ -104,6 +104,18 @@ export interface ApiConfig {
     username: string;
     password: string;
   } | null;
+  /**
+   * DPD parcel lockers (DPD Baltic "Amber" API, Bearer token). Same gating
+   * pattern: "off" hides the option; "live" talks to eserviss.dpd.lv (point
+   * DPD_API_URL at sandbox-eserviss.dpd.lv for testing).
+   */
+  dpdMode: "off" | "live" | "simulate";
+  dpd: {
+    apiUrl: string;
+    apiToken: string;
+    /** Locker-delivery service alias (confirm via GET /services at onboarding). */
+    serviceAlias: string;
+  } | null;
   /** Parcel sender identity printed on labels (the warehouse). */
   shipSender: {
     name: string;
@@ -158,6 +170,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     for (const key of ["OMNIVA_USERNAME", "OMNIVA_PASSWORD"] as const) {
       if (!env[key]) throw new Error(`${key} must be set when OMNIVA_MODE=live`);
     }
+  }
+  const dpdMode: "off" | "live" | "simulate" =
+    env.DPD_MODE === "live" ? "live" : env.DPD_MODE === "simulate" ? "simulate" : "off";
+  if (dpdMode === "live" && !env.DPD_API_TOKEN) {
+    throw new Error("DPD_API_TOKEN must be set when DPD_MODE=live");
   }
   const storageDriver: "local" | "s3" = env.STORAGE_DRIVER === "s3" ? "s3" : "local";
   if (storageDriver === "s3") {
@@ -250,6 +267,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
             apiUrl: (env.OMNIVA_API_URL ?? "https://omx.omniva.eu/api/v01/omx").replace(/\/$/, ""),
             username: env.OMNIVA_USERNAME ?? "",
             password: env.OMNIVA_PASSWORD ?? "",
+          },
+    dpdMode,
+    dpd:
+      dpdMode === "off"
+        ? null
+        : {
+            apiUrl: (env.DPD_API_URL ?? "https://eserviss.dpd.lv/api/v1").replace(/\/$/, ""),
+            apiToken: env.DPD_API_TOKEN ?? "",
+            serviceAlias: env.DPD_SERVICE_ALIAS ?? "DPD PUDO",
           },
     shipSender: {
       name: env.SHIP_SENDER_NAME ?? "Skakunov's SIA",

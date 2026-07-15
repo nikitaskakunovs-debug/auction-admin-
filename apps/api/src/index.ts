@@ -3,6 +3,7 @@ import { Redis } from "ioredis";
 import { loadConfig } from "./config.js";
 import type { AppContext } from "./context.js";
 import { createEmailAdapter } from "./email.js";
+import { createDpdClient } from "./engine/dpd.js";
 import { createInbankClient } from "./engine/inbank.js";
 import { createKlixClient } from "./engine/klix.js";
 import { createOmnivaClient } from "./engine/omniva.js";
@@ -24,6 +25,7 @@ const ctx: AppContext = {
   klix: createKlixClient(config),
   inbank: createInbankClient(config),
   omniva: createOmnivaClient(config),
+  dpd: createDpdClient(config),
   now: () => new Date(),
 };
 

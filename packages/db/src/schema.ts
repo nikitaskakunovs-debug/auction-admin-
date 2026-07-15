@@ -40,6 +40,8 @@ export const markets = pgTable("markets", {
   restockFeeBp: integer("restock_fee_bp").notNull().default(500),
   /** Omniva parcel-machine delivery price for this market (flat, €3.99). */
   omnivaPmPriceCents: integer("omniva_pm_price_cents").notNull().default(399),
+  /** DPD parcel-locker delivery price for this market (flat, €3.99). */
+  dpdPmPriceCents: integer("dpd_pm_price_cents").notNull().default(399),
   /**
    * Packing/handling fee added on top of carrier delivery (flat, €2.00).
    * Like shipping, it is NEVER part of the 10% buyer premium — the premium

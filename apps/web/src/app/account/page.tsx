@@ -239,7 +239,7 @@ export default function AccountPage() {
                     <KlixPayLater amountCents={o.totalCents} view="checkout" micro />
                   </div>
                 )}
-                {o.status === "paid" && o.fulfilment === "omniva_pm" && <TrackingLine order={o} />}
+                {o.status === "paid" && o.fulfilment !== "pickup" && <TrackingLine order={o} />}
               </div>
             ))
           )}

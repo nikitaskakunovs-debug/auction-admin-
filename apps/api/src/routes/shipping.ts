@@ -5,24 +5,29 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { writeAudit } from "../audit.js";
 import type { AppContext } from "../context.js";
-import { listLocationsCached, setFulfilment } from "../engine/fulfilment.js";
+import { dpdStatusFromEvents } from "../engine/dpd.js";
+import { CARRIERS, carrierClient, listLocationsCached, setFulfilment, type CarrierId } from "../engine/fulfilment.js";
 import { enqueueNotification } from "../engine/notifications.js";
 import { OmnivaError, shipmentStatusFromEvents } from "../engine/omniva.js";
 import { requirePermission, type PermissionService } from "../auth/rbac.js";
 
 /**
- * Parcel shipping — Omniva parcel machines (DPD next on the same seam).
+ * Parcel shipping — Omniva parcel machines + DPD lockers, one seam.
  *
  * Customer side: choose delivery BEFORE paying (the carrier price joins the
- * order total), pick a machine, leave a phone number for the locker SMS.
- * Admin side: register the shipment at Omniva (→ barcode), print the label
- * PDF, refresh tracking events, watch the parcel move. The item follows its
- * lifecycle: paid → picking → packed at registration, shipped when the
- * carrier first scans it, delivered when it reaches the customer.
+ * order total), pick a machine/locker, leave a phone for the door-code SMS.
+ * Admin side: register the shipment at the carrier (→ barcode), print the
+ * label PDF, refresh tracking events, watch the parcel move. The item
+ * follows its lifecycle: paid → picking → packed at registration, shipped
+ * when the carrier first scans it, delivered when it reaches the customer.
  */
 
-export const trackingUrl = (barcode: string): string =>
-  `https://www.omniva.lv/track-and-trace/?barcode=${encodeURIComponent(barcode)}`;
+export const trackingUrl = (provider: string, barcode: string): string =>
+  provider === "dpd"
+    ? `https://www.dpd.com/lv/lv/sekot-sutijumam/?parcelNumber=${encodeURIComponent(barcode)}`
+    : `https://www.omniva.lv/track-and-trace/?barcode=${encodeURIComponent(barcode)}`;
+
+const statusFromEvents = (provider: string) => (provider === "dpd" ? dpdStatusFromEvents : shipmentStatusFromEvents);
 
 const actor = (req: { admin?: { sub: string; name: string } }) => ({
   id: req.admin?.sub ?? null,
@@ -50,23 +55,23 @@ export function registerShippingRoutes(app: FastifyInstance, ctx: AppContext, pe
     const options: Array<{ method: string; priceCents: number; handlingCents: number }> = [
       { method: "pickup", priceCents: 0, handlingCents: 0 },
     ];
+    // Packing/handling rides along with carrier delivery; neither shipping
+    // nor handling is ever part of the 10% buyer premium.
     if (ctx.omniva) {
-      options.push({
-        method: "omniva_pm",
-        priceCents: m?.omnivaPmPriceCents ?? 399,
-        // Packing/handling rides along with carrier delivery; neither is
-        // ever part of the 10% buyer premium.
-        handlingCents: m?.handlingFeeCents ?? 0,
-      });
+      options.push({ method: "omniva_pm", priceCents: m?.omnivaPmPriceCents ?? 399, handlingCents: m?.handlingFeeCents ?? 0 });
+    }
+    if (ctx.dpd) {
+      options.push({ method: "dpd_pm", priceCents: m?.dpdPmPriceCents ?? 399, handlingCents: m?.handlingFeeCents ?? 0 });
     }
     return { options };
   });
 
-  /** Parcel machines for a country, filterable: ?country=LV&q=ogre */
+  /** Parcel machines/lockers: ?provider=omniva|dpd&country=LV&q=ogre */
   app.get("/api/public/shipping/locations", async (req, reply) => {
-    if (!ctx.omniva) return reply.code(503).send({ error: "shipping_unavailable" });
-    const { country, q } = req.query as { country?: string; q?: string };
-    let locations = await listLocationsCached(ctx, (country ?? "LV").toUpperCase());
+    const { country, q, provider } = req.query as { country?: string; q?: string; provider?: string };
+    const carrier: CarrierId = provider === "dpd" ? "dpd" : "omniva";
+    if (!carrierClient(ctx, carrier)) return reply.code(503).send({ error: "shipping_unavailable" });
+    let locations = await listLocationsCached(ctx, (country ?? "LV").toUpperCase(), carrier);
     if (q && q.trim().length >= 2) {
       const needle = q.trim().toLowerCase();
       locations = locations.filter(
@@ -77,7 +82,7 @@ export function registerShippingRoutes(app: FastifyInstance, ctx: AppContext, pe
   });
 
   const fulfilmentSchema = z.object({
-    method: z.enum(["pickup", "omniva_pm"]),
+    method: z.enum(["pickup", "omniva_pm", "dpd_pm"]),
     machineId: z.string().min(1).optional(),
     recipientName: z.string().max(120).optional(),
     recipientPhone: z.string().max(32).optional(),
@@ -108,9 +113,8 @@ export function registerShippingRoutes(app: FastifyInstance, ctx: AppContext, pe
 
   // ── Admin: register, label, tracking ──────────────────────────────────────
 
-  /** Register the parcel at Omniva; item advances paid → picking → packed. */
+  /** Register the parcel at the carrier; item advances paid → picking → packed. */
   app.post("/api/orders/:id/shipment", guard("orders.mark_paid"), async (req, reply) => {
-    if (!ctx.omniva) return reply.code(503).send({ error: "shipping_unavailable" });
     const { id } = req.params as { id: string };
     const [row] = await ctx.db
       .select({ order: orders, item: items })
@@ -119,9 +123,12 @@ export function registerShippingRoutes(app: FastifyInstance, ctx: AppContext, pe
       .where(eq(orders.id, id));
     if (!row) return reply.code(404).send({ error: "not_found" });
     if (row.order.status !== "paid") return reply.code(409).send({ error: "order_not_paid" });
-    if (row.order.fulfilment !== "omniva_pm" || !row.order.shippingTo) {
+    if (row.order.fulfilment === "pickup" || !row.order.shippingTo) {
       return reply.code(409).send({ error: "order_not_for_shipping" });
     }
+    const carrier = CARRIERS[row.order.fulfilment as keyof typeof CARRIERS];
+    const client = carrier ? carrierClient(ctx, carrier.id) : null;
+    if (!carrier || !client) return reply.code(503).send({ error: "shipping_unavailable" });
     const [existing] = await ctx.db
       .select()
       .from(shipments)
@@ -130,12 +137,13 @@ export function registerShippingRoutes(app: FastifyInstance, ctx: AppContext, pe
     if (existing) return reply.code(409).send({ error: "shipment_exists", barcode: existing.barcode });
 
     try {
-      const registered = await ctx.omniva.registerShipment({
+      const registered = await client.registerShipment({
         reference: row.order.ref,
         receiver: {
           name: row.order.recipientName ?? row.order.customerAlias,
           phone: row.order.recipientPhone ?? "",
           email: row.order.customerEmail,
+          machineId: row.order.shippingTo.machineId,
           machineZip: row.order.shippingTo.zip,
           country: row.order.shippingTo.country,
         },
@@ -146,7 +154,7 @@ export function registerShippingRoutes(app: FastifyInstance, ctx: AppContext, pe
       const [shipment] = await ctx.db.transaction(async (tx) => {
         const inserted = await tx
           .insert(shipments)
-          .values({ orderId: id, provider: "omniva", barcode: registered.barcode, status: "registered", raw: registered.raw })
+          .values({ orderId: id, provider: carrier.id, barcode: registered.barcode, status: "registered", raw: registered.raw })
           .returning();
         // paid → picking → packed: the parcel is being prepared for the
         // carrier; "shipped" lands with the first carrier scan.
@@ -162,11 +170,13 @@ export function registerShippingRoutes(app: FastifyInstance, ctx: AppContext, pe
             orderRef: row.order.ref,
             barcode: registered.barcode,
             machineName: row.order.shippingTo!.name,
-            trackingUrl: trackingUrl(registered.barcode),
+            carrier: carrier.label,
+            trackingUrl: trackingUrl(carrier.id, registered.barcode),
           },
           dedupeKey: `shipped:${id}`,
         });
         await writeAudit(tx, actor(req), "order", "shipment_registered", row.order.ref, {
+          carrier: carrier.id,
           barcode: registered.barcode,
           machine: row.order.shippingTo!.name,
         });
@@ -174,7 +184,7 @@ export function registerShippingRoutes(app: FastifyInstance, ctx: AppContext, pe
       });
       return { shipment: shipment! };
     } catch (err) {
-      req.log?.error({ err, orderId: id }, "omniva registration failed");
+      req.log?.error({ err, orderId: id }, "carrier registration failed");
       const status = err instanceof OmnivaError ? 502 : 500;
       return reply.code(status).send({ error: "carrier_error", detail: err instanceof Error ? err.message : "unknown" });
     }
@@ -188,19 +198,20 @@ export function registerShippingRoutes(app: FastifyInstance, ctx: AppContext, pe
     const { verifyAccessToken } = await import("../auth/jwt.js");
     const claims = token ? verifyAccessToken(token, ctx.config.jwtSecret, ctx.now().getTime()) : req.admin;
     if (!claims || (claims as { kind?: string }).kind !== "admin") return reply.code(401).send({ error: "unauthenticated" });
-    if (!ctx.omniva) return reply.code(503).send({ error: "shipping_unavailable" });
     const { id } = req.params as { id: string };
     const [shipment] = await ctx.db.select().from(shipments).where(eq(shipments.id, id));
     if (!shipment) return reply.code(404).send({ error: "not_found" });
+    const client = carrierClient(ctx, shipment.provider as CarrierId);
+    if (!client) return reply.code(503).send({ error: "shipping_unavailable" });
     try {
-      const base64 = await ctx.omniva.getLabel(shipment.barcode);
+      const base64 = await client.getLabel(shipment.barcode);
       await ctx.db.update(shipments).set({ labelPrintedAt: ctx.now(), updatedAt: ctx.now() }).where(eq(shipments.id, id));
       return reply
         .header("content-type", "application/pdf")
         .header("content-disposition", `inline; filename="label-${shipment.barcode}.pdf"`)
         .send(Buffer.from(base64, "base64"));
     } catch (err) {
-      req.log?.error({ err, shipmentId: id }, "omniva label failed");
+      req.log?.error({ err, shipmentId: id }, "carrier label failed");
       return reply.code(502).send({ error: "carrier_error", detail: err instanceof Error ? err.message : "unknown" });
     }
   });
@@ -224,10 +235,11 @@ export async function refreshShipment(
   ctx: AppContext,
   shipment: typeof shipments.$inferSelect,
 ): Promise<typeof shipments.$inferSelect | null> {
-  if (!ctx.omniva) return null;
-  const tracked = await ctx.omniva.getEvents(shipment.barcode).catch(() => null);
+  const client = carrierClient(ctx, shipment.provider as CarrierId);
+  if (!client) return null;
+  const tracked = await client.getEvents(shipment.barcode).catch(() => null);
   if (!tracked) return null;
-  const status = shipmentStatusFromEvents(tracked.events);
+  const status = statusFromEvents(shipment.provider)(tracked.events);
   const [updated] = await ctx.db
     .update(shipments)
     .set({

@@ -82,7 +82,7 @@ export class AuctionScheduler {
    * of tick frequency or instance count.
    */
   private async pollShipments(): Promise<void> {
-    if (!this.ctx.omniva) return;
+    if (!this.ctx.omniva && !this.ctx.dpd) return;
     const marker = await this.ctx.redis.set("shipments:poll", "1", "PX", 30 * 60 * 1000, "NX");
     if (marker !== "OK") return;
     const { shipments } = await import("@auction/db");

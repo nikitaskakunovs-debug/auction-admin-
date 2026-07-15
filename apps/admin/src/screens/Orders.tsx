@@ -141,9 +141,10 @@ export function OrdersScreen({ nav: _nav }: { nav: Nav }) {
   };
 
   const registerShipment = async (o: Order) => {
+    const carrier = o.shippingTo?.provider === "dpd" ? "DPD" : "Omniva";
     const r = await confirm({
-      title: `Register Omniva shipment for ${o.ref}?`,
-      body: "The parcel is registered with Omniva, a tracking barcode is issued, and the customer gets the tracking email. Print the label right after.",
+      title: `Register ${carrier} shipment for ${o.ref}?`,
+      body: `The parcel is registered with ${carrier}, a tracking barcode is issued, and the customer gets the tracking email. Print the label right after.`,
       confirmLabel: "Register",
     });
     if (!r.ok) return;
@@ -333,18 +334,20 @@ export function OrdersScreen({ nav: _nav }: { nav: Nav }) {
             <ACard
               title="Shipping"
               actions={
-                detail.order.fulfilment === "omniva_pm" &&
+                detail.order.fulfilment !== "pickup" &&
                 detail.order.status === "paid" &&
                 detail.shipments.length === 0 &&
                 can("orders.mark_paid") ? (
-                  <ABtn size="sm" onClick={() => void registerShipment(detail.order)}>Register Omniva shipment</ABtn>
+                  <ABtn size="sm" onClick={() => void registerShipment(detail.order)}>
+                    Register {detail.order.shippingTo?.provider === "dpd" ? "DPD" : "Omniva"} shipment
+                  </ABtn>
                 ) : undefined
               }
             >
-              {detail.order.fulfilment === "omniva_pm" && detail.order.shippingTo ? (
+              {detail.order.fulfilment !== "pickup" && detail.order.shippingTo ? (
                 <div style={{ display: "grid", gap: 8, fontSize: 12.5 }}>
                   <div>
-                    <ABadge tone="accent">Omniva parcel machine</ABadge>
+                    <ABadge tone="accent">{detail.order.shippingTo.provider === "dpd" ? "DPD locker" : "Omniva parcel machine"}</ABadge>
                     <span style={{ marginLeft: 8, fontWeight: 600 }}>{detail.order.shippingTo.name}</span>
                     <span style={{ color: AT.inkSoft }}> — {detail.order.shippingTo.address} ({detail.order.shippingTo.country})</span>
                   </div>

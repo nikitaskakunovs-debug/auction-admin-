@@ -1,6 +1,7 @@
 import { invoices, items, notifications, orders, payments, shipments } from "@auction/db";
 import { and, eq, isNull } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { SimulatedDpdClient } from "../src/engine/dpd.js";
 import { SimulatedKlixClient } from "../src/engine/klix.js";
 import { SimulatedOmnivaClient } from "../src/engine/omniva.js";
 import { auth, createWorld, loginAs, type TestWorld } from "./helpers.js";
@@ -15,13 +16,16 @@ let world: TestWorld;
 let adminToken: string;
 let klix: SimulatedKlixClient;
 let omniva: SimulatedOmnivaClient;
+let dpd: SimulatedDpdClient;
 
 beforeAll(async () => {
   world = await createWorld();
   adminToken = await loginAs(world, "super@auction.test");
   klix = world.ctx.klix as SimulatedKlixClient;
   omniva = world.ctx.omniva as SimulatedOmnivaClient;
+  dpd = world.ctx.dpd as SimulatedDpdClient;
   expect(omniva).toBeInstanceOf(SimulatedOmnivaClient);
+  expect(dpd).toBeInstanceOf(SimulatedDpdClient);
 });
 afterAll(async () => {
   await world.close();
@@ -74,6 +78,7 @@ describe("delivery options + machine list", () => {
       options: [
         { method: "pickup", priceCents: 0, handlingCents: 0 },
         { method: "omniva_pm", priceCents: 399, handlingCents: 200 },
+        { method: "dpd_pm", priceCents: 399, handlingCents: 200 },
       ],
     });
     const locs = await world.server.app.inject({ method: "GET", url: "/api/public/shipping/locations?country=LV&q=ogre" });
@@ -371,5 +376,92 @@ describe("admin: register → label → track", () => {
     expect(order.shippingTo.name).toContain("Origo");
     expect(order.shipment?.status).toBe("registered");
     expect(order.shipment?.barcode).toMatch(/^CE\d{9}LV$/);
+  });
+});
+
+describe("DPD lockers (second carrier on the same seam)", () => {
+  async function chooseDpd(ref: string, token: string, machineId = "LV90005") {
+    return world.server.app.inject({
+      method: "POST",
+      url: `/api/public/orders/${ref}/fulfilment`,
+      headers: auth(token),
+      payload: { method: "dpd_pm", machineId, recipientPhone: "+371 29999888", recipientName: "Dita Test" },
+    });
+  }
+
+  it("options list DPD with its own market price; DPD lockers are listed separately", async () => {
+    const opts = await world.server.app.inject({ method: "GET", url: "/api/public/shipping/options?market=LV" });
+    const options = (opts.json() as { options: Array<{ method: string; priceCents: number; handlingCents: number }> }).options;
+    expect(options.find((o) => o.method === "dpd_pm")).toMatchObject({ priceCents: 399, handlingCents: 200 });
+
+    const locs = await world.server.app.inject({ method: "GET", url: "/api/public/shipping/locations?country=LV&provider=dpd" });
+    const { locations } = locs.json() as { locations: Array<{ id: string; name: string }> };
+    expect(locations.length).toBe(2);
+    expect(locations[0]!.name).toContain("DPD");
+  });
+
+  it("choosing a DPD locker reprices with the DPD price + handling", async () => {
+    const buyer = await registerBidder("dpd_anna");
+    const { orderId, ref } = await unpaidOrder(buyer.accessToken);
+    const res = await chooseDpd(ref, buyer.accessToken);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ shippingCents: 399, handlingCents: 200, totalCents: 13_909 });
+    const [order] = await world.ctx.db.select().from(orders).where(eq(orders.id, orderId));
+    expect(order!.fulfilment).toBe("dpd_pm");
+    expect(order!.shippingTo).toMatchObject({ provider: "dpd", machineId: "LV90005" });
+    // Switching carrier is allowed while unpaid — back to Omniva.
+    const swap = await chooseOmniva(ref, buyer.accessToken);
+    expect(swap.statusCode).toBe(200);
+    const [after] = await world.ctx.db.select().from(orders).where(eq(orders.id, orderId));
+    expect(after!.shippingTo).toMatchObject({ provider: "omniva" });
+  });
+
+  it("DPD price is admin-editable per market", async () => {
+    const patch = await world.server.app.inject({
+      method: "PATCH",
+      url: "/api/markets/LV",
+      headers: auth(adminToken),
+      payload: { dpdPmPriceCents: 449 },
+    });
+    expect(patch.statusCode).toBe(200);
+    try {
+      const opts = await world.server.app.inject({ method: "GET", url: "/api/public/shipping/options?market=LV" });
+      const options = (opts.json() as { options: Array<{ method: string; priceCents: number }> }).options;
+      expect(options.find((o) => o.method === "dpd_pm")!.priceCents).toBe(449);
+    } finally {
+      await world.server.app.inject({ method: "PATCH", url: "/api/markets/LV", headers: auth(adminToken), payload: { dpdPmPriceCents: 399 } });
+    }
+  });
+
+  it("register → DPD parcel number with the pudoId; label PDF; tracking to delivered; DPD email", async () => {
+    const buyer = await registerBidder("dpd_full");
+    const { orderId, ref, itemId } = await unpaidOrder(buyer.accessToken);
+    await chooseDpd(ref, buyer.accessToken);
+    await world.server.app.inject({ method: "POST", url: `/api/orders/${orderId}/mark-paid`, headers: auth(adminToken) });
+
+    const reg = await world.server.app.inject({ method: "POST", url: `/api/orders/${orderId}/shipment`, headers: auth(adminToken) });
+    expect(reg.statusCode).toBe(200);
+    const shipment = (reg.json() as { shipment: { id: string; barcode: string; provider: string } }).shipment;
+    expect(shipment.provider).toBe("dpd");
+    expect(shipment.barcode).toMatch(/^\d{14}$/);
+    // DPD received the locker's pudoId (not a street address).
+    expect(dpd.inspect(shipment.barcode)!.input.receiver.machineId).toBe("LV90005");
+
+    // The customer email names DPD, not Omniva, and links DPD tracking.
+    const mails = await world.ctx.db.select().from(notifications).where(eq(notifications.type, "shipped"));
+    const mail = mails.find((n) => n.body.includes(ref))!;
+    expect(mail.body).toContain("DPD");
+    expect(mail.body).toContain("dpd.com");
+    expect(mail.body).not.toContain("Omniva");
+
+    const label = await world.server.app.inject({ method: "GET", url: `/api/shipments/${shipment.id}/label?token=${adminToken}` });
+    expect(label.statusCode).toBe(200);
+    expect(label.rawPayload.subarray(0, 5).toString()).toBe("%PDF-");
+
+    dpd.addEvent(shipment.barcode, "PARCEL_DELIVERED", "Delivered to locker");
+    const refresh = await world.server.app.inject({ method: "POST", url: `/api/shipments/${shipment.id}/refresh`, headers: auth(adminToken) });
+    expect((refresh.json() as { shipment: { status: string } }).shipment.status).toBe("delivered");
+    const [item] = await world.ctx.db.select().from(items).where(eq(items.id, itemId));
+    expect(item!.status).toBe("delivered");
   });
 });

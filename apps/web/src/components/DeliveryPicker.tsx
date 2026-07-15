@@ -14,7 +14,7 @@ export function DeliveryPicker({ order, onSaved }: { order: MyOrder; onSaved: ()
   const { t } = useT();
   const [options, setOptions] = useState<ShippingOption[]>([]);
   const [method, setMethod] = useState(order.fulfilment);
-  const [locations, setLocations] = useState<ParcelLocation[] | null>(null);
+  const [locationsByProvider, setLocationsByProvider] = useState<Record<string, ParcelLocation[]>>({});
   const [filter, setFilter] = useState("");
   const [machineId, setMachineId] = useState(order.shippingTo?.machineId ?? "");
   const [phone, setPhone] = useState("");
@@ -28,13 +28,17 @@ export function DeliveryPicker({ order, onSaved }: { order: MyOrder; onSaved: ()
       .catch(() => setOptions([{ method: "pickup", priceCents: 0, handlingCents: 0 }]));
   }, []);
 
+  const provider = method === "dpd_pm" ? "dpd" : method === "omniva_pm" ? "omniva" : null;
+
   useEffect(() => {
-    if (method !== "omniva_pm" || locations !== null) return;
+    if (!provider || locationsByProvider[provider]) return;
     void publicApi
-      .get<{ locations: ParcelLocation[] }>(`/api/public/shipping/locations?country=LV`)
-      .then((r) => setLocations(r.locations))
-      .catch(() => setLocations([]));
-  }, [method, locations]);
+      .get<{ locations: ParcelLocation[] }>(`/api/public/shipping/locations?country=LV&provider=${provider}`)
+      .then((r) => setLocationsByProvider((prev) => ({ ...prev, [provider]: r.locations })))
+      .catch(() => setLocationsByProvider((prev) => ({ ...prev, [provider]: [] })));
+  }, [provider, locationsByProvider]);
+
+  const locations = provider ? (locationsByProvider[provider] ?? null) : null;
 
   const filtered = useMemo(() => {
     if (!locations) return [];
@@ -45,8 +49,8 @@ export function DeliveryPicker({ order, onSaved }: { order: MyOrder; onSaved: ()
     return list.slice(0, 60);
   }, [locations, filter]);
 
-  const omniva = options.find((o) => o.method === "omniva_pm");
-  if (!omniva) return null; // shipping off — pickup is implicit
+  const carrierOptions = options.filter((o) => o.method !== "pickup");
+  if (carrierOptions.length === 0) return null; // shipping off — pickup is implicit
 
   async function save() {
     setBusy(true);
@@ -54,7 +58,7 @@ export function DeliveryPicker({ order, onSaved }: { order: MyOrder; onSaved: ()
     try {
       await publicApi.post(`/api/public/orders/${encodeURIComponent(order.ref)}/fulfilment`, {
         method,
-        ...(method === "omniva_pm" ? { machineId, recipientPhone: phone } : {}),
+        ...(method !== "pickup" ? { machineId, recipientPhone: phone } : {}),
       });
       setNotice("saved");
       onSaved();
@@ -77,7 +81,7 @@ export function DeliveryPicker({ order, onSaved }: { order: MyOrder; onSaved: ()
   };
 
   const canSave =
-    method !== order.fulfilment || (method === "omniva_pm" && machineId !== (order.shippingTo?.machineId ?? ""))
+    method !== order.fulfilment || (method !== "pickup" && machineId !== (order.shippingTo?.machineId ?? ""))
       ? method === "pickup" || (machineId && phone.replace(/\D/g, "").length >= 7)
       : false;
 
@@ -86,9 +90,16 @@ export function DeliveryPicker({ order, onSaved }: { order: MyOrder; onSaved: ()
       <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6B68", textTransform: "uppercase", letterSpacing: "0.05em" }}>{t("acc.delivery")}</div>
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
         {radio("pickup", t("acc.deliveryPickup"))}
-        {radio("omniva_pm", `${t("acc.deliveryOmniva")} — ${formatEur(omniva.priceCents + omniva.handlingCents)}`)}
+        {carrierOptions.map((o) => (
+          <span key={o.method}>
+            {radio(
+              o.method,
+              `${t(o.method === "dpd_pm" ? "acc.deliveryDpd" : "acc.deliveryOmniva")} — ${formatEur(o.priceCents + o.handlingCents)}`,
+            )}
+          </span>
+        ))}
       </div>
-      {method === "omniva_pm" && (
+      {provider && (
         <div style={{ display: "grid", gap: 6 }}>
           <input style={inputStyle} placeholder={t("acc.machineFilter")} value={filter} onChange={(e) => setFilter(e.target.value)} />
           <select style={inputStyle} value={machineId} onChange={(e) => setMachineId(e.target.value)}>
@@ -115,7 +126,7 @@ export function DeliveryPicker({ order, onSaved }: { order: MyOrder; onSaved: ()
         </button>
         {notice === "saved" && <span style={{ fontSize: 12, color: "#1F8A4C", fontWeight: 600 }}>{t("acc.deliverySaved")}</span>}
         {notice === "error" && <span style={{ fontSize: 12, color: "#B0282C", fontWeight: 600 }}>{t("acc.deliveryError")}</span>}
-        {order.fulfilment === "omniva_pm" && order.shippingTo && (
+        {order.fulfilment !== "pickup" && order.shippingTo && (
           <span style={{ fontSize: 11.5, color: "#6B6B68" }}>
             {order.shippingTo.name} · {t("acc.shippingCost")}: {formatEur(order.shippingCents + order.handlingCents)}
           </span>
@@ -140,7 +151,11 @@ export function TrackingLine({ order }: { order: MyOrder }) {
       }}>{t(statusKey)}</span>
       {order.shippingTo && <span>{order.shippingTo.name}</span>}
       <a
-        href={`https://www.omniva.lv/track-and-trace/?barcode=${encodeURIComponent(order.shipment.barcode)}`}
+        href={
+          order.shippingTo?.provider === "dpd"
+            ? `https://www.dpd.com/lv/lv/sekot-sutijumam/?parcelNumber=${encodeURIComponent(order.shipment.barcode)}`
+            : `https://www.omniva.lv/track-and-trace/?barcode=${encodeURIComponent(order.shipment.barcode)}`
+        }
         target="_blank"
         rel="noreferrer"
         style={{ color: "#2D4BFF", fontWeight: 700 }}

@@ -25,6 +25,7 @@ export interface OmnivaLocation {
   address: string;
 }
 
+/** Provider-neutral shipment input — shared by the Omniva and DPD clients. */
 export interface OmnivaShipmentInput {
   /** Our order ref — becomes partnerShipmentId / clientItemId. */
   reference: string;
@@ -32,7 +33,8 @@ export interface OmnivaShipmentInput {
     name: string;
     phone: string;
     email: string;
-    /** Destination parcel machine. */
+    /** Destination machine/locker id (Omniva: ZIP; DPD: pudoId). */
+    machineId: string;
     machineZip: string;
     country: string;
   };

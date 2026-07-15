@@ -85,6 +85,7 @@ const STRINGS: Record<string, Record<Lang, string>> = {
   "acc.delivery": { lv: "Saņemšana", ru: "Получение", en: "Delivery", et: "Kättesaamine", lt: "Atsiėmimas" },
   "acc.deliveryPickup": { lv: "Noliktavā (bez maksas)", ru: "Самовывоз (бесплатно)", en: "Warehouse pickup (free)", et: "Laost (tasuta)", lt: "Sandėlyje (nemokamai)" },
   "acc.deliveryOmniva": { lv: "Omniva pakomāts", ru: "Пакомат Omniva", en: "Omniva parcel machine", et: "Omniva pakiautomaat", lt: "Omniva paštomatas" },
+  "acc.deliveryDpd": { lv: "DPD skapītis", ru: "Постамат DPD", en: "DPD parcel locker", et: "DPD pakiautomaat", lt: "DPD paštomatas" },
   "acc.chooseMachine": { lv: "Izvēlieties pakomātu…", ru: "Выберите пакомат…", en: "Choose a parcel machine…", et: "Valige pakiautomaat…", lt: "Pasirinkite paštomatą…" },
   "acc.machineFilter": { lv: "Meklēt pēc pilsētas vai nosaukuma", ru: "Поиск по городу или названию", en: "Search by city or name", et: "Otsi linna või nime järgi", lt: "Ieškoti pagal miestą ar pavadinimą" },
   "acc.phone": { lv: "Tālrunis (SMS kodam)", ru: "Телефон (для SMS-кода)", en: "Phone (for the SMS code)", et: "Telefon (SMS-koodi jaoks)", lt: "Telefonas (SMS kodui)" },

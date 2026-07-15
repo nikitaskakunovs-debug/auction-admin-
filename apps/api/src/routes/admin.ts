@@ -32,6 +32,7 @@ export function registerAdminRoutes(app: FastifyInstance, ctx: AppContext, perms
     pickupDeadlineDays: z.number().int().min(1).max(90).optional(),
     restockFeeBp: z.number().int().min(0).max(5000).optional(),
     omnivaPmPriceCents: z.number().int().min(0).max(100_000).optional(),
+    dpdPmPriceCents: z.number().int().min(0).max(100_000).optional(),
     handlingFeeCents: z.number().int().min(0).max(100_000).optional(),
     active: z.boolean().optional(),
   });

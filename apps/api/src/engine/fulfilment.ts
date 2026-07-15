@@ -14,7 +14,20 @@ import type { OmnivaLocation } from "./omniva.js";
  * as a correction (old number voided, next number issued).
  */
 
-export type FulfilmentMethod = "pickup" | "omniva_pm";
+export type FulfilmentMethod = "pickup" | "omniva_pm" | "dpd_pm";
+
+export type CarrierId = "omniva" | "dpd";
+
+/** Carrier facts per fulfilment method — one row to add per new carrier. */
+export const CARRIERS: Record<Exclude<FulfilmentMethod, "pickup">, { id: CarrierId; label: string }> = {
+  omniva_pm: { id: "omniva", label: "Omniva" },
+  dpd_pm: { id: "dpd", label: "DPD" },
+};
+
+export const carrierClient = (ctx: AppContext, id: CarrierId) => (id === "dpd" ? ctx.dpd : ctx.omniva);
+
+const carrierPrice = (market: { omnivaPmPriceCents: number; dpdPmPriceCents: number } | undefined, id: CarrierId) =>
+  id === "dpd" ? (market?.dpdPmPriceCents ?? 399) : (market?.omnivaPmPriceCents ?? 399);
 
 export type SetFulfilmentResult =
   | { ok: true; shippingCents: number; handlingCents: number; totalCents: number }
@@ -34,14 +47,15 @@ export async function setFulfilment(
   // Resolve the destination machine outside the transaction (may hit the
   // carrier's location list / Redis cache — no network inside the tx).
   let machine: OmnivaLocation | null = null;
-  if (input.method === "omniva_pm") {
-    if (!ctx.omniva) return { ok: false, code: "SHIPPING_OFF" };
+  const carrierId = input.method === "pickup" ? null : CARRIERS[input.method].id;
+  if (carrierId) {
+    if (!carrierClient(ctx, carrierId)) return { ok: false, code: "SHIPPING_OFF" };
     if (!input.recipientPhone || input.recipientPhone.replace(/\D/g, "").length < 7) {
       return { ok: false, code: "PHONE_REQUIRED" };
     }
     const [order] = await ctx.db.select({ marketCode: orders.marketCode }).from(orders).where(eq(orders.id, orderId));
     if (!order) return { ok: false, code: "NOT_AWAITING" };
-    const locations = await listLocationsCached(ctx, order.marketCode);
+    const locations = await listLocationsCached(ctx, order.marketCode, carrierId);
     machine = locations.find((l) => l.id === input.machineId) ?? null;
     if (!machine) return { ok: false, code: "MACHINE_NOT_FOUND" };
   }
@@ -59,10 +73,9 @@ export async function setFulfilment(
     if (paidAttempt) return { ok: false as const, code: "ALREADY_PAID" as const };
 
     const [market] = await tx.select().from(markets).where(eq(markets.code, order.marketCode));
-    const carrier = input.method === "omniva_pm";
-    const shippingCents = carrier ? (market?.omnivaPmPriceCents ?? 399) : 0;
+    const shippingCents = carrierId ? carrierPrice(market, carrierId) : 0;
     // Packing/handling fee rides along with carrier delivery only.
-    const handlingCents = carrier ? (market?.handlingFeeCents ?? 0) : 0;
+    const handlingCents = carrierId ? (market?.handlingFeeCents ?? 0) : 0;
     // Shipping + handling are VAT-inclusive flat prices on top of the goods
     // total. The 10% buyer premium NEVER applies to either — it was computed
     // on the hammer price at close and is untouched here.
@@ -77,11 +90,11 @@ export async function setFulfilment(
         handlingCents,
         totalCents,
         shippingTo:
-          input.method === "omniva_pm" && machine
-            ? { provider: "omniva", machineId: machine.id, name: machine.name, zip: machine.zip, country: machine.country, address: machine.address }
+          carrierId && machine
+            ? { provider: carrierId, machineId: machine.id, name: machine.name, zip: machine.zip, country: machine.country, address: machine.address }
             : null,
-        recipientName: input.method === "omniva_pm" ? (input.recipientName?.trim() || order.customerAlias) : null,
-        recipientPhone: input.method === "omniva_pm" ? input.recipientPhone!.trim() : null,
+        recipientName: carrierId ? (input.recipientName?.trim() || order.customerAlias) : null,
+        recipientPhone: carrierId ? input.recipientPhone!.trim() : null,
       })
       .where(eq(orders.id, orderId));
 
@@ -114,18 +127,19 @@ export async function setFulfilment(
 
 const LOCATIONS_CACHE_TTL_SEC = 24 * 3600;
 
-/** Country's parcel machines with a daily Redis cache (the public list is
- * ~2MB and Omniva asks integrators not to hammer it). */
-export async function listLocationsCached(ctx: AppContext, country: string): Promise<OmnivaLocation[]> {
-  if (!ctx.omniva) return [];
-  const key = `omniva:locations:${country.toUpperCase()}`;
+/** A carrier's machines/lockers for a country with a daily Redis cache (the
+ * public lists are large and carriers ask integrators not to hammer them). */
+export async function listLocationsCached(ctx: AppContext, country: string, carrier: CarrierId = "omniva"): Promise<OmnivaLocation[]> {
+  const client = carrierClient(ctx, carrier);
+  if (!client) return [];
+  const key = `${carrier}:locations:${country.toUpperCase()}`;
   try {
     const cached = await ctx.redis.get(key);
     if (cached) return JSON.parse(cached) as OmnivaLocation[];
   } catch {
     // cache miss path below
   }
-  const locations = await ctx.omniva.listLocations(country);
+  const locations = await client.listLocations(country);
   try {
     await ctx.redis.set(key, JSON.stringify(locations), "EX", LOCATIONS_CACHE_TTL_SEC);
   } catch {

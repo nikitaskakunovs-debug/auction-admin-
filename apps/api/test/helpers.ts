@@ -9,6 +9,7 @@ import pg from "pg";
 import { loadConfig } from "../src/config.js";
 import type { AppContext } from "../src/context.js";
 import { CapturingEmailAdapter } from "../src/email.js";
+import { createDpdClient } from "../src/engine/dpd.js";
 import { createInbankClient } from "../src/engine/inbank.js";
 import { createKlixClient } from "../src/engine/klix.js";
 import { createOmnivaClient } from "../src/engine/omniva.js";
@@ -80,6 +81,7 @@ export async function createWorld(): Promise<TestWorld> {
     KLIX_MODE: "simulate",
     INBANK_MODE: "simulate",
     OMNIVA_MODE: "simulate",
+    DPD_MODE: "simulate",
   });
   const email = new CapturingEmailAdapter();
   const ctx: AppContext = {
@@ -92,6 +94,7 @@ export async function createWorld(): Promise<TestWorld> {
     klix: createKlixClient(config),
     inbank: createInbankClient(config),
     omniva: createOmnivaClient(config),
+    dpd: createDpdClient(config),
     now: () => fakeNow ?? new Date(),
   };
   const server = await buildServer(ctx);

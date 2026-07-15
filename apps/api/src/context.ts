@@ -24,6 +24,8 @@ export interface AppContext {
   inbank: InbankClient | null;
   /** Omniva parcel client (null when OMNIVA_MODE=off — shipping is hidden). */
   omniva: OmnivaClient | null;
+  /** DPD locker client — same interface as Omniva (null when DPD_MODE=off). */
+  dpd: OmnivaClient | null;
   /** Injectable clock so tests control time. */
   now: () => Date;
 }

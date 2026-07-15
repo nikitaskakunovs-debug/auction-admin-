@@ -32,6 +32,7 @@ export interface Market {
   pickupDeadlineDays: number;
   restockFeeBp: number;
   omnivaPmPriceCents: number;
+  dpdPmPriceCents: number;
   handlingFeeCents: number;
   active: boolean;
 }
