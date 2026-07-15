@@ -1,0 +1,19 @@
+{
+  "name": "@auction/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "echo \"(e2e runs in its own CI job: pnpm test:e2e)\"",
+    "e2e": "playwright test",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@auction/db": "workspace:*",
+    "@auction/domain": "workspace:*",
+    "@playwright/test": "^1.49.1",
+    "@types/node": "^22.10.7",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

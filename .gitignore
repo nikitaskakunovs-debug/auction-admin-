@@ -1,0 +1,17 @@
+node_modules/
+dist/
+build/
+coverage/
+*.log
+.env
+.env.local
+.DS_Store
+.turbo/
+dump.rdb
+.next/
+apps/web/next-env.d.ts
+apps/web/tsconfig.tsbuildinfo
+apps/e2e/test-results/
+apps/e2e/playwright-report/
+apps/e2e/playwright/.cache/
+var/

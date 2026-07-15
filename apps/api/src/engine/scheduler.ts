@@ -1,0 +1,174 @@
+import { auctions, customers, items, markets, orders } from "@auction/db";
+import { assertItemTransition, computeNoShowSettlement, type ItemStatus } from "@auction/domain";
+import { and, eq, gt, lte, sql } from "drizzle-orm";
+import { writeAudit, SYSTEM_ACTOR } from "../audit.js";
+import type { AppContext } from "../context.js";
+import { closeAuction, openAuction } from "./close.js";
+import { recordFee } from "./fees.js";
+import { cancelNoShowDue, remindPickupDue } from "./noShow.js";
+import { dispatchNotifications, enqueueNotification, reminderDedupeKey } from "./notifications.js";
+
+const LOCK_KEY = "scheduler:lock";
+const LOCK_TTL_MS = 4_000;
+
+/**
+ * The auction clock: a 1s tick that opens scheduled auctions, closes ended
+ * ones, and auto-cancels unpaid winners past their deadline (design doc:
+ * deadline → auto-cancel → relist + strike; relisting stays a manual admin
+ * action). A Redis NX lock makes the tick single-flight across instances.
+ */
+export class AuctionScheduler {
+  private timer: NodeJS.Timeout | null = null;
+  private running = false;
+
+  constructor(private ctx: AppContext) {}
+
+  start(intervalMs = 1_000): void {
+    if (this.timer) return;
+    this.timer = setInterval(() => {
+      void this.tick();
+    }, intervalMs);
+    this.timer.unref?.();
+  }
+
+  stop(): void {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+  }
+
+  /** One pass; safe to call directly from tests. */
+  async tick(): Promise<void> {
+    if (this.running) return;
+    this.running = true;
+    try {
+      const token = Math.random().toString(36).slice(2);
+      const locked = await this.ctx.redis.set(LOCK_KEY, token, "PX", LOCK_TTL_MS, "NX");
+      if (locked !== "OK") return;
+      try {
+        await this.openDue();
+        await this.closeDue();
+        // Design-doc unpaid-winner flow: deadline → reminder → auto-cancel.
+        await this.remindUnpaidDue();
+        await this.cancelUnpaidDue();
+        // Pickup no-show flow: reminder → cancel + restock fee + strike.
+        await remindPickupDue(this.ctx);
+        await cancelNoShowDue(this.ctx);
+        // Drain the outbox last so this tick's enqueues go out promptly.
+        await dispatchNotifications(this.ctx);
+      } finally {
+        // Release only our own lock.
+        await this.ctx.redis.eval(
+          `if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end`,
+          1,
+          LOCK_KEY,
+          token,
+        );
+      }
+    } catch (err) {
+      // Never let the clock die; log and try next tick.
+      console.error("scheduler tick failed", err);
+    } finally {
+      this.running = false;
+    }
+  }
+
+  private async openDue(): Promise<void> {
+    const now = this.ctx.now();
+    const due = await this.ctx.db
+      .select({ id: auctions.id })
+      .from(auctions)
+      .where(and(eq(auctions.status, "scheduled"), lte(auctions.startsAt, now)));
+    for (const a of due) await openAuction(this.ctx, a.id);
+  }
+
+  private async closeDue(): Promise<void> {
+    const now = this.ctx.now();
+    const due = await this.ctx.db
+      .select({ id: auctions.id })
+      .from(auctions)
+      .where(and(eq(auctions.status, "live"), lte(auctions.endsAt, now)));
+    for (const a of due) await closeAuction(this.ctx, a.id);
+  }
+
+  /**
+   * Unpaid-winner reminder: once the deadline is within the lead window (and
+   * still in the future), enqueue a single payment reminder per order. The
+   * dedupe key makes this idempotent no matter how often the tick runs.
+   */
+  private async remindUnpaidDue(): Promise<void> {
+    const now = this.ctx.now();
+    const windowEnd = new Date(now.getTime() + this.ctx.config.paymentReminderLeadHours * 3_600_000);
+    const due = await this.ctx.db
+      .select({ id: orders.id, ref: orders.ref, customerId: orders.customerId, totalCents: orders.totalCents, deadline: orders.paymentDeadlineAt })
+      .from(orders)
+      .where(
+        and(
+          eq(orders.status, "awaiting_payment"),
+          gt(orders.paymentDeadlineAt, now),
+          lte(orders.paymentDeadlineAt, windowEnd),
+        ),
+      );
+    for (const o of due) {
+      await enqueueNotification(this.ctx.db, {
+        customerId: o.customerId,
+        type: "payment_reminder",
+        template: { alias: "", lotTitle: "", orderRef: o.ref, totalCents: o.totalCents, deadline: o.deadline ?? undefined },
+        dedupeKey: reminderDedupeKey(o.id),
+      });
+    }
+  }
+
+  /**
+   * Unpaid-winner handling: deadline passed → cancel order + strike + an
+   * OUTSTANDING restock fee (we hold no funds to deduct from, so the fee is
+   * a claim that blocks bidding/buying until settled or waived).
+   */
+  private async cancelUnpaidDue(): Promise<void> {
+    const now = this.ctx.now();
+    const due = await this.ctx.db
+      .select({ id: orders.id })
+      .from(orders)
+      .where(and(eq(orders.status, "awaiting_payment"), lte(orders.paymentDeadlineAt, now)));
+    for (const o of due) {
+      await this.ctx.db.transaction(async (tx) => {
+        const [order] = await tx.select().from(orders).where(eq(orders.id, o.id)).for("update");
+        if (!order || order.status !== "awaiting_payment") return;
+        const [item] = await tx.select().from(items).where(eq(items.id, order.itemId));
+
+        assertItemTransition(item!.status as ItemStatus, "unpaid_cancelled");
+        const [market] = await tx.select().from(markets).where(eq(markets.code, order.marketCode));
+        const feeCents = computeNoShowSettlement(order.totalCents, market?.restockFeeBp ?? 500).feeCents;
+        await tx
+          .update(orders)
+          .set({ status: "cancelled", cancelledAt: now, cancelReason: "unpaid", restockFeeCents: feeCents })
+          .where(eq(orders.id, order.id));
+        await tx.update(items).set({ status: "unpaid_cancelled", updatedAt: now }).where(eq(items.id, item!.id));
+        await tx
+          .update(customers)
+          .set({ strikes: sql`${customers.strikes} + 1` })
+          .where(eq(customers.id, order.customerId));
+        await recordFee(tx, {
+          customerId: order.customerId,
+          orderId: order.id,
+          orderRef: order.ref,
+          type: "unpaid_restock",
+          amountCents: feeCents,
+          status: "outstanding",
+          note: "auto: payment deadline passed",
+          now,
+        });
+        await enqueueNotification(tx, {
+          customerId: order.customerId,
+          type: "unpaid_cancelled",
+          template: { alias: "", lotTitle: "", orderRef: order.ref, feeCents },
+          dedupeKey: `unpaid_cancelled:${order.id}`,
+        });
+        await writeAudit(tx, SYSTEM_ACTOR, "order", "auto_cancelled_unpaid", order.ref, {
+          orderId: order.id,
+          customerId: order.customerId,
+          feeCents,
+        });
+      });
+    }
+  }
+}
