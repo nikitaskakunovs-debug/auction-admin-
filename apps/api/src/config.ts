@@ -59,6 +59,23 @@ export interface ApiConfig {
   } | null;
   /** Per-file upload ceiling in bytes. */
   maxPhotoBytes: number;
+  /**
+   * Klix hosted-checkout payments (BNPL, banklinks, cards). "off" hides the
+   * pay button entirely (pre-contract state); "live" calls portal.klix.app
+   * with the merchant credentials (Klix test credentials also use "live" —
+   * the test brand is just a different key pair); "simulate" is an in-memory
+   * driver for the test suite.
+   */
+  klixMode: "off" | "live" | "simulate";
+  klix: {
+    apiUrl: string;
+    brandId: string;
+    secretKey: string;
+    /** Optional payment_method_whitelist; empty = all methods enabled on the brand. */
+    methods: string[];
+  } | null;
+  /** Storefront origin used for post-checkout redirects (success/failure/cancel). */
+  storefrontBaseUrl: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
@@ -81,6 +98,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   if (emailMode === "smtp") {
     for (const key of ["SMTP_HOST", "EMAIL_FROM"] as const) {
       if (!env[key]) throw new Error(`${key} must be set when EMAIL_MODE=smtp`);
+    }
+  }
+  const klixMode: "off" | "live" | "simulate" =
+    env.KLIX_MODE === "live" ? "live" : env.KLIX_MODE === "simulate" ? "simulate" : "off";
+  if (klixMode === "live") {
+    for (const key of ["KLIX_BRAND_ID", "KLIX_SECRET_KEY"] as const) {
+      if (!env[key]) throw new Error(`${key} must be set when KLIX_MODE=live`);
     }
   }
   const storageDriver: "local" | "s3" = env.STORAGE_DRIVER === "s3" ? "s3" : "local";
@@ -140,5 +164,21 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
           }
         : null,
     maxPhotoBytes: Number(env.MAX_PHOTO_BYTES ?? 15 * 1024 * 1024),
+    klixMode,
+    klix:
+      klixMode === "off"
+        ? null
+        : {
+            apiUrl: (env.KLIX_API_URL ?? "https://portal.klix.app/api/v1").replace(/\/$/, ""),
+            brandId: env.KLIX_BRAND_ID ?? "",
+            secretKey: env.KLIX_SECRET_KEY ?? "",
+            methods: (env.KLIX_METHODS ?? "")
+              .split(",")
+              .map((m) => m.trim())
+              .filter(Boolean),
+          },
+    // Post-checkout redirect target. Production compose sets https://<DOMAIN>;
+    // dev falls back to the Next.js storefront.
+    storefrontBaseUrl: (env.STOREFRONT_BASE_URL ?? "http://localhost:3000").replace(/\/$/, ""),
   };
 }

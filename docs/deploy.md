@@ -115,12 +115,36 @@ your domain in the From line. Practical guidance:
   authenticated as *your* domain; switching providers (or to self-hosted
   later, once you have reputation and a dedicated IP) is only an env change.
 
+## Klix payments (cards, Pay Later/BNPL, banklinks)
+
+The integration is built in and OFF by default (`KLIX_MODE=off`) — the
+storefront shows no pay button and orders are marked paid manually in
+admin → Orders. To switch it on when Klix issues the credentials:
+
+1. Put the keys in `/opt/auction/deploy/.env` (never in chat/screenshots):
+   `KLIX_MODE=live`, `KLIX_BRAND_ID=…`, `KLIX_SECRET_KEY=…`.
+   Klix **test** credentials use the same setting — the test brand is just a
+   different key pair (test cards: VISA 4505 1312 3400 0029, MC 5191 6312
+   3400 0024, any future date / any CVC).
+2. `docker compose -f docker-compose.prod.yml up -d api` to restart the API.
+3. Test: win/buy something with a test bidder → account page → **Pay now** →
+   Klix checkout → pay with a test card → back on the account page the order
+   flips to paid and the pickup code email goes out.
+
+How it works: the API creates a Klix *purchase* and redirects the customer to
+Klix's hosted checkout (which offers every method enabled on the brand —
+cards, Pay Later, Swedbank/SEB/Luminor/Citadele banklinks). Klix then calls
+`api.<domain>/api/public/payments/klix/callback` server-to-server; the API
+re-fetches the purchase from Klix and only marks the order paid when Klix
+itself reports `paid` (spoofed callbacks are harmless). If the callback is
+ever lost, the account page's status poll reconciles on the next visit.
+Payment attempts are visible per order in admin → Orders.
+
 ## Notes
 
-- CORS, `PUBLIC_BASE_URL`, and trust-proxy are derived from `DOMAIN`
-  automatically in `docker-compose.prod.yml`.
+- CORS, `PUBLIC_BASE_URL`, `STOREFRONT_BASE_URL`, and trust-proxy are derived
+  from `DOMAIN` automatically in `docker-compose.prod.yml`.
 - The ccTLD trio (`.lv/.ee/.lt`) works by adding the extra domains to DNS +
   the Caddyfile site list + `ORIGIN_LV/EE/LT` in `.env`, then rebuilding web.
 - EE VAT is seeded at 24% — confirm with your accountant in Settings → Markets.
-- Klix payments and carrier APIs remain env-gated future work; orders are
-  marked paid manually in admin → Orders until then.
+- Carrier APIs remain env-gated future work.

@@ -464,6 +464,38 @@ export const refunds = pgTable(
   (t) => [index("refunds_order_idx").on(t.orderId)],
 );
 
+/**
+ * Online payment attempts (Klix hosted checkout). One order may accumulate
+ * several rows — abandoned checkouts stay `created`/`expired`; exactly one
+ * `paid` row settles the order. The provider purchase is the source of truth:
+ * a row flips to `paid` only after re-fetching the purchase from the provider
+ * (callbacks are never trusted on their own).
+ */
+export const payments = pgTable(
+  "payments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull().default("klix"),
+    /** Provider-side purchase id (Klix purchase UUID). */
+    providerId: text("provider_id"),
+    status: text("status").notNull().default("created"), // created | paid | failed | expired
+    amountCents: integer("amount_cents").notNull(),
+    /** Hosted checkout URL the customer was redirected to. */
+    checkoutUrl: text("checkout_url"),
+    /** Last raw provider status observed (diagnostics). */
+    providerStatus: text("provider_status"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("payments_order_idx").on(t.orderId, t.createdAt),
+    index("payments_provider_id_idx").on(t.providerId),
+  ],
+);
+
 export const invoices = pgTable(
   "invoices",
   {

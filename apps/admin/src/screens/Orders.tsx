@@ -16,12 +16,30 @@ interface Refund {
   createdAt: string;
 }
 
+interface Payment {
+  id: string;
+  provider: string;
+  providerId: string | null;
+  status: string; // created | paid | failed | expired
+  providerStatus: string | null;
+  amountCents: number;
+  createdAt: string;
+}
+
 interface OrderDetail {
   order: Order;
   item: Item;
   refunds: Refund[];
   invoice: { id: string; number: string; issuedAt: string } | null;
+  payments: Payment[];
 }
+
+const PAYMENT_TONE: Record<string, "ok" | "warn" | "danger" | "neutral"> = {
+  paid: "ok",
+  created: "warn",
+  failed: "danger",
+  expired: "neutral",
+};
 
 const PILLS = [
   { id: "all", label: "All" },
@@ -248,6 +266,21 @@ export function OrdersScreen({ nav: _nav }: { nav: Nav }) {
                 </div>
               </div>
             </ACard>
+
+            {detail.payments.length > 0 && (
+              <ACard title="Online payments (Klix)" pad={false}>
+                <ATable head={["When", "Status", "Amount", "Purchase"]}>
+                  {detail.payments.map((p) => (
+                    <ATr key={p.id}>
+                      <ATd>{formatDate(p.createdAt)}</ATd>
+                      <ATd><ABadge tone={PAYMENT_TONE[p.status] ?? "neutral"}>{p.status}</ABadge></ATd>
+                      <ATd mono right>{formatEur(p.amountCents)}</ATd>
+                      <ATd><span style={{ fontFamily: AT.mono, fontSize: 11, color: AT.inkSoft }}>{p.providerId ?? "—"}</span></ATd>
+                    </ATr>
+                  ))}
+                </ATable>
+              </ACard>
+            )}
 
             {detail.refunds.length > 0 && (
               <ACard title="Refunds" pad={false}>

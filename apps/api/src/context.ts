@@ -3,6 +3,7 @@ import type pg from "pg";
 import type { Redis } from "ioredis";
 import type { ApiConfig } from "./config.js";
 import type { EmailAdapter } from "./email.js";
+import type { KlixClient } from "./engine/klix.js";
 import type { PhotoStorage } from "./storage.js";
 
 /** Shared dependencies threaded through routes and the engine. */
@@ -15,6 +16,8 @@ export interface AppContext {
   email: EmailAdapter;
   /** Item-photo storage (local disk in dev/tests, S3/Spaces in production). */
   storage: PhotoStorage;
+  /** Klix payment client (null when KLIX_MODE=off — pay endpoints 503). */
+  klix: KlixClient | null;
   /** Injectable clock so tests control time. */
   now: () => Date;
 }

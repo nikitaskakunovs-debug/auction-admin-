@@ -60,6 +60,12 @@ services:
       INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:-}
       INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
       VIES_MODE: live
+      # Klix payments (off until the merchant keys arrive; then KLIX_MODE=live).
+      STOREFRONT_BASE_URL: https://${DOMAIN}
+      KLIX_MODE: ${KLIX_MODE:-off}
+      KLIX_BRAND_ID: ${KLIX_BRAND_ID:-}
+      KLIX_SECRET_KEY: ${KLIX_SECRET_KEY:-}
+      KLIX_METHODS: ${KLIX_METHODS:-}
     volumes:
       # Only used if STORAGE_DRIVER=local; harmless otherwise.
       - uploads:/repo/apps/api/var/uploads
