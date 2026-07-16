@@ -21,7 +21,7 @@
   },
   "dependencies": {
     "@auction/domain": "workspace:*",
-    "drizzle-orm": "^0.44.2",
+    "drizzle-orm": "^0.45.2",
     "pg": "^8.13.1"
   },
   "devDependencies": {
