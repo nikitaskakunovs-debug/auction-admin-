@@ -95,3 +95,52 @@ jobs:
           name: playwright-report
           path: apps/e2e/playwright-report/
           retention-days: 7
+
+  # Post the run's outcome to Slack. A silent no-op until the
+  # SLACK_WEBHOOK_URL repository secret is configured (Slack →
+  # api.slack.com/apps → Incoming Webhooks → pick the channel).
+  notify:
+    runs-on: ubuntu-latest
+    needs: [ci, e2e]
+    if: always()
+    steps:
+      - name: Send result to Slack
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          CI_RESULT: ${{ needs.ci.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
+          BRANCH: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "SLACK_WEBHOOK_URL secret not set — skipping Slack notification"
+            exit 0
+          fi
+          if [ "$CI_RESULT" = "success" ] && [ "$E2E_RESULT" = "success" ]; then
+            EMOJI=":white_check_mark:"; VERDICT="passed"; COLOR="#1F8A4C"
+          else
+            EMOJI=":x:"; VERDICT="FAILED (ci: $CI_RESULT, e2e: $E2E_RESULT)"; COLOR="#B0282C"
+          fi
+          TITLE=$(printf '%s' "$COMMIT_MSG" | head -n1 | cut -c1-120)
+          # Escape the JSON string fields.
+          esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
+          PAYLOAD=$(cat <<JSON
+          {
+            "attachments": [{
+              "color": "$COLOR",
+              "blocks": [{
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "$EMOJI *Tests $(esc "$VERDICT")* on \`$(esc "$BRANCH")\`\n$(esc "$TITLE")\n<$RUN_URL|View run> · \`${SHA:0:7}\` by $(esc "$ACTOR")"
+                }
+              }]
+            }]
+          }
+          JSON
+          )
+          curl -sf -X POST -H 'Content-type: application/json' --data "$PAYLOAD" "$SLACK_WEBHOOK_URL" \
+            || echo "Slack notification failed (non-fatal)"
