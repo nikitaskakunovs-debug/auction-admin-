@@ -38,6 +38,8 @@ export default function LoginPage() {
       </form>
       <p style={{ fontSize: 12.5, color: "#6B6B68", marginBottom: 0 }}>
         {t("auth.noAccount")} <a href="/register" style={{ color: "#2D4BFF", fontWeight: 700 }}>{t("nav.register")}</a>
+        {" · "}
+        <a href="/forgot-password" style={{ color: "#2D4BFF", fontWeight: 700 }}>{t("auth.forgot")}</a>
       </p>
     </AuthCard>
   );

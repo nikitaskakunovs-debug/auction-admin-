@@ -104,6 +104,16 @@ class PublicApi {
     return r.bidder;
   }
 
+  /** Ask for a password-reset email. Always resolves ok (no account signal). */
+  forgotPassword(email: string): Promise<{ ok: true }> {
+    return this.raw<{ ok: true }>("POST", "/api/public/auth/forgot-password", { email });
+  }
+
+  /** Set a new password using the token from the emailed link. */
+  resetPassword(token: string, newPassword: string): Promise<{ ok: true }> {
+    return this.raw<{ ok: true }>("POST", "/api/public/auth/reset-password", { token, newPassword });
+  }
+
   logout(): void {
     this.setTokens(null);
   }

@@ -123,6 +123,39 @@ export const refreshTokens = pgTable(
   (t) => [index("refresh_tokens_user_idx").on(t.userId)],
 );
 
+/** Browsers where the admin completed 2FA and chose "trust this device":
+ * while unexpired, the TOTP step is skipped on login (password still required). */
+export const trustedDevices = pgTable(
+  "trusted_devices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => adminUsers.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("trusted_devices_user_idx").on(t.userId), index("trusted_devices_token_idx").on(t.tokenHash)],
+);
+
+/** Single-use, short-lived password-reset tokens for admins AND customers
+ * (exactly one of user_id / customer_id is set). Only the hash is stored. */
+export const passwordResets = pgTable(
+  "password_resets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").references(() => adminUsers.id, { onDelete: "cascade" }),
+    customerId: uuid("customer_id").references(() => customers.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("password_resets_token_idx").on(t.tokenHash)],
+);
+
 export const customerRefreshTokens = pgTable(
   "customer_refresh_tokens",
   {

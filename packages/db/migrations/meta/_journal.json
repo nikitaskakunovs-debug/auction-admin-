@@ -120,6 +120,13 @@
       "when": 1784158937340,
       "tag": "0016_short_smasher",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1784220079477,
+      "tag": "0017_lonely_metal_master",
+      "breakpoints": true
     }
   ]
 }

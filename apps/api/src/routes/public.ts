@@ -16,6 +16,13 @@ import { and, asc, desc, eq, gt, ilike, inArray, isNull } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { signAccessToken } from "../auth/jwt.js";
+import {
+  createResetToken,
+  findValidResetToken,
+  markResetTokenUsed,
+  resetEmail,
+  resetRequestAllowed,
+} from "../auth/passwordReset.js";
 import type { AppContext } from "../context.js";
 import { placeBid } from "../engine/bids.js";
 import { buyNow } from "../engine/purchase.js";
@@ -129,6 +136,45 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
       return reply.code(401).send({ error: "invalid_credentials" });
     }
     return issueTokens(customer);
+  });
+
+  // ── Forgot password (emailed single-use link) ─────────────────────────────
+  app.post("/api/public/auth/forgot-password", async (req, reply) => {
+    const body = z.object({ email: z.string().email() }).safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid_body" });
+    const email = body.data.email.toLowerCase();
+    // Flat "ok" whether or not the account exists; lookup + email happen
+    // after the response so timing can't reveal existence either.
+    void (async () => {
+      if (!(await resetRequestAllowed(ctx.redis, email))) return;
+      const [customer] = await ctx.db.select().from(customers).where(eq(customers.email, email));
+      if (!customer || customer.erasedAt !== null || !customer.passwordHash) return;
+      const token = await createResetToken(ctx, { customerId: customer.id });
+      const link = `${ctx.config.storefrontBaseUrl}/reset-password?token=${token}`;
+      const msg = resetEmail(link, Math.round(ctx.config.passwordResetTtlSec / 60));
+      await ctx.email.send({ to: customer.email, subject: msg.subject, text: msg.text });
+    })().catch((err) => req.log.error({ err }, "customer forgot-password processing failed"));
+    return reply.send({ ok: true });
+  });
+
+  app.post("/api/public/auth/reset-password", async (req, reply) => {
+    const body = z.object({ token: z.string().min(20), newPassword: z.string().min(8) }).safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid_body" });
+    const found = await findValidResetToken(ctx, body.data.token);
+    if (!found || !found.customerId) return reply.code(401).send({ error: "invalid_or_expired_token" });
+    const [customer] = await ctx.db.select().from(customers).where(eq(customers.id, found.customerId));
+    if (!customer || customer.erasedAt !== null) return reply.code(401).send({ error: "invalid_or_expired_token" });
+    await ctx.db
+      .update(customers)
+      .set({ passwordHash: await hashPassword(body.data.newPassword) })
+      .where(eq(customers.id, customer.id));
+    await markResetTokenUsed(ctx, found.rowId);
+    // Credential change ends every live session on every device.
+    await ctx.db
+      .update(customerRefreshTokens)
+      .set({ revokedAt: ctx.now() })
+      .where(and(eq(customerRefreshTokens.customerId, customer.id), isNull(customerRefreshTokens.revokedAt)));
+    return { ok: true };
   });
 
   app.post("/api/public/auth/refresh", async (req, reply) => {

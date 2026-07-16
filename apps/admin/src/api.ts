@@ -298,16 +298,32 @@ export class ApiClient {
 
   // ── Login: password → second factor ─────────────────────────────────────────
 
-  /** Step 1: submit the password, receive a 2FA challenge. */
-  loginPassword(email: string, password: string): Promise<LoginChallenge> {
-    return this.raw<LoginChallenge>("POST", "/api/auth/login", { email, password });
+  /** Step 1: submit the password. On a trusted device the server signs in
+   * directly (session comes back); otherwise it returns a 2FA challenge. */
+  async loginPassword(email: string, password: string): Promise<LoginChallenge | { user: AdminUser }> {
+    const r = await this.raw<LoginChallenge | Session>("POST", "/api/auth/login", { email, password });
+    if ("accessToken" in r) {
+      this.accessToken = r.accessToken;
+      return { user: r.user };
+    }
+    return r;
   }
 
   /** Step 2 (enrolled): complete with a TOTP or recovery code. */
-  async completeTotp(challengeToken: string, code: string): Promise<AdminUser> {
-    const r = await this.raw<Session>("POST", "/api/auth/login/2fa", { challengeToken, code });
+  async completeTotp(challengeToken: string, code: string, rememberDevice = false): Promise<AdminUser> {
+    const r = await this.raw<Session>("POST", "/api/auth/login/2fa", { challengeToken, code, rememberDevice });
     this.accessToken = r.accessToken;
     return r.user;
+  }
+
+  /** Ask for a password-reset email. Always resolves ok (no account signal). */
+  forgotPassword(email: string): Promise<{ ok: true }> {
+    return this.raw<{ ok: true }>("POST", "/api/auth/forgot-password", { email });
+  }
+
+  /** Set a new password using an emailed reset token. */
+  resetPassword(token: string, newPassword: string): Promise<{ ok: true }> {
+    return this.raw<{ ok: true }>("POST", "/api/auth/reset-password", { token, newPassword });
   }
 
   /** Step 2 (first login): begin TOTP enrollment. */

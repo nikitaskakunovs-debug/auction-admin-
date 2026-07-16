@@ -7,6 +7,7 @@ import { writeAudit } from "../audit.js";
 import type { AppContext } from "../context.js";
 import { requirePermission, type PermissionService } from "../auth/rbac.js";
 import { revokeAllUserRefreshTokens } from "../auth/session.js";
+import { revokeAllTrustedDevices } from "../auth/trustedDevice.js";
 
 const actor = (req: { admin?: { sub: string; name: string } }) => ({
   id: req.admin?.sub ?? null,
@@ -136,6 +137,7 @@ export function registerAdminRoutes(app: FastifyInstance, ctx: AppContext, perms
       const roleChanged = body.data.roleId !== undefined && body.data.roleId !== user.roleId;
       if (body.data.active === false || roleChanged || password) {
         await revokeAllUserRefreshTokens(tx, id, ctx.now());
+        await revokeAllTrustedDevices(tx, id, ctx.now());
       }
       await writeAudit(tx, actor(req), "team", "user_updated", row!.email, { fields: Object.keys(body.data) });
       return row!;

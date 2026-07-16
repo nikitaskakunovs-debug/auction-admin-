@@ -62,6 +62,7 @@ services:
       VIES_MODE: live
       # Klix payments (off until the merchant keys arrive; then KLIX_MODE=live).
       STOREFRONT_BASE_URL: https://${DOMAIN}
+      ADMIN_BASE_URL: https://admin.${DOMAIN}
       KLIX_MODE: ${KLIX_MODE:-off}
       KLIX_BRAND_ID: ${KLIX_BRAND_ID:-}
       KLIX_SECRET_KEY: ${KLIX_SECRET_KEY:-}

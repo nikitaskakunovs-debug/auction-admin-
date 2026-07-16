@@ -9,8 +9,16 @@ import type { AppContext } from "../context.js";
 import { clearRefreshCookie, REFRESH_COOKIE, setRefreshCookie } from "./cookies.js";
 import { signAccessToken, signChallengeToken, verifyChallengeToken } from "./jwt.js";
 import { LoginLockout } from "./lockout.js";
+import {
+  createResetToken,
+  findValidResetToken,
+  markResetTokenUsed,
+  resetEmail,
+  resetRequestAllowed,
+} from "./passwordReset.js";
 import type { PermissionService } from "./rbac.js";
 import { revokeAllUserRefreshTokens } from "./session.js";
+import { isTrustedDevice, issueTrustedDevice, revokeAllTrustedDevices } from "./trustedDevice.js";
 import {
   buildOtpauthUri,
   clearPendingSecret,
@@ -28,7 +36,13 @@ const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 const CHALLENGE_TTL_SEC = 600; // 10 min to complete the second factor
 
 const loginSchema = z.object({ email: z.string().email(), password: z.string().min(1) });
-const totpLoginSchema = z.object({ challengeToken: z.string().min(10), code: z.string().min(6).max(20) });
+const totpLoginSchema = z.object({
+  challengeToken: z.string().min(10),
+  code: z.string().min(6).max(20),
+  rememberDevice: z.boolean().optional(),
+});
+const forgotSchema = z.object({ email: z.string().email() });
+const resetSchema = z.object({ token: z.string().min(20), newPassword: z.string().min(1) });
 const enrollSchema = z.object({ challengeToken: z.string().min(10).optional() });
 const enableSchema = z.object({ challengeToken: z.string().min(10).optional(), code: z.string().min(6).max(10) });
 const changePwSchema = z.object({ currentPassword: z.string().min(1), newPassword: z.string().min(1) });
@@ -109,6 +123,15 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext, perms:
       return reply.code(401).send({ error: "invalid_credentials" });
     }
 
+    // Password correct on a browser this user marked as trusted: the TOTP
+    // step was already proven here within the trust window — sign in directly.
+    if (user.totpEnabled && (await isTrustedDevice(ctx, req, user.id))) {
+      await lockout.reset(email);
+      const session = await issueSession(reply, user);
+      await writeAudit(ctx.db, { id: user.id, label: user.name }, "team", "login_trusted_device", user.email);
+      return session;
+    }
+
     // Password correct: mint a challenge that only unlocks the second factor.
     const step = user.totpEnabled ? "totp" : "enroll";
     const challengeToken = signChallengeToken(user.id, step, ctx.config.jwtSecret, CHALLENGE_TTL_SEC, ctx.now().getTime());
@@ -136,6 +159,9 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext, perms:
       return reply.code(401).send({ error: "invalid_code" });
     }
     await lockout.reset(user.email);
+    // Full second factor proven — optionally mark this browser as trusted so
+    // future logins skip the code for trustedDeviceTtlSec (default 30 days).
+    if (body.data.rememberDevice) await issueTrustedDevice(ctx, reply, user.id);
     const session = await issueSession(reply, user);
     await writeAudit(ctx.db, { id: user.id, label: user.name }, "team", recoveryOk ? "login_recovery_code" : "login", user.email);
     return session;
@@ -165,8 +191,10 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext, perms:
     }
     const recoveryCodes = await enableTotp(ctx.db, user.id, pending);
     await clearPendingSecret(ctx.redis, user.id);
-    // Re-enroll from an existing session ends other sessions defensively.
+    // Re-enroll from an existing session ends other sessions defensively —
+    // and un-trusts every device, since the second factor itself changed.
     await revokeAllUserRefreshTokens(ctx.db, user.id, ctx.now());
+    await revokeAllTrustedDevices(ctx.db, user.id, ctx.now());
     await writeAudit(ctx.db, { id: user.id, label: user.name }, "team", "totp_enabled", user.email);
     // Completing enrollment during first login also logs the user in.
     const [fresh] = await ctx.db.select().from(adminUsers).where(eq(adminUsers.id, user.id));
@@ -210,9 +238,50 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext, perms:
     if (!check.ok) return reply.code(422).send({ error: "weak_password", detail: check.errors });
     await ctx.db.update(adminUsers).set({ passwordHash: await hashPassword(body.data.newPassword) }).where(eq(adminUsers.id, user.id));
     await revokeAllUserRefreshTokens(ctx.db, user.id, ctx.now());
+    await revokeAllTrustedDevices(ctx.db, user.id, ctx.now());
     await writeAudit(ctx.db, { id: user.id, label: user.name }, "team", "password_changed", user.email);
     // Keep the current client signed in with a fresh session.
     return issueSession(reply, user);
+  });
+
+  // ── Forgot password (self-service, via emailed single-use link) ───────────────
+  app.post("/api/auth/forgot-password", async (req, reply) => {
+    const body = forgotSchema.safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid_body" });
+    const email = body.data.email.toLowerCase();
+    // Same flat answer whether or not the account exists; the lookup + send
+    // run after the response so timing can't distinguish the two either.
+    void (async () => {
+      if (!(await resetRequestAllowed(ctx.redis, email))) return;
+      const [user] = await ctx.db.select().from(adminUsers).where(eq(adminUsers.email, email));
+      if (!user || !user.active) return;
+      const token = await createResetToken(ctx, { userId: user.id });
+      const link = `${ctx.config.adminBaseUrl}/#/reset?token=${token}`;
+      const msg = resetEmail(link, Math.round(ctx.config.passwordResetTtlSec / 60));
+      await ctx.email.send({ to: user.email, subject: msg.subject, text: msg.text });
+      await writeAudit(ctx.db, { id: user.id, label: user.name }, "team", "password_reset_requested", user.email);
+    })().catch((err) => req.log.error({ err }, "admin forgot-password processing failed"));
+    return reply.send({ ok: true });
+  });
+
+  app.post("/api/auth/reset-password", async (req, reply) => {
+    const body = resetSchema.safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid_body" });
+    const found = await findValidResetToken(ctx, body.data.token);
+    if (!found || !found.userId) return reply.code(401).send({ error: "invalid_or_expired_token" });
+    const [user] = await ctx.db.select().from(adminUsers).where(eq(adminUsers.id, found.userId));
+    if (!user || !user.active) return reply.code(401).send({ error: "invalid_or_expired_token" });
+    const check = validatePassword(body.data.newPassword, { email: user.email, name: user.name });
+    if (!check.ok) return reply.code(422).send({ error: "weak_password", detail: check.errors });
+    await ctx.db.update(adminUsers).set({ passwordHash: await hashPassword(body.data.newPassword) }).where(eq(adminUsers.id, user.id));
+    await markResetTokenUsed(ctx, found.rowId);
+    // A reset is a credential change: end every session and un-trust devices.
+    await revokeAllUserRefreshTokens(ctx.db, user.id, ctx.now());
+    await revokeAllTrustedDevices(ctx.db, user.id, ctx.now());
+    await lockout.reset(user.email);
+    await writeAudit(ctx.db, { id: user.id, label: user.name }, "team", "password_reset_completed", user.email);
+    // 2FA still applies at the next login — the reset only replaces the password.
+    return { ok: true };
   });
 
   // ── Refresh (httpOnly cookie) with theft detection ────────────────────────────
