@@ -1,10 +1,16 @@
 import { useState } from "react";
-import { api, ApiError, type AdminUser, type LoginChallenge, type TotpSetup } from "./api.js";
+import { api, ApiError, type AdminUser, type TotpSetup } from "./api.js";
 import { useAuth } from "./auth.js";
 import { AT } from "./theme.js";
 import { ABtn, AIcon, AInput } from "./ui.js";
 
-type Stage = "password" | "totp" | "enroll" | "recovery";
+type Stage = "password" | "totp" | "enroll" | "recovery" | "forgot" | "forgotSent" | "reset" | "resetDone";
+
+/** An emailed reset link lands on `#/reset?token=…` while logged out. */
+function resetTokenFromHash(): string | null {
+  const m = /^#\/reset\?token=([A-Za-z0-9_-]+)/.exec(window.location.hash);
+  return m ? m[1]! : null;
+}
 
 function Panel({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
   return (
@@ -26,12 +32,27 @@ function Panel({ title, subtitle, children }: { title: string; subtitle: string;
 const errText = (e: unknown, fallback: string): string =>
   e instanceof ApiError && typeof e.body.error === "string" ? e.body.error : fallback;
 
+const linkStyle: React.CSSProperties = {
+  fontFamily: AT.body,
+  fontSize: 12.5,
+  color: AT.inkSoft,
+  background: "none",
+  border: "none",
+  padding: 0,
+  cursor: "pointer",
+  textDecoration: "underline",
+  justifySelf: "start",
+};
+
 export function LoginScreen() {
   const { onAuthenticated } = useAuth();
-  const [stage, setStage] = useState<Stage>("password");
+  const [resetToken] = useState<string | null>(() => resetTokenFromHash());
+  const [stage, setStage] = useState<Stage>(resetToken ? "reset" : "password");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
+  const [remember, setRemember] = useState(true);
+  const [newPassword, setNewPassword] = useState("");
   const [challengeToken, setChallengeToken] = useState("");
   const [setup, setSetup] = useState<TotpSetup | null>(null);
   const [recovery, setRecovery] = useState<string[]>([]);
@@ -43,12 +64,17 @@ export function LoginScreen() {
     setBusy(true);
     setError(null);
     try {
-      const ch: LoginChallenge = await api.loginPassword(email.trim().toLowerCase(), password);
-      setChallengeToken(ch.challengeToken);
-      if (ch.challenge === "totp") {
+      const r = await api.loginPassword(email.trim().toLowerCase(), password);
+      if ("user" in r) {
+        // Trusted device: the server signed us in without the code step.
+        onAuthenticated(r.user);
+        return;
+      }
+      setChallengeToken(r.challengeToken);
+      if (r.challenge === "totp") {
         setStage("totp");
       } else {
-        setSetup(await api.setup2fa(ch.challengeToken));
+        setSetup(await api.setup2fa(r.challengeToken));
         setStage("enroll");
       }
     } catch (e) {
@@ -62,7 +88,7 @@ export function LoginScreen() {
     setBusy(true);
     setError(null);
     try {
-      onAuthenticated(await api.completeTotp(challengeToken, code.trim()));
+      onAuthenticated(await api.completeTotp(challengeToken, code.trim(), remember));
     } catch {
       setError("Incorrect code. Enter the current 6-digit code (or a recovery code).");
     } finally {
@@ -85,6 +111,38 @@ export function LoginScreen() {
     }
   };
 
+  const submitForgot = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.forgotPassword(email.trim().toLowerCase());
+      setStage("forgotSent");
+    } catch {
+      setError("Something went wrong — try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitReset = async () => {
+    if (!resetToken) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.resetPassword(resetToken, newPassword);
+      window.location.hash = "";
+      setStage("resetDone");
+    } catch (e) {
+      setError(
+        errText(e, "") === "weak_password"
+          ? "That password is too weak — use 10+ characters, not based on your name or email."
+          : "This reset link is invalid or has expired. Request a new one.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (stage === "password") {
     return (
       <Panel title="Izsoli.lv" subtitle="Operations panel · LV EE LT">
@@ -95,6 +153,9 @@ export function LoginScreen() {
           <ABtn type="submit" kind="dark" full disabled={busy || !email || !password}>
             {busy ? "Signing in…" : "Continue"}
           </ABtn>
+          <button type="button" style={linkStyle} onClick={() => { setError(null); setStage("forgot"); }}>
+            Forgot password?
+          </button>
         </form>
       </Panel>
     );
@@ -105,6 +166,10 @@ export function LoginScreen() {
       <Panel title="Two-factor code" subtitle="Enter the 6-digit code from your authenticator app.">
         <form onSubmit={(e) => { e.preventDefault(); void submitTotp(); }} style={{ display: "grid", gap: 10 }}>
           <AInput value={code} onChange={setCode} placeholder="123456" autoFocus />
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: AT.body, fontSize: 12.5, color: AT.ink, cursor: "pointer" }}>
+            <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+            Trust this browser for 30 days
+          </label>
           {error && <div style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.danger }}>{error}</div>}
           <ABtn type="submit" kind="dark" full disabled={busy || code.trim().length < 6}>
             {busy ? "Verifying…" : "Verify"}
@@ -132,6 +197,57 @@ export function LoginScreen() {
             </ABtn>
           </form>
         </div>
+      </Panel>
+    );
+  }
+
+  if (stage === "forgot") {
+    return (
+      <Panel title="Reset password" subtitle="Enter your account email — we'll send a reset link.">
+        <form onSubmit={(e) => { e.preventDefault(); void submitForgot(); }} style={{ display: "grid", gap: 10 }}>
+          <AInput value={email} onChange={setEmail} placeholder="email@company.com" type="email" autoFocus />
+          {error && <div style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.danger }}>{error}</div>}
+          <ABtn type="submit" kind="dark" full disabled={busy || !email}>
+            {busy ? "Sending…" : "Send reset link"}
+          </ABtn>
+          <button type="button" style={linkStyle} onClick={() => { setError(null); setStage("password"); }}>
+            Back to sign in
+          </button>
+        </form>
+      </Panel>
+    );
+  }
+
+  if (stage === "forgotSent") {
+    return (
+      <Panel title="Check your email" subtitle="If that address has an account, a reset link is on its way. It stays valid for 30 minutes.">
+        <ABtn kind="dark" full onClick={() => setStage("password")}>
+          Back to sign in
+        </ABtn>
+      </Panel>
+    );
+  }
+
+  if (stage === "reset") {
+    return (
+      <Panel title="Choose a new password" subtitle="Your previous sessions will be signed out everywhere.">
+        <form onSubmit={(e) => { e.preventDefault(); void submitReset(); }} style={{ display: "grid", gap: 10 }}>
+          <AInput value={newPassword} onChange={setNewPassword} placeholder="New password" type="password" autoFocus />
+          {error && <div style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.danger }}>{error}</div>}
+          <ABtn type="submit" kind="dark" full disabled={busy || newPassword.length < 10}>
+            {busy ? "Saving…" : "Set new password"}
+          </ABtn>
+        </form>
+      </Panel>
+    );
+  }
+
+  if (stage === "resetDone") {
+    return (
+      <Panel title="Password updated" subtitle="Sign in with your new password. Your authenticator code still applies.">
+        <ABtn kind="dark" full onClick={() => setStage("password")}>
+          Go to sign in
+        </ABtn>
       </Panel>
     );
   }

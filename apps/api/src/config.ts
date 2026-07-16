@@ -18,6 +18,12 @@ export interface ApiConfig {
   rateLimitMax: number;
   /** Issuer shown in the authenticator app for TOTP enrollment. */
   totpIssuer: string;
+  /** How long a "trust this device" browser skips the TOTP step (seconds). */
+  trustedDeviceTtlSec: number;
+  /** Lifetime of an emailed password-reset link (seconds). */
+  passwordResetTtlSec: number;
+  /** Admin panel origin — used to build admin password-reset links. */
+  adminBaseUrl: string;
   paymentDeadlineHours: number;
   /**
    * Dev/staging bid simulation endpoint. The public bidder API is a later
@@ -199,6 +205,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     // which the suite does assert, is unaffected).
     rateLimitMax: Number(env.RATE_LIMIT_MAX ?? (env.NODE_ENV === "test" ? 100_000 : 300)),
     totpIssuer: env.TOTP_ISSUER ?? "Izsoli.lv",
+    trustedDeviceTtlSec: Number(env.TRUSTED_DEVICE_TTL_SEC ?? 60 * 60 * 24 * 30),
+    passwordResetTtlSec: Number(env.PASSWORD_RESET_TTL_SEC ?? 1800),
+    // Admin reset links point here. Production compose sets https://admin.<DOMAIN>;
+    // dev falls back to the Vite dev server.
+    adminBaseUrl: (env.ADMIN_BASE_URL ?? "http://localhost:5173").replace(/\/$/, ""),
     paymentDeadlineHours: Number(env.PAYMENT_DEADLINE_HOURS ?? 72),
     allowBidSimulation: (env.ALLOW_BID_SIMULATION ?? (env.NODE_ENV === "production" ? "0" : "1")) === "1",
     schedulerEnabled: (env.SCHEDULER_ENABLED ?? "1") === "1",
