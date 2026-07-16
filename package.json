@@ -8,6 +8,11 @@
     "node": ">=20"
   },
   "packageManager": "pnpm@10.33.0",
+  "pnpm": {
+    "overrides": {
+      "postcss@<8.5.10": "^8.5.16"
+    }
+  },
   "scripts": {
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
