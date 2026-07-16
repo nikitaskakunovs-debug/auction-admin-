@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { api, ApiError, type AdminUser, type TotpSetup } from "./api.js";
 import { useAuth } from "./auth.js";
+import { useT } from "./i18n.js";
+import { LangSwitch } from "./LangSwitch.js";
 import { AT } from "./theme.js";
 import { ABtn, AIcon, AInput } from "./ui.js";
 
@@ -15,15 +17,18 @@ function resetTokenFromHash(): string | null {
 function Panel({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
   return (
     <div style={{ height: "100%", display: "grid", placeItems: "center", background: AT.side }}>
-      <div style={{ width: 380, background: AT.panel, borderRadius: AT.radius, padding: 26 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-          <span style={{ width: 34, height: 34, borderRadius: 9, background: AT.ink, color: "#fff", display: "grid", placeItems: "center" }}>
-            <AIcon name="gavel" size={18} color="#fff" />
-          </span>
-          <h1 style={{ fontFamily: AT.body, fontSize: 17, fontWeight: 700, color: AT.ink }}>{title}</h1>
+      <div style={{ display: "grid", gap: 14, justifyItems: "center" }}>
+        <div style={{ width: 380, background: AT.panel, borderRadius: AT.radius, padding: 26, boxShadow: "0 18px 60px rgba(0,0,0,0.35)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+            <span style={{ width: 34, height: 34, borderRadius: 9, background: AT.ink, color: "#fff", display: "grid", placeItems: "center" }}>
+              <AIcon name="gavel" size={18} color="#fff" />
+            </span>
+            <h1 style={{ fontFamily: AT.body, fontSize: 17, fontWeight: 700, color: AT.ink }}>{title}</h1>
+          </div>
+          <p style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.inkSoft, marginBottom: 18 }}>{subtitle}</p>
+          {children}
         </div>
-        <p style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.inkSoft, marginBottom: 18 }}>{subtitle}</p>
-        {children}
+        <LangSwitch dark />
       </div>
     </div>
   );
@@ -46,6 +51,7 @@ const linkStyle: React.CSSProperties = {
 
 export function LoginScreen() {
   const { onAuthenticated } = useAuth();
+  const { t } = useT();
   const [resetToken] = useState<string | null>(() => resetTokenFromHash());
   const [stage, setStage] = useState<Stage>(resetToken ? "reset" : "password");
   const [email, setEmail] = useState("");
@@ -78,7 +84,7 @@ export function LoginScreen() {
         setStage("enroll");
       }
     } catch (e) {
-      setError(errText(e, "Invalid email or password.") === "too_many_attempts" ? "Too many attempts — try again later." : "Invalid email or password.");
+      setError(errText(e, "") === "too_many_attempts" ? t("login.tooMany") : t("login.invalid"));
     } finally {
       setBusy(false);
     }
@@ -90,7 +96,7 @@ export function LoginScreen() {
     try {
       onAuthenticated(await api.completeTotp(challengeToken, code.trim(), remember));
     } catch {
-      setError("Incorrect code. Enter the current 6-digit code (or a recovery code).");
+      setError(t("login.badCode"));
     } finally {
       setBusy(false);
     }
@@ -105,7 +111,7 @@ export function LoginScreen() {
       setPendingUser(r.user ?? null);
       setStage("recovery");
     } catch {
-      setError("That code didn't match. Check your authenticator and try again.");
+      setError(t("login.codeMismatch"));
     } finally {
       setBusy(false);
     }
@@ -118,7 +124,7 @@ export function LoginScreen() {
       await api.forgotPassword(email.trim().toLowerCase());
       setStage("forgotSent");
     } catch {
-      setError("Something went wrong — try again.");
+      setError(t("login.error"));
     } finally {
       setBusy(false);
     }
@@ -133,11 +139,7 @@ export function LoginScreen() {
       window.location.hash = "";
       setStage("resetDone");
     } catch (e) {
-      setError(
-        errText(e, "") === "weak_password"
-          ? "That password is too weak — use 10+ characters, not based on your name or email."
-          : "This reset link is invalid or has expired. Request a new one.",
-      );
+      setError(errText(e, "") === "weak_password" ? t("login.weakPassword") : t("login.badResetLink"));
     } finally {
       setBusy(false);
     }
@@ -145,16 +147,16 @@ export function LoginScreen() {
 
   if (stage === "password") {
     return (
-      <Panel title="Izsoli.lv" subtitle="Operations panel · LV EE LT">
+      <Panel title="Izsoli.lv" subtitle={t("login.subtitle")}>
         <form onSubmit={(e) => { e.preventDefault(); void submitPassword(); }} style={{ display: "grid", gap: 10 }}>
-          <AInput value={email} onChange={setEmail} placeholder="email@company.com" type="email" autoFocus />
-          <AInput value={password} onChange={setPassword} placeholder="Password" type="password" />
+          <AInput value={email} onChange={setEmail} placeholder={t("login.email")} type="email" autoFocus />
+          <AInput value={password} onChange={setPassword} placeholder={t("login.password")} type="password" />
           {error && <div style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.danger }}>{error}</div>}
           <ABtn type="submit" kind="dark" full disabled={busy || !email || !password}>
-            {busy ? "Signing in…" : "Continue"}
+            {busy ? t("login.signingIn") : t("login.continue")}
           </ABtn>
           <button type="button" style={linkStyle} onClick={() => { setError(null); setStage("forgot"); }}>
-            Forgot password?
+            {t("login.forgot")}
           </button>
         </form>
       </Panel>
@@ -163,16 +165,16 @@ export function LoginScreen() {
 
   if (stage === "totp") {
     return (
-      <Panel title="Two-factor code" subtitle="Enter the 6-digit code from your authenticator app.">
+      <Panel title={t("login.totpTitle")} subtitle={t("login.totpSub")}>
         <form onSubmit={(e) => { e.preventDefault(); void submitTotp(); }} style={{ display: "grid", gap: 10 }}>
           <AInput value={code} onChange={setCode} placeholder="123456" autoFocus />
           <label style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: AT.body, fontSize: 12.5, color: AT.ink, cursor: "pointer" }}>
             <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
-            Trust this browser for 30 days
+            {t("login.trustDevice")}
           </label>
           {error && <div style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.danger }}>{error}</div>}
           <ABtn type="submit" kind="dark" full disabled={busy || code.trim().length < 6}>
-            {busy ? "Verifying…" : "Verify"}
+            {busy ? t("login.verifying") : t("login.verify")}
           </ABtn>
         </form>
       </Panel>
@@ -181,19 +183,19 @@ export function LoginScreen() {
 
   if (stage === "enroll") {
     return (
-      <Panel title="Set up two-factor" subtitle="This account requires an authenticator. Add the key below, then enter the code it shows.">
+      <Panel title={t("login.enrollTitle")} subtitle={t("login.enrollSub")}>
         <div style={{ display: "grid", gap: 12 }}>
           <div>
-            <div style={{ fontFamily: AT.body, fontSize: 11.5, color: AT.inkSoft, marginBottom: 4 }}>Secret key (manual entry)</div>
+            <div style={{ fontFamily: AT.body, fontSize: 11.5, color: AT.inkSoft, marginBottom: 4 }}>{t("login.secretKey")}</div>
             <code style={{ display: "block", fontFamily: "monospace", fontSize: 13, letterSpacing: 1, background: AT.app, borderRadius: 8, padding: "10px 12px", wordBreak: "break-all", color: AT.ink }}>
               {setup?.secret}
             </code>
           </div>
           <form onSubmit={(e) => { e.preventDefault(); void submitEnable(); }} style={{ display: "grid", gap: 10 }}>
-            <AInput value={code} onChange={setCode} placeholder="Code from app" autoFocus />
+            <AInput value={code} onChange={setCode} placeholder={t("login.codeFromApp")} autoFocus />
             {error && <div style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.danger }}>{error}</div>}
             <ABtn type="submit" kind="dark" full disabled={busy || code.trim().length < 6}>
-              {busy ? "Enabling…" : "Enable two-factor"}
+              {busy ? t("login.enabling") : t("login.enable")}
             </ABtn>
           </form>
         </div>
@@ -203,15 +205,15 @@ export function LoginScreen() {
 
   if (stage === "forgot") {
     return (
-      <Panel title="Reset password" subtitle="Enter your account email — we'll send a reset link.">
+      <Panel title={t("login.forgotTitle")} subtitle={t("login.forgotSub")}>
         <form onSubmit={(e) => { e.preventDefault(); void submitForgot(); }} style={{ display: "grid", gap: 10 }}>
-          <AInput value={email} onChange={setEmail} placeholder="email@company.com" type="email" autoFocus />
+          <AInput value={email} onChange={setEmail} placeholder={t("login.email")} type="email" autoFocus />
           {error && <div style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.danger }}>{error}</div>}
           <ABtn type="submit" kind="dark" full disabled={busy || !email}>
-            {busy ? "Sending…" : "Send reset link"}
+            {busy ? t("login.sending") : t("login.sendLink")}
           </ABtn>
           <button type="button" style={linkStyle} onClick={() => { setError(null); setStage("password"); }}>
-            Back to sign in
+            {t("login.backToSignIn")}
           </button>
         </form>
       </Panel>
@@ -220,9 +222,9 @@ export function LoginScreen() {
 
   if (stage === "forgotSent") {
     return (
-      <Panel title="Check your email" subtitle="If that address has an account, a reset link is on its way. It stays valid for 30 minutes.">
+      <Panel title={t("login.sentTitle")} subtitle={t("login.sentSub")}>
         <ABtn kind="dark" full onClick={() => setStage("password")}>
-          Back to sign in
+          {t("login.backToSignIn")}
         </ABtn>
       </Panel>
     );
@@ -230,12 +232,12 @@ export function LoginScreen() {
 
   if (stage === "reset") {
     return (
-      <Panel title="Choose a new password" subtitle="Your previous sessions will be signed out everywhere.">
+      <Panel title={t("login.resetTitle")} subtitle={t("login.resetSub")}>
         <form onSubmit={(e) => { e.preventDefault(); void submitReset(); }} style={{ display: "grid", gap: 10 }}>
-          <AInput value={newPassword} onChange={setNewPassword} placeholder="New password" type="password" autoFocus />
+          <AInput value={newPassword} onChange={setNewPassword} placeholder={t("login.newPassword")} type="password" autoFocus />
           {error && <div style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.danger }}>{error}</div>}
           <ABtn type="submit" kind="dark" full disabled={busy || newPassword.length < 10}>
-            {busy ? "Saving…" : "Set new password"}
+            {busy ? t("login.saving") : t("login.setPassword")}
           </ABtn>
         </form>
       </Panel>
@@ -244,9 +246,9 @@ export function LoginScreen() {
 
   if (stage === "resetDone") {
     return (
-      <Panel title="Password updated" subtitle="Sign in with your new password. Your authenticator code still applies.">
+      <Panel title={t("login.doneTitle")} subtitle={t("login.doneSub")}>
         <ABtn kind="dark" full onClick={() => setStage("password")}>
-          Go to sign in
+          {t("login.goToSignIn")}
         </ABtn>
       </Panel>
     );
@@ -254,7 +256,7 @@ export function LoginScreen() {
 
   // recovery
   return (
-    <Panel title="Save your recovery codes" subtitle="Store these somewhere safe. Each code works once if you lose your authenticator.">
+    <Panel title={t("login.recoveryTitle")} subtitle={t("login.recoverySub")}>
       <div style={{ display: "grid", gap: 14 }}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, background: AT.app, borderRadius: 8, padding: 12 }}>
           {recovery.map((c) => (
@@ -262,7 +264,7 @@ export function LoginScreen() {
           ))}
         </div>
         <ABtn kind="dark" full onClick={() => { if (pendingUser) onAuthenticated(pendingUser); }}>
-          I've saved them — continue
+          {t("login.recoverySaved")}
         </ABtn>
       </div>
     </Panel>

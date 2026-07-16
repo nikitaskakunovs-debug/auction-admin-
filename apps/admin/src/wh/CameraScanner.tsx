@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { t } from "../i18n.js";
 import { AT } from "../theme.js";
 
 /**
@@ -67,7 +68,7 @@ export function CameraScanner({ hint, onCode, onClose }: {
           audio: false,
         });
       } catch {
-        setError("Camera access was blocked. Allow the camera for this site in your browser settings — or close this and type the code.");
+        setError(t("wh.cameraBlocked"));
         return;
       }
       const video = videoRef.current;
@@ -130,7 +131,7 @@ export function CameraScanner({ hint, onCode, onClose }: {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", color: "#fff" }}>
         <span style={{ fontSize: 15, fontWeight: 700, fontFamily: AT.body }}>{hint}</span>
         <button onClick={onClose} style={{ all: "unset", cursor: "pointer", fontSize: 15, fontWeight: 800, padding: "6px 10px", color: "#fff" }}>
-          ✕ Close
+          ✕ {t("wh.close")}
         </button>
       </div>
       <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
@@ -147,6 +148,11 @@ export function CameraScanner({ hint, onCode, onClose }: {
             borderRadius: 12, padding: "12px 14px", fontSize: 14, fontWeight: 600, fontFamily: AT.body,
           }}>{error}</div>
         )}
+      </div>
+      {/* One-line fix for Safari's repeated permission prompt — shown until
+          the user sets the per-site Camera permission to Allow. */}
+      <div style={{ padding: "10px 16px 16px", color: "rgba(255,255,255,0.65)", fontSize: 12, fontFamily: AT.body, textAlign: "center" }}>
+        {t("wh.cameraTip")}
       </div>
     </div>
   );
