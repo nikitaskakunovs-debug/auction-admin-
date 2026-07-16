@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { items } from "@auction/db";
+import { auditLog, items, stockMovements, warehouseLocations } from "@auction/db";
 import { assertItemTransition, conditionRequiresNotes, isKnownCategory, ITEM_STATUSES, type ItemStatus } from "@auction/domain";
 import { desc, eq, ilike, or, and } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import type { FastifyInstance } from "fastify";
 import sharp from "sharp";
 import { z } from "zod";
@@ -50,6 +51,60 @@ export function registerItemRoutes(app: FastifyInstance, ctx: AppContext, perms:
     const [row] = await ctx.db.select().from(items).where(eq(items.id, (req.params as { id: string }).id));
     if (!row) return reply.code(404).send({ error: "not_found" });
     return { item: row };
+  });
+
+  /**
+   * "Who did what" for one item: the audit rows (created/received/graded/
+   * photos/status) merged with the physical movement ledger (putaway/move/
+   * pick, with bin labels), newest first. Every entry carries the actor.
+   */
+  app.get("/api/items/:id/activity", guard("items.view"), async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const [item] = await ctx.db.select().from(items).where(eq(items.id, id));
+    if (!item) return reply.code(404).send({ error: "not_found" });
+
+    const audits = await ctx.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.target, item.sku))
+      .orderBy(desc(auditLog.createdAt))
+      .limit(100);
+
+    const fromLoc = alias(warehouseLocations, "from_loc");
+    const toLoc = alias(warehouseLocations, "to_loc");
+    const moves = await ctx.db
+      .select({ movement: stockMovements, fromLabel: fromLoc.label, toLabel: toLoc.label })
+      .from(stockMovements)
+      .leftJoin(fromLoc, eq(stockMovements.fromLocationId, fromLoc.id))
+      .leftJoin(toLoc, eq(stockMovements.toLocationId, toLoc.id))
+      .where(eq(stockMovements.itemId, id))
+      .orderBy(desc(stockMovements.createdAt))
+      .limit(100);
+
+    const events = [
+      ...audits.map((a) => ({
+        at: a.createdAt.toISOString(),
+        actor: a.actorLabel,
+        kind: "audit" as const,
+        action: a.action,
+        detail: (a.detail ?? null) as Record<string, unknown> | null,
+        fromLabel: null as string | null,
+        toLabel: null as string | null,
+      })),
+      ...moves.map((m) => ({
+        at: m.movement.createdAt.toISOString(),
+        actor: m.movement.actorLabel,
+        kind: "move" as const,
+        action: m.movement.type,
+        detail: m.movement.reason ? { reason: m.movement.reason } : null,
+        fromLabel: m.fromLabel,
+        toLabel: m.toLabel,
+      })),
+    ]
+      .sort((a, b) => b.at.localeCompare(a.at))
+      .slice(0, 100);
+
+    return { events };
   });
 
   app.post("/api/items", guard("items.create"), async (req, reply) => {
