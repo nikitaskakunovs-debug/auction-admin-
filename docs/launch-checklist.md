@@ -48,10 +48,31 @@ State as of 2026-07-15: platform deployed and hardened on the FRA1 droplet
       (admin → Content), esp. the 5% restock-fee clause; publish after approval
 - [ ] **Accountant**: confirm EE VAT 24% (Settings → Markets) and the VAT
       treatment of retained restock fees
-- [ ] **Mailbox**: make `info@izsoli.lv` real (referenced in the privacy page)
-- [ ] **Email sending**: create a relay account (Resend/Brevo), add its
-      DKIM/SPF records in the DO DNS zone, set `EMAIL_MODE=smtp` + SMTP vars
-      in `deploy/.env`, restart api — mail then goes out as @izsoli.lv
+- [x] **Email sending (transactional)**: Resend account created, domain
+      izsoli.lv added, SPF+MX verified, `EMAIL_MODE=smtp` + SMTP vars set in
+      `deploy/.env`, api restarted. Sends as `noreply@izsoli.lv`.
+      **Remaining:** DKIM row still verifying in Resend (the placeholder-text
+      mistake was fixed; correct key confirmed at ns1.digitalocean.com — just
+      waiting out the ~1h DNS cache, then click Verify in Resend). Once green,
+      test: izsoli.lv/login → Forgot password → own email.
+- [ ] **Human mailboxes (do from Latvia — Zoho blocks Canadian signup with
+      phone verification + forces the `.com` region)**: set up **Zoho Mail
+      Forever Free Plan** on **zoho.eu** (EU data center, for GDPR — the region
+      is permanent, chosen at signup). Add domain `izsoli.lv`: verify TXT, add
+      Zoho MX (mx/mx2/mx3.zoho.eu, pri 10/20/50) + SPF + DKIM in the DO DNS
+      zone. Create ONE user `info@izsoli.lv`, then add the rest as aliases on
+      that box so everything lands in one inbox (promote to real mailboxes as
+      staff join; 5 free). Latvian primary + English alias, both deliver:
+      `atbalsts@`/`support@`, `pardosana@`/`sales@`, `rekini@`/`billing@`,
+      `privatums@`/`privacy@` (publish in privacy page), plus role addresses
+      `postmaster@` `abuse@` `dmarc@`. Note: Zoho MX goes on the ROOT domain;
+      Resend's MX is on the `send` subdomain, so they don't conflict. Keep
+      only ONE SPF record on root.
+- [ ] **Marketing email (separate reputation)**: when ready to send
+      newsletters, use a campaign tool (Resend Broadcasts / Brevo / MailerLite)
+      sending from a **`news.izsoli.lv` subdomain** — never through the
+      transactional pipe, so a flagged blast can't hurt payment-reminder
+      deliverability. Addresses `jaunumi@` / `marketings@`.
 - [ ] Consider registering **izsoli.ee / izsoli.lt** (brand protection; the
       code already supports the ccTLD trio via `ORIGIN_EE/LT`)
 
