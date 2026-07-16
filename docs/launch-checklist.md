@@ -98,6 +98,33 @@ run. (Zero-code alternative: `/invite @GitHub` in the channel, then
 `/github subscribe nikitaskakunovs-debug/auction-admin- workflows` — but the
 webhook message is tidier.)
 
+## Production smoke test (after go-live)
+
+A GitHub Actions cron probes the LIVE site every 30 minutes — API health,
+storefront, admin panel — and pings Slack **only on failure**. Dormant until
+you set the domain:
+
+- repo → Settings → Secrets and variables → Actions → **Variables** tab →
+  New repository variable → `SMOKE_DOMAIN` = `izsoli.lv`
+
+(Pair it with an external uptime monitor — Better Stack / UptimeRobot free
+tier pinging `https://api.izsoli.lv/api/health` every 30 s — so an outage
+alerts within a minute even if GitHub Actions itself is delayed.)
+
+## Automated dependency updates
+
+`.github/dependabot.yml` opens weekly PRs for outdated / vulnerable
+dependencies and GitHub Actions; each runs the full CI suite before it can
+merge (and reports to Slack). Minor/patch bumps are grouped; majors come
+singly. Turn on the security half in repo → Settings → Code security →
+enable **Dependabot alerts** + **Dependabot security updates** (one click).
+
+## Recommended repo settings (one-time, in the GitHub UI)
+
+- **Branch protection** on `main`: Settings → Branches → Add rule → require
+  status checks `ci` and `e2e` to pass before merge. Makes "nothing merges
+  red" a rule, not a habit.
+
 ## Standing routines
 
 - Nightly 03:15 DB backup → Spaces `backups/` (14-day retention);
