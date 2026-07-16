@@ -41,7 +41,7 @@ services:
       DATABASE_URL: postgres://auction:${POSTGRES_PASSWORD}@postgres:5432/auction
       REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET:?set in .env}
-      CORS_ORIGINS: https://${DOMAIN},https://www.${DOMAIN},https://admin.${DOMAIN}
+      CORS_ORIGINS: https://${DOMAIN},https://www.${DOMAIN},https://admin.${DOMAIN},https://wh.${DOMAIN}
       PUBLIC_BASE_URL: https://api.${DOMAIN}
       TRUST_PROXY: "1"
       STORAGE_DRIVER: ${STORAGE_DRIVER:-s3}

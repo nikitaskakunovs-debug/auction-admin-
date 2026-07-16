@@ -12,7 +12,10 @@ State as of 2026-07-15: platform deployed and hardened on the FRA1 droplet
       `sed -i "s|^INITIAL_ADMIN_PASSWORD=.*|INITIAL_ADMIN_PASSWORD=|" /opt/auction/deploy/.env`
 - [ ] Upload a test photo to an item → URL must point at
       `izsoli-photos.fra1.cdn.digitaloceanspaces.com`
-- [ ] Phone: `https://admin.izsoli.lv/#/wh` → add to home screen → scan/receive flow
+- [ ] Add DNS A record `wh` → 165.232.113.239 (DO panel), then rebuild caddy —
+      workers' hostname `https://wh.izsoli.lv` goes live (locked warehouse mode)
+- [ ] Phone: `https://wh.izsoli.lv` → add to home screen → 📷 camera-scan an
+      item label → grade/putaway/receive flow
 - [ ] One end-to-end test auction: Receiving → photo → grade → Ready to list →
       publish & schedule → bid from a second browser → win → mark paid →
       pickup code → kiosk check-in → pick → hand over

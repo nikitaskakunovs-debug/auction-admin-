@@ -32,3 +32,24 @@ admin.{$DOMAIN} {
 		file_server
 	}
 }
+
+# Warehouse workers' shell — the SAME admin SPA on its own hostname; the app
+# detects wh.* and locks itself to warehouse mode (scan/receive/putaway/pick).
+# Needs a DNS A record: wh.{$DOMAIN} → this droplet.
+wh.{$DOMAIN} {
+	encode gzip
+	handle /api/* {
+		reverse_proxy api:4000
+	}
+	handle /uploads/* {
+		reverse_proxy api:4000
+	}
+	handle /ws* {
+		reverse_proxy api:4000
+	}
+	handle {
+		root * /srv/admin
+		try_files {path} /index.html
+		file_server
+	}
+}
