@@ -1,7 +1,9 @@
-import type { NextConfig } from "next";
+// Plain-JS config: `next start` loads this at runtime, and the production
+// image has no TypeScript (dev deps are pruned) — a .ts config would crash it.
 import { withSentryConfig } from "@sentry/nextjs";
 
-const nextConfig: NextConfig = {
+/** @type {import('next').NextConfig} */
+const nextConfig = {
   reactStrictMode: true,
 };
 
