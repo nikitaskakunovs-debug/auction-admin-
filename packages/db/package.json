@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@auction/domain": "workspace:*",
+    "@opentelemetry/api": "^1.9.0",
     "drizzle-orm": "^0.44.2",
     "pg": "^8.13.1"
   },

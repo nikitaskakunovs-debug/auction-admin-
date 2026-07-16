@@ -77,7 +77,9 @@ The missing tier is human preview. At launch, add:
 - [x] Carrier APIs — built (Omniva parcel machines + DPD lockers, labels,
       tracking); switch on via `OMNIVA_MODE` / `DPD_MODE` once contracts
       arrive (§2)
-- [ ] Error monitoring (Sentry) + an uptime check on `/api/health`
+- [x] Error monitoring (Sentry) — built (Fastify + Next.js + admin SPA);
+      switches on via the three DSN vars once set (see "Sentry error
+      monitoring" below). Still open: an uptime check on `/api/health`
 - [ ] Managed PostgreSQL migration when scale demands (change `DATABASE_URL`,
       restore a dump — nothing else changes)
 
@@ -118,6 +120,30 @@ dependencies and GitHub Actions; each runs the full CI suite before it can
 merge (and reports to Slack). Minor/patch bumps are grouped; majors come
 singly. Turn on the security half in repo → Settings → Code security →
 enable **Dependabot alerts** + **Dependabot security updates** (one click).
+
+## Sentry error monitoring
+
+Three Sentry projects (Fastify / Next.js / Browser JS) catch runtime errors
+across the API, storefront, and admin panel. Dormant until the DSNs are set —
+no DSN means the SDK never initialises, so nothing ships until you opt in.
+
+1. Add the three DSNs to the droplet's `deploy/.env` (they're safe to store
+   there — Sentry DSNs are public, embedded in the shipped bundles):
+
+   ```
+   SENTRY_DSN=https://f93d433b70105dd0e159f4de0554a500@o4511742271553536.ingest.de.sentry.io/4511742289248336
+   SENTRY_DSN_WEB=https://f212bc741cf8a5992a2b69ccb01738fd@o4511742271553536.ingest.de.sentry.io/4511742277779536
+   SENTRY_DSN_ADMIN=https://0232f4c4d8412302d213c6a371522c2f@o4511742271553536.ingest.de.sentry.io/4511742290493520
+   ```
+
+2. Rebuild so the web + admin DSNs get inlined (they're build-time values):
+   `cd /opt/auction && git pull && cd deploy && docker compose -f docker-compose.prod.yml up -d --build`
+   (the api DSN is runtime — a plain restart would suffice for it alone).
+
+3. Route alerts to Slack: in Sentry → Settings → Integrations → **Slack** →
+   add to workspace `auctionmvp` → then each project → Alerts → default rule →
+   add a **Send a Slack notification** action → pick the channel. New-issue
+   alerts then land in Slack the same as CI does.
 
 ## Recommended repo settings (one-time, in the GitHub UI)
 

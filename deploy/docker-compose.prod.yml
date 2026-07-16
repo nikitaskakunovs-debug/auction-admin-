@@ -89,6 +89,10 @@ services:
       DPD_API_URL: ${DPD_API_URL:-}
       DPD_API_TOKEN: ${DPD_API_TOKEN:-}
       DPD_SERVICE_ALIAS: ${DPD_SERVICE_ALIAS:-}
+      # Sentry error monitoring (off until SENTRY_DSN is set).
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: production
+      SENTRY_RELEASE: ${SENTRY_RELEASE:-}
     volumes:
       # Only used if STORAGE_DRIVER=local; harmless otherwise.
       - uploads:/repo/apps/api/var/uploads
@@ -103,6 +107,7 @@ services:
         NEXT_PUBLIC_ORIGIN_LV: ${ORIGIN_LV:-https://${DOMAIN}}
         NEXT_PUBLIC_ORIGIN_EE: ${ORIGIN_EE:-https://${DOMAIN}}
         NEXT_PUBLIC_ORIGIN_LT: ${ORIGIN_LT:-https://${DOMAIN}}
+        NEXT_PUBLIC_SENTRY_DSN: ${SENTRY_DSN_WEB:-}
     restart: unless-stopped
     depends_on:
       - api
@@ -114,6 +119,8 @@ services:
     build:
       context: ..
       dockerfile: deploy/caddy.Dockerfile
+      args:
+        VITE_SENTRY_DSN: ${SENTRY_DSN_ADMIN:-}
     restart: unless-stopped
     ports:
       - "80:80"

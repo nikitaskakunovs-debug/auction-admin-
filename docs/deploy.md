@@ -235,6 +235,26 @@ The second carrier, on the same seam and also OFF by default
 3. Admin flow is identical to Omniva: Register DPD shipment → Print label
    (A6 PDF) → tracking events, all in the order's Shipping card.
 
+## Sentry error monitoring
+
+Built into all three apps (Fastify API, Next.js storefront, admin SPA) and
+OFF by default — a pure no-op until the DSNs are set. To switch on:
+
+1. Put the three DSNs in `/opt/auction/deploy/.env`:
+   `SENTRY_DSN=` (api), `SENTRY_DSN_WEB=` (storefront), `SENTRY_DSN_ADMIN=`
+   (admin). They're safe to store — DSNs are embedded in the shipped bundles
+   by design.
+2. Rebuild + restart: `docker compose -f docker-compose.prod.yml up -d --build`
+   (the web + admin DSNs are inlined at build time, so a rebuild is required;
+   the api picks its DSN up at runtime).
+3. In Sentry: **Settings → Integrations → Slack** → add to the workspace, then
+   **Alerts → create a rule** ("new issue → notify the channel"). Crashes now
+   arrive in Slack with a full stack trace, the release, and which user action
+   triggered them.
+
+Only errors are captured (no performance tracing overhead). To attach a
+version to each error, set `SENTRY_RELEASE` (e.g. a git tag) before the build.
+
 ## Notes
 
 - CORS, `PUBLIC_BASE_URL`, `STOREFRONT_BASE_URL`, and trust-proxy are derived
