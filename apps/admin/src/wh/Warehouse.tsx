@@ -2,8 +2,10 @@ import { CONDITIONS, conditionByCode, conditionRequiresNotes } from "@auction/do
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError, type Item } from "../api.js";
 import { useAuth } from "../auth.js";
+import { adminOrigin, isWarehouseHost } from "../host.js";
 import { openLabelWindow } from "../labels.js";
 import { AT } from "../theme.js";
+import { CameraScanner, normalizeScan } from "./CameraScanner.js";
 
 /**
  * Warehouse mode (#/wh) — the phone-first PWA shell for storage workers.
@@ -191,10 +193,10 @@ export function WarehouseMode() {
                 <div style={{ fontSize: 14, fontWeight: 700 }}>{user?.name}</div>
                 <div style={{ fontSize: 12, color: AT.inkSoft }}>{user?.role.replace(/_/g, " ")}</div>
               </div>
-              <a href="#/dashboard" style={{ fontSize: 12.5, fontWeight: 700, color: "#2D4BFF", textDecoration: "none" }}>Full admin →</a>
+              <a href={isWarehouseHost() ? `${adminOrigin()}/#/dashboard` : "#/dashboard"} style={{ fontSize: 12.5, fontWeight: 700, color: "#2D4BFF", textDecoration: "none" }}>Full admin →</a>
             </div>
             <div style={{ fontSize: 12, color: AT.inkSoft, textAlign: "center" }}>
-              Bluetooth/USB scanners work in every scan box (they type + Enter).
+              📷 Camera scanning works on any phone. Bluetooth/USB scanners work in every scan box too (they type + Enter).
             </div>
           </>
         )}
@@ -225,17 +227,28 @@ export function WarehouseMode() {
 
 function ScanView({ onCode }: { onCode: (code: string) => void }) {
   const [code, setCode] = useState("");
+  const [camera, setCamera] = useState(false);
   const ref = useRef<HTMLInputElement | null>(null);
   useEffect(() => ref.current?.focus(), []);
   return (
-    <form
-      onSubmit={(e) => { e.preventDefault(); if (code.trim().length >= 3) onCode(code); setCode(""); }}
-      style={{ display: "grid", gap: 12 }}
-    >
-      <div style={S.label}>Scan the label or type the SKU</div>
-      <input ref={ref} value={code} onChange={(e) => setCode(e.target.value)} placeholder="LOT-000123" autoCapitalize="characters" style={{ ...S.input, fontFamily: AT.mono, fontSize: 20, textAlign: "center", minHeight: 60 }} />
-      <button type="submit" style={S.btn} disabled={code.trim().length < 3}>Look up</button>
-    </form>
+    <div style={{ display: "grid", gap: 12 }}>
+      <button style={S.btn} onClick={() => setCamera(true)}>📷 Scan with camera</button>
+      <form
+        onSubmit={(e) => { e.preventDefault(); if (code.trim().length >= 3) onCode(code); setCode(""); }}
+        style={{ display: "grid", gap: 12 }}
+      >
+        <div style={S.label}>…or scan with a hardware scanner / type the SKU</div>
+        <input ref={ref} value={code} onChange={(e) => setCode(e.target.value)} placeholder="LOT-000123" autoCapitalize="characters" style={{ ...S.input, fontFamily: AT.mono, fontSize: 20, textAlign: "center", minHeight: 60 }} />
+        <button type="submit" style={{ ...S.btn, ...S.btnGhost }} disabled={code.trim().length < 3}>Look up</button>
+      </form>
+      {camera && (
+        <CameraScanner
+          hint="Aim at the item label"
+          onCode={(raw) => { setCamera(false); onCode(normalizeScan(raw)); }}
+          onClose={() => setCamera(false)}
+        />
+      )}
+    </div>
   );
 }
 
@@ -360,6 +373,7 @@ function BinPicker({ itemId, current, toast, done }: {
 }) {
   const [bins, setBins] = useState<Bin[]>([]);
   const [q, setQ] = useState("");
+  const [camera, setCamera] = useState(false);
   useEffect(() => {
     void api.get<{ locations: Bin[] }>("/api/warehouse/locations").then((r) => setBins(r.locations.filter((b) => b.active))).catch(() => undefined);
   }, []);
@@ -372,10 +386,21 @@ function BinPicker({ itemId, current, toast, done }: {
       toast(err instanceof ApiError ? err.message : "Putaway failed", "danger");
     }
   };
+  // Shelf labels encode BIN:<uuid> — scanning one assigns the bin directly.
+  const onBinScan = (raw: string) => {
+    setCamera(false);
+    const scanned = raw.trim();
+    if (scanned.startsWith("BIN:")) return void assign(scanned.slice(4));
+    const byLabel = bins.find((b) => b.label.toLowerCase() === scanned.toLowerCase());
+    if (byLabel) return void assign(byLabel.id);
+    toast("That's not a bin label — aim at the shelf's QR", "danger");
+  };
   const visible = bins.filter((b) => !q || b.label.toLowerCase().includes(q.toLowerCase()));
   return (
     <div style={{ ...S.card, display: "grid", gap: 8 }}>
-      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter bins… (FRONT-A1)" autoFocus style={S.input} />
+      <button style={{ ...S.btn, minHeight: 46 }} onClick={() => setCamera(true)}>📷 Scan the shelf label</button>
+      {camera && <CameraScanner hint="Aim at the shelf's bin QR" onCode={onBinScan} onClose={() => setCamera(false)} />}
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter bins… (FRONT-A1)" style={S.input} />
       <div style={{ maxHeight: 260, overflowY: "auto", display: "grid", gap: 6 }}>
         {current && (
           <button style={{ ...S.btn, ...S.btnGhost, minHeight: 46, color: "#B0282C" }} onClick={() => void assign(null)}>Clear bin</button>

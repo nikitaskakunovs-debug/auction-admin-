@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useAuth } from "./auth.js";
+import { isWarehouseHost } from "./host.js";
 import { LoginScreen } from "./Login.js";
 import { AT } from "./theme.js";
 import { AIcon, type IconName } from "./ui.js";
@@ -83,15 +84,19 @@ export function App() {
     [route],
   );
 
+  // On wh.<domain> the SPA is locked to warehouse mode — workers can't wander
+  // into the full admin from that host (it lives on admin.<domain>).
+  const whHost = isWarehouseHost();
+
   // Waiting-room TVs render without a login: #/board shows only the
   // PII-free public board payload (ticket numbers, progress, zone counts).
-  if (route.screen === "board") return <BoardScreen view={route.param} />;
+  if (!whHost && route.screen === "board") return <BoardScreen view={route.param} />;
 
   if (loading) return null;
   if (!user) return <LoginScreen />;
 
   // Phone-first PWA shell for storage workers — own layout, same session/RBAC.
-  if (route.screen === "wh") return <WarehouseMode />;
+  if (whHost || route.screen === "wh") return <WarehouseMode />;
 
   const allowed = SCREENS.filter((s) => s.permission === null || can(s.permission));
   const active = allowed.find((s) => s.id === route.screen) ?? allowed[0]!;

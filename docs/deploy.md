@@ -21,6 +21,7 @@ PostgreSQL (change `DATABASE_URL`, restore a dump — nothing else changes).
    | `www` | A | droplet IP |
    | `api` | A | droplet IP |
    | `admin` | A | droplet IP |
+   | `wh` | A | droplet IP |
 
 Caddy issues Let's Encrypt certificates automatically once DNS resolves.
 
@@ -75,7 +76,10 @@ least-privilege role).
 - `https://admin.<domain>` — login + 2FA, Inventory/Receiving open.
 - `https://api.<domain>/api/health` — `{"ok":true}`.
 - Upload a photo to an item — the URL should point at the Spaces CDN.
-- Warehouse mode on a phone: `https://admin.<domain>/#/wh`, add to home screen.
+- Warehouse mode on a phone: `https://wh.<domain>` (workers' own hostname —
+  locked to warehouse mode; the 📷 button scans QR labels with the phone
+  camera, no app needed) — add to home screen. Also reachable as
+  `https://admin.<domain>/#/wh`.
 - Place a test bid from a second browser; watch it live in the admin monitor.
 
 ## 6. Backups (nightly, off-site)

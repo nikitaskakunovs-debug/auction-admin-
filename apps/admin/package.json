@@ -13,6 +13,7 @@
   "dependencies": {
     "@auction/domain": "workspace:*",
     "@sentry/react": "^10.65.0",
+    "jsqr": "^1.4.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
