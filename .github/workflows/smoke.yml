@@ -1,0 +1,63 @@
+name: Smoke
+
+# Production smoke test — proves the LIVE site actually works (health, storefront,
+# admin), not just that it answers. Posts to Slack ONLY on failure, so a quiet
+# channel means everything is up. Complements an external uptime monitor
+# (30-second pings); this checks the app end to end every 30 minutes.
+#
+# Dormant until the `SMOKE_DOMAIN` repository VARIABLE is set (e.g. izsoli.lv)
+# — set it after go-live: repo → Settings → Secrets and variables → Actions →
+# Variables tab → New repository variable → SMOKE_DOMAIN = izsoli.lv.
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe production
+        env:
+          DOMAIN: ${{ vars.SMOKE_DOMAIN }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -z "$DOMAIN" ]; then
+            echo "SMOKE_DOMAIN variable not set — skipping smoke test"
+            exit 0
+          fi
+
+          fail=""
+
+          # API health — expect {"ok":true}
+          health=$(curl -sS --max-time 15 "https://api.$DOMAIN/api/health" 2>/dev/null || echo "")
+          if ! printf '%s' "$health" | grep -q '"ok":true'; then
+            fail="$fail\n• API health failed (https://api.$DOMAIN/api/health): $(printf '%s' "$health" | cut -c1-160)"
+          fi
+
+          # Storefront — expect a final 200 (follow locale redirects)
+          code=$(curl -sSL -o /dev/null -w '%{http_code}' --max-time 20 "https://$DOMAIN" 2>/dev/null || echo "000")
+          if [ "$code" != "200" ]; then
+            fail="$fail\n• Storefront returned HTTP $code (https://$DOMAIN)"
+          fi
+
+          # Admin panel — static SPA, expect 200
+          acode=$(curl -sSL -o /dev/null -w '%{http_code}' --max-time 20 "https://admin.$DOMAIN" 2>/dev/null || echo "000")
+          if [ "$acode" != "200" ]; then
+            fail="$fail\n• Admin panel returned HTTP $acode (https://admin.$DOMAIN)"
+          fi
+
+          if [ -z "$fail" ]; then
+            echo "All smoke checks passed for $DOMAIN"
+            exit 0
+          fi
+
+          printf 'Smoke failures:%b\n' "$fail"
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            text=$(printf ':rotating_light: *Production smoke test FAILED* — %s%b' "$DOMAIN" "$fail")
+            payload=$(printf '%s' "$text" | python3 -c 'import json,sys; print(json.dumps({"attachments":[{"color":"#B0282C","blocks":[{"type":"section","text":{"type":"mrkdwn","text":sys.stdin.read()}}]}]}))')
+            curl -sf -X POST -H 'Content-type: application/json' --data "$payload" "$SLACK_WEBHOOK_URL" \
+              || echo "Slack post failed (non-fatal)"
+          fi
+          exit 1

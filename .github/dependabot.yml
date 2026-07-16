@@ -1,0 +1,36 @@
+version: 2
+
+# Weekly dependency + GitHub Actions updates. Each PR runs through the full
+# CI suite before it can merge, so an unsafe bump is caught automatically and
+# reported to Slack. Minor/patch bumps are grouped into one PR to cut noise;
+# majors come one at a time (they're the ones that break things).
+updates:
+  - package-ecosystem: "npm" # covers the pnpm workspace (pnpm-lock.yaml)
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Riga"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+    labels:
+      - "dependencies"
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Riga"
+    commit-message:
+      prefix: "ci"
+    labels:
+      - "dependencies"
