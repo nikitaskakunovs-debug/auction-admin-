@@ -10,6 +10,7 @@
     "test": "echo \"(web is covered by typecheck + build; e2e in the SEO/polish phase)\""
   },
   "dependencies": {
+    "@sentry/nextjs": "^10.65.0",
     "next": "^15.1.6",
     "qrcode": "^1.5.4",
     "react": "^19.0.0",

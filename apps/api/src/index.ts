@@ -1,5 +1,8 @@
+import "./instrument.js"; // MUST stay first — inits Sentry before anything else loads
+import * as Sentry from "@sentry/node";
 import { createDb } from "@auction/db";
 import { Redis } from "ioredis";
+import { sentryEnabled } from "./instrument.js";
 import { loadConfig } from "./config.js";
 import type { AppContext } from "./context.js";
 import { createEmailAdapter } from "./email.js";
@@ -30,6 +33,8 @@ const ctx: AppContext = {
 };
 
 const { app } = await buildServer(ctx, { logger: true });
+// Report unhandled route errors to Sentry (no-op when SENTRY_DSN is unset).
+if (sentryEnabled) Sentry.setupFastifyErrorHandler(app);
 const scheduler = new AuctionScheduler(ctx);
 if (config.schedulerEnabled) scheduler.start();
 
