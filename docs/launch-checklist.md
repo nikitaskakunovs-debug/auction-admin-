@@ -81,6 +81,23 @@ The missing tier is human preview. At launch, add:
 - [ ] Managed PostgreSQL migration when scale demands (change `DATABASE_URL`,
       restore a dump — nothing else changes)
 
+## Slack notifications (CI test results)
+
+The CI workflow posts every run's verdict to Slack once a webhook is
+configured (until then the step is a silent no-op):
+
+1. https://api.slack.com/apps → Create New App → From scratch → workspace
+   `auctionmvp` → Features → **Incoming Webhooks** → activate → **Add New
+   Webhook to Workspace** → pick the channel → copy the
+   `https://hooks.slack.com/services/…` URL
+2. GitHub → repo → Settings → Secrets and variables → Actions →
+   **New repository secret** → name `SLACK_WEBHOOK_URL`, value = that URL
+
+Every push then reports ✅/❌ with branch, commit, author, and a link to the
+run. (Zero-code alternative: `/invite @GitHub` in the channel, then
+`/github subscribe nikitaskakunovs-debug/auction-admin- workflows` — but the
+webhook message is tidier.)
+
 ## Standing routines
 
 - Nightly 03:15 DB backup → Spaces `backups/` (14-day retention);
