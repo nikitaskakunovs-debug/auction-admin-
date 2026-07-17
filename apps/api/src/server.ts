@@ -25,6 +25,7 @@ import { registerPickupRoutes } from "./routes/pickup.js";
 import { registerPublicRoutes } from "./routes/public.js";
 import { registerReceivingRoutes } from "./routes/receiving.js";
 import { registerSearchRoutes } from "./routes/search.js";
+import { registerViewRoutes } from "./routes/views.js";
 import { registerShippingRoutes } from "./routes/shipping.js";
 import { registerWs } from "./ws.js";
 
@@ -122,6 +123,7 @@ export async function buildServer(ctx: AppContext, opts: { logger?: boolean } = 
   registerPaymentRoutes(app, ctx);
   registerShippingRoutes(app, ctx, perms);
   registerSearchRoutes(app, ctx, perms);
+  registerViewRoutes(app, ctx);
   await registerWs(app, ctx);
 
   return { app, perms };
