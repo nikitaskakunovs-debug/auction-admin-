@@ -1,6 +1,6 @@
 import { customers, invoices, items, markets, orders, payments, refunds, shipments } from "@auction/db";
 import { assertItemTransition, computeNoShowSettlement, type ItemStatus } from "@auction/domain";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNull, lte, or, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { writeAudit } from "../audit.js";
@@ -18,16 +18,109 @@ const actor = (req: { admin?: { sub: string; name: string } }) => ({
 export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext, perms: PermissionService): void {
   const guard = (p: Parameters<typeof requirePermission>[1]) => ({ preHandler: requirePermission(perms, p) });
 
+  /**
+   * Filtered + paginated orders list for the power screen. Every filter is
+   * server-side so the list scales past the browser: status, market,
+   * fulfilment, free-text (ref/alias/email, accent-folded), amount band,
+   * date range, sort. Returns per-status counts (computed under the same
+   * filters, minus status) for the pill row, plus the latest paid payment's
+   * provider/method for the Payment column.
+   */
   app.get("/api/orders", guard("orders.view"), async (req) => {
-    const q = req.query as { status?: string };
-    const rows = await ctx.db
-      .select({ order: orders, itemSku: items.sku, itemStatus: items.status })
-      .from(orders)
-      .innerJoin(items, eq(orders.itemId, items.id))
-      .where(q.status ? eq(orders.status, q.status) : undefined)
-      .orderBy(desc(orders.createdAt))
-      .limit(500);
-    return { orders: rows.map((r) => ({ ...r.order, itemSku: r.itemSku, itemStatus: r.itemStatus })) };
+    const q = req.query as {
+      status?: string; market?: string; fulfilment?: string; q?: string;
+      min?: string; max?: string; from?: string; to?: string; sort?: string;
+      limit?: string; offset?: string;
+    };
+    const limit = Math.min(Math.max(Number(q.limit) || 50, 1), 200);
+    const offset = Math.max(Number(q.offset) || 0, 0);
+
+    const base: SQL[] = [];
+    if (q.market) base.push(eq(orders.marketCode, q.market.toUpperCase()) as SQL);
+    if (q.fulfilment) base.push(eq(orders.fulfilment, q.fulfilment) as SQL);
+    if (q.min && Number(q.min) > 0) base.push(gte(orders.totalCents, Number(q.min)) as SQL);
+    if (q.max && Number(q.max) > 0) base.push(lte(orders.totalCents, Number(q.max)) as SQL);
+    if (q.from && !Number.isNaN(Date.parse(q.from))) base.push(gte(orders.createdAt, new Date(q.from)) as SQL);
+    if (q.to && !Number.isNaN(Date.parse(q.to))) {
+      const to = new Date(q.to);
+      to.setUTCHours(23, 59, 59, 999);
+      base.push(lte(orders.createdAt, to) as SQL);
+    }
+    if (q.q && q.q.trim().length >= 2) {
+      const fold = "translate(lower(%s), 'āčēģīķļņšūž', 'acegiklnsuz')";
+      let needle = q.q.trim().toLowerCase();
+      const FROM = "āčēģīķļņšūž";
+      const TO = "acegiklnsuz";
+      for (let i = 0; i < FROM.length; i++) needle = needle.replaceAll(FROM[i]!, TO[i]!);
+      const like = `%${needle}%`;
+      void fold; // documented pattern; inlined below per-column
+      base.push(
+        or(
+          sql`translate(lower(${orders.ref}), 'āčēģīķļņšūž', 'acegiklnsuz') like ${like}`,
+          sql`translate(lower(${orders.customerAlias}), 'āčēģīķļņšūž', 'acegiklnsuz') like ${like}`,
+          sql`translate(lower(${orders.customerEmail}), 'āčēģīķļņšūž', 'acegiklnsuz') like ${like}`,
+        ) as SQL,
+      );
+    }
+
+    const withStatus = q.status ? [...base, eq(orders.status, q.status) as SQL] : base;
+    const whereAll = base.length ? and(...base) : undefined;
+    const whereList = withStatus.length ? and(...withStatus) : undefined;
+
+    const sort =
+      q.sort === "oldest" ? asc(orders.createdAt) :
+      q.sort === "amount_desc" ? desc(orders.totalCents) :
+      q.sort === "amount_asc" ? asc(orders.totalCents) : desc(orders.createdAt);
+
+    const [rows, statusCounts] = await Promise.all([
+      ctx.db
+        .select({ order: orders, itemSku: items.sku, itemStatus: items.status, itemTitle: items.title })
+        .from(orders)
+        .innerJoin(items, eq(orders.itemId, items.id))
+        .where(whereList)
+        .orderBy(sort)
+        .limit(limit)
+        .offset(offset),
+      ctx.db
+        .select({ status: orders.status, count: sql<number>`count(*)::int` })
+        .from(orders)
+        .where(whereAll)
+        .groupBy(orders.status),
+    ]);
+
+    // Latest paid payment per listed order → "Klix · pay_later" style label.
+    const ids = rows.map((r) => r.order.id);
+    const payRows = ids.length
+      ? await ctx.db
+          .select({ orderId: payments.orderId, provider: payments.provider, method: payments.method, createdAt: payments.createdAt })
+          .from(payments)
+          .where(and(sql`${payments.orderId} in ${ids}`, eq(payments.status, "paid")))
+      : [];
+    const payBy = new Map<string, { provider: string; method: string | null }>();
+    for (const p of payRows.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())) {
+      payBy.set(p.orderId, { provider: p.provider, method: p.method });
+    }
+
+    let all = 0;
+    const counts: Record<string, number> = {};
+    for (const c of statusCounts) {
+      counts[c.status] = c.count;
+      all += c.count;
+    }
+    counts.all = all;
+    const total = q.status ? (counts[q.status] ?? 0) : counts.all;
+
+    return {
+      orders: rows.map((r) => ({
+        ...r.order,
+        itemSku: r.itemSku,
+        itemStatus: r.itemStatus,
+        itemTitle: r.itemTitle,
+        paidVia: payBy.get(r.order.id) ?? null,
+      })),
+      total,
+      counts,
+    };
   });
 
   /**

@@ -140,6 +140,26 @@ export const trustedDevices = pgTable(
   (t) => [index("trusted_devices_user_idx").on(t.userId), index("trusted_devices_token_idx").on(t.tokenHash)],
 );
 
+/** Named filter presets ("saved views") per admin per screen — synced to the
+ * account so a view saved on the laptop appears on the phone too. */
+export const savedViews = pgTable(
+  "saved_views",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => adminUsers.id, { onDelete: "cascade" }),
+    /** Which list screen the view belongs to: 'orders' | 'inventory' | … */
+    screen: text("screen").notNull(),
+    name: text("name").notNull(),
+    /** The complete filter state, opaque to the server. */
+    filters: jsonb("filters").$type<Record<string, unknown>>().notNull(),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("saved_views_user_screen_idx").on(t.userId, t.screen)],
+);
+
 /** Single-use, short-lived password-reset tokens for admins AND customers
  * (exactly one of user_id / customer_id is set). Only the hash is stored. */
 export const passwordResets = pgTable(
