@@ -21,13 +21,13 @@
   },
   "dependencies": {
     "@auction/domain": "workspace:*",
-    "drizzle-orm": "^0.44.2",
+    "drizzle-orm": "^0.45.2",
     "pg": "^8.13.1"
   },
   "devDependencies": {
     "@types/pg": "^8.11.10",
     "drizzle-kit": "^0.31.1",
-    "tsx": "^4.19.2",
+    "tsx": "^4.23.1",
     "typescript": "^5.7.3"
   }
 }
