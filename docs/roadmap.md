@@ -16,15 +16,15 @@ Legend: ✅ live · 🔨 in progress · 🎯 planned (phase) · 💬 needs desig
 | 4 | Grading/photo rework with accept flow + notification [переделать оценку, фото] | ✅ | **W2** — worker grades → item enters "review" queue → listing manager approves/edits/rejects with reason → worker notified (banner) |
 | 5 | Per-item conversation [переписка по товару — кто что] | ✅ | **W2** — "Saruna" comments thread on the item card (wh + admin) alongside the "Vēsture" history timeline |
 | 6 | Condition presets only — standardized reports [пресеты кондиций] | ✅ | **W2** — preset note chips per condition (LV/RU/EN, editable in Settings → Conditions); "Other…" free text tracked |
-| 7 | Pick timer + stats + who-did-what [таймер на сборку] | ✅ + 🎯 | **W1** timers shipped + **W3** stats screen |
-| 8 | Action log + statistics [лог после каждого действия] | ✅ + 🎯 | Audit + movements + per-item history all live. **W3** — productivity dashboards (picks/hr, receive counts, per-worker) |
+| 7 | Pick timer + stats + who-did-what [таймер на сборку] | ✅ | **W1** timers + **W3** stats screen (per-worker table, day timeline drill-down) |
+| 8 | Action log + statistics [лог после каждого действия] | ✅ | Audit + movements + per-item history + **W3** productivity dashboards (picks/hr, receive counts, per-worker, manager-only) |
 | 9 | Slack chat mirroring per channel [переписка через slack] | 💬 | **S1** — events → Slack channels (#orders, #warehouse, #bugs). Needs a Slack app with bot token (like the CI webhook, but richer). Design first |
 | 10 | Jira bug tracking with completion notification | 🎯 | **E** — account+project+token ready; design mockup next |
 | 11 | Bug report everywhere + logs + screenshot + screen recording | 🎯 | **E** — auto console-log capture + screenshot attach; screen recording via the browser's MediaRecorder where supported |
 | 12 | Task handoff between workers [перекидывать таски друг-другу] | 🎯 | **W1** — reassign/release a claimed pick ticket (with audit) |
 | 13 | Connect-scanner CTA → phone settings | 🎯 | **W1** (small) — first-run "Connect scanner" card linking the camera-Allow steps per platform |
 | 14 | VPN-only access for all devices | 💬 | **SEC** — WireGuard/Tailscale + Caddy allowlist for admin.+wh. hosts. Decision needed: which devices, who manages profiles. Storefront stays public |
-| 15 | Bin registration & tracking | ✅ + 🎯 | Bins CRUD + QR labels + movement ledger live. **W3 adds:** bin browser (contents per bin, capacity, last activity) |
+| 15 | Bin registration & tracking | ✅ | Bins CRUD + QR labels + movement ledger + **W3** bin browser (contents per bin, capacity, last activity; admin tab + phone "Plaukti") |
 | 16 | Collapsible left menu (mobile) | 🎯 | **B** — mobile admin (approved: text-only controls) |
 | 17 | Google & Meta tags | 🎯 | **C** — OG/meta/social tags audit + consent-gated GA4 & Meta Pixel toggles (Shhh-style settings) |
 | 18 | Front-desk flow design [продумать флоу фронт деск] | 💬 | **W4** — counter workstation: check-in by name/order (no code), handover, payments on the spot. Design session together |
@@ -40,7 +40,7 @@ Legend: ✅ live · 🔨 in progress · 🎯 planned (phase) · 💬 needs desig
 | 🎯 A3 | Power UI on Inventory/Listings/Bidders/Finance; bidder tags+segments; notifications pills | next unless reordered |
 | ✅ W1 | Warehouse ops I: live pick board + notifications + timers + handoff + quarantine + unshelf + scanner CTA | shipped |
 | ✅ W2 | Warehouse ops II: grading approval flow + condition preset notes + item chat + changelog tabs | shipped |
-| 🎯 W3 | Warehouse ops III: productivity stats + bin browser | next unless reordered |
+| ✅ W3 | Warehouse ops III: productivity stats + bin browser | shipped |
 | 🎯 E | Report-a-problem + Jira (screenshot, recording, chat, status sync) | design page → approve |
 | 🎯 B | Mobile-responsive admin + collapsible sidebar | design approved (Phase A artifact §5) |
 | 💬 C | Storefront upgrade + Google/Meta tags + GA4/Pixel | waiting on owner's HTML file |
