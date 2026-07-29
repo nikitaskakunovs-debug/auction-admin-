@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { api } from "./api.js";
 
 export interface AuctionEvent {
-  type: "bid" | "extended" | "opened" | "closed" | "cancelled" | "bid_voided" | "subscribed";
+  type: "bid" | "extended" | "opened" | "closed" | "cancelled" | "bid_voided" | "subscribed" | "pickup_checkin";
   auctionId?: string;
   at?: string;
   data?: Record<string, unknown>;

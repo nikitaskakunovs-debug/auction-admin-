@@ -14,7 +14,9 @@ export type TicketStatus = (typeof TICKET_STATUSES)[number];
 
 const TICKET_TRANSITIONS: Record<TicketStatus, readonly TicketStatus[]> = {
   waiting: ["picking", "cancelled"],
-  picking: ["delivering", "cancelled"],
+  // picking → waiting is "pass back to the queue": the claimer releases the
+  // ticket for any colleague to pick up (picked lines carry over).
+  picking: ["delivering", "cancelled", "waiting"],
   delivering: ["completed", "cancelled"],
   completed: [],
   cancelled: [],

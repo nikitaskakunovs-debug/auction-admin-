@@ -1,4 +1,4 @@
-import { auctions, items, listings } from "@auction/db";
+import { auctions, items, listings, warehouseLocations } from "@auction/db";
 import { assertItemTransition, type ItemStatus } from "@auction/domain";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -135,6 +135,11 @@ export function registerListingRoutes(app: FastifyInstance, ctx: AppContext, per
       const [listing] = await tx.select().from(listings).where(eq(listings.id, id)).for("update");
       if (!listing) return null;
       const [item] = await tx.select().from(items).where(eq(items.id, listing.itemId)).for("update");
+      // Quarantined stock (pulled for damage/rephoto/regrade) cannot go live.
+      if (item!.locationId) {
+        const [loc] = await tx.select({ zone: warehouseLocations.zone }).from(warehouseLocations).where(eq(warehouseLocations.id, item!.locationId));
+        if (loc?.zone === "QUARANTINE") return "quarantined" as const;
+      }
       if (item!.status === "draft") {
         assertItemTransition("draft", "listed");
         await tx.update(items).set({ status: "listed", updatedAt: ctx.now() }).where(eq(items.id, item!.id));
@@ -150,6 +155,7 @@ export function registerListingRoutes(app: FastifyInstance, ctx: AppContext, per
       return row!;
     });
     if (result === null) return reply.code(404).send({ error: "not_found" });
+    if (result === "quarantined") return reply.code(409).send({ error: "item_quarantined" });
     if (result === "item_busy") return reply.code(409).send({ error: "item_not_publishable" });
     return { listing: result };
   });

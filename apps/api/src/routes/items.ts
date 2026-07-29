@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { auditLog, items, stockMovements, warehouseLocations } from "@auction/db";
 import { assertItemTransition, conditionRequiresNotes, isKnownCategory, ITEM_STATUSES, type ItemStatus } from "@auction/domain";
-import { desc, eq, ilike, or, and } from "drizzle-orm";
+import { desc, eq, ilike, or, and, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { FastifyInstance } from "fastify";
 import sharp from "sharp";
@@ -37,6 +37,13 @@ export function registerItemRoutes(app: FastifyInstance, ctx: AppContext, perms:
     const q = req.query as { status?: string; q?: string };
     const conditions = [];
     if (q.status) conditions.push(eq(items.status, q.status));
+    // Listing desk's ready-to-list feed (status=draft): quarantined items are
+    // pulled for damage/rephoto/regrade review and must not surface there.
+    if (q.status === "draft") {
+      conditions.push(
+        sql`not exists (select 1 from warehouse_locations wl where wl.id = ${items.locationId} and wl.zone = 'QUARANTINE')`,
+      );
+    }
     if (q.q) conditions.push(or(ilike(items.title, `%${q.q}%`), ilike(items.sku, `%${q.q}%`)));
     const rows = await ctx.db
       .select()

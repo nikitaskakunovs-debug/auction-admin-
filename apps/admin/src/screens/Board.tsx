@@ -19,6 +19,9 @@ interface BoardTicket {
   etaSec: number;
   front: number;
   back: number;
+  /** Lines already picked / total lines — drives the per-ticket progress bar. */
+  pickedCount: number;
+  totalCount: number;
 }
 
 const FONT = '"Geist", system-ui, sans-serif';
@@ -119,7 +122,11 @@ export function BoardScreen({ view }: { view: string | null }) {
       <div style={{ display: "grid", gap: 10 }}>
         {visible.map((t) => {
           const delivering = t.status === "delivering";
-          const pct = delivering ? 100 : t.pct;
+          const picking = t.status === "picking";
+          // Picking rows show real per-line progress (pickedCount/totalCount);
+          // waiting keeps the queue state, delivering pins to 100%.
+          const pct = delivering ? 100 : picking && t.totalCount > 0 ? Math.round((t.pickedCount / t.totalCount) * 100) : t.pct;
+          const barColor = picking ? "#2D4BFF" : "#63A32A";
           return (
             <div
               key={t.number}
@@ -140,11 +147,11 @@ export function BoardScreen({ view }: { view: string | null }) {
               </span>
               <span>
                 <span style={{ display: "flex", alignItems: "baseline", gap: 12, fontSize: 16, color: "#333" }}>
-                  <strong>{pct}%</strong>
+                  <strong>{picking ? `${t.pickedCount} / ${t.totalCount}` : `${pct}%`}</strong>
                   <span>{delivering ? "On our way!" : t.status === "waiting" ? "In queue" : eta(t.etaSec)}</span>
                 </span>
                 <span style={{ display: "block", marginTop: 6, height: 5, borderRadius: 3, background: "#E7E7E3", overflow: "hidden" }}>
-                  <span style={{ display: "block", height: "100%", width: `${pct}%`, background: "#63A32A", transition: "width 600ms ease" }} />
+                  <span style={{ display: "block", height: "100%", width: `${pct}%`, background: barColor, transition: "width 600ms ease" }} />
                 </span>
               </span>
               <span style={{ textAlign: "right", fontSize: 19, color: "#333" }}>{t.front}</span>
