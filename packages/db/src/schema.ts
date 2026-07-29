@@ -140,6 +140,24 @@ export const trustedDevices = pgTable(
   (t) => [index("trusted_devices_user_idx").on(t.userId), index("trusted_devices_token_idx").on(t.tokenHash)],
 );
 
+/** Warehouse shift presence — one row per admin per day, updated in place.
+ * Statuses: working | coffee | lunch | done. Set from the warehouse phone;
+ * shown on the admin live board; every change is audited. */
+export const workerStatus = pgTable(
+  "worker_status",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => adminUsers.id, { onDelete: "cascade" }),
+    dayKey: text("day_key").notNull(), // UTC date, e.g. '2026-07-29'
+    status: text("status").notNull().default("working"),
+    /** When the current status began (drives the break/lunch elapsed timer). */
+    sinceAt: timestamp("since_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("worker_status_user_day_idx").on(t.userId, t.dayKey)],
+);
+
 /** Named filter presets ("saved views") per admin per screen — synced to the
  * account so a view saved on the laptop appears on the phone too. */
 export const savedViews = pgTable(
@@ -493,6 +511,10 @@ export const pickupTickets = pgTable(
     status: text("status").notNull().default("waiting"), // domain TicketStatus
     checkedInVia: text("checked_in_via").notNull().default("desk"), // 'kiosk' | 'desk'
     claimedById: uuid("claimed_by_id").references(() => adminUsers.id),
+    /** Pending direct handoff: set by "pass to colleague", cleared on accept. */
+    passToId: uuid("pass_to_id").references(() => adminUsers.id),
+    passReason: text("pass_reason"),
+    passAt: timestamp("pass_at", { withTimezone: true }),
     checkedInAt: timestamp("checked_in_at", { withTimezone: true }).notNull().defaultNow(),
     pickingStartedAt: timestamp("picking_started_at", { withTimezone: true }),
     deliveringAt: timestamp("delivering_at", { withTimezone: true }),
