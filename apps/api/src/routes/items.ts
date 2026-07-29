@@ -44,26 +44,58 @@ export function registerItemRoutes(app: FastifyInstance, ctx: AppContext, perms:
   const guard = (p: Parameters<typeof requirePermission>[1]) => ({ preHandler: requirePermission(perms, p) });
 
   app.get("/api/items", guard("items.view"), async (req) => {
-    const q = req.query as { status?: string; q?: string };
-    const conditions = [];
-    if (q.status) conditions.push(eq(items.status, q.status));
+    const q = req.query as {
+      status?: string; statuses?: string; q?: string; market?: string; category?: string;
+      conditions?: string; bin?: string; from?: string; to?: string; sort?: string;
+      limit?: string; offset?: string;
+    };
+    // Status filters kept apart from the rest: the pill counts are computed
+    // with everything EXCEPT the status choice, so every pill stays labeled.
+    const statusConds = [];
+    if (q.status) statusConds.push(eq(items.status, q.status));
+    if (q.statuses) statusConds.push(inArray(items.status, q.statuses.split(",").filter(Boolean)));
+
+    const otherConds = [];
     // Listing desk's ready-to-list feed (status=draft): quarantined items are
     // pulled for damage/rephoto/regrade review and must not surface there.
     if (q.status === "draft") {
-      conditions.push(
+      otherConds.push(
         sql`not exists (select 1 from warehouse_locations wl where wl.id = ${items.locationId} and wl.zone = 'QUARANTINE')`,
       );
       // A grade awaiting listing-manager review is not ready to list either.
-      conditions.push(sql`${items.gradeStatus} <> 'pending_review'`);
+      otherConds.push(sql`${items.gradeStatus} <> 'pending_review'`);
     }
-    if (q.q) conditions.push(or(ilike(items.title, `%${q.q}%`), ilike(items.sku, `%${q.q}%`)));
-    const rows = await ctx.db
-      .select()
+    if (q.q) otherConds.push(or(ilike(items.title, `%${q.q}%`), ilike(items.sku, `%${q.q}%`)));
+    if (q.market) otherConds.push(eq(items.marketCode, q.market.toUpperCase()));
+    if (q.category) otherConds.push(eq(items.category, q.category));
+    if (q.conditions) otherConds.push(inArray(items.condition, q.conditions.split(",").filter(Boolean)));
+    if (q.bin === "none") otherConds.push(sql`${items.locationId} is null`);
+    else if (q.bin) otherConds.push(eq(items.locationId, q.bin));
+    const dayStart = (d: string) => new Date(`${d}T00:00:00.000Z`);
+    if (q.from) otherConds.push(sql`${items.createdAt} >= ${dayStart(q.from)}`);
+    if (q.to) otherConds.push(sql`${items.createdAt} < ${new Date(dayStart(q.to).getTime() + 86_400_000)}`);
+
+    const conditions = [...statusConds, ...otherConds];
+    const where = conditions.length ? and(...conditions) : undefined;
+    const limit = Math.min(Math.max(Number(q.limit) || 500, 1), 500);
+    const offset = Math.max(Number(q.offset) || 0, 0);
+    const order =
+      q.sort === "oldest" ? items.createdAt :
+      q.sort === "title" ? items.title :
+      q.sort === "updated" ? desc(items.updatedAt) : desc(items.createdAt);
+
+    const rows = await ctx.db.select().from(items).where(where).orderBy(order).limit(limit).offset(offset);
+    const [totalRow] = await ctx.db.select({ n: sql<string>`count(*)` }).from(items).where(where);
+    const countRows = await ctx.db
+      .select({ status: items.status, n: sql<string>`count(*)` })
       .from(items)
-      .where(conditions.length ? and(...conditions) : undefined)
-      .orderBy(desc(items.createdAt))
-      .limit(500);
-    return { items: rows };
+      .where(otherConds.length ? and(...otherConds) : undefined)
+      .groupBy(items.status);
+    return {
+      items: rows,
+      total: Number(totalRow!.n),
+      counts: Object.fromEntries(countRows.map((r) => [r.status, Number(r.n)])),
+    };
   });
 
   app.get("/api/items/:id", guard("items.view"), async (req, reply) => {

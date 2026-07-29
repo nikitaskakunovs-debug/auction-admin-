@@ -1,5 +1,5 @@
-import { bids, customerFees, customers, orders } from "@auction/db";
-import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
+import { bids, customerFees, customers, customerTagDefs, orders } from "@auction/db";
+import { and, asc, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { writeAudit } from "../audit.js";
@@ -28,6 +28,7 @@ const customerCols = {
   blockedAt: customers.blockedAt,
   notes: customers.notes,
   erasedAt: customers.erasedAt,
+  tags: customers.tags,
   createdAt: customers.createdAt,
 } as const;
 
@@ -46,14 +47,162 @@ export function registerCustomerRoutes(app: FastifyInstance, ctx: AppContext, pe
   const guard = (p: Parameters<typeof requirePermission>[1]) => ({ preHandler: requirePermission(perms, p) });
 
   app.get("/api/customers", guard("customers.view"), async (req) => {
-    const q = req.query as { q?: string };
+    const q = req.query as {
+      q?: string; status?: string; tag?: string; country?: string; market?: string;
+      from?: string; to?: string; debt?: string; sort?: string; limit?: string; offset?: string;
+    };
+    // A3 power query. Status apart from the rest — pill counts ignore it.
+    const statusConds = [];
+    if (q.status === "active") statusConds.push(eq(customers.blocked, false), sql`${customers.erasedAt} is null`);
+    else if (q.status === "blocked") statusConds.push(eq(customers.blocked, true), sql`${customers.erasedAt} is null`);
+    else if (q.status === "erased") statusConds.push(sql`${customers.erasedAt} is not null`);
+    else if (q.status === "strikes") statusConds.push(sql`${customers.strikes} > 0`);
+
+    const otherConds = [];
+    if (q.q) otherConds.push(or(ilike(customers.alias, `%${q.q}%`), ilike(customers.email, `%${q.q}%`), ilike(customers.name, `%${q.q}%`)));
+    if (q.tag) otherConds.push(sql`${customers.tags} @> ${JSON.stringify([q.tag])}::jsonb`);
+    if (q.country) otherConds.push(eq(customers.country, q.country.toUpperCase()));
+    if (q.market) otherConds.push(eq(customers.marketCode, q.market.toUpperCase()));
+    const dayStart = (d: string) => new Date(`${d}T00:00:00.000Z`);
+    if (q.from) otherConds.push(sql`${customers.createdAt} >= ${dayStart(q.from)}`);
+    if (q.to) otherConds.push(sql`${customers.createdAt} < ${new Date(dayStart(q.to).getTime() + 86_400_000)}`);
+    // Outstanding restock fees ("debt") — the same rule that pauses bidding.
+    // Hand-qualified identifiers: drizzle renders sql`` column refs
+    // unqualified, so ${customers.id} inside the subquery would bind to cf.id.
+    const debtSql = sql`exists (select 1 from customer_fees cf where cf.customer_id = customers.id and cf.status = 'outstanding')`;
+    if (q.debt === "has") otherConds.push(debtSql);
+
+    const conditions = [...statusConds, ...otherConds];
+    const where = conditions.length ? and(...conditions) : undefined;
+    const limit = Math.min(Math.max(Number(q.limit) || 500, 1), 500);
+    const offset = Math.max(Number(q.offset) || 0, 0);
+    const order =
+      q.sort === "oldest" ? asc(customers.createdAt) :
+      q.sort === "alias" ? asc(customers.alias) :
+      q.sort === "strikes" ? desc(customers.strikes) : desc(customers.createdAt);
+
     const rows = await ctx.db
-      .select(customerCols)
+      .select({
+        ...customerCols,
+        outstandingFeeCents: sql<string>`coalesce((select sum(cf.amount_cents) from customer_fees cf where cf.customer_id = customers.id and cf.status = 'outstanding'), 0)`,
+      })
       .from(customers)
-      .where(q.q ? or(ilike(customers.alias, `%${q.q}%`), ilike(customers.email, `%${q.q}%`), ilike(customers.name, `%${q.q}%`)) : undefined)
-      .orderBy(desc(customers.createdAt))
-      .limit(500);
-    return { customers: rows };
+      .where(where)
+      .orderBy(order)
+      .limit(limit)
+      .offset(offset);
+    const [totalRow] = await ctx.db.select({ n: sql<string>`count(*)` }).from(customers).where(where);
+    const [countRow] = await ctx.db
+      .select({
+        all: sql<string>`count(*)`,
+        active: sql<string>`count(*) filter (where not ${customers.blocked} and ${customers.erasedAt} is null)`,
+        blocked: sql<string>`count(*) filter (where ${customers.blocked} and ${customers.erasedAt} is null)`,
+        erased: sql<string>`count(*) filter (where ${customers.erasedAt} is not null)`,
+        strikes: sql<string>`count(*) filter (where ${customers.strikes} > 0)`,
+      })
+      .from(customers)
+      .where(otherConds.length ? and(...otherConds) : undefined);
+    return {
+      customers: rows.map((r) => ({ ...r, outstandingFeeCents: Number(r.outstandingFeeCents) })),
+      total: Number(totalRow!.n),
+      counts: {
+        all: Number(countRow!.all),
+        active: Number(countRow!.active),
+        blocked: Number(countRow!.blocked),
+        erased: Number(countRow!.erased),
+        strikes: Number(countRow!.strikes),
+      },
+    };
+  });
+
+  // ── A3: bidder tags — managed vocabulary + assignment ─────────────────────
+
+  app.get("/api/customer-tags", guard("customers.view"), async () => {
+    const rows = await ctx.db.select().from(customerTagDefs).orderBy(asc(customerTagDefs.position), asc(customerTagDefs.createdAt));
+    return { tags: rows };
+  });
+
+  const TAG_COLORS = ["gold", "green", "blue", "red", "orange", "grey"] as const;
+  const tagDefBody = z.object({
+    name: z.string().min(1).max(40),
+    color: z.enum(TAG_COLORS).default("grey"),
+  });
+  app.post("/api/customer-tags", guard("settings.edit"), async (req, reply) => {
+    const body = tagDefBody.safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: body.error.flatten() });
+    const [maxRow] = await ctx.db.select({ n: sql<string>`coalesce(max(position), -1)` }).from(customerTagDefs);
+    const [row] = await ctx.db
+      .insert(customerTagDefs)
+      .values({ ...body.data, position: Number(maxRow!.n) + 1 })
+      .onConflictDoNothing()
+      .returning();
+    if (!row) return reply.code(409).send({ error: "name_exists" });
+    await writeAudit(ctx.db, actor(req), "customer", "tag_created", row.name);
+    return { tag: row };
+  });
+
+  app.patch("/api/customer-tags/:id", guard("settings.edit"), async (req, reply) => {
+    const body = tagDefBody.partial().extend({
+      position: z.number().int().min(0).optional(),
+      active: z.boolean().optional(),
+    }).safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: body.error.flatten() });
+    const [row] = await ctx.db
+      .update(customerTagDefs)
+      .set(body.data)
+      .where(eq(customerTagDefs.id, (req.params as { id: string }).id))
+      .returning();
+    if (!row) return reply.code(404).send({ error: "not_found" });
+    await writeAudit(ctx.db, actor(req), "customer", "tag_updated", row.name, body.data);
+    return { tag: row };
+  });
+
+  /** Replace one bidder's tag set (drawer editor). */
+  const tagAssignBody = z.object({ tagIds: z.array(z.string().uuid()).max(20) });
+  app.post("/api/customers/:id/tags", guard("customers.edit"), async (req, reply) => {
+    const body = tagAssignBody.safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: body.error.flatten() });
+    const known = body.data.tagIds.length
+      ? await ctx.db.select({ id: customerTagDefs.id }).from(customerTagDefs).where(inArray(customerTagDefs.id, body.data.tagIds))
+      : [];
+    if (known.length !== body.data.tagIds.length) return reply.code(422).send({ error: "unknown_tag" });
+    const [row] = await ctx.db
+      .update(customers)
+      .set({ tags: body.data.tagIds })
+      .where(eq(customers.id, (req.params as { id: string }).id))
+      .returning(customerCols);
+    if (!row) return reply.code(404).send({ error: "not_found" });
+    await writeAudit(ctx.db, actor(req), "customer", "tags_set", row.alias, { tags: body.data.tagIds });
+    return { customer: row };
+  });
+
+  /** Bulk add/remove one tag across many bidders (list bulk bar). */
+  const bulkTagBody = z.object({
+    ids: z.array(z.string().uuid()).min(1).max(200),
+    add: z.array(z.string().uuid()).max(5).default([]),
+    remove: z.array(z.string().uuid()).max(5).default([]),
+  });
+  app.post("/api/customers/bulk/tags", guard("customers.edit"), async (req, reply) => {
+    const body = bulkTagBody.safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: body.error.flatten() });
+    const touch = [...body.data.add, ...body.data.remove];
+    if (touch.length === 0) return reply.code(400).send({ error: "nothing_to_do" });
+    const known = await ctx.db.select({ id: customerTagDefs.id }).from(customerTagDefs).where(inArray(customerTagDefs.id, touch));
+    if (known.length !== new Set(touch).size) return reply.code(422).send({ error: "unknown_tag" });
+
+    const rows = await ctx.db.select({ id: customers.id, alias: customers.alias, tags: customers.tags }).from(customers).where(inArray(customers.id, body.data.ids));
+    let updated = 0;
+    for (const c of rows) {
+      const next = new Set(c.tags);
+      for (const t of body.data.add) next.add(t);
+      for (const t of body.data.remove) next.delete(t);
+      const nextArr = [...next];
+      if (nextArr.length === c.tags.length && c.tags.every((t) => next.has(t))) continue;
+      await ctx.db.update(customers).set({ tags: nextArr }).where(eq(customers.id, c.id));
+      await writeAudit(ctx.db, actor(req), "customer", "tags_bulk", c.alias, { add: body.data.add, remove: body.data.remove });
+      updated++;
+    }
+    return { updated, matched: rows.length };
   });
 
   app.get("/api/customers/:id", guard("customers.view"), async (req, reply) => {

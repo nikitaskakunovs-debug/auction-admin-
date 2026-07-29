@@ -17,9 +17,13 @@ import { buildServer, type BuiltServer } from "../src/server.js";
 import { createStorage } from "../src/storage.js";
 
 const ADMIN_URL = process.env.DATABASE_URL ?? "postgres://auction:auction@localhost:5432/auction";
-const TEST_DB = "auction_test";
+// Per-worker DB + redis logical db: parallel vitest workers each truncate and
+// reseed their world — sharing one database let a worker's truncate land in
+// the middle of another's seed (FK violations on role_permissions in CI).
+const WORKER = process.env.VITEST_POOL_ID ?? "0";
+const TEST_DB = `auction_test_${WORKER}`;
 const TEST_URL = ADMIN_URL.replace(/\/[^/]+$/, `/${TEST_DB}`);
-const TEST_REDIS = (process.env.REDIS_URL ?? "redis://localhost:6379").replace(/\/?$/, "") + "/1";
+const TEST_REDIS = (process.env.REDIS_URL ?? "redis://localhost:6379").replace(/\/?$/, "") + `/${1 + (Number(WORKER) % 15)}`;
 
 const migrationsFolder = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -61,7 +65,8 @@ export async function createWorld(): Promise<TestWorld> {
       refunds, invoices, counters, audit_log, cms_pages, notifications,
       warehouse_locations, stock_movements, pickup_tickets, pickup_ticket_items,
       customer_fees, consignments, payments, shipments,
-      app_settings, condition_presets, item_comments, item_comment_reads cascade
+      app_settings, condition_presets, item_comments, item_comment_reads,
+      customer_tag_defs cascade
   `);
   await seedDatabase(handle.db, { demoData: false });
 

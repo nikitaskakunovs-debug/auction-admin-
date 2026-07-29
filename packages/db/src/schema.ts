@@ -270,6 +270,21 @@ export const customerRefreshTokens = pgTable(
 
 // ── Bidders / customers ──────────────────────────────────────────────────────
 
+/** A3: managed bidder-tag vocabulary (Settings → Tags). Colors are palette
+ * keys (gold|green|blue|red|orange|grey) the admin maps to chip styles. */
+export const customerTagDefs = pgTable(
+  "customer_tag_defs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    color: text("color").notNull().default("grey"),
+    position: integer("position").notNull().default(0),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("customer_tag_defs_name_idx").on(t.name)],
+);
+
 export const customers = pgTable(
   "customers",
   {
@@ -293,6 +308,8 @@ export const customers = pgTable(
     /** Why the account is disabled (zero-tolerance / fraud / GDPR erase …). */
     blockedReason: text("blocked_reason"),
     blockedAt: timestamp("blocked_at", { withTimezone: true }),
+    /** A3: customer_tag_defs ids (order irrelevant; defs carry position). */
+    tags: jsonb("tags").$type<string[]>().notNull().default([]),
     notes: text("notes").notNull().default(""),
     erasedAt: timestamp("erased_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

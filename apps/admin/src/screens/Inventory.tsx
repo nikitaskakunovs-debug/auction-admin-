@@ -1,14 +1,20 @@
 // Subpath import keeps the node-only parts of @auction/domain (TOTP) out of the browser bundle.
 import { CATEGORIES } from "@auction/domain/categories";
 import { CONDITIONS, conditionByCode, conditionRequiresNotes } from "@auction/domain/conditions";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError, type Item, type Market } from "../api.js";
 import type { Nav } from "../App.js";
 import { useAuth } from "../auth.js";
+import { exportCSV, exportPDFPrint, exportXLS } from "../exporters.js";
 import { formatDate } from "../format.js";
 import { useT } from "../i18n.js";
 import { ActivityTimeline, CommentsThread, useCommentsLive } from "../itemPanels.js";
 import { openLabelWindow as openLabel } from "../labels.js";
+import {
+  BulkBar, BulkBtn, bulkDividerStyle, checkboxStyle, dateInputStyle, ExportMenu, FilterChips,
+  makeFilterTools, SearchBox, useDebounced, useSavedViews, useSelection, useStoredFilters,
+  ViewsBar, type FilterChip,
+} from "../powerkit.js";
 import { AT, ITEM_STATUS_TONE } from "../theme.js";
 import {
   ABadge, ABtn, ACard, ADrawer, AEmpty, AField, AIcon, AInput, APills, ASelect,
@@ -57,31 +63,130 @@ interface Bin { id: string; label: string; zone: string; active: boolean }
 /** Drawer tabs — details plus the W2 Saruna (chat) and Vēsture (history). */
 type DrawerTab = "details" | "chat" | "history";
 
+// ── A3 power filters (server-side) ───────────────────────────────────────────
+
+interface Filters {
+  group: string;
+  market: string;
+  category: string;
+  bin: string;
+  from: string;
+  to: string;
+  sort: string;
+  q: string;
+}
+
+const DEFAULT_FILTERS: Filters = { group: "all", market: "all", category: "all", bin: "all", from: "", to: "", sort: "newest", q: "" };
+const filterTools = makeFilterTools(DEFAULT_FILTERS);
+const FILTERS_KEY = "inventoryFilters.v1";
+const PAGE = 50;
+const EXPORT_PAGE = 200;
+
+interface ListResponse {
+  items: Item[];
+  total: number;
+  counts: Record<string, number>;
+}
+
+function buildQuery(f: Filters, limit: number, offset: number): string {
+  const p = new URLSearchParams();
+  const g = GROUPS.find((x) => x.id === f.group);
+  if (g?.statuses) p.set("statuses", g.statuses.join(","));
+  if (f.market !== "all") p.set("market", f.market);
+  if (f.category !== "all") p.set("category", f.category);
+  if (f.bin !== "all") p.set("bin", f.bin);
+  if (f.from) p.set("from", f.from);
+  if (f.to) p.set("to", f.to);
+  if (f.sort !== "newest") p.set("sort", f.sort);
+  if (f.q.trim().length >= 2) p.set("q", f.q.trim());
+  p.set("limit", String(limit));
+  p.set("offset", String(offset));
+  return p.toString();
+}
+
+const SORTS = [
+  { value: "newest", label: "Newest first" },
+  { value: "oldest", label: "Oldest first" },
+  { value: "updated", label: "Recently updated" },
+  { value: "title", label: "Title A→Z" },
+];
+
+const EXPORT_HEADERS = ["SKU", "Title", "Condition", "Category", "Bin", "Weight g", "Status", "Market", "Received", "Updated"];
+
 export function InventoryScreen({ nav }: { nav: Nav }) {
   const { can } = useAuth();
   const { t } = useT();
   const toast = useToast();
   const confirm = useConfirm();
   const [items, setItems] = useState<Item[]>([]);
-  const [group, setGroup] = useState("all");
-  const [query, setQuery] = useState("");
+  const [total, setTotal] = useState(0);
+  const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [refreshTick, setRefreshTick] = useState(0);
+  const [filters, setFilters] = useState<Filters>(() => filterTools.loadStored(FILTERS_KEY));
+  const [qInput, setQInput] = useState(filters.q);
+  const [bulkBinPick, setBulkBinPick] = useState(false);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Item | null>(null);
   const [drawerTab, setDrawerTab] = useState<DrawerTab>("details");
   const [form, setForm] = useState<FormState>(emptyForm);
   const [markets, setMarkets] = useState<Market[]>([]);
   const [bins, setBins] = useState<Bin[]>([]);
+  const seq = useRef(0);
   // W2: per-item unread comment badges, live over WS.
   const { unread, bump, refreshUnread } = useCommentsLive();
 
-  const load = () => {
-    void api.get<{ items: Item[] }>("/api/items").then((r) => setItems(r.items)).catch(() => undefined);
-  };
+  useDebounced(qInput, (v) => setFilters((f) => (f.q === v ? f : { ...f, q: v })));
+  useStoredFilters(FILTERS_KEY, filters);
+
+  const sv = useSavedViews({
+    screen: "inventory",
+    filters,
+    defaults: DEFAULT_FILTERS,
+    normalize: filterTools.normalize,
+    same: filterTools.same,
+    apply: (f) => {
+      setQInput(f.q);
+      setFilters(f);
+    },
+  });
+  const selection = useSelection(items);
+  const { selected, setSelected, allSelected, toggleAll, toggleOne, selectedRows } = selection;
+
+  /** Mutation handlers call load() — it refreshes page 0 of the current filter. */
+  const load = () => setRefreshTick((t) => t + 1);
   useEffect(() => {
-    load();
+    const s = ++seq.current;
+    void api.get<ListResponse>(`/api/items?${buildQuery(filters, PAGE, 0)}`).then((r) => {
+      if (seq.current !== s) return;
+      setItems(r.items);
+      setTotal(r.total);
+      setStatusCounts(r.counts);
+      setSelected(new Set());
+      setBulkBinPick(false);
+    }).catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters, refreshTick]);
+  useEffect(() => {
     void api.get<{ markets: Market[] }>("/api/markets").then((r) => setMarkets(r.markets)).catch(() => undefined);
     void api.get<{ locations: Bin[] }>("/api/warehouse/locations").then((r) => setBins(r.locations.filter((b) => b.active))).catch(() => undefined);
   }, []);
+
+  const loadMore = async () => {
+    setLoadingMore(true);
+    try {
+      const r = await api.get<ListResponse>(`/api/items?${buildQuery(filters, PAGE, items.length)}`);
+      setItems((prev) => {
+        const seen = new Set(prev.map((i) => i.id));
+        return [...prev, ...r.items.filter((i) => !seen.has(i.id))];
+      });
+      setTotal(r.total);
+    } catch {
+      toast("Failed to load more", "danger");
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   // Deep link (#/inventory/<itemId>) from ⌘K search and the W3 bin drawer —
   // opens the item's detail drawer directly.
@@ -211,40 +316,123 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
     }
   };
 
-  const counts = useMemo(() => {
-    const map: Record<string, number> = { all: items.length };
-    for (const g of GROUPS.slice(1)) map[g.id] = items.filter((i) => g.statuses!.includes(i.status)).length;
+  // Group pills + tiles fold the server's per-status counts (exact even
+  // beyond the loaded page).
+  const groupCounts = useMemo(() => {
+    const sum = (statuses: string[] | null) =>
+      statuses === null
+        ? Object.values(statusCounts).reduce((a, n) => a + n, 0)
+        : statuses.reduce((a, s) => a + (statusCounts[s] ?? 0), 0);
+    const map: Record<string, number> = {};
+    for (const g of GROUPS) map[g.id] = sum(g.statuses);
     return map;
-  }, [items]);
+  }, [statusCounts]);
 
   const kpis = useMemo(() => {
-    const by = (statuses: string[]) => items.filter((i) => statuses.includes(i.status)).length;
+    const by = (statuses: string[]) => statuses.reduce((a, s) => a + (statusCounts[s] ?? 0), 0);
     return {
-      total: items.length,
+      total: Object.values(statusCounts).reduce((a, n) => a + n, 0),
       fulfilment: by(["paid", "picking", "packed", "shipped"]),
       awaiting: by(["awaiting_payment"]),
       attention: by(["unsold", "unpaid_cancelled", "no_pickup_cancelled"]),
     };
-  }, [items]);
+  }, [statusCounts]);
 
-  const activeGroup = GROUPS.find((g) => g.id === group) ?? GROUPS[0]!;
-  const visible = items
-    .filter((i) => (activeGroup.statuses ? activeGroup.statuses.includes(i.status) : true))
-    .filter((i) => {
-      const q = query.trim().toLowerCase();
-      return !q || i.sku.toLowerCase().includes(q) || i.title.toLowerCase().includes(q);
-    });
+  const setF = (patch: Partial<Filters>) => setFilters((f) => ({ ...f, ...patch }));
+  const clearAll = () => {
+    setQInput("");
+    setFilters({ ...DEFAULT_FILTERS });
+  };
+
+  const binById = useMemo(() => new Map(bins.map((b) => [b.id, b])), [bins]);
+  const chips: FilterChip[] = [];
+  if (filters.group !== "all") chips.push({ key: "group", label: GROUPS.find((g) => g.id === filters.group)?.label ?? filters.group, clear: () => setF({ group: "all" }) });
+  if (filters.market !== "all") chips.push({ key: "market", label: `Market: ${filters.market}`, clear: () => setF({ market: "all" }) });
+  if (filters.category !== "all") chips.push({ key: "category", label: `Category: ${CATEGORIES.find((c) => c.code === filters.category)?.label ?? filters.category}`, clear: () => setF({ category: "all" }) });
+  if (filters.bin !== "all") chips.push({ key: "bin", label: `Bin: ${filters.bin === "none" ? "unassigned" : binById.get(filters.bin)?.label ?? "?"}`, clear: () => setF({ bin: "all" }) });
+  if (filters.from) chips.push({ key: "from", label: `From ${filters.from}`, clear: () => setF({ from: "" }) });
+  if (filters.to) chips.push({ key: "to", label: `To ${filters.to}`, clear: () => setF({ to: "" }) });
+  if (filters.sort !== "newest") chips.push({ key: "sort", label: SORTS.find((s) => s.value === filters.sort)?.label ?? filters.sort, clear: () => setF({ sort: "newest" }) });
+  if (filters.q.trim()) chips.push({ key: "q", label: `"${filters.q.trim()}"`, clear: () => { setQInput(""); setF({ q: "" }); } });
+
+  // ── Export ─────────────────────────────────────────────────────────────────
+
+  const toExportRow = (i: Item): string[] => [
+    i.sku,
+    i.title,
+    conditionLabel(i.condition),
+    i.category ?? "other",
+    i.location || "",
+    i.weightGrams == null ? "" : String(i.weightGrams),
+    ITEM_STATUS_TONE[i.status]?.label ?? i.status,
+    i.marketCode,
+    i.createdAt.slice(0, 10),
+    i.updatedAt.slice(0, 10),
+  ];
+
+  const gatherExportRows = async (): Promise<Item[]> => {
+    if (selectedRows.length > 0) return selectedRows;
+    const out: Item[] = [];
+    for (;;) {
+      const r = await api.get<ListResponse>(`/api/items?${buildQuery(filters, EXPORT_PAGE, out.length)}`);
+      out.push(...r.items);
+      if (r.items.length === 0 || out.length >= r.total) break;
+    }
+    return out;
+  };
+
+  const runExport = async (fmt: "csv" | "xls" | "pdf") => {
+    try {
+      const list = await gatherExportRows();
+      if (list.length === 0) return toast("Nothing to export", "warn");
+      const body = list.map(toExportRow);
+      if (fmt === "csv") exportCSV("inventory", EXPORT_HEADERS, body);
+      else if (fmt === "xls") exportXLS("inventory", EXPORT_HEADERS, body, "Inventory");
+      else exportPDFPrint("Inventory export", EXPORT_HEADERS, body);
+      toast(`Exported ${list.length} items`, "ok");
+    } catch {
+      toast("Export failed", "danger");
+    }
+  };
+
+  // ── Bulk: print labels (one print run) + move to bin ──────────────────────
+
+  const bulkLabels = () => {
+    const ids = selectedRows.map((i) => i.id).join(",");
+    void openLabel(`/api/items/labels?ids=${ids}`, (m) => toast(m, "danger"));
+  };
+
+  const bulkMove = async (locationId: string) => {
+    let ok = 0;
+    let failed = 0;
+    for (const i of selectedRows) {
+      try {
+        await api.post(`/api/items/${i.id}/putaway`, { locationId, reason: "bulk move" });
+        ok++;
+      } catch {
+        failed++;
+      }
+    }
+    toast(failed > 0 ? `${ok} moved · ${failed} failed` : `${ok} item${ok === 1 ? "" : "s"} moved`, failed > 0 ? "warn" : "ok");
+    setBulkBinPick(false);
+    load();
+  };
+
+  const exportCount = selected.size > 0 ? selected.size : total;
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <h1 style={{ fontFamily: AT.body, fontSize: 20, fontWeight: 700, color: AT.ink }}>Inventory</h1>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <h1 style={{ fontFamily: AT.body, fontSize: 20, fontWeight: 700, color: AT.ink, flex: 1 }}>Inventory</h1>
+        <ExportMenu count={exportCount} scope={selected.size > 0 ? "selected" : "filtered"} noun="items" onPick={(fmt) => void runExport(fmt)} />
         {can("items.create") && (
           <ABtn onClick={() => { setForm(emptyForm); setEditing(null); setDrawerTab("details"); setCreating(true); }}>
             <AIcon name="plus" size={15} color="#fff" /> New item
           </ABtn>
         )}
       </div>
+
+      <ViewsBar {...sv.ViewsBarProps} />
 
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
         <AStat label="Items" value={kpis.total} />
@@ -253,49 +441,114 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
         <AStat label="Needs attention" value={kpis.attention} tone={kpis.attention > 0 ? "warn" : undefined} sub="unsold / cancelled" />
       </div>
 
+      <APills options={GROUPS.map((g) => ({ id: g.id, label: g.label, count: groupCounts[g.id] ?? 0 }))} value={filters.group} onChange={(v) => setF({ group: v })} />
+
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-        <APills options={GROUPS.map((g) => ({ id: g.id, label: g.label, count: counts[g.id] ?? 0 }))} value={group} onChange={setGroup} />
-        <div style={{ marginLeft: "auto", width: 220 }}>
-          <AInput value={query} onChange={setQuery} placeholder="Search sku or title…" />
-        </div>
+        <SearchBox value={qInput} onChange={setQInput} placeholder="Search sku or title…" />
+        <ASelect
+          value={filters.market}
+          onChange={(v) => setF({ market: v })}
+          options={[{ value: "all", label: "All markets" }, ...markets.map((m) => ({ value: m.code, label: m.code }))]}
+        />
+        <ASelect
+          value={filters.category}
+          onChange={(v) => setF({ category: v })}
+          options={[{ value: "all", label: "All categories" }, ...CATEGORIES.map((c) => ({ value: c.code, label: c.label }))]}
+        />
+        <ASelect
+          value={filters.bin}
+          onChange={(v) => setF({ bin: v })}
+          options={[{ value: "all", label: "Any bin" }, { value: "none", label: "No bin" }, ...bins.map((b) => ({ value: b.id, label: b.label }))]}
+        />
+        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: AT.body, fontSize: 12.5, color: AT.inkSoft }}>
+          <input type="date" value={filters.from} max={filters.to || undefined} onChange={(e) => setF({ from: e.target.value })} style={dateInputStyle} />
+          –
+          <input type="date" value={filters.to} min={filters.from || undefined} onChange={(e) => setF({ to: e.target.value })} style={dateInputStyle} />
+        </label>
+        <ASelect value={filters.sort} onChange={(v) => setF({ sort: v })} options={SORTS} />
       </div>
 
+      <FilterChips chips={chips} onClearAll={clearAll} />
+
       <ACard pad={false}>
-        {visible.length === 0 ? (
-          <AEmpty text="No items match." />
+        {items.length === 0 ? (
+          <AEmpty text="No items match these filters." />
         ) : (
-          <ATable head={["SKU", "Title", "Condition", "Location", "Weight", "Status", "Updated"]}>
-            {visible.map((i) => (
-              <ATr key={i.id} onClick={() => {
-                setEditing(i);
-                setDrawerTab("details");
-                setForm({
-                  sku: i.sku, title: i.title, description: i.description, condition: i.condition,
-                  conditionNotes: i.conditionNotes ?? "", category: i.category ?? "other",
-                  location: i.location, weight: i.weightGrams == null ? "" : String(i.weightGrams), marketCode: i.marketCode,
-                });
-              }}>
-                <ATd mono>
-                  {i.sku}
-                  {(unread.get(i.id) ?? 0) > 0 && (
-                    <span style={{
-                      marginLeft: 7, display: "inline-grid", placeItems: "center", verticalAlign: "middle",
-                      minWidth: 16, height: 16, padding: "0 4px", borderRadius: 999, background: AT.accent,
-                      color: "#fff", fontFamily: AT.body, fontSize: 10, fontWeight: 800,
-                    }}>{unread.get(i.id)}</span>
-                  )}
-                </ATd>
-                <ATd><span style={{ fontWeight: 600 }}>{i.title}</span></ATd>
-                <ATd>{conditionLabel(i.condition)}</ATd>
-                <ATd mono>{i.location || "—"}</ATd>
-                <ATd right>{i.weightGrams == null ? "—" : `${i.weightGrams} g`}</ATd>
-                <ATd><ABadge tone={ITEM_STATUS_TONE[i.status]?.tone ?? "neutral"}>{ITEM_STATUS_TONE[i.status]?.label ?? i.status}</ABadge></ATd>
-                <ATd>{formatDate(i.updatedAt)}</ATd>
-              </ATr>
-            ))}
-          </ATable>
+          <>
+            <ATable head={[
+              <input key="all" type="checkbox" checked={allSelected} onChange={toggleAll} style={checkboxStyle} aria-label="Select all visible items" />,
+              "SKU", "Title", "Condition", "Location", "Weight", "Status", "Updated",
+            ]}>
+              {items.map((i) => (
+                <ATr key={i.id} active={selected.has(i.id)} onClick={() => {
+                  setEditing(i);
+                  setDrawerTab("details");
+                  setForm({
+                    sku: i.sku, title: i.title, description: i.description, condition: i.condition,
+                    conditionNotes: i.conditionNotes ?? "", category: i.category ?? "other",
+                    location: i.location, weight: i.weightGrams == null ? "" : String(i.weightGrams), marketCode: i.marketCode,
+                  });
+                }}>
+                  <ATd style={{ width: 34 }}>
+                    <input
+                      type="checkbox"
+                      checked={selected.has(i.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={() => toggleOne(i.id)}
+                      style={checkboxStyle}
+                      aria-label={`Select ${i.sku}`}
+                    />
+                  </ATd>
+                  <ATd mono>
+                    {i.sku}
+                    {(unread.get(i.id) ?? 0) > 0 && (
+                      <span style={{
+                        marginLeft: 7, display: "inline-grid", placeItems: "center", verticalAlign: "middle",
+                        minWidth: 16, height: 16, padding: "0 4px", borderRadius: 999, background: AT.accent,
+                        color: "#fff", fontFamily: AT.body, fontSize: 10, fontWeight: 800,
+                      }}>{unread.get(i.id)}</span>
+                    )}
+                  </ATd>
+                  <ATd><span style={{ fontWeight: 600 }}>{i.title}</span></ATd>
+                  <ATd>{conditionLabel(i.condition)}</ATd>
+                  <ATd mono>{i.location || "—"}</ATd>
+                  <ATd right>{i.weightGrams == null ? "—" : `${i.weightGrams} g`}</ATd>
+                  <ATd><ABadge tone={ITEM_STATUS_TONE[i.status]?.tone ?? "neutral"}>{ITEM_STATUS_TONE[i.status]?.label ?? i.status}</ABadge></ATd>
+                  <ATd>{formatDate(i.updatedAt)}</ATd>
+                </ATr>
+              ))}
+            </ATable>
+            {items.length < total && (
+              <div style={{ padding: 12, display: "flex", justifyContent: "center", borderTop: `1px solid ${AT.ruleSoft}` }}>
+                <ABtn kind="ghost" size="sm" disabled={loadingMore} onClick={() => void loadMore()}>
+                  {loadingMore ? "Loading…" : `Load more (${items.length} of ${total})`}
+                </ABtn>
+              </div>
+            )}
+          </>
         )}
       </ACard>
+
+      <BulkBar count={selected.size} onClear={() => { setSelected(new Set()); setBulkBinPick(false); }}>
+        <span style={bulkDividerStyle} />
+        <BulkBtn onClick={bulkLabels}>Print labels</BulkBtn>
+        {can("warehouse.manage") && <BulkBtn onClick={() => setBulkBinPick((v) => !v)}>Move to bin ▾</BulkBtn>}
+        <span style={bulkDividerStyle} />
+        <BulkBtn onClick={() => void runExport("csv")}>Export CSV</BulkBtn>
+        {bulkBinPick && (
+          <>
+            <span style={bulkDividerStyle} />
+            <select
+              onChange={(e) => e.target.value && void bulkMove(e.target.value)}
+              defaultValue=""
+              style={{ borderRadius: 7, border: "none", padding: "5px 8px", fontFamily: AT.body, fontSize: 12.5 }}
+            >
+              <option value="" disabled>Pick a bin…</option>
+              {bins.map((b) => <option key={b.id} value={b.id}>{b.label}</option>)}
+            </select>
+          </>
+        )}
+      </BulkBar>
 
       {(creating || editing) && (
         <ADrawer
@@ -379,7 +632,7 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
                 <ASelect value={form.marketCode} onChange={(v) => set({ marketCode: v })} options={markets.map((m) => ({ value: m.code, label: m.code }))} />
               </AField>
               <AField label="Category">
-                <ASelect value={form.category} onChange={(v) => set({ category: v })} options={CATEGORIES.map((c) => ({ value: c.code, label: c.label }))} />
+                <ASelect value={form.category} onChange={(v) => setF({ category: v })} options={CATEGORIES.map((c) => ({ value: c.code, label: c.label }))} />
               </AField>
               <AField label="Location (note)"><AInput value={form.location} onChange={(v) => set({ location: v })} placeholder="A-01-03" /></AField>
               <AField label="Weight (grams)"><AInput value={form.weight} onChange={(v) => set({ weight: v })} placeholder="1200" /></AField>

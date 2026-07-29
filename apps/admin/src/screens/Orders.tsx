@@ -14,10 +14,15 @@ import { useAuth } from "../auth.js";
 import { exportCSV, exportPDFPrint, exportXLS } from "../exporters.js";
 import { formatDate, formatEur } from "../format.js";
 import { isBnpl, methodLabel, providerLabel } from "../paymentLabels.js";
+import {
+  BulkBar, BulkBtn, bulkDividerStyle, checkboxStyle, dateInputStyle, ExportMenu, FilterChips,
+  makeFilterTools, SearchBox, useDebounced, useSavedViews, useSelection, useStoredFilters,
+  ViewsBar, type FilterChip,
+} from "../powerkit.js";
 import { AT, ITEM_STATUS_TONE, ORDER_STATUS_TONE } from "../theme.js";
 import {
   AAvatar, ABadge, ABtn, ACard, AEmpty, AField, AIcon, AInput, ASelect,
-  ATable, ATd, ATr, useConfirm, useToast, type IconName,
+  ATable, ATd, ATr, useConfirm, useToast,
 } from "../ui.js";
 
 // ── Shared row/detail types ──────────────────────────────────────────────────
@@ -159,31 +164,7 @@ const SORTS = [
   { value: "amount_asc", label: "Amount: low → high" },
 ];
 
-const FILTER_KEYS = Object.keys(DEFAULT_FILTERS) as Array<keyof Filters>;
-
-/** An opaque saved-view blob (or stored localStorage state) → a clean Filters. */
-function normalizeFilters(blob: Record<string, unknown>): Filters {
-  const out: Filters = { ...DEFAULT_FILTERS };
-  for (const k of FILTER_KEYS) {
-    const v = blob[k];
-    if (typeof v === "string") out[k] = v;
-  }
-  return out;
-}
-
-function sameFilters(a: Filters, b: Filters): boolean {
-  return FILTER_KEYS.every((k) => a[k] === b[k]);
-}
-
-function loadStoredFilters(): Filters {
-  try {
-    const raw = localStorage.getItem(FILTERS_KEY);
-    if (raw) return normalizeFilters(JSON.parse(raw) as Record<string, unknown>);
-  } catch {
-    /* corrupted/private mode — start from defaults */
-  }
-  return { ...DEFAULT_FILTERS };
-}
+const filterTools = makeFilterTools(DEFAULT_FILTERS);
 
 function buildQuery(f: Filters, limit: number, offset: number): string {
   const p = new URLSearchParams();
@@ -213,15 +194,6 @@ function fmtShort(iso: string | null): string {
 /** yyyy-mm-dd hh:mm (UTC) — spreadsheet-friendly export timestamp. */
 function fmtExport(iso: string | null): string {
   return iso ? new Date(iso).toISOString().slice(0, 16).replace("T", " ") : "";
-}
-
-// ── Saved views ──────────────────────────────────────────────────────────────
-
-interface SavedView {
-  id: string;
-  name: string;
-  filters: Record<string, unknown>;
-  position: number;
 }
 
 // ── Export ───────────────────────────────────────────────────────────────────
@@ -272,35 +244,34 @@ function OrdersList({ nav }: { nav: Nav }) {
   const toast = useToast();
   const confirm = useConfirm();
 
-  const [filters, setFilters] = useState<Filters>(loadStoredFilters);
+  const [filters, setFilters] = useState<Filters>(() => filterTools.loadStored(FILTERS_KEY));
   const [qInput, setQInput] = useState(filters.q);
   const [rows, setRows] = useState<OrderRow[]>([]);
   const [total, setTotal] = useState(0);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [selected, setSelected] = useState<Set<string>>(() => new Set());
-  const [views, setViews] = useState<SavedView[]>([]);
-  const [lastViewId, setLastViewId] = useState<string | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
   const seq = useRef(0);
 
   // Search debounce: the input is instant, the server query trails by 300ms.
-  useEffect(() => {
-    const t = setTimeout(() => {
-      setFilters((f) => (f.q === qInput ? f : { ...f, q: qInput }));
-    }, 300);
-    return () => clearTimeout(t);
-  }, [qInput]);
-
+  useDebounced(qInput, (v) => setFilters((f) => (f.q === v ? f : { ...f, q: v })));
   // Last-used filters survive reloads (per browser).
-  useEffect(() => {
-    try {
-      localStorage.setItem(FILTERS_KEY, JSON.stringify(filters));
-    } catch {
-      /* private mode */
-    }
-  }, [filters]);
+  useStoredFilters(FILTERS_KEY, filters);
+
+  const sv = useSavedViews({
+    screen: "orders",
+    filters,
+    defaults: DEFAULT_FILTERS,
+    normalize: filterTools.normalize,
+    same: filterTools.same,
+    apply: (f) => {
+      setQInput(f.q);
+      setFilters(f);
+    },
+  });
+  const selection = useSelection(rows);
+  const { selected, setSelected, allSelected, toggleAll, toggleOne, selectedRows } = selection;
 
   // Page 0 (re)load whenever a filter changes; stale responses are dropped.
   useEffect(() => {
@@ -321,10 +292,6 @@ function OrdersList({ nav }: { nav: Nav }) {
       });
   }, [filters, refreshTick]);
 
-  useEffect(() => {
-    void api.get<{ views: SavedView[] }>("/api/views?screen=orders").then((r) => setViews(r.views)).catch(() => undefined);
-  }, []);
-
   const loadMore = async () => {
     setLoadingMore(true);
     try {
@@ -342,72 +309,6 @@ function OrdersList({ nav }: { nav: Nav }) {
     }
   };
 
-  // ── Saved views ────────────────────────────────────────────────────────────
-
-  const isDefault = sameFilters(filters, DEFAULT_FILTERS);
-  const activeView = views.find((v) => sameFilters(normalizeFilters(v.filters), filters)) ?? null;
-  const lastView = lastViewId ? views.find((v) => v.id === lastViewId) ?? null : null;
-
-  const applyView = (v: SavedView) => {
-    const f = normalizeFilters(v.filters);
-    setQInput(f.q);
-    setFilters(f);
-    setLastViewId(v.id);
-  };
-
-  const saveView = async () => {
-    const name = window.prompt("Name this view:", "");
-    if (!name || !name.trim()) return;
-    try {
-      const r = await api.post<{ view: SavedView }>("/api/views", { screen: "orders", name: name.trim(), filters });
-      setViews((vs) => [...vs, r.view]);
-      setLastViewId(r.view.id);
-      toast(`View "${r.view.name}" saved`, "ok");
-    } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Failed to save view", "danger");
-    }
-  };
-
-  const renameView = async (v: SavedView) => {
-    const name = window.prompt("Rename view:", v.name);
-    if (!name || !name.trim() || name.trim() === v.name) return;
-    try {
-      const r = await api.patch<{ view: SavedView }>(`/api/views/${v.id}`, { name: name.trim() });
-      setViews((vs) => vs.map((x) => (x.id === v.id ? r.view : x)));
-      toast("View renamed", "ok");
-    } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Rename failed", "danger");
-    }
-  };
-
-  const updateView = async (v: SavedView) => {
-    try {
-      const r = await api.patch<{ view: SavedView }>(`/api/views/${v.id}`, { filters });
-      setViews((vs) => vs.map((x) => (x.id === v.id ? r.view : x)));
-      toast(`View "${v.name}" updated to current filters`, "ok");
-    } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Update failed", "danger");
-    }
-  };
-
-  const deleteView = async (v: SavedView) => {
-    const r = await confirm({
-      title: `Delete view "${v.name}"?`,
-      body: "Only the saved filter preset is removed — no orders are touched.",
-      danger: true,
-      confirmLabel: "Delete view",
-    });
-    if (!r.ok) return;
-    try {
-      await api.delete(`/api/views/${v.id}`);
-      setViews((vs) => vs.filter((x) => x.id !== v.id));
-      if (lastViewId === v.id) setLastViewId(null);
-      toast("View deleted", "ok");
-    } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Delete failed", "danger");
-    }
-  };
-
   // ── Filter helpers ─────────────────────────────────────────────────────────
 
   const set = (patch: Partial<Filters>) => setFilters((f) => ({ ...f, ...patch }));
@@ -417,7 +318,7 @@ function OrdersList({ nav }: { nav: Nav }) {
     setFilters({ ...DEFAULT_FILTERS });
   };
 
-  const chips: Array<{ key: string; label: string; clear: () => void }> = [];
+  const chips: FilterChip[] = [];
   if (filters.status !== "all") {
     chips.push({
       key: "status",
@@ -452,21 +353,6 @@ function OrdersList({ nav }: { nav: Nav }) {
     });
   }
 
-  // ── Selection ──────────────────────────────────────────────────────────────
-
-  const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
-  const toggleAll = () => {
-    setSelected(allSelected ? new Set() : new Set(rows.map((r) => r.id)));
-  };
-  const toggleOne = (id: string) => {
-    setSelected((s) => {
-      const next = new Set(s);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-  const selectedRows = useMemo(() => rows.filter((r) => selected.has(r.id)), [rows, selected]);
   const selectedAwaiting = selectedRows.filter((r) => r.status === "awaiting_payment");
 
   // ── Export ─────────────────────────────────────────────────────────────────
@@ -536,43 +422,10 @@ function OrdersList({ nav }: { nav: Nav }) {
     <div style={{ display: "grid", gap: 14 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <h1 style={{ fontFamily: AT.body, fontSize: 20, fontWeight: 700, color: AT.ink, flex: 1 }}>Orders</h1>
-        <ExportMenu count={exportCount} scope={selected.size > 0 ? "selected" : "filtered"} onPick={(fmt) => void runExport(fmt)} />
+        <ExportMenu count={exportCount} scope={selected.size > 0 ? "selected" : "filtered"} noun="orders" onPick={(fmt) => void runExport(fmt)} />
       </div>
 
-      {/* Saved views */}
-      {(views.length > 0 || !isDefault) && (
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-          <span style={{ fontFamily: AT.body, fontSize: 10.5, fontWeight: 700, color: AT.inkSoft, textTransform: "uppercase", letterSpacing: "0.07em", marginRight: 2 }}>
-            Views
-          </span>
-          {views.map((v) => {
-            const active = activeView?.id === v.id;
-            return (
-              <span key={v.id} style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
-                <button onClick={() => applyView(v)} style={viewPillStyle(active)}>
-                  {v.name}
-                </button>
-                {active && (
-                  <>
-                    <MiniBtn title="Rename view" onClick={() => void renameView(v)}>✎</MiniBtn>
-                    <MiniBtn title="Delete view" onClick={() => void deleteView(v)}>×</MiniBtn>
-                  </>
-                )}
-              </span>
-            );
-          })}
-          {!isDefault && !activeView && lastView && (
-            <button onClick={() => void updateView(lastView)} style={dashedPillStyle}>
-              Update “{lastView.name}”
-            </button>
-          )}
-          {!isDefault && !activeView && (
-            <button onClick={() => void saveView()} style={dashedPillStyle}>
-              + Save current as view
-            </button>
-          )}
-        </div>
-      )}
+      <ViewsBar {...sv.ViewsBarProps} />
 
       {/* Status pills with live server counts */}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -594,12 +447,7 @@ function OrdersList({ nav }: { nav: Nav }) {
 
       {/* Filter bar */}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-        <div style={{ position: "relative", flex: "1 1 220px", minWidth: 200, maxWidth: 340 }}>
-          <span style={{ position: "absolute", left: 10, top: 10, color: AT.inkSoft }}>
-            <AIcon name="search" size={15} />
-          </span>
-          <AInput value={qInput} onChange={setQInput} placeholder="Search ref, alias, email…" style={{ paddingLeft: 32 }} />
-        </div>
+        <SearchBox value={qInput} onChange={setQInput} placeholder="Search ref, alias, email…" />
         <ASelect value={filters.market} onChange={(v) => set({ market: v })} options={MARKETS} />
         <ASelect value={filters.fulfilment} onChange={(v) => set({ fulfilment: v })} options={FULFILMENTS} />
         <ASelect value={filters.band} onChange={(v) => set({ band: v })} options={BANDS.map((b) => ({ value: b.id, label: b.label }))} />
@@ -611,27 +459,7 @@ function OrdersList({ nav }: { nav: Nav }) {
         <ASelect value={filters.sort} onChange={(v) => set({ sort: v })} options={SORTS} />
       </div>
 
-      {/* Active-filter chips */}
-      {chips.length > 0 && (
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-          {chips.map((c) => (
-            <button key={c.key} onClick={c.clear} title="Remove filter" style={{
-              all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6,
-              padding: "4px 10px", borderRadius: 999, background: AT.accentSoft, color: AT.accent,
-              fontFamily: AT.body, fontWeight: 600, fontSize: 12,
-            }}>
-              {c.label}
-              <span style={{ fontWeight: 700 }}>×</span>
-            </button>
-          ))}
-          <button onClick={clearAll} style={{
-            all: "unset", cursor: "pointer", padding: "4px 8px", fontFamily: AT.body,
-            fontWeight: 600, fontSize: 12, color: AT.inkSoft, textDecoration: "underline",
-          }}>
-            Clear all
-          </button>
-        </div>
-      )}
+      <FilterChips chips={chips} onClearAll={clearAll} />
 
       {/* Table */}
       <ACard pad={false}>
@@ -705,161 +533,18 @@ function OrdersList({ nav }: { nav: Nav }) {
         )}
       </ACard>
 
-      {/* Bulk bar */}
-      {selected.size > 0 && (
-        <div style={{
-          position: "fixed", bottom: 60, left: "50%", transform: "translateX(-50%)", zIndex: 50,
-          background: AT.ink, color: "#fff", borderRadius: 12, padding: "9px 12px",
-          display: "flex", alignItems: "center", gap: 8, boxShadow: "0 14px 40px rgba(0,0,0,0.28)",
-          fontFamily: AT.body,
-        }}>
-          <span style={{ fontWeight: 700, fontSize: 13, padding: "0 4px" }}>{selected.size} selected</span>
-          <span style={bulkDividerStyle} />
-          <BulkBtn onClick={() => void runExport("csv")}>Export CSV</BulkBtn>
-          {can("orders.cancel_unpaid") && selectedAwaiting.length > 0 && (
-            <>
-              <span style={bulkDividerStyle} />
-              <BulkBtn danger onClick={() => void bulkCancelUnpaid()}>
-                Cancel unpaid… ({selectedAwaiting.length})
-              </BulkBtn>
-            </>
-          )}
-          <span style={bulkDividerStyle} />
-          <BulkBtn onClick={() => setSelected(new Set())}>Clear</BulkBtn>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── List-view styling helpers ────────────────────────────────────────────────
-
-const checkboxStyle: CSSProperties = { width: 15, height: 15, accentColor: AT.accent, cursor: "pointer", verticalAlign: "middle" };
-
-const dateInputStyle: CSSProperties = {
-  height: 32, borderRadius: AT.radiusSm, border: `1px solid ${AT.rule}`, background: AT.panel,
-  fontFamily: AT.body, fontSize: 12.5, color: AT.ink, padding: "0 8px",
-};
-
-const bulkDividerStyle: CSSProperties = { width: 1, height: 18, background: "rgba(255,255,255,0.22)" };
-
-function viewPillStyle(active: boolean): CSSProperties {
-  return {
-    all: "unset", cursor: "pointer", padding: "5px 11px", borderRadius: 999,
-    fontFamily: AT.body, fontWeight: 600, fontSize: 12,
-    background: active ? AT.accent : AT.panel, color: active ? "#fff" : AT.ink,
-    border: `1px solid ${active ? AT.accent : AT.rule}`,
-  };
-}
-
-const dashedPillStyle: CSSProperties = {
-  all: "unset", cursor: "pointer", padding: "5px 11px", borderRadius: 999,
-  fontFamily: AT.body, fontWeight: 600, fontSize: 12,
-  background: "transparent", color: AT.inkSoft, border: `1px dashed ${AT.rule}`,
-};
-
-function MiniBtn({ children, onClick, title }: { children: ReactNode; onClick: () => void; title: string }) {
-  return (
-    <button title={title} onClick={onClick} style={{
-      all: "unset", cursor: "pointer", width: 22, height: 22, borderRadius: 999,
-      display: "inline-flex", alignItems: "center", justifyContent: "center",
-      fontFamily: AT.body, fontSize: 12, color: AT.inkSoft,
-      background: AT.panel, border: `1px solid ${AT.rule}`,
-    }}>
-      {children}
-    </button>
-  );
-}
-
-function BulkBtn({ children, onClick, danger }: { children: ReactNode; onClick: () => void; danger?: boolean }) {
-  return (
-    <button onClick={onClick} style={{
-      all: "unset", cursor: "pointer", padding: "6px 10px", borderRadius: 8,
-      fontFamily: AT.body, fontSize: 12.5, fontWeight: 700,
-      color: danger ? "#FCA5A5" : "#fff", background: "rgba(255,255,255,0.12)",
-      whiteSpace: "nowrap",
-    }}>
-      {children}
-    </button>
-  );
-}
-
-/** Export dropdown — Shhh's AExportMenu, typed. */
-function ExportMenu({ count, scope, onPick }: {
-  count: number;
-  scope: "selected" | "filtered";
-  onPick: (fmt: "csv" | "xls" | "pdf") => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    const h = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, []);
-  const opts: Array<{ fmt: "xls" | "csv" | "pdf"; label: string; ext: string; icon: IconName }> = [
-    { fmt: "xls", label: "Excel", ext: ".xls", icon: "finance" },
-    { fmt: "csv", label: "CSV", ext: ".csv", icon: "list" },
-    { fmt: "pdf", label: "PDF", ext: ".pdf", icon: "download" },
-  ];
-  return (
-    <div ref={ref} style={{ position: "relative", flexShrink: 0 }}>
-      <button onClick={() => setOpen((o) => !o)} style={{
-        all: "unset", boxSizing: "border-box", cursor: "pointer", display: "inline-flex",
-        alignItems: "center", gap: 7, height: 38, padding: "0 12px", borderRadius: AT.radiusSm,
-        border: `1px solid ${AT.rule}`, background: AT.panel, color: AT.ink,
-        fontFamily: AT.body, fontWeight: 600, fontSize: 12.5,
-      }}>
-        <AIcon name="download" size={15} color={AT.ink} />
-        Export <span style={{ color: AT.inkSoft, fontFamily: AT.mono, fontSize: 11 }}>{count}</span>
-        <span style={{ display: "inline-flex", transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }}>
-          <AIcon name="chevDown" size={13} color={AT.inkSoft} />
-        </span>
-      </button>
-      {open && (
-        <div style={{
-          position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 60, minWidth: 210,
-          background: AT.panel, border: `1px solid ${AT.rule}`, borderRadius: AT.radiusSm,
-          boxShadow: "0 14px 40px rgba(0,0,0,0.16)", overflow: "hidden", padding: 5,
-        }}>
-          <div style={{
-            padding: "7px 10px 6px", fontFamily: AT.body, fontSize: 10.5, fontWeight: 700,
-            letterSpacing: "0.07em", textTransform: "uppercase", color: AT.inkSoft,
-          }}>
-            {scope === "selected" ? `Download ${count} selected` : `Download ${count} order${count === 1 ? "" : "s"}`}
-          </div>
-          {opts.map((o) => (
-            <button
-              key={o.fmt}
-              onClick={() => {
-                setOpen(false);
-                onPick(o.fmt);
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = AT.surfaceAlt; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-              style={{
-                all: "unset", cursor: "pointer", boxSizing: "border-box", width: "100%",
-                display: "flex", alignItems: "center", gap: 10, padding: "9px 10px",
-                borderRadius: 8, fontFamily: AT.body, fontSize: 13, color: AT.ink,
-              }}
-            >
-              <span style={{
-                width: 28, height: 28, borderRadius: 7, background: AT.surfaceAlt,
-                display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-              }}>
-                <AIcon name={o.icon} size={15} color={AT.ink} />
-              </span>
-              <span style={{ flex: 1 }}>
-                <span style={{ fontWeight: 700 }}>{o.label}</span>{" "}
-                <span style={{ color: AT.inkSoft, fontFamily: AT.mono, fontSize: 11 }}>{o.ext}</span>
-              </span>
-              <AIcon name="download" size={14} color={AT.inkSoft} />
-            </button>
-          ))}
-        </div>
-      )}
+      <BulkBar count={selected.size} onClear={() => setSelected(new Set())}>
+        <span style={bulkDividerStyle} />
+        <BulkBtn onClick={() => void runExport("csv")}>Export CSV</BulkBtn>
+        {can("orders.cancel_unpaid") && selectedAwaiting.length > 0 && (
+          <>
+            <span style={bulkDividerStyle} />
+            <BulkBtn danger onClick={() => void bulkCancelUnpaid()}>
+              Cancel unpaid… ({selectedAwaiting.length})
+            </BulkBtn>
+          </>
+        )}
+      </BulkBar>
     </div>
   );
 }

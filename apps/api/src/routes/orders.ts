@@ -1,6 +1,6 @@
 import { customers, invoices, items, markets, orders, payments, refunds, shipments } from "@auction/db";
 import { assertItemTransition, computeNoShowSettlement, type ItemStatus } from "@auction/domain";
-import { and, asc, desc, eq, gte, isNull, lte, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, isNull, lte, or, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { writeAudit } from "../audit.js";
@@ -129,10 +129,23 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext, perms
    * card), channel, status, and the order it belongs to.
    */
   app.get("/api/payments", guard("orders.view"), async (req) => {
-    const q = req.query as { status?: string; provider?: string };
+    const q = req.query as {
+      status?: string; provider?: string; q?: string; from?: string; to?: string;
+      min?: string; max?: string; limit?: string; offset?: string;
+    };
     const conds = [];
     if (q.status) conds.push(eq(payments.status, q.status));
     if (q.provider) conds.push(eq(payments.provider, q.provider));
+    if (q.q) conds.push(or(ilike(orders.ref, `%${q.q}%`), ilike(orders.customerAlias, `%${q.q}%`)));
+    const dayStart = (d: string) => new Date(`${d}T00:00:00.000Z`);
+    if (q.from) conds.push(sql`${payments.createdAt} >= ${dayStart(q.from)}`);
+    if (q.to) conds.push(sql`${payments.createdAt} < ${new Date(dayStart(q.to).getTime() + 86_400_000)}`);
+    if (q.min) conds.push(sql`${payments.amountCents} >= ${Number(q.min)}`);
+    if (q.max) conds.push(sql`${payments.amountCents} <= ${Number(q.max)}`);
+    const where = conds.length ? and(...conds) : undefined;
+    const limit = Math.min(Math.max(Number(q.limit) || 500, 1), 500);
+    const offset = Math.max(Number(q.offset) || 0, 0);
+
     const rows = await ctx.db
       .select({
         payment: payments,
@@ -144,9 +157,26 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext, perms
       .from(payments)
       .innerJoin(orders, eq(payments.orderId, orders.id))
       .innerJoin(items, eq(orders.itemId, items.id))
-      .where(conds.length ? and(...conds) : undefined)
+      .where(where)
       .orderBy(desc(payments.createdAt))
-      .limit(500);
+      .limit(limit)
+      .offset(offset);
+    const [totalRow] = await ctx.db
+      .select({ n: sql<string>`count(*)` })
+      .from(payments)
+      .innerJoin(orders, eq(payments.orderId, orders.id))
+      .where(where);
+    // A3 tiles — unfiltered by design: today's money is today's money.
+    const now = ctx.now();
+    const todayStart = new Date(`${now.toISOString().slice(0, 10)}T00:00:00.000Z`);
+    const weekStart = new Date(now.getTime() - 7 * 86_400_000);
+    const [summary] = await ctx.db
+      .select({
+        todayCents: sql<string>`coalesce(sum(${payments.amountCents}) filter (where ${payments.status} = 'paid' and ${payments.updatedAt} >= ${todayStart}), 0)`,
+        weekCents: sql<string>`coalesce(sum(${payments.amountCents}) filter (where ${payments.status} = 'paid' and ${payments.updatedAt} >= ${weekStart}), 0)`,
+        pendingCount: sql<string>`count(*) filter (where ${payments.status} = 'created')`,
+      })
+      .from(payments);
     return {
       payments: rows.map((r) => ({
         ...r.payment,
@@ -155,6 +185,12 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext, perms
         customerAlias: r.customerAlias,
         itemTitle: r.itemTitle,
       })),
+      total: Number(totalRow!.n),
+      summary: {
+        todayCents: Number(summary!.todayCents),
+        weekCents: Number(summary!.weekCents),
+        pendingCount: Number(summary!.pendingCount),
+      },
     };
   });
 

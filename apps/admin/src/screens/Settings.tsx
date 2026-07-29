@@ -4,6 +4,7 @@ import { api, ApiError, type ConditionPreset, type Market } from "../api.js";
 import type { Nav } from "../App.js";
 import { useAuth } from "../auth.js";
 import { formatDay } from "../format.js";
+import { TAG_STYLES, TagChip, type TagDef } from "../powerkit.js";
 import { AT } from "../theme.js";
 import {
   AAvatar, ABadge, ABtn, ACard, ADrawer, AField, AIcon, AInput, ASelect,
@@ -31,14 +32,17 @@ const TABS = [
   { id: "team", label: "Team" },
   { id: "roles", label: "Roles" },
   { id: "conditions", label: "Conditions" },
+  { id: "tags", label: "Tags" },
 ];
 
 export function SettingsScreen({ nav: _nav }: { nav: Nav }) {
   const { can } = useAuth();
   const [tab, setTab] = useState("markets");
 
-  // The Conditions editor is reviewer-only — hide the tab entirely otherwise.
-  const tabs = TABS.filter((t) => t.id !== "conditions" || can("grading.review"));
+  // The Conditions editor is reviewer-only; Tags need settings.edit.
+  const tabs = TABS.filter((t) =>
+    (t.id !== "conditions" || can("grading.review")) && (t.id !== "tags" || can("settings.edit")),
+  );
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
@@ -56,6 +60,99 @@ export function SettingsScreen({ nav: _nav }: { nav: Nav }) {
       {tab === "team" && (can("team.view") ? <TeamTab /> : <NoAccess />)}
       {tab === "roles" && (can("team.view") ? <RolesTab /> : <NoAccess />)}
       {tab === "conditions" && (can("grading.review") ? <ConditionsTab /> : <NoAccess />)}
+      {tab === "tags" && (can("settings.edit") ? <TagsTab /> : <NoAccess />)}
+    </div>
+  );
+}
+
+// ── A3: bidder-tag vocabulary ────────────────────────────────────────────────
+
+function TagsTab() {
+  const toast = useToast();
+  const [tags, setTags] = useState<TagDef[]>([]);
+  const [name, setName] = useState("");
+  const [color, setColor] = useState("grey");
+
+  const load = () => {
+    void api.get<{ tags: TagDef[] }>("/api/customer-tags").then((r) => setTags(r.tags)).catch(() => undefined);
+  };
+  useEffect(load, []);
+
+  const create = async () => {
+    try {
+      await api.post("/api/customer-tags", { name: name.trim(), color });
+      toast(`Tag "${name.trim()}" created`, "ok");
+      setName("");
+      load();
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Create failed", "danger");
+    }
+  };
+
+  const patch = async (t: TagDef, body: Record<string, unknown>, okMsg: string) => {
+    try {
+      await api.patch(`/api/customer-tags/${t.id}`, body);
+      toast(okMsg, "ok");
+      load();
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Save failed", "danger");
+    }
+  };
+
+  const rename = (t: TagDef) => {
+    const next = window.prompt("Rename tag:", t.name);
+    if (!next || !next.trim() || next.trim() === t.name) return;
+    void patch(t, { name: next.trim() }, "Tag renamed");
+  };
+
+  const COLORS = Object.keys(TAG_STYLES);
+
+  return (
+    <div style={{ display: "grid", gap: 14, maxWidth: 640 }}>
+      <div style={{ fontFamily: AT.body, fontSize: 13, color: AT.inkSoft }}>
+        Colored labels for bidders — used as chips and filters on the Bidders screen. Retiring a tag hides
+        it from pickers; bidders that carry it keep it until it's removed.
+      </div>
+      <ACard pad={false}>
+        <ATable head={["Tag", "Color", "Status", ""]}>
+          {tags.map((t) => (
+            <ATr key={t.id}>
+              <ATd><TagChip tag={t} /></ATd>
+              <ATd>
+                <span style={{ display: "inline-flex", gap: 4 }}>
+                  {COLORS.map((c) => (
+                    <button
+                      key={c}
+                      title={c}
+                      onClick={() => void patch(t, { color: c }, "Color saved")}
+                      style={{
+                        all: "unset", cursor: "pointer", width: 18, height: 18, borderRadius: 5,
+                        background: TAG_STYLES[c]!.bg, border: `2px solid ${t.color === c ? TAG_STYLES[c]!.fg : "transparent"}`,
+                      }}
+                    />
+                  ))}
+                </span>
+              </ATd>
+              <ATd>{t.active ? <ABadge tone="ok">active</ABadge> : <ABadge tone="neutral">retired</ABadge>}</ATd>
+              <ATd right>
+                <span style={{ display: "inline-flex", gap: 6 }}>
+                  <ABtn size="sm" kind="ghost" onClick={() => rename(t)}>Rename</ABtn>
+                  <ABtn size="sm" kind="ghost" onClick={() => void patch(t, { active: !t.active }, t.active ? "Tag retired" : "Tag reactivated")}>
+                    {t.active ? "Retire" : "Reactivate"}
+                  </ABtn>
+                </span>
+              </ATd>
+            </ATr>
+          ))}
+        </ATable>
+      </ACard>
+      <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+        <AField label="New tag"><AInput value={name} onChange={setName} placeholder="Collector" style={{ width: 200 }} /></AField>
+        <AField label="Color">
+          <ASelect value={color} onChange={setColor} options={COLORS.map((c) => ({ value: c, label: c }))} />
+        </AField>
+        <ABtn onClick={() => void create()} disabled={name.trim().length === 0}>Add tag</ABtn>
+      </div>
     </div>
   );
 }

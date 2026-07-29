@@ -6,7 +6,7 @@ import {
   formatSku,
   isKnownCategory,
 } from "@auction/domain";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import QRCode from "qrcode";
 import { z } from "zod";
@@ -218,6 +218,17 @@ export function registerReceivingRoutes(app: FastifyInstance, ctx: AppContext, p
     const rows = await ctx.db.select().from(items).where(eq(items.consignmentId, id)).orderBy(items.sku).limit(500);
     const labels = await Promise.all(rows.map(itemLabelHtml));
     const html = labelPage(labels.join("\n"), `Labels ${con.ref}`);
+    return reply.type("text/html; charset=utf-8").send(html);
+  });
+
+  /** A3 bulk labels — selected inventory rows in one print run. */
+  app.get("/api/items/labels", guard("items.view"), async (req, reply) => {
+    const ids = ((req.query as { ids?: string }).ids ?? "").split(",").filter(Boolean).slice(0, 200);
+    if (ids.length === 0) return reply.code(400).send({ error: "ids_required" });
+    const rows = await ctx.db.select().from(items).where(inArray(items.id, ids)).orderBy(items.sku);
+    if (rows.length === 0) return reply.code(404).send({ error: "not_found" });
+    const labels = await Promise.all(rows.map(itemLabelHtml));
+    const html = labelPage(labels.join("\n"), `Labels (${rows.length})`);
     return reply.type("text/html; charset=utf-8").send(html);
   });
 
