@@ -14,6 +14,7 @@ import { InventoryScreen } from "./screens/Inventory.js";
 import { OrdersScreen } from "./screens/Orders.js";
 import { PickupScreen } from "./screens/Pickup.js";
 import { ReceivingScreen } from "./screens/Receiving.js";
+import { WarehouseStatsScreen } from "./screens/WarehouseStats.js";
 import { BoardScreen } from "./screens/Board.js";
 import { CustomersScreen } from "./screens/Customers.js";
 import { SettingsScreen } from "./screens/Settings.js";
@@ -58,6 +59,8 @@ const SCREENS: ScreenDef[] = [
   { id: "receiving", label: "Receiving", icon: "inventory", permission: "warehouse.manage", render: (nav) => <ReceivingScreen nav={nav} /> },
   { id: "orders", label: "Orders", icon: "orders", permission: "orders.view", render: (nav) => <OrdersScreen nav={nav} /> },
   { id: "pickup", label: "Pickup", icon: "inventory", permission: "pickup.view", render: (nav) => <PickupScreen nav={nav} /> },
+  // W3 — warehouse productivity; stats.view is seeded to managers only.
+  { id: "whstats", label: "Stats", icon: "analytics", permission: "stats.view", render: (nav) => <WarehouseStatsScreen nav={nav} /> },
   { id: "customers", label: "Bidders", icon: "users", permission: "customers.view", render: (nav) => <CustomersScreen nav={nav} /> },
   { id: "finance", label: "Finance", icon: "finance", permission: "invoices.view", render: (nav) => <FinanceScreen nav={nav} /> },
   { id: "content", label: "Content", icon: "list", permission: "content.view", render: (nav) => <ContentScreen nav={nav} /> },

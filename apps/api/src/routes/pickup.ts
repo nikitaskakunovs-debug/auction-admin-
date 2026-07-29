@@ -119,6 +119,7 @@ export function registerPickupRoutes(app: FastifyInstance, ctx: AppContext, perm
     rack: z.string().max(16).default(""),
     shelf: z.string().max(16).default(""),
     notes: z.string().max(500).default(""),
+    capacity: z.number().int().min(0).max(10_000).nullable().default(null),
   });
   app.post("/api/warehouse/locations", guard("warehouse.manage"), async (req, reply) => {
     const body = locationBody.safeParse(req.body);
@@ -135,7 +136,13 @@ export function registerPickupRoutes(app: FastifyInstance, ctx: AppContext, perm
   });
 
   app.patch("/api/warehouse/locations/:id", guard("warehouse.manage"), async (req, reply) => {
-    const body = z.object({ active: z.boolean().optional(), notes: z.string().max(500).optional() }).safeParse(req.body);
+    const body = z
+      .object({
+        active: z.boolean().optional(),
+        notes: z.string().max(500).optional(),
+        capacity: z.number().int().min(0).max(10_000).nullable().optional(),
+      })
+      .safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: "invalid_body" });
     const [row] = await ctx.db
       .update(warehouseLocations)

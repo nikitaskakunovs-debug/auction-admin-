@@ -13,6 +13,7 @@ import {
   AStat, ATable, ATd, ATr, useConfirm, useToast,
 } from "../ui.js";
 import { useAuctionEvents } from "../useAuctionEvents.js";
+import { BinsBrowser } from "./Bins.js";
 
 interface Consignment {
   id: string;
@@ -43,7 +44,7 @@ interface ReviewItem {
   photos: string[];
 }
 
-export function ReceivingScreen({ nav: _nav }: { nav: Nav }) {
+export function ReceivingScreen({ nav }: { nav: Nav }) {
   const { can } = useAuth();
   const toast = useToast();
   const confirm = useConfirm();
@@ -59,7 +60,7 @@ export function ReceivingScreen({ nav: _nav }: { nav: Nav }) {
 
   // W2 grading review queue — only for reviewers; badge stays live over WS.
   const canReview = can("grading.review");
-  const [tab, setTab] = useState<"deliveries" | "review">("deliveries");
+  const [tab, setTab] = useState<"deliveries" | "review" | "bins">("deliveries");
   const [pending, setPending] = useState<ReviewItem[]>([]);
 
   const loadReview = useCallback(() => {
@@ -278,19 +279,20 @@ export function ReceivingScreen({ nav: _nav }: { nav: Nav }) {
         </div>
       </div>
 
-      {canReview && (
-        <APills
-          options={[
-            { id: "deliveries" as const, label: "Deliveries", count: list.length },
-            { id: "review" as const, label: "Grading review", count: pending.length },
-          ]}
-          value={tab}
-          onChange={setTab}
-        />
-      )}
+      <APills
+        options={[
+          { id: "deliveries" as const, label: "Deliveries", count: list.length },
+          ...(canReview ? [{ id: "review" as const, label: "Grading review", count: pending.length }] : []),
+          { id: "bins" as const, label: "Bins" },
+        ]}
+        value={tab}
+        onChange={setTab}
+      />
 
       {canReview && tab === "review" ? (
         <GradingReviewQueue items={pending} reload={loadReview} />
+      ) : tab === "bins" ? (
+        <BinsBrowser nav={nav} />
       ) : (
         <ACard pad={false}>
           {list.length === 0 ? (

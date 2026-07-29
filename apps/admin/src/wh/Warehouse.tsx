@@ -82,7 +82,9 @@ type View =
   | { v: "receive" }
   | { v: "receive-into"; con: Consignment }
   | { v: "pick" }
-  | { v: "ticket"; id: string };
+  | { v: "ticket"; id: string }
+  | { v: "bins" }
+  | { v: "bin"; id: string; label: string };
 
 const SHADOW = "0 1px 2px rgba(10,10,10,0.06), 0 4px 14px rgba(10,10,10,0.05)";
 
@@ -190,12 +192,15 @@ export function WarehouseMode() {
     view.v === "item" ? view.data.item.sku :
     view.v === "receive" ? t("wh.receive") :
     view.v === "receive-into" ? view.con.ref :
-    view.v === "pick" ? t("wh.pickQueue") : t("wh.ticket");
+    view.v === "pick" ? t("wh.pickQueue") :
+    view.v === "bins" ? t("wh.bins") :
+    view.v === "bin" ? view.label : t("wh.ticket");
 
   const back = () => {
-    if (view.v === "item" || view.v === "scan" || view.v === "receive" || view.v === "pick") setView({ v: "home" });
+    if (view.v === "item" || view.v === "scan" || view.v === "receive" || view.v === "pick" || view.v === "bins") setView({ v: "home" });
     else if (view.v === "receive-into") setView({ v: "receive" });
     else if (view.v === "ticket") setView({ v: "pick" });
+    else if (view.v === "bin") setView({ v: "bins" });
   };
 
   return (
@@ -248,6 +253,9 @@ export function WarehouseMode() {
             {can("pickup.operate") && (
               <button style={S.btn} onClick={() => setView({ v: "pick" })}>🛒 {t("wh.pickQueue")}</button>
             )}
+            {can("items.view") && (
+              <button style={{ ...S.btn, ...S.btnGhost }} onClick={() => setView({ v: "bins" })}>🗂️ {t("wh.bins")}</button>
+            )}
             <div style={{ ...S.card, display: "flex", alignItems: "center", gap: 10 }}>
               <div style={{
                 width: 38, height: 38, borderRadius: 999, background: AT.accentSoft, color: AT.accent,
@@ -289,6 +297,8 @@ export function WarehouseMode() {
         )}
         {view.v === "pick" && <PickQueue toast={toast} onOpen={(id) => setView({ v: "ticket", id })} />}
         {view.v === "ticket" && <TicketView id={view.id} toast={toast} onDone={() => setView({ v: "pick" })} />}
+        {view.v === "bins" && <BinsList toast={toast} onOpen={(id, label) => setView({ v: "bin", id, label })} />}
+        {view.v === "bin" && <BinContentsView id={view.id} onItem={(code) => void openItem(code)} />}
       </main>
     </div>
   );
@@ -863,6 +873,117 @@ function BinPicker({ itemId, current, toast, done }: {
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ── W3: bin browser (list + contents) ────────────────────────────────────────
+
+interface BrowserBin extends Bin {
+  capacity: number | null;
+  itemCount: number;
+  lastActivity: { type: string; actorLabel: string; at: string } | null;
+}
+
+/** "pirms 2 st." / "2 ч назад" / "2 h ago" — coarse, phone-sized. */
+function agoShort(iso: string, lang: Lang): string {
+  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  const x =
+    s < 90 ? null :
+    s < 5400 ? `${Math.round(s / 60)} min` :
+    s < 129_600 ? `${Math.round(s / 3600)} ${lang === "lv" ? "st." : lang === "ru" ? "ч" : "h"}` :
+    `${Math.round(s / 86_400)} ${lang === "ru" ? "д" : "d."}`;
+  if (x === null) return lang === "lv" ? "tikko" : lang === "ru" ? "только что" : "just now";
+  return lang === "lv" ? `pirms ${x}` : lang === "ru" ? `${x} назад` : `${x} ago`;
+}
+
+function BinsList({ toast, onOpen }: {
+  toast: (t: string, tone?: "ok" | "danger") => void;
+  onOpen: (id: string, label: string) => void;
+}) {
+  const { t, lang } = useT();
+  const [bins, setBins] = useState<BrowserBin[]>([]);
+  const [q, setQ] = useState("");
+  const [camera, setCamera] = useState(false);
+
+  useEffect(() => {
+    void api.get<{ bins: BrowserBin[] }>("/api/warehouse/bins").then((r) => setBins(r.bins.filter((b) => b.active))).catch(() => undefined);
+  }, []);
+
+  const onBinScan = (raw: string) => {
+    setCamera(false);
+    const scanned = raw.trim();
+    const byId = scanned.startsWith("BIN:") ? bins.find((b) => b.id === scanned.slice(4)) : undefined;
+    const bin = byId ?? bins.find((b) => b.label.toLowerCase() === scanned.toLowerCase());
+    if (bin) onOpen(bin.id, bin.label);
+    else toast(t("wh.notABin"), "danger");
+  };
+
+  const visible = bins.filter((b) => !q || b.label.toLowerCase().includes(q.toLowerCase()));
+  return (
+    <div style={{ display: "grid", gap: 10 }}>
+      <button style={{ ...S.btn, ...S.btnAccent, minHeight: 52 }} onClick={() => setCamera(true)}>{t("wh.scanShelf")}</button>
+      {camera && <CameraScanner hint={t("wh.aimShelf")} onCode={onBinScan} onClose={() => setCamera(false)} />}
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("wh.filterBins")} style={S.input} />
+      {visible.length === 0 && <div style={{ ...S.card, color: AT.inkSoft, fontSize: 14 }}>{t("wh.noBins")}</div>}
+      {visible.map((b) => {
+        const over = b.capacity !== null && b.itemCount > b.capacity;
+        return (
+          <button key={b.id} onClick={() => onOpen(b.id, b.label)} style={{ ...S.btn, ...S.btnGhost, justifyContent: "space-between", minHeight: 58 }}>
+            <span style={{ textAlign: "left" }}>
+              <span style={{ display: "block", fontFamily: AT.mono, fontSize: 15 }}>{b.label}</span>
+              <span style={{ display: "block", fontSize: 11.5, color: AT.inkSoft, fontWeight: 600 }}>
+                {b.lastActivity ? agoShort(b.lastActivity.at, lang) : b.zone}
+              </span>
+            </span>
+            <span style={{
+              fontSize: 12.5, fontWeight: 800, borderRadius: 999, padding: "3px 11px",
+              background: over ? AT.warnSoft : b.itemCount === 0 ? AT.surfaceAlt : AT.accentSoft,
+              color: over ? AT.warn : b.itemCount === 0 ? AT.inkSoft : AT.accent,
+            }}>
+              {b.itemCount === 0 && b.capacity === null ? t("wh.emptyBin") : `${b.itemCount}${b.capacity !== null ? ` / ${b.capacity}` : ""}`}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function BinContentsView({ id, onItem }: { id: string; onItem: (code: string) => void }) {
+  const { t, lang } = useT();
+  const [data, setData] = useState<{
+    bin: BrowserBin;
+    contents: Array<{ id: string; sku: string; title: string; status: string; photos: string[]; sinceAt: string }>;
+  } | null>(null);
+
+  useEffect(() => {
+    void api.get<typeof data>(`/api/warehouse/bins/${id}`).then((r) => setData(r)).catch(() => undefined);
+  }, [id]);
+
+  if (!data) return null;
+  return (
+    <div style={{ display: "grid", gap: 10 }}>
+      <div style={{ ...S.card, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={S.label}>{t("wh.binContents")}</span>
+        <span style={{ fontSize: 14, fontWeight: 800 }}>
+          {data.contents.length}{data.bin.capacity !== null ? ` / ${data.bin.capacity}` : ""} {t("wh.pieces")}
+        </span>
+      </div>
+      {data.contents.length === 0 && <div style={{ ...S.card, color: AT.inkSoft, fontSize: 14 }}>{t("wh.emptyBin")}</div>}
+      {data.contents.map((c) => (
+        <button key={c.id} onClick={() => onItem(c.id)} style={{ ...S.btn, ...S.btnGhost, justifyContent: "flex-start", gap: 12, minHeight: 62 }}>
+          {c.photos[0] ? (
+            <img src={thumbOf(c.photos[0])} alt="" style={{ width: 42, height: 42, objectFit: "cover", borderRadius: 9, flexShrink: 0 }} />
+          ) : (
+            <span style={{ width: 42, height: 42, borderRadius: 9, background: AT.surfaceAlt, display: "grid", placeItems: "center", flexShrink: 0 }}>📷</span>
+          )}
+          <span style={{ textAlign: "left", minWidth: 0, flex: 1 }}>
+            <span style={{ display: "block", fontSize: 14, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title}</span>
+            <span style={{ display: "block", fontFamily: AT.mono, fontSize: 11.5, color: AT.inkSoft }}>{c.sku} · {agoShort(c.sinceAt, lang)}</span>
+          </span>
+        </button>
+      ))}
     </div>
   );
 }

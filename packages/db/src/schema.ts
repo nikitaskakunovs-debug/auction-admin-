@@ -314,6 +314,8 @@ export const warehouseLocations = pgTable(
     /** Human label, e.g. 'FRONT-A1-R2-S3' — printed on the shelf edge. */
     label: text("label").notNull(),
     notes: text("notes").notNull().default(""),
+    /** W3 optional item limit; null = no capacity tracking (neutral bar). */
+    capacity: integer("capacity"),
     active: boolean("active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },

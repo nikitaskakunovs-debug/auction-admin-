@@ -1,0 +1,1 @@
+ALTER TABLE "warehouse_locations" ADD COLUMN "capacity" integer;
