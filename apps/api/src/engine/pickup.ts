@@ -97,6 +97,8 @@ export async function buildBoardPayload(ctx: AppContext): Promise<{ type: "board
       etaSec: t.status === "waiting" ? progress.total * Math.max(1, avg) : progress.etaSec,
       front: lines.filter((l) => l.zone === "FRONT").length,
       back: lines.filter((l) => l.zone === "BACK").length,
+      pickedCount: lines.filter((l) => l.status === "picked").length,
+      totalCount: lines.length,
     });
   }
   return { type: "board", at: ctx.now().toISOString(), tickets };
@@ -174,7 +176,17 @@ export async function checkInCustomer(ctx: AppContext, customerId: string, via: 
     });
     return { ok: true as const, ticketId: ticket!.id, number, alreadyCheckedIn: false, lineCount: collectable.length };
   });
-  if (result.ok) await publishBoard(ctx);
+  if (result.ok) {
+    await publishBoard(ctx);
+    if (!result.alreadyCheckedIn) {
+      // Nudge the admin live views: a fresh ticket just hit the queue.
+      await publishAdminEvent(ctx, {
+        type: "pickup_checkin",
+        at: ctx.now().toISOString(),
+        data: { ticketId: result.ticketId, number: result.number },
+      });
+    }
+  }
   return result;
 }
 
@@ -190,12 +202,16 @@ export async function claimTicket(ctx: AppContext, ticketId: string, actor: Acto
     const lines = await tx.select().from(pickupTicketItems).where(eq(pickupTicketItems.ticketId, ticketId));
     for (const line of lines) {
       const [item] = await tx.select().from(items).where(eq(items.id, line.itemId)).for("update");
+      // Already `picking` after a pass-back-to-queue re-claim — leave as-is.
+      if (item!.status === "picking") continue;
       assertItemTransition(item!.status as ItemStatus, "picking");
       await tx.update(items).set({ status: "picking", updatedAt: ctx.now() }).where(eq(items.id, line.itemId));
     }
     await tx
       .update(pickupTickets)
-      .set({ status: "picking", claimedById: actor.id, pickingStartedAt: ctx.now() })
+      // Keep the original pickingStartedAt across a pass-to-queue re-claim so
+      // the board timer reflects the customer's real wait.
+      .set({ status: "picking", claimedById: actor.id, pickingStartedAt: ticket.pickingStartedAt ?? ctx.now() })
       .where(eq(pickupTickets.id, ticketId));
     await writeAudit(tx, actor, "pickup", "claimed", `#${ticket.number}`, { ticketId });
     return { ok: true };
@@ -357,10 +373,20 @@ export async function cancelTicket(ctx: AppContext, ticketId: string, reason: st
 
 export async function ticketQueue(ctx: AppContext): Promise<unknown[]> {
   const today = dayKey(ctx.now());
+  const claimedBy = alias(adminUsers, "claimed_by");
+  const passTo = alias(adminUsers, "pass_to");
   const ticketRows = await ctx.db
-    .select({ ticket: pickupTickets, customerAlias: customers.alias, customerEmail: customers.email })
+    .select({
+      ticket: pickupTickets,
+      customerAlias: customers.alias,
+      customerEmail: customers.email,
+      claimedByName: claimedBy.name,
+      passToName: passTo.name,
+    })
     .from(pickupTickets)
     .innerJoin(customers, eq(pickupTickets.customerId, customers.id))
+    .leftJoin(claimedBy, eq(pickupTickets.claimedById, claimedBy.id))
+    .leftJoin(passTo, eq(pickupTickets.passToId, passTo.id))
     .where(eq(pickupTickets.dayKey, today))
     .orderBy(pickupTickets.checkedInAt);
 
@@ -387,7 +413,14 @@ export async function ticketQueue(ctx: AppContext): Promise<unknown[]> {
       .innerJoin(orders, eq(pickupTicketItems.orderId, orders.id))
       .leftJoin(warehouseLocations, eq(items.locationId, warehouseLocations.id))
       .where(eq(pickupTicketItems.ticketId, row.ticket.id));
-    out.push({ ...row.ticket, customerAlias: row.customerAlias, customerEmail: row.customerEmail, lines });
+    out.push({
+      ...row.ticket, // includes pickingStartedAt, passToId, passReason, passAt
+      customerAlias: row.customerAlias,
+      customerEmail: row.customerEmail,
+      claimedByName: row.claimedByName,
+      passToName: row.passToName,
+      lines,
+    });
   }
   return out;
 }
