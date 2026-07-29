@@ -1,5 +1,6 @@
 import { randomInt } from "node:crypto";
 import {
+  adminUsers,
   counters,
   customers,
   items,
@@ -25,8 +26,9 @@ import {
   type TicketStatus,
 } from "@auction/domain";
 import { and, eq, inArray, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { writeAudit, SYSTEM_ACTOR, type Actor } from "../audit.js";
-import { BOARD_CHANNEL, type AppContext } from "../context.js";
+import { BOARD_CHANNEL, publishAdminEvent, type AppContext } from "../context.js";
 
 /**
  * Pickup engine: check-in → ticket → pick → deliver → handover, plus the
@@ -63,6 +65,9 @@ export interface BoardTicket {
   etaSec: number;
   front: number;
   back: number;
+  /** Lines already picked — drives the TV progress bar (numbers only). */
+  pickedCount: number;
+  totalCount: number;
 }
 
 export async function buildBoardPayload(ctx: AppContext): Promise<{ type: "board"; at: string; tickets: BoardTicket[] }> {

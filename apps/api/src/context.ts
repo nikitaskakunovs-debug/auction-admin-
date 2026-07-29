@@ -50,3 +50,16 @@ export async function publishAuctionEvent(ctx: AppContext, ev: AuctionEvent): Pr
   await ctx.redis.publish(auctionChannel(ev.auctionId), msg);
   await ctx.redis.publish(ADMIN_CHANNEL, msg);
 }
+
+/** Admin-wide event (not tied to one auction) for the live admin views,
+ * e.g. a new pickup check-in. Same envelope shape as AuctionEvent. */
+export interface AdminEvent {
+  type: string;
+  at: string;
+  /** Public-safe within the admin surface — still no secrets/PII beyond need. */
+  data: Record<string, unknown>;
+}
+
+export async function publishAdminEvent(ctx: AppContext, ev: AdminEvent): Promise<void> {
+  await ctx.redis.publish(ADMIN_CHANNEL, JSON.stringify(ev));
+}
