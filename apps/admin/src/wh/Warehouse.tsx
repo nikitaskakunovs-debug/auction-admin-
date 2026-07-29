@@ -63,8 +63,25 @@ interface Ticket {
   number: number;
   status: string;
   customerAlias: string;
+  claimedById: string | null;
+  claimedByName: string | null;
+  passToId: string | null;
+  passToName: string | null;
+  passReason: string | null;
   lines: TicketLine[];
 }
+
+/** Row from GET /api/warehouse/status/today. */
+interface WorkerToday {
+  userId: string;
+  name: string;
+  status: "working" | "coffee" | "lunch" | "done";
+  sinceAt: string;
+  currentTicketNumber: number | null;
+}
+
+const WORKER_STATUSES = ["working", "coffee", "lunch", "done"] as const;
+type WorkerStatus = (typeof WORKER_STATUSES)[number];
 
 type View =
   | { v: "home" }
@@ -225,6 +242,9 @@ export function WarehouseMode() {
       <main style={{ maxWidth: 560, margin: "0 auto", padding: "16px 14px 90px", display: "grid", gap: 12 }}>
         {view.v === "home" && (
           <>
+            {can("pickup.operate") && (
+              <IncomingPassWatcher toast={toast} onOpen={(id) => setView({ v: "ticket", id })} />
+            )}
             <button style={{ ...S.btn, ...S.btnAccent, minHeight: 64, fontSize: 17 }} onClick={() => setView({ v: "scan" })}>
               🔍 {t("wh.scanLookup")}
             </button>
@@ -250,6 +270,8 @@ export function WarehouseMode() {
                 {t("wh.fullAdmin")}
               </a>
             </div>
+            {(can("pickup.operate") || can("warehouse.manage")) && <StatusSelector toast={toast} />}
+            <ScannerSetupCard onTryScan={() => setView({ v: "scan" })} />
             <div style={{ display: "flex", justifyContent: "center" }}>
               <LangSwitch />
             </div>
@@ -274,7 +296,7 @@ export function WarehouseMode() {
         {view.v === "receive-into" && (
           <ReceiveForm con={view.con} toast={toast} onReceived={(item) => void openItem(item.id)} />
         )}
-        {view.v === "pick" && <PickQueue onOpen={(id) => setView({ v: "ticket", id })} />}
+        {view.v === "pick" && <PickQueue toast={toast} onOpen={(id) => setView({ v: "ticket", id })} />}
         {view.v === "ticket" && <TicketView id={view.id} toast={toast} onDone={() => setView({ v: "pick" })} />}
       </main>
     </div>
@@ -311,6 +333,9 @@ function ScanView({ onCode }: { onCode: (code: string) => void }) {
 
 // ── Item card: gallery, grade, putaway, history ──────────────────────────────
 
+const PULL_REASONS = ["damaged", "rephoto", "regrade", "recount", "other"] as const;
+type PullReason = (typeof PULL_REASONS)[number];
+
 function ItemView({ data, canEdit, canBin, toast, refresh, scanNext }: {
   data: LookupResult;
   canEdit: boolean;
@@ -323,6 +348,9 @@ function ItemView({ data, canEdit, canBin, toast, refresh, scanNext }: {
   const { item, binLabel, consignmentRef } = data;
   const [grading, setGrading] = useState(false);
   const [binPick, setBinPick] = useState(false);
+  const [pulling, setPulling] = useState(false);
+  const [pullReason, setPullReason] = useState<PullReason | null>(null);
+  const [pullNote, setPullNote] = useState("");
   const [condition, setCondition] = useState(item.condition);
   const [notes, setNotes] = useState((item as { conditionNotes?: string }).conditionNotes ?? "");
   const [busy, setBusy] = useState(false);
@@ -449,6 +477,75 @@ function ItemView({ data, canEdit, canBin, toast, refresh, scanNext }: {
         <button style={{ ...S.btn, ...S.btnGhost }} onClick={() => setBinPick(true)}>{t("wh.putawayMove")}</button>
       )}
       {canBin && binPick && <BinPicker itemId={item.id} current={item.locationId} toast={toast} done={() => { setBinPick(false); refresh(); }} />}
+
+      {canBin && !pulling && (
+        <button style={{ ...S.btn, ...S.btnGhost }} onClick={() => setPulling(true)}>{t("wh.pull")}</button>
+      )}
+      {canBin && pulling && (
+        <div style={{ ...S.card, display: "grid", gap: 10 }}>
+          <div style={S.label}>{t("wh.pullWhy")}</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {PULL_REASONS.map((r) => (
+              <button
+                key={r}
+                onClick={() => setPullReason(r)}
+                style={{
+                  all: "unset", boxSizing: "border-box", cursor: "pointer", padding: "9px 13px", borderRadius: 999,
+                  fontSize: 13.5, fontWeight: 700, fontFamily: AT.body,
+                  background: pullReason === r ? (r === "damaged" ? AT.danger : AT.ink) : "#fff",
+                  color: pullReason === r ? "#fff" : AT.ink,
+                  border: `1.5px solid ${pullReason === r ? (r === "damaged" ? AT.danger : AT.ink) : AT.rule}`,
+                }}
+              >
+                {t(`wh.pullR.${r}` as TKey)}
+              </button>
+            ))}
+          </div>
+          {pullReason === "other" && (
+            <input
+              value={pullNote}
+              onChange={(e) => setPullNote(e.target.value)}
+              placeholder={t("wh.pullNotePlaceholder")}
+              maxLength={200}
+              style={S.input}
+            />
+          )}
+          {pullReason !== null && (
+            <button
+              style={{
+                ...S.btn,
+                ...(pullReason === "damaged" ? { background: AT.danger } : {}),
+                ...(busy ? { opacity: 0.6 } : {}),
+              }}
+              disabled={busy}
+              onClick={() => {
+                void (async () => {
+                  setBusy(true);
+                  try {
+                    await api.post(`/api/items/${item.id}/pull`, {
+                      reason: pullReason,
+                      ...(pullNote.trim() ? { note: pullNote.trim().slice(0, 200) } : {}),
+                      toQuarantine: pullReason === "damaged",
+                    });
+                    toast(t("wh.pulled"));
+                    setPulling(false);
+                    setPullReason(null);
+                    setPullNote("");
+                    refresh();
+                  } catch (err) {
+                    toast(err instanceof ApiError ? err.message : t("wh.pullFailed"), "danger");
+                  } finally {
+                    setBusy(false);
+                  }
+                })();
+              }}
+            >
+              {pullReason === "damaged" ? t("wh.pullQuar") : t("wh.pullConfirm")}
+            </button>
+          )}
+          <button style={{ ...S.btn, ...S.btnGhost, minHeight: 46, boxShadow: "none" }} onClick={() => { setPulling(false); setPullReason(null); }}>{t("wh.cancel")}</button>
+        </div>
+      )}
 
       <button style={{ ...S.btn, ...S.btnGhost }} onClick={() => void openLabelWindow(`/api/items/${item.id}/label`, (m) => toast(m, "danger"))}>{t("wh.printLabel")}</button>
 
@@ -724,6 +821,159 @@ function ReceiveForm({ con, toast, onReceived }: {
   );
 }
 
+// ── Worker status (home) ─────────────────────────────────────────────────────
+
+function StatusSelector({ toast }: { toast: (t: string, tone?: "ok" | "danger") => void }) {
+  const { user } = useAuth();
+  const { t } = useT();
+  const [cur, setCur] = useState<WorkerStatus | null>(null);
+
+  useEffect(() => {
+    void api
+      .get<{ workers: WorkerToday[] }>("/api/warehouse/status/today")
+      .then((r) => setCur(r.workers.find((w) => w.userId === user?.id)?.status ?? null))
+      .catch(() => undefined);
+  }, [user?.id]);
+
+  const set = async (s: WorkerStatus) => {
+    try {
+      await api.post("/api/warehouse/status", { status: s });
+      setCur(s);
+      toast(t("wh.statusSaved"));
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : t("wh.statusFailed"), "danger");
+    }
+  };
+
+  return (
+    <div style={{ ...S.card, display: "grid", gap: 8 }}>
+      <div style={S.label}>{t("wh.myStatus")}</div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {WORKER_STATUSES.map((s) => (
+          <button
+            key={s}
+            onClick={() => void set(s)}
+            style={{
+              all: "unset", boxSizing: "border-box", cursor: "pointer", padding: "10px 14px", borderRadius: 999,
+              fontSize: 13.5, fontWeight: 700, fontFamily: AT.body,
+              background: cur === s ? AT.ink : "#fff", color: cur === s ? "#fff" : AT.ink,
+              border: `1.5px solid ${cur === s ? AT.ink : AT.rule}`,
+            }}
+          >
+            {t(`wh.st.${s}` as TKey)}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Scanner first-run card (home) ────────────────────────────────────────────
+
+function ScannerSetupCard({ onTryScan }: { onTryScan: () => void }) {
+  const { t } = useT();
+  const [hidden, setHidden] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("scannerCardDone") === "1";
+    } catch {
+      return true;
+    }
+  });
+  if (hidden) return null;
+  const hide = () => {
+    setHidden(true);
+    try {
+      localStorage.setItem("scannerCardDone", "1");
+    } catch {
+      /* private mode — card returns next visit, harmless */
+    }
+  };
+  return (
+    <div style={{ ...S.card, border: `1.5px solid ${AT.accent}`, display: "grid", gap: 8 }}>
+      <div style={{ ...S.label, color: AT.accent }}>{t("wh.scanSetupTitle")}</div>
+      <div style={{ fontSize: 13.5, lineHeight: 1.5 }}>{t("wh.scanStep1")}</div>
+      <div style={{ fontSize: 13.5, lineHeight: 1.5 }}>{t("wh.scanStep2")}</div>
+      <div style={{ fontSize: 13.5, lineHeight: 1.5 }}>{t("wh.scanStep3")}</div>
+      <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
+        <button style={{ ...S.btn, ...S.btnAccent, minHeight: 46, flex: 1, boxShadow: "none" }} onClick={onTryScan}>{t("wh.tryScan")}</button>
+        <button style={{ ...S.btn, ...S.btnGhost, minHeight: 46, flex: 1, boxShadow: "none" }} onClick={hide}>{t("wh.hideCard")}</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Incoming pass offer (home + pick queue) ──────────────────────────────────
+
+function PassOfferCard({ ticket, toast, onAccepted, onDeclined }: {
+  ticket: Ticket;
+  toast: (t: string, tone?: "ok" | "danger") => void;
+  onAccepted: () => void;
+  onDeclined: () => void;
+}) {
+  const { t } = useT();
+  const [busy, setBusy] = useState(false);
+
+  const act = async (path: "accept" | "decline", okMsg: string, after: () => void) => {
+    setBusy(true);
+    try {
+      await api.post(`/api/pickup/tickets/${ticket.id}/${path}`);
+      toast(okMsg);
+      after();
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : t("wh.actionFailed"), "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ ...S.card, border: `2px solid ${AT.accent}`, display: "grid", gap: 10 }}>
+      <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.45 }}>
+        «{ticket.claimedByName ?? "?"}» {t("wh.passesYou")}{" "}
+        <span style={{ fontFamily: AT.mono, fontWeight: 800 }}>#{ticket.number}</span>
+        {ticket.passReason ? <span style={{ fontWeight: 600, color: AT.inkSoft }}> — {ticket.passReason}</span> : null}
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button
+          style={{ ...S.btn, ...S.btnAccent, minHeight: 48, flex: 1, boxShadow: "none", ...(busy ? { opacity: 0.6 } : {}) }}
+          disabled={busy}
+          onClick={() => void act("accept", t("wh.passAccepted"), onAccepted)}
+        >{t("wh.accept")}</button>
+        <button
+          style={{ ...S.btn, ...S.btnGhost, minHeight: 48, flex: 1, boxShadow: "none", ...(busy ? { opacity: 0.6 } : {}) }}
+          disabled={busy}
+          onClick={() => void act("decline", t("wh.passDeclined"), onDeclined)}
+        >{t("wh.decline")}</button>
+      </div>
+    </div>
+  );
+}
+
+/** Home-screen watcher: polls the queue and surfaces a pass offer aimed at me. */
+function IncomingPassWatcher({ toast, onOpen }: {
+  toast: (t: string, tone?: "ok" | "danger") => void;
+  onOpen: (id: string) => void;
+}) {
+  const { user } = useAuth();
+  const [offer, setOffer] = useState<Ticket | null>(null);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const load = () => {
+      void api
+        .get<{ tickets: Ticket[] }>("/api/pickup/queue")
+        .then((r) => setOffer(r.tickets.find((x) => x.passToId === user.id && x.status === "picking") ?? null))
+        .catch(() => undefined);
+    };
+    load();
+    const timer = setInterval(load, 5000);
+    return () => clearInterval(timer);
+  }, [user?.id]);
+
+  if (!offer) return null;
+  return <PassOfferCard ticket={offer} toast={toast} onAccepted={() => onOpen(offer.id)} onDeclined={() => setOffer(null)} />;
+}
+
 // ── Pick ─────────────────────────────────────────────────────────────────────
 
 const ticketTone = (status: string): Tone => (status === "waiting" ? "warn" : status === "picking" ? "ok" : "accent");
@@ -737,8 +987,12 @@ function statusText(t: (k: TKey) => string, status: string): string {
   }
 }
 
-function PickQueue({ onOpen }: { onOpen: (id: string) => void }) {
+function PickQueue({ toast, onOpen }: {
+  toast: (t: string, tone?: "ok" | "danger") => void;
+  onOpen: (id: string) => void;
+}) {
   const { t } = useT();
+  const { user } = useAuth();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const load = () => {
     void api.get<{ tickets: Ticket[] }>("/api/pickup/queue").then((r) => setTickets(r.tickets.filter((x) => x.status === "waiting" || x.status === "picking"))).catch(() => undefined);
@@ -748,8 +1002,10 @@ function PickQueue({ onOpen }: { onOpen: (id: string) => void }) {
     const timer = setInterval(load, 5000);
     return () => clearInterval(timer);
   }, []);
+  const offer = tickets.find((x) => x.passToId === user?.id && x.status === "picking") ?? null;
   return (
     <div style={{ display: "grid", gap: 10 }}>
+      {offer && <PassOfferCard ticket={offer} toast={toast} onAccepted={() => onOpen(offer.id)} onDeclined={load} />}
       {tickets.length === 0 && <div style={{ ...S.card, color: AT.inkSoft, fontSize: 14 }}>{t("wh.queueEmpty")}</div>}
       {tickets.map((tk) => (
         <button key={tk.id} onClick={() => onOpen(tk.id)} style={{ ...S.btn, ...S.btnGhost, justifyContent: "space-between", minHeight: 64 }}>
@@ -762,14 +1018,31 @@ function PickQueue({ onOpen }: { onOpen: (id: string) => void }) {
   );
 }
 
+const PASS_REASONS = ["busy", "endShift", "break", "needHelp", "other"] as const;
+type PassReason = (typeof PASS_REASONS)[number];
+
 function TicketView({ id, toast, onDone }: {
   id: string;
   toast: (t: string, tone?: "ok" | "danger") => void;
   onDone: () => void;
 }) {
   const { t } = useT();
+  const { user } = useAuth();
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [code, setCode] = useState("");
+  const [passing, setPassing] = useState(false);
+  const [passReason, setPassReason] = useState<PassReason | null>(null);
+  const [passOther, setPassOther] = useState("");
+  const [colleagues, setColleagues] = useState<WorkerToday[]>([]);
+  const [passBusy, setPassBusy] = useState(false);
+
+  useEffect(() => {
+    if (!passing) return;
+    void api
+      .get<{ workers: WorkerToday[] }>("/api/warehouse/status/today")
+      .then((r) => setColleagues(r.workers.filter((w) => w.userId !== user?.id)))
+      .catch(() => undefined);
+  }, [passing, user?.id]);
   const load = () => {
     void api.get<{ tickets: Ticket[] }>("/api/pickup/queue").then((r) => {
       const found = r.tickets.find((x) => x.id === id) ?? null;
@@ -792,6 +1065,33 @@ function TicketView({ id, toast, onDone }: {
   if (!ticket) return <div style={{ ...S.card, color: AT.inkSoft }}>{t("wh.loading")}</div>;
   const lines = [...ticket.lines].sort((a, b) => (a.locationLabel ?? "~").localeCompare(b.locationLabel ?? "~"));
   const allDone = lines.every((l) => l.status !== "pending");
+  const iAmClaimer = ticket.status === "picking" && ticket.claimedById === user?.id;
+
+  // Reason sent to the API: the translated pill label, or the free text for "other".
+  const passReasonText = (passReason === "other" ? passOther.trim() : passReason ? t(`wh.passR.${passReason}` as TKey) : "").slice(0, 60);
+  const passReasonOk = passReasonText.length >= 2;
+
+  const doPass = async (toUserId: string | null) => {
+    if (!passReasonOk || passBusy) return;
+    setPassBusy(true);
+    try {
+      await api.post(`/api/pickup/tickets/${ticket.id}/pass`, { toUserId, reason: passReasonText });
+      if (toUserId === null) {
+        toast(t("wh.passQueued"));
+        onDone(); // no longer ours — back to the queue list
+      } else {
+        toast(t("wh.passOffered"));
+        setPassing(false);
+        setPassReason(null);
+        setPassOther("");
+        load();
+      }
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : t("wh.actionFailed"), "danger");
+    } finally {
+      setPassBusy(false);
+    }
+  };
 
   return (
     <div style={{ display: "grid", gap: 12 }}>
@@ -800,8 +1100,75 @@ function TicketView({ id, toast, onDone }: {
         <Pill text={statusText(t, ticket.status)} tone={ticketTone(ticket.status)} />
       </div>
 
+      {ticket.passToId === user?.id && ticket.status === "picking" && (
+        <PassOfferCard ticket={ticket} toast={toast} onAccepted={load} onDeclined={load} />
+      )}
+
       {ticket.status === "waiting" && (
         <button style={{ ...S.btn, ...S.btnAccent }} onClick={() => void act(() => api.post(`/api/pickup/tickets/${ticket.id}/claim`), t("wh.claimed"))}>{t("wh.claim")}</button>
+      )}
+
+      {iAmClaimer && !passing && (
+        <button style={{ ...S.btn, ...S.btnGhost }} onClick={() => setPassing(true)}>{t("wh.passTicket")}</button>
+      )}
+      {iAmClaimer && passing && (
+        <div style={{ ...S.card, display: "grid", gap: 10 }}>
+          <div style={S.label}>{t("wh.passWhy")}</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {PASS_REASONS.map((r) => (
+              <button
+                key={r}
+                onClick={() => setPassReason(r)}
+                style={{
+                  all: "unset", boxSizing: "border-box", cursor: "pointer", padding: "9px 13px", borderRadius: 999,
+                  fontSize: 13.5, fontWeight: 700, fontFamily: AT.body,
+                  background: passReason === r ? AT.ink : "#fff", color: passReason === r ? "#fff" : AT.ink,
+                  border: `1.5px solid ${passReason === r ? AT.ink : AT.rule}`,
+                }}
+              >
+                {t(`wh.passR.${r}` as TKey)}
+              </button>
+            ))}
+          </div>
+          {passReason === "other" && (
+            <input
+              value={passOther}
+              onChange={(e) => setPassOther(e.target.value)}
+              placeholder={t("wh.passOtherPlaceholder")}
+              maxLength={60}
+              style={S.input}
+            />
+          )}
+          <div style={S.label}>{t("wh.passToWhom")}</div>
+          <div style={{ display: "grid", gap: 6 }}>
+            {colleagues.map((w) => {
+              const free = w.status === "working" && w.currentTicketNumber === null;
+              const hint =
+                w.currentTicketNumber !== null ? `${t("wh.busyWith")} #${w.currentTicketNumber}` :
+                w.status === "working" ? t("wh.free") : t(`wh.st.${w.status}` as TKey);
+              return (
+                <button
+                  key={w.userId}
+                  disabled={!passReasonOk || passBusy}
+                  onClick={() => void doPass(w.userId)}
+                  style={{
+                    ...S.btn, ...S.btnGhost, minHeight: 48, boxShadow: "none", justifyContent: "space-between",
+                    opacity: w.status === "done" ? 0.45 : passReasonOk ? 1 : 0.55,
+                  }}
+                >
+                  <span style={{ fontSize: 14.5 }}>{w.name}</span>
+                  <span style={{ fontSize: 11.5, fontWeight: 800, color: free ? AT.ok : AT.inkSoft, letterSpacing: "0.04em" }}>{hint}</span>
+                </button>
+              );
+            })}
+          </div>
+          <button
+            style={{ ...S.btn, ...(passReasonOk ? {} : { opacity: 0.5 }) }}
+            disabled={!passReasonOk || passBusy}
+            onClick={() => void doPass(null)}
+          >{t("wh.passToQueue")}</button>
+          <button style={{ ...S.btn, ...S.btnGhost, minHeight: 46, boxShadow: "none" }} onClick={() => setPassing(false)}>{t("wh.cancel")}</button>
+        </div>
       )}
 
       {lines.map((l) => (
