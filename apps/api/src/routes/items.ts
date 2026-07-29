@@ -1,14 +1,22 @@
 import { randomUUID } from "node:crypto";
-import { auditLog, items, stockMovements, warehouseLocations } from "@auction/db";
-import { assertItemTransition, conditionRequiresNotes, isKnownCategory, ITEM_STATUSES, type ItemStatus } from "@auction/domain";
-import { desc, eq, ilike, or, and, sql } from "drizzle-orm";
+import { appSettings, auditLog, conditionPresets, items, stockMovements, warehouseLocations } from "@auction/db";
+import {
+  assertItemTransition,
+  conditionRequiresNotes,
+  isDamagedFamilyCondition,
+  isKnownCategory,
+  ITEM_STATUSES,
+  type ItemStatus,
+} from "@auction/domain";
+import { desc, eq, ilike, inArray, or, and, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { FastifyInstance } from "fastify";
 import sharp from "sharp";
 import { z } from "zod";
 import { writeAudit } from "../audit.js";
-import type { AppContext } from "../context.js";
+import { publishAdminEvent, type AppContext } from "../context.js";
 import { requirePermission, type PermissionService } from "../auth/rbac.js";
+import { GRADING_REVIEW_ALL_KEY } from "./grading.js";
 import { thumbKey } from "../storage.js";
 
 const actor = (req: { admin?: { sub: string; name: string } }) => ({
@@ -22,6 +30,8 @@ const itemBody = z.object({
   description: z.string().default(""),
   condition: z.string().default("good"),
   conditionNotes: z.string().default(""),
+  /** W2 preset chips picked at the grading station (condition_presets ids). */
+  conditionPresetIds: z.array(z.string().uuid()).max(20).default([]),
   category: z.string().refine(isKnownCategory, "unknown category").default("other"),
   location: z.string().default(""),
   weightGrams: z.number().int().positive().nullable().optional(),
@@ -43,6 +53,8 @@ export function registerItemRoutes(app: FastifyInstance, ctx: AppContext, perms:
       conditions.push(
         sql`not exists (select 1 from warehouse_locations wl where wl.id = ${items.locationId} and wl.zone = 'QUARANTINE')`,
       );
+      // A grade awaiting listing-manager review is not ready to list either.
+      conditions.push(sql`${items.gradeStatus} <> 'pending_review'`);
     }
     if (q.q) conditions.push(or(ilike(items.title, `%${q.q}%`), ilike(items.sku, `%${q.q}%`)));
     const rows = await ctx.db
@@ -130,21 +142,78 @@ export function registerItemRoutes(app: FastifyInstance, ctx: AppContext, perms:
   app.patch("/api/items/:id", guard("items.edit"), async (req, reply) => {
     const body = itemBody.partial().safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: body.error.flatten() });
+    // W2: preset chips satisfy the SEE-NOTES requirement — workers pick chips
+    // instead of typing; free text stays optional extra detail.
     if (
       body.data.condition !== undefined &&
       conditionRequiresNotes(body.data.condition) &&
-      (body.data.conditionNotes ?? "").trim().length < 3
+      (body.data.conditionNotes ?? "").trim().length < 3 &&
+      (body.data.conditionPresetIds ?? []).length === 0
     )
       return reply.code(400).send({ error: "condition_notes_required", detail: "This condition grade is a SEE NOTES grade — describe the issue." });
     const { id } = req.params as { id: string };
-    const [row] = await ctx.db
-      .update(items)
-      .set({ ...body.data, weightGrams: body.data.weightGrams ?? undefined, dims: body.data.dims ?? undefined, updatedAt: ctx.now() })
-      .where(eq(items.id, id))
-      .returning();
-    if (!row) return reply.code(404).send({ error: "not_found" });
-    await writeAudit(ctx.db, actor(req), "item", "updated", row.sku, { fields: Object.keys(body.data) });
-    return { item: row };
+    // A patch that carries `condition` is a (re-)grade: it stamps the grader
+    // and runs the W2 review rules. Damaged-family grades — and everything,
+    // when grading.reviewAll is on — wait for listing-manager review; clean
+    // grades auto-approve. A re-grade of a rejected item takes the same path.
+    const grading = body.data.condition !== undefined;
+    const result = await ctx.db.transaction(async (tx) => {
+      const [cur] = await tx.select().from(items).where(eq(items.id, id)).for("update");
+      if (!cur) return null;
+      const presetIds = body.data.conditionPresetIds;
+      if (presetIds && presetIds.length > 0) {
+        const unique = [...new Set(presetIds)];
+        const found = await tx
+          .select({ id: conditionPresets.id })
+          .from(conditionPresets)
+          .where(inArray(conditionPresets.id, unique));
+        if (found.length !== unique.length) return "unknown_preset" as const;
+      }
+      let review = false;
+      if (grading) {
+        const [setting] = await tx.select().from(appSettings).where(eq(appSettings.key, GRADING_REVIEW_ALL_KEY));
+        review = isDamagedFamilyCondition(body.data.condition!) || setting?.value === true;
+      }
+      const gradePatch = grading
+        ? {
+            gradedById: req.admin!.sub,
+            gradedAt: ctx.now(),
+            gradeStatus: review ? "pending_review" : "approved",
+            reviewedById: null,
+            reviewedAt: null,
+            gradeRejectReason: null,
+            gradeNoticePending: false,
+          }
+        : {};
+      const [row] = await tx
+        .update(items)
+        .set({
+          ...body.data,
+          weightGrams: body.data.weightGrams ?? undefined,
+          dims: body.data.dims ?? undefined,
+          ...gradePatch,
+          updatedAt: ctx.now(),
+        })
+        .where(eq(items.id, id))
+        .returning();
+      await writeAudit(tx, actor(req), "item", "updated", row!.sku, { fields: Object.keys(body.data) });
+      if (grading)
+        await writeAudit(tx, actor(req), "item", "graded", row!.sku, {
+          condition: body.data.condition,
+          gradeStatus: review ? "pending_review" : "approved",
+          presetIds: presetIds ?? [],
+        });
+      return { row: row!, review };
+    });
+    if (result === null) return reply.code(404).send({ error: "not_found" });
+    if (result === "unknown_preset") return reply.code(422).send({ error: "unknown_preset" });
+    if (result.review)
+      await publishAdminEvent(ctx, {
+        type: "grade_review_pending",
+        at: ctx.now().toISOString(),
+        data: { itemId: result.row.id, sku: result.row.sku, condition: result.row.condition },
+      });
+    return { item: result.row };
   });
 
   // ── Photos ─────────────────────────────────────────────────────────────────

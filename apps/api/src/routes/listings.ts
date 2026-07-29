@@ -140,6 +140,8 @@ export function registerListingRoutes(app: FastifyInstance, ctx: AppContext, per
         const [loc] = await tx.select({ zone: warehouseLocations.zone }).from(warehouseLocations).where(eq(warehouseLocations.id, item!.locationId));
         if (loc?.zone === "QUARANTINE") return "quarantined" as const;
       }
+      // A grade awaiting listing-manager review cannot go live either (W2).
+      if (item!.gradeStatus === "pending_review") return "grade_pending" as const;
       if (item!.status === "draft") {
         assertItemTransition("draft", "listed");
         await tx.update(items).set({ status: "listed", updatedAt: ctx.now() }).where(eq(items.id, item!.id));
@@ -156,6 +158,7 @@ export function registerListingRoutes(app: FastifyInstance, ctx: AppContext, per
     });
     if (result === null) return reply.code(404).send({ error: "not_found" });
     if (result === "quarantined") return reply.code(409).send({ error: "item_quarantined" });
+    if (result === "grade_pending") return reply.code(409).send({ error: "grade_pending_review" });
     if (result === "item_busy") return reply.code(409).send({ error: "item_not_publishable" });
     return { listing: result };
   });

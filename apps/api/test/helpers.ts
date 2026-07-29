@@ -60,7 +60,8 @@ export async function createWorld(): Promise<TestWorld> {
       customers, customer_refresh_tokens, items, listings, auctions, bids, orders,
       refunds, invoices, counters, audit_log, cms_pages, notifications,
       warehouse_locations, stock_movements, pickup_tickets, pickup_ticket_items,
-      customer_fees, consignments, payments, shipments cascade
+      customer_fees, consignments, payments, shipments,
+      app_settings, condition_presets, item_comments, item_comment_reads cascade
   `);
   await seedDatabase(handle.db, { demoData: false });
 
