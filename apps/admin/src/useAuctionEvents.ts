@@ -2,7 +2,10 @@ import { useEffect, useRef } from "react";
 import { api } from "./api.js";
 
 export interface AuctionEvent {
-  type: "bid" | "extended" | "opened" | "closed" | "cancelled" | "bid_voided" | "subscribed" | "pickup_checkin";
+  type:
+    | "bid" | "extended" | "opened" | "closed" | "cancelled" | "bid_voided" | "subscribed" | "pickup_checkin"
+    // W2 grading review + item conversations:
+    | "grade_review_pending" | "grade_edited" | "grade_rejected" | "item_comment";
   auctionId?: string;
   at?: string;
   data?: Record<string, unknown>;

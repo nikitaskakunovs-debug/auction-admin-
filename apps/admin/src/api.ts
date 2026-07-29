@@ -53,6 +53,20 @@ export interface Item {
   marketCode: string;
   createdAt: string;
   updatedAt: string;
+  /** W2 grading review — present on rows returned by the API since W2. */
+  conditionPresetIds?: string[];
+  gradeStatus?: string;
+}
+
+/** W2 standardized condition-note chip (Settings → Conditions). */
+export interface ConditionPreset {
+  id: string;
+  conditionCode: string;
+  textLv: string;
+  textRu: string;
+  textEn: string;
+  position: number;
+  active: boolean;
 }
 
 export interface Listing {

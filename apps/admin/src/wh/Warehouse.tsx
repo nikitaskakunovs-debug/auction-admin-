@@ -1,12 +1,14 @@
 import { CONDITIONS, conditionByCode, conditionRequiresNotes } from "@auction/domain/conditions";
 import { useEffect, useRef, useState } from "react";
-import { api, ApiError, type Item } from "../api.js";
+import { api, ApiError, type ConditionPreset, type Item } from "../api.js";
 import { useAuth } from "../auth.js";
 import { adminOrigin, isWarehouseHost } from "../host.js";
-import { useT, type TKey } from "../i18n.js";
+import { useT, type Lang, type TKey } from "../i18n.js";
+import { CommentsThread, ActivityTimeline, useCommentsLive } from "../itemPanels.js";
 import { LangSwitch } from "../LangSwitch.js";
 import { openLabelWindow } from "../labels.js";
 import { AT, ITEM_STATUS_TONE, toneColors, type Tone } from "../theme.js";
+import { useAuctionEvents } from "../useAuctionEvents.js";
 import { CameraScanner, normalizeScan } from "./CameraScanner.js";
 
 /**
@@ -36,16 +38,6 @@ interface Bin {
   label: string;
   zone: string;
   active: boolean;
-}
-
-interface ActivityEvent {
-  at: string;
-  actor: string;
-  kind: "audit" | "move";
-  action: string;
-  detail: Record<string, unknown> | null;
-  fromLabel: string | null;
-  toLabel: string | null;
 }
 
 interface TicketLine {
@@ -169,8 +161,6 @@ function Pill({ text, tone }: { text: string; tone: Tone }) {
 
 const thumbOf = (u: string) => (u.includes("-web.webp") ? u.replace("-web.webp", "-thumb.webp") : u);
 
-const LOCALE: Record<string, string> = { lv: "lv-LV", ru: "ru-RU", en: "en-GB" };
-
 export function WarehouseMode() {
   const { user, can, logout } = useAuth();
   const { t } = useT();
@@ -245,6 +235,7 @@ export function WarehouseMode() {
             {can("pickup.operate") && (
               <IncomingPassWatcher toast={toast} onOpen={(id) => setView({ v: "ticket", id })} />
             )}
+            {can("items.view") && <GradingNotices toast={toast} onOpen={(itemId) => void openItem(itemId)} />}
             <button style={{ ...S.btn, ...S.btnAccent, minHeight: 64, fontSize: 17 }} onClick={() => setView({ v: "scan" })}>
               🔍 {t("wh.scanLookup")}
             </button>
@@ -336,6 +327,10 @@ function ScanView({ onCode }: { onCode: (code: string) => void }) {
 const PULL_REASONS = ["damaged", "rephoto", "regrade", "recount", "other"] as const;
 type PullReason = (typeof PULL_REASONS)[number];
 
+/** Chip text in the worker's UI language. */
+const presetText = (p: ConditionPreset, lang: Lang): string =>
+  lang === "lv" ? p.textLv : lang === "ru" ? p.textRu : p.textEn;
+
 function ItemView({ data, canEdit, canBin, toast, refresh, scanNext }: {
   data: LookupResult;
   canEdit: boolean;
@@ -344,7 +339,7 @@ function ItemView({ data, canEdit, canBin, toast, refresh, scanNext }: {
   refresh: () => void;
   scanNext: () => void;
 }) {
-  const { t } = useT();
+  const { t, lang } = useT();
   const { item, binLabel, consignmentRef } = data;
   const [grading, setGrading] = useState(false);
   const [binPick, setBinPick] = useState(false);
@@ -355,7 +350,21 @@ function ItemView({ data, canEdit, canBin, toast, refresh, scanNext }: {
   const [notes, setNotes] = useState((item as { conditionNotes?: string }).conditionNotes ?? "");
   const [busy, setBusy] = useState(false);
   const [viewer, setViewer] = useState<number | null>(null);
+  // W2: preset note chips + review flow.
+  const [presets, setPresets] = useState<ConditionPreset[]>([]);
+  const [picked, setPicked] = useState<Set<string>>(() => new Set(item.conditionPresetIds ?? []));
+  const [showNotes, setShowNotes] = useState(() => ((item as { conditionNotes?: string }).conditionNotes ?? "").trim().length > 0);
+  const [sentReview, setSentReview] = useState(false);
   const needsNotes = conditionRequiresNotes(condition);
+
+  useEffect(() => {
+    void api.get<{ presets: ConditionPreset[] }>("/api/condition-presets").then((r) => setPresets(r.presets)).catch(() => undefined);
+  }, []);
+
+  // Chips shown for the currently selected grade; only their ids are sent.
+  const chipsForCondition = presets.filter((p) => p.conditionCode === condition);
+  const pickedIds = chipsForCondition.filter((p) => picked.has(p.id)).map((p) => p.id);
+  const gradeOk = !needsNotes || notes.trim().length >= 3 || pickedIds.length > 0;
   const statusTone = ITEM_STATUS_TONE[item.status] ?? { label: item.status.replace(/_/g, " "), tone: "neutral" as Tone };
 
   const upload = async (files: FileList | null) => {
@@ -375,11 +384,21 @@ function ItemView({ data, canEdit, canBin, toast, refresh, scanNext }: {
   };
 
   const saveGrade = async () => {
-    if (needsNotes && notes.trim().length < 3) return;
+    if (!gradeOk) return;
     setBusy(true);
     try {
-      await api.patch(`/api/items/${item.id}`, { condition, conditionNotes: notes });
-      toast(t("wh.gradeSaved"));
+      const r = await api.patch<{ item: Item }>(`/api/items/${item.id}`, {
+        condition,
+        conditionNotes: notes,
+        conditionPresetIds: pickedIds,
+      });
+      // A grade that lands in review gets the inline "→ uz pārbaudi"
+      // confirmation instead of the plain success toast.
+      if (r.item.gradeStatus === "pending_review") setSentReview(true);
+      else {
+        setSentReview(false);
+        toast(t("wh.gradeSaved"));
+      }
       setGrading(false);
       refresh();
     } catch (err) {
@@ -451,6 +470,12 @@ function ItemView({ data, canEdit, canBin, toast, refresh, scanNext }: {
         />
       )}
 
+      {canEdit && !grading && sentReview && (
+        <div style={{
+          ...S.card, border: `1.5px solid ${AT.accent}`, color: AT.accent,
+          fontSize: 14.5, fontWeight: 800, textAlign: "center",
+        }}>{t("wh.sentReview")}</div>
+      )}
       {canEdit && !grading && (
         <button style={{ ...S.btn, ...S.btnGhost }} onClick={() => setGrading(true)}>{t("wh.grade")}</button>
       )}
@@ -464,10 +489,51 @@ function ItemView({ data, canEdit, canBin, toast, refresh, scanNext }: {
             ))}
           </select>
           {conditionByCode(condition) && <div style={{ fontSize: 12.5, color: AT.inkSoft }}>{conditionByCode(condition)!.description}</div>}
-          <div style={S.label}>{needsNotes ? t("wh.notesRequired") : t("wh.notes")}</div>
-          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} style={{ ...S.input, minHeight: 80, padding: 12, borderColor: needsNotes && notes.trim().length < 3 ? "#C24" : AT.rule }} />
+          {/* W2: standardized note chips for this grade — tapping beats typing. */}
+          {chipsForCondition.length > 0 && (
+            <>
+              <div style={S.label}>{t("wh.presetNotes")}</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {chipsForCondition.map((p) => {
+                  const on = picked.has(p.id);
+                  return (
+                    <button
+                      key={p.id}
+                      onClick={() => setPicked((s) => {
+                        const next = new Set(s);
+                        if (next.has(p.id)) next.delete(p.id);
+                        else next.add(p.id);
+                        return next;
+                      })}
+                      style={{
+                        all: "unset", boxSizing: "border-box", cursor: "pointer", padding: "9px 13px", borderRadius: 999,
+                        fontSize: 13.5, fontWeight: 700, fontFamily: AT.body,
+                        background: on ? AT.ink : "#fff", color: on ? "#fff" : AT.ink,
+                        border: `1.5px solid ${on ? AT.ink : AT.rule}`,
+                      }}
+                    >{presetText(p, lang)}</button>
+                  );
+                })}
+                <button
+                  onClick={() => setShowNotes((v) => !v)}
+                  style={{
+                    all: "unset", boxSizing: "border-box", cursor: "pointer", padding: "9px 13px", borderRadius: 999,
+                    fontSize: 13.5, fontWeight: 700, fontFamily: AT.body,
+                    background: showNotes ? AT.accent : "#fff", color: showNotes ? "#fff" : AT.accent,
+                    border: `1.5px solid ${AT.accent}`,
+                  }}
+                >{t("wh.chipOther")}</button>
+              </div>
+            </>
+          )}
+          {(showNotes || chipsForCondition.length === 0) && (
+            <>
+              <div style={S.label}>{needsNotes && pickedIds.length === 0 ? t("wh.notesRequired") : t("wh.notes")}</div>
+              <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} style={{ ...S.input, minHeight: 80, padding: 12, borderColor: gradeOk ? AT.rule : "#C24" }} />
+            </>
+          )}
           <div style={{ display: "flex", gap: 8 }}>
-            <button style={{ ...S.btn, flex: 1, ...(needsNotes && notes.trim().length < 3 ? { opacity: 0.5 } : {}) }} onClick={() => void saveGrade()} disabled={busy || (needsNotes && notes.trim().length < 3)}>{t("wh.saveGrade")}</button>
+            <button style={{ ...S.btn, flex: 1, ...(gradeOk ? {} : { opacity: 0.5 }) }} onClick={() => void saveGrade()} disabled={busy || !gradeOk}>{t("wh.saveGrade")}</button>
             <button style={{ ...S.btn, ...S.btnGhost, flex: 1 }} onClick={() => setGrading(false)}>{t("wh.cancel")}</button>
           </div>
         </div>
@@ -549,7 +615,7 @@ function ItemView({ data, canEdit, canBin, toast, refresh, scanNext }: {
 
       <button style={{ ...S.btn, ...S.btnGhost }} onClick={() => void openLabelWindow(`/api/items/${item.id}/label`, (m) => toast(m, "danger"))}>{t("wh.printLabel")}</button>
 
-      <ItemHistory itemId={item.id} />
+      <ItemTabs itemId={item.id} />
 
       <button style={{ ...S.btn, ...S.btnAccent }} onClick={scanNext}>{t("wh.scanNext")}</button>
     </div>
@@ -631,54 +697,119 @@ function PhotoViewer({ photos, index, canEdit, itemId, toast, onChanged, onNav, 
   );
 }
 
-/** "Who did what" — audit + movement timeline for one item. */
-function ItemHistory({ itemId }: { itemId: string }) {
-  const { t, lang } = useT();
-  const [events, setEvents] = useState<ActivityEvent[] | null>(null);
-  useEffect(() => {
-    setEvents(null);
-    void api.get<{ events: ActivityEvent[] }>(`/api/items/${itemId}/activity`).then((r) => setEvents(r.events)).catch(() => setEvents([]));
-  }, [itemId]);
+/** W2 item tabs — «Saruna» (per-item chat) and «Vēsture» (audit timeline). */
+function ItemTabs({ itemId }: { itemId: string }) {
+  const { t } = useT();
+  const [tab, setTab] = useState<"chat" | "history">("chat");
+  const { unread, bump, refreshUnread } = useCommentsLive();
+  const unreadCount = unread.get(itemId) ?? 0;
 
-  const verb = (e: ActivityEvent): string => {
-    const key = `act.${e.action}` as TKey;
-    try {
-      return t(key);
-    } catch {
-      return e.action.replace(/_/g, " ");
-    }
-  };
-
-  const extra = (e: ActivityEvent): string => {
-    if (e.kind === "move" && (e.fromLabel || e.toLabel)) return ` ${e.fromLabel ?? "—"} → ${e.toLabel ?? "—"}`;
-    if (e.action === "transition" && e.detail) return ` ${String(e.detail.from ?? "")} → ${String(e.detail.to ?? "")}`;
-    if (e.action === "photos_added" && e.detail?.count) return ` (${String(e.detail.count)})`;
-    return "";
-  };
-
-  const fmt = (iso: string) => new Date(iso).toLocaleString(LOCALE[lang], { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  const tabBtn = (id: "chat" | "history", label: string, badge?: number) => (
+    <button
+      onClick={() => setTab(id)}
+      style={{
+        all: "unset", boxSizing: "border-box", cursor: "pointer", padding: "9px 14px", borderRadius: 999,
+        fontSize: 13.5, fontWeight: 700, fontFamily: AT.body, display: "inline-flex", alignItems: "center", gap: 7,
+        background: tab === id ? AT.ink : "#fff", color: tab === id ? "#fff" : AT.ink,
+        border: `1.5px solid ${tab === id ? AT.ink : AT.rule}`,
+      }}
+    >
+      {label}
+      {badge !== undefined && badge > 0 && (
+        <span style={{
+          background: AT.accent, color: "#fff", borderRadius: 999, fontSize: 11, fontWeight: 800,
+          minWidth: 18, height: 18, display: "inline-grid", placeItems: "center", padding: "0 5px",
+        }}>{badge}</span>
+      )}
+    </button>
+  );
 
   return (
     <div style={{ ...S.card, display: "grid", gap: 10 }}>
-      <div style={S.label}>{t("wh.history")}</div>
-      {events === null && <div style={{ color: AT.inkSoft, fontSize: 13.5 }}>…</div>}
-      {events !== null && events.length === 0 && <div style={{ color: AT.inkSoft, fontSize: 13.5 }}>{t("wh.historyEmpty")}</div>}
-      {events !== null && events.length > 0 && (
-        <div style={{ display: "grid", gap: 0 }}>
-          {events.slice(0, 20).map((e, i) => (
-            <div key={`${e.at}-${i}`} style={{
-              display: "flex", gap: 10, alignItems: "baseline", padding: "8px 0",
-              borderTop: i === 0 ? "none" : `1px solid ${AT.ruleSoft}`,
-            }}>
-              <span style={{ fontFamily: AT.mono, fontSize: 11.5, color: AT.inkSoft, flexShrink: 0 }}>{fmt(e.at)}</span>
-              <span style={{ fontSize: 13, lineHeight: 1.4 }}>
-                <b>{e.actor}</b> {verb(e)}<span style={{ fontFamily: AT.mono, fontSize: 12 }}>{extra(e)}</span>
-              </span>
-            </div>
-          ))}
-        </div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {tabBtn("chat", t("wh.tab.chat"), unreadCount)}
+        {tabBtn("history", t("wh.tab.history"))}
+      </div>
+      {tab === "chat" ? (
+        <CommentsThread itemId={itemId} bump={bump} onRead={refreshUnread} />
+      ) : (
+        <ActivityTimeline itemId={itemId} limit={20} />
       )}
     </div>
+  );
+}
+
+// ── Grading review notices (home) ────────────────────────────────────────────
+
+interface GradingNotice {
+  itemId: string;
+  sku: string;
+  title: string;
+  kind: "edited" | "rejected";
+  rejectReason: string | null;
+  oldCondition: string | null;
+  newCondition: string | null;
+  condition: string;
+  reviewerName: string | null;
+  reviewedAt: string | null;
+}
+
+/** Accent-bordered banners: "the reviewer edited/rejected your grade". */
+function GradingNotices({ toast, onOpen }: {
+  toast: (t: string, tone?: "ok" | "danger") => void;
+  onOpen: (itemId: string) => void;
+}) {
+  const { t } = useT();
+  const [notices, setNotices] = useState<GradingNotice[]>([]);
+
+  const load = () => {
+    void api.get<{ notices: GradingNotice[] }>("/api/grading/notices").then((r) => setNotices(r.notices)).catch(() => undefined);
+  };
+  useEffect(load, []);
+  useAuctionEvents("admin", (ev) => {
+    if (ev.type === "grade_edited" || ev.type === "grade_rejected") load();
+  });
+
+  const ack = async (n: GradingNotice) => {
+    try {
+      await api.post(`/api/grading/${n.itemId}/notice-ack`);
+      setNotices((list) => list.filter((x) => x.itemId !== n.itemId));
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : t("wh.actionFailed"), "danger");
+    }
+  };
+
+  if (notices.length === 0) return null;
+  const condLabel = (code: string | null) => (code ? conditionByCode(code)?.label ?? code.replace(/_/g, " ") : "?");
+  return (
+    <>
+      {notices.map((n) => (
+        <div
+          key={n.itemId}
+          onClick={() => onOpen(n.itemId)}
+          style={{ ...S.card, border: `2px solid ${AT.accent}`, display: "grid", gap: 10, cursor: "pointer" }}
+        >
+          <div style={{ fontSize: 14.5, fontWeight: 600, lineHeight: 1.45 }}>
+            <b>{n.reviewerName ?? "?"}</b>{" "}
+            {n.kind === "edited" ? (
+              <>
+                {t("wh.noticeEdited")} <span style={{ fontFamily: AT.mono, fontWeight: 800 }}>{n.sku}</span>{" "}
+                <span style={{ color: AT.inkSoft }}>({condLabel(n.oldCondition)} → {condLabel(n.newCondition)})</span>
+              </>
+            ) : (
+              <>
+                {t("wh.noticeRejected")} <span style={{ fontFamily: AT.mono, fontWeight: 800 }}>{n.sku}</span>
+                {n.rejectReason ? <span style={{ color: AT.inkSoft }}>: {n.rejectReason}</span> : null}
+              </>
+            )}
+          </div>
+          <button
+            onClick={(e) => { e.stopPropagation(); void ack(n); }}
+            style={{ ...S.btn, ...S.btnGhost, minHeight: 44, boxShadow: "none" }}
+          >{t("wh.ok")}</button>
+        </div>
+      ))}
+    </>
   );
 }
 

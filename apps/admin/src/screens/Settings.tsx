@@ -1,12 +1,13 @@
+import { CONDITIONS } from "@auction/domain/conditions";
 import { useEffect, useMemo, useState } from "react";
-import { api, ApiError, type Market } from "../api.js";
+import { api, ApiError, type ConditionPreset, type Market } from "../api.js";
 import type { Nav } from "../App.js";
 import { useAuth } from "../auth.js";
 import { formatDay } from "../format.js";
 import { AT } from "../theme.js";
 import {
   AAvatar, ABadge, ABtn, ACard, ADrawer, AField, AIcon, AInput, ASelect,
-  ATable, ATd, ATr, useToast,
+  ATable, ATd, ATr, useConfirm, useToast,
 } from "../ui.js";
 
 interface TeamUser {
@@ -29,17 +30,21 @@ const TABS = [
   { id: "markets", label: "Markets" },
   { id: "team", label: "Team" },
   { id: "roles", label: "Roles" },
+  { id: "conditions", label: "Conditions" },
 ];
 
 export function SettingsScreen({ nav: _nav }: { nav: Nav }) {
   const { can } = useAuth();
   const [tab, setTab] = useState("markets");
 
+  // The Conditions editor is reviewer-only — hide the tab entirely otherwise.
+  const tabs = TABS.filter((t) => t.id !== "conditions" || can("grading.review"));
+
   return (
     <div style={{ display: "grid", gap: 14 }}>
       <h1 style={{ fontFamily: AT.body, fontSize: 20, fontWeight: 700, color: AT.ink }}>Settings</h1>
       <div style={{ display: "flex", gap: 2, borderBottom: `1px solid ${AT.rule}` }}>
-        {TABS.map((t) => (
+        {tabs.map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)} style={{
             all: "unset", cursor: "pointer", padding: "9px 14px", fontFamily: AT.body,
             fontSize: 13, fontWeight: 600, color: tab === t.id ? AT.ink : AT.inkSoft,
@@ -50,6 +55,7 @@ export function SettingsScreen({ nav: _nav }: { nav: Nav }) {
       {tab === "markets" && (can("markets.view") ? <MarketsTab /> : <NoAccess />)}
       {tab === "team" && (can("team.view") ? <TeamTab /> : <NoAccess />)}
       {tab === "roles" && (can("team.view") ? <RolesTab /> : <NoAccess />)}
+      {tab === "conditions" && (can("grading.review") ? <ConditionsTab /> : <NoAccess />)}
     </div>
   );
 }
@@ -495,5 +501,250 @@ function GroupRows({ group, perms, roles, grants, toggle, editable }: {
         </tr>
       ))}
     </>
+  );
+}
+
+// ── W2: Conditions (preset chips + review scope) ─────────────────────────────
+
+interface PresetDraft {
+  textLv: string;
+  textRu: string;
+  textEn: string;
+  position: string;
+}
+
+const draftOf = (p: ConditionPreset): PresetDraft => ({
+  textLv: p.textLv,
+  textRu: p.textRu,
+  textEn: p.textEn,
+  position: String(p.position),
+});
+
+const emptyDraft: PresetDraft = { textLv: "", textRu: "", textEn: "", position: "0" };
+
+const draftValid = (d: PresetDraft) =>
+  d.textLv.trim().length > 0 && d.textRu.trim().length > 0 && d.textEn.trim().length > 0 &&
+  Number.isInteger(Number(d.position)) && Number(d.position) >= 0;
+
+function ConditionsTab() {
+  const { can } = useAuth();
+  const toast = useToast();
+  const confirm = useConfirm();
+  const [presets, setPresets] = useState<ConditionPreset[]>([]);
+  const [drafts, setDrafts] = useState<Record<string, PresetDraft>>({});
+  const [adding, setAdding] = useState<Record<string, PresetDraft>>({});
+  const [reviewAll, setReviewAll] = useState<boolean | null>(null);
+  const canToggleScope = can("settings.edit");
+
+  const load = () => {
+    void api.get<{ presets: ConditionPreset[] }>("/api/condition-presets?all=1").then((r) => {
+      setPresets(r.presets);
+      setDrafts(Object.fromEntries(r.presets.map((p) => [p.id, draftOf(p)])));
+    }).catch(() => undefined);
+    void api.get<{ reviewAll: boolean }>("/api/settings/grading").then((r) => setReviewAll(r.reviewAll)).catch(() => undefined);
+  };
+  useEffect(load, []);
+
+  const setDraft = (id: string, patch: Partial<PresetDraft>) =>
+    setDrafts((d) => ({ ...d, [id]: { ...d[id]!, ...patch } }));
+
+  const isDirty = (p: ConditionPreset) => {
+    const d = drafts[p.id];
+    return !!d && (d.textLv !== p.textLv || d.textRu !== p.textRu || d.textEn !== p.textEn || d.position !== String(p.position));
+  };
+
+  const save = async (p: ConditionPreset) => {
+    const d = drafts[p.id];
+    if (!d || !draftValid(d)) return toast("All three languages and a valid position are required", "danger");
+    try {
+      await api.patch(`/api/condition-presets/${p.id}`, {
+        textLv: d.textLv.trim(),
+        textRu: d.textRu.trim(),
+        textEn: d.textEn.trim(),
+        position: Number(d.position),
+      });
+      toast("Preset saved", "ok");
+      load();
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Save failed", "danger");
+    }
+  };
+
+  const retire = async (p: ConditionPreset) => {
+    const r = await confirm({
+      title: `Retire "${p.textEn}"?`,
+      body: "Retired presets stop appearing in the grading chips; items that already reference them keep their notes.",
+      confirmLabel: "Retire",
+    });
+    if (!r.ok) return;
+    try {
+      await api.delete(`/api/condition-presets/${p.id}`);
+      toast("Preset retired", "ok");
+      load();
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Retire failed", "danger");
+    }
+  };
+
+  const reactivate = async (p: ConditionPreset) => {
+    try {
+      await api.patch(`/api/condition-presets/${p.id}`, { active: true });
+      toast("Preset reactivated", "ok");
+      load();
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Failed", "danger");
+    }
+  };
+
+  const create = async (code: string) => {
+    const d = adding[code];
+    if (!d || !draftValid(d)) return toast("All three languages and a valid position are required", "danger");
+    try {
+      await api.post("/api/condition-presets", {
+        conditionCode: code,
+        textLv: d.textLv.trim(),
+        textRu: d.textRu.trim(),
+        textEn: d.textEn.trim(),
+        position: Number(d.position),
+        active: true,
+      });
+      toast("Preset added", "ok");
+      setAdding((a) => {
+        const next = { ...a };
+        delete next[code];
+        return next;
+      });
+      load();
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Create failed", "danger");
+    }
+  };
+
+  const putReviewAll = async (next: boolean) => {
+    try {
+      const r = await api.put<{ reviewAll: boolean }>("/api/settings/grading", { reviewAll: next });
+      setReviewAll(r.reviewAll);
+      toast(r.reviewAll ? "Every grade now goes through review" : "Only damaged-family grades go through review", "ok");
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Save failed", "danger");
+    }
+  };
+
+  const cell = { height: 30, fontSize: 12 } as const;
+
+  return (
+    <div style={{ display: "grid", gap: 14 }}>
+      <ACard title="Review scope">
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ fontFamily: AT.body, fontSize: 13, color: AT.ink }}>
+            <strong>Review every grade</strong>
+            <div style={{ fontSize: 12, color: AT.inkSoft, marginTop: 3 }}>
+              When off, only damaged/AS-IS family grades wait for reviewer approval; clean grades auto-approve.
+            </div>
+          </div>
+          <div style={{ marginLeft: "auto" }}>
+            {reviewAll === null ? (
+              <span style={{ fontFamily: AT.body, fontSize: 12, color: AT.inkSoft }}>…</span>
+            ) : canToggleScope ? (
+              <ABtn size="sm" kind={reviewAll ? "primary" : "ghost"} onClick={() => void putReviewAll(!reviewAll)}>
+                {reviewAll ? "On — review everything" : "Off — damaged only"}
+              </ABtn>
+            ) : (
+              <ABadge tone={reviewAll ? "accent" : "neutral"}>{reviewAll ? "review everything" : "damaged only"}</ABadge>
+            )}
+          </div>
+        </div>
+      </ACard>
+
+      {CONDITIONS.map((c) => {
+        const rows = presets.filter((p) => p.conditionCode === c.code);
+        const addDraft = adding[c.code];
+        return (
+          <ACard
+            key={c.code}
+            title={
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 9 }}>
+                {c.label}
+                <span style={{ fontFamily: AT.mono, fontSize: 11, background: AT.surfaceAlt, borderRadius: 6, padding: "2px 7px" }}>{c.code}</span>
+              </span>
+            }
+            actions={
+              !addDraft ? (
+                <ABtn size="sm" kind="soft" onClick={() => setAdding((a) => ({ ...a, [c.code]: { ...emptyDraft, position: String(rows.length) } }))}>
+                  <AIcon name="plus" size={13} /> Add preset
+                </ABtn>
+              ) : undefined
+            }
+            pad={false}
+          >
+            {rows.length === 0 && !addDraft ? (
+              <div style={{ padding: 14, fontFamily: AT.body, fontSize: 12.5, color: AT.inkSoft }}>
+                No preset notes for this grade yet.
+              </div>
+            ) : (
+              <ATable head={["LV", "RU", "EN", "Pos", "Status", ""]}>
+                {rows.map((p) => {
+                  const d = drafts[p.id] ?? draftOf(p);
+                  return (
+                    <ATr key={p.id}>
+                      <ATd style={{ whiteSpace: "normal", minWidth: 140, opacity: p.active ? 1 : 0.55 }}>
+                        <AInput value={d.textLv} onChange={(v) => setDraft(p.id, { textLv: v })} style={cell} />
+                      </ATd>
+                      <ATd style={{ whiteSpace: "normal", minWidth: 140, opacity: p.active ? 1 : 0.55 }}>
+                        <AInput value={d.textRu} onChange={(v) => setDraft(p.id, { textRu: v })} style={cell} />
+                      </ATd>
+                      <ATd style={{ whiteSpace: "normal", minWidth: 140, opacity: p.active ? 1 : 0.55 }}>
+                        <AInput value={d.textEn} onChange={(v) => setDraft(p.id, { textEn: v })} style={cell} />
+                      </ATd>
+                      <ATd style={{ width: 56, opacity: p.active ? 1 : 0.55 }}>
+                        <AInput value={d.position} onChange={(v) => setDraft(p.id, { position: v })} style={cell} />
+                      </ATd>
+                      <ATd>{p.active ? <ABadge tone="ok">active</ABadge> : <ABadge tone="neutral">retired</ABadge>}</ATd>
+                      <ATd right>
+                        <span style={{ display: "inline-flex", gap: 6 }}>
+                          {isDirty(p) && <ABtn size="sm" onClick={() => void save(p)}>Save</ABtn>}
+                          {p.active ? (
+                            <ABtn size="sm" kind="ghost" onClick={() => void retire(p)}>Retire</ABtn>
+                          ) : (
+                            <ABtn size="sm" kind="ghost" onClick={() => void reactivate(p)}>Reactivate</ABtn>
+                          )}
+                        </span>
+                      </ATd>
+                    </ATr>
+                  );
+                })}
+                {addDraft && (
+                  <ATr>
+                    <ATd style={{ whiteSpace: "normal", minWidth: 140 }}>
+                      <AInput value={addDraft.textLv} onChange={(v) => setAdding((a) => ({ ...a, [c.code]: { ...a[c.code]!, textLv: v } }))} placeholder="Teksts latviski" style={cell} autoFocus />
+                    </ATd>
+                    <ATd style={{ whiteSpace: "normal", minWidth: 140 }}>
+                      <AInput value={addDraft.textRu} onChange={(v) => setAdding((a) => ({ ...a, [c.code]: { ...a[c.code]!, textRu: v } }))} placeholder="Текст по-русски" style={cell} />
+                    </ATd>
+                    <ATd style={{ whiteSpace: "normal", minWidth: 140 }}>
+                      <AInput value={addDraft.textEn} onChange={(v) => setAdding((a) => ({ ...a, [c.code]: { ...a[c.code]!, textEn: v } }))} placeholder="Text in English" style={cell} />
+                    </ATd>
+                    <ATd style={{ width: 56 }}>
+                      <AInput value={addDraft.position} onChange={(v) => setAdding((a) => ({ ...a, [c.code]: { ...a[c.code]!, position: v } }))} style={cell} />
+                    </ATd>
+                    <ATd><ABadge tone="accent">new</ABadge></ATd>
+                    <ATd right>
+                      <span style={{ display: "inline-flex", gap: 6 }}>
+                        <ABtn size="sm" onClick={() => void create(c.code)} disabled={!draftValid(addDraft)}>Create</ABtn>
+                        <ABtn size="sm" kind="ghost" onClick={() => setAdding((a) => {
+                          const next = { ...a };
+                          delete next[c.code];
+                          return next;
+                        })}>Cancel</ABtn>
+                      </span>
+                    </ATd>
+                  </ATr>
+                )}
+              </ATable>
+            )}
+          </ACard>
+        );
+      })}
+    </div>
   );
 }
