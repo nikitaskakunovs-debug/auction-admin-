@@ -107,6 +107,104 @@ export async function seedDatabase(db: Db, opts: SeedOptions = {}): Promise<void
     }
   }
 
+  // ── Condition-note presets (W2 grading chips, lv/ru/en) ───────────────────
+  // Baseline config like markets/bins: ensured on every seed, but the table is
+  // admin-editable and rows carry random uuids, so only fill it when empty.
+  const existingPresets = await db.select({ id: t.conditionPresets.id }).from(t.conditionPresets).limit(1);
+  if (existingPresets.length === 0) {
+    const P = (conditionCode: string, texts: Array<[lv: string, ru: string, en: string]>) =>
+      texts.map(([textLv, textRu, textEn], position) => ({ conditionCode, textLv, textRu, textEn, position }));
+    await db.insert(t.conditionPresets).values([
+      ...P("brand_new", [
+        ["Oriģinālais iepakojums", "Заводская упаковка", "Factory sealed"],
+        ["Nav atvērts", "Не вскрывался", "Never opened"],
+        ["Ar veikala birkām", "С магазинными бирками", "Retail tags attached"],
+      ]),
+      ...P("new_no_package", [
+        ["Bez iepakojuma", "Без упаковки", "No packaging"],
+        ["Pilna komplektācija", "Полная комплектация", "Complete set"],
+        ["Bez lietošanas pēdām", "Без следов использования", "No signs of use"],
+      ]),
+      ...P("open_package_new", [
+        ["Iepakojums atvērts", "Упаковка вскрыта", "Box opened"],
+        ["Iepakojums bojāts", "Упаковка повреждена", "Damaged packaging"],
+        ["Saturs pilnīgi jauns", "Содержимое совершенно новое", "Contents brand new"],
+      ]),
+      ...P("open_package_inspected", [
+        ["Pārbaudīts, kā jauns", "Проверен, как новый", "Inspected, like new"],
+        ["Minimālas pieskārienu pēdas", "Минимальные следы", "Minimal handling marks"],
+        ["Pilna komplektācija", "Полная комплектация", "Complete set"],
+      ]),
+      ...P("new_with_issue", [
+        ["Trūkst aksesuāra", "Нет аксессуара", "Missing accessory"],
+        ["Transportēšanas defekts", "Дефект при перевозке", "Shipping damage"],
+        ["Trūkst instrukcijas", "Нет инструкции", "Manual missing"],
+        ["Bojāta detaļa", "Повреждена деталь", "Damaged part"],
+      ]),
+      ...P("lightly_used", [
+        ["Vieglas lietošanas pēdas", "Лёгкие следы использования", "Light signs of use"],
+        ["Nelieli skrāpējumi", "Мелкие царапины", "Light scratches"],
+        ["Nepieciešama tīrīšana", "Требуется чистка", "Needs cleaning"],
+        ["Pilnībā funkcionē", "Полностью исправен", "Fully working"],
+      ]),
+      ...P("used", [
+        ["Redzams nolietojums", "Заметный износ", "Visible wear"],
+        ["Skrāpējumi un nobrāzumi", "Царапины и потёртости", "Scratches and scuffs"],
+        ["Traipi", "Пятна", "Stains"],
+        ["Iespiedumi", "Вмятины", "Dents"],
+        ["Pilnībā funkcionē", "Полностью исправен", "Fully working"],
+      ]),
+      ...P("previously_assembled", [
+        ["Iepriekš salikts", "Ранее собран", "Previously assembled"],
+        ["Skrūvju pēdas", "Следы от шурупов", "Screw marks"],
+        ["Nelieli nobrāzumi", "Небольшие потёртости", "Minor scuffs"],
+      ]),
+      ...P("display_model", [
+        ["Veikala paraugs", "Витринный образец", "Store display"],
+        ["Stiprinājumu pēdas", "Следы креплений", "Fixture marks"],
+        ["Bez oriģinālā iepakojuma", "Без заводской упаковки", "No retail box"],
+      ]),
+      ...P("refurbished", [
+        ["Rūpnīcā atjaunots", "Восстановлен производителем", "Factory refurbished"],
+        ["Pārbaudīts, funkcionē", "Проверен, работает", "Tested, working"],
+        ["Kosmētiski defekti", "Косметические дефекты", "Cosmetic blemishes"],
+      ]),
+      ...P("as_is_untested", [
+        ["Nav testēts", "Не тестировался", "Untested"],
+        ["Nav strāvas vada", "Нет кабеля питания", "No power cable"],
+        ["Komplektācija nav pārbaudīta", "Комплектация не проверена", "Contents unverified"],
+      ]),
+      ...P("as_is_salvage", [
+        ["Rezerves daļām", "На запчасти", "For parts"],
+        ["Neieslēdzas", "Не включается", "Doesn't power on"],
+        ["Trūkst detaļu", "Не хватает деталей", "Missing parts"],
+        ["Saplīsis ekrāns", "Разбит экран", "Cracked screen"],
+      ]),
+      ...P("as_is_expired", [
+        ["Beidzies derīguma termiņš", "Истёк срок годности", "Past expiry date"],
+        ["Termiņš beidzas drīz", "Срок истекает скоро", "Expires soon"],
+        ["Iepakojums bojāts", "Упаковка повреждена", "Damaged packaging"],
+      ]),
+      ...P("used_with_issue", [
+        ["Saplīsis ekrāns", "Разбит экран", "Cracked screen"],
+        ["Trūkst detaļu", "Не хватает деталей", "Missing parts"],
+        ["Neieslēdzas", "Не включается", "Doesn't power on"],
+        ["Plaisa korpusā", "Трещина на корпусе", "Cracked casing"],
+      ]),
+      ...P("new_cosmetic_imperfection", [
+        ["Skrāpējums", "Царапина", "Scratch"],
+        ["Nobrāzums", "Потёртость", "Scuff"],
+        ["Iespiedums", "Вмятина", "Dent"],
+        ["Krāsas defekts", "Дефект окраски", "Paint blemish"],
+      ]),
+      ...P("as_is", [
+        ["Pārdod kā ir", "Продаётся как есть", "Sold as is"],
+        ["Vecuma pēdas", "Следы времени", "Age-related wear"],
+        ["Skatīt fotogrāfijas", "Смотрите фото", "See photos"],
+      ]),
+    ]);
+  }
+
   await db.insert(t.counters).values({ key: "order_ref", value: 1000 }).onConflictDoNothing();
   // Receiving: auto-SKU + consignment refs. sku starts above the demo LOT-00xx range.
   await db.insert(t.counters).values({ key: "sku", value: 100 }).onConflictDoNothing();

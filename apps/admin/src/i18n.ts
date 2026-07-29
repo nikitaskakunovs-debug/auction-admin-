@@ -229,6 +229,20 @@ const D = {
   "wh.status.missing": { lv: "trūkst", ru: "нет", en: "missing" },
   "wh.status.damaged": { lv: "bojāts", ru: "повреждён", en: "damaged" },
 
+  // ── W2: grading presets, review notices, item chat ───────────────────────
+  "wh.presetNotes": { lv: "Tipveida piezīmes", ru: "Типовые заметки", en: "Preset notes" },
+  "wh.chipOther": { lv: "Cits…", ru: "Другое…", en: "Other…" },
+  "wh.sentReview": { lv: "→ uz pārbaudi", ru: "→ на проверку", en: "→ sent for review" },
+  "wh.noticeEdited": { lv: "laboja tavu novērtējumu", ru: "исправил(а) твою оценку", en: "edited your grade" },
+  "wh.noticeRejected": { lv: "noraidīja", ru: "отклонил(а)", en: "rejected" },
+  "wh.ok": { lv: "Labi", ru: "Ок", en: "OK" },
+  "wh.tab.chat": { lv: "Saruna", ru: "Чат", en: "Chat" },
+  "wh.tab.history": { lv: "Vēsture", ru: "История", en: "History" },
+  "wh.chatEmpty": { lv: "Vēl nav ziņu", ru: "Пока нет сообщений", en: "No messages yet" },
+  "wh.chatPlaceholder": { lv: "Rakstīt ziņu…", ru: "Написать сообщение…", en: "Write a message…" },
+  "wh.send": { lv: "Sūtīt", ru: "Отправить", en: "Send" },
+  "wh.sendFailed": { lv: "Neizdevās nosūtīt — mēģiniet vēlreiz", ru: "Не удалось отправить — попробуйте ещё раз", en: "Couldn't send — try again" },
+
   // ── Activity verbs (item history) ────────────────────────────────────────
   "act.created": { lv: "izveidoja preci", ru: "создал(а) товар", en: "created the item" },
   "act.received": { lv: "pieņēma piegādē", ru: "принял(а) в поставке", en: "received in delivery" },
@@ -245,6 +259,11 @@ const D = {
   "act.restock": { lv: "atgrieza plauktā", ru: "вернул(а) на полку", en: "restocked" },
   "act.handover": { lv: "izsniedza klientam", ru: "выдал(а) клиенту", en: "handed over" },
   "act.adjust": { lv: "koriģēja atrašanās vietu", ru: "скорректировал(а) место", en: "adjusted location" },
+  "act.graded": { lv: "novērtēja stāvokli", ru: "оценил(а) состояние", en: "graded condition" },
+  "act.grade_approved": { lv: "apstiprināja novērtējumu", ru: "утвердил(а) оценку", en: "approved the grade" },
+  "act.grade_edited": { lv: "laboja novērtējumu", ru: "исправил(а) оценку", en: "edited the grade" },
+  "act.grade_rejected": { lv: "noraidīja novērtējumu", ru: "отклонил(а) оценку", en: "rejected the grade" },
+  "act.grade_notice_ack": { lv: "apstiprināja paziņojumu", ru: "подтвердил(а) уведомление", en: "acknowledged the notice" },
 } satisfies Record<string, Entry>;
 
 export type TKey = keyof typeof D;

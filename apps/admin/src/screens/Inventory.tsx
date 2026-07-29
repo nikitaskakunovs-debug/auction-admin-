@@ -6,6 +6,8 @@ import { api, ApiError, type Item, type Market } from "../api.js";
 import type { Nav } from "../App.js";
 import { useAuth } from "../auth.js";
 import { formatDate } from "../format.js";
+import { useT } from "../i18n.js";
+import { ActivityTimeline, CommentsThread, useCommentsLive } from "../itemPanels.js";
 import { openLabelWindow as openLabel } from "../labels.js";
 import { AT, ITEM_STATUS_TONE } from "../theme.js";
 import {
@@ -51,10 +53,13 @@ interface FormState {
 const emptyForm: FormState = { sku: "", title: "", description: "", condition: "brand_new", conditionNotes: "", category: "other", location: "", weight: "", marketCode: "LV" };
 
 interface Bin { id: string; label: string; zone: string; active: boolean }
-interface Movement { id: string; type: string; toLabel: string | null; actorLabel: string; reason: string; createdAt: string }
+
+/** Drawer tabs — details plus the W2 Saruna (chat) and Vēsture (history). */
+type DrawerTab = "details" | "chat" | "history";
 
 export function InventoryScreen({ nav: _nav }: { nav: Nav }) {
   const { can } = useAuth();
+  const { t } = useT();
   const toast = useToast();
   const confirm = useConfirm();
   const [items, setItems] = useState<Item[]>([]);
@@ -62,10 +67,12 @@ export function InventoryScreen({ nav: _nav }: { nav: Nav }) {
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Item | null>(null);
+  const [drawerTab, setDrawerTab] = useState<DrawerTab>("details");
   const [form, setForm] = useState<FormState>(emptyForm);
   const [markets, setMarkets] = useState<Market[]>([]);
   const [bins, setBins] = useState<Bin[]>([]);
-  const [movements, setMovements] = useState<Movement[]>([]);
+  // W2: per-item unread comment badges, live over WS.
+  const { unread, bump, refreshUnread } = useCommentsLive();
 
   const load = () => {
     void api.get<{ items: Item[] }>("/api/items").then((r) => setItems(r.items)).catch(() => undefined);
@@ -76,18 +83,12 @@ export function InventoryScreen({ nav: _nav }: { nav: Nav }) {
     void api.get<{ locations: Bin[] }>("/api/warehouse/locations").then((r) => setBins(r.locations.filter((b) => b.active))).catch(() => undefined);
   }, []);
 
-  useEffect(() => {
-    if (!editing) return setMovements([]);
-    void api.get<{ movements: Movement[] }>(`/api/items/${editing.id}/movements`).then((r) => setMovements(r.movements)).catch(() => undefined);
-  }, [editing?.id]);
-
   const putaway = async (locationId: string | null) => {
     if (!editing) return;
     try {
       await api.post(`/api/items/${editing.id}/putaway`, { locationId, reason: "" });
       toast(locationId ? "Bin assigned" : "Bin cleared", "ok");
       setEditing({ ...editing, locationId });
-      void api.get<{ movements: Movement[] }>(`/api/items/${editing.id}/movements`).then((r) => setMovements(r.movements)).catch(() => undefined);
       load();
     } catch (err) {
       toast(err instanceof ApiError ? err.message : "Putaway failed", "danger");
@@ -222,7 +223,7 @@ export function InventoryScreen({ nav: _nav }: { nav: Nav }) {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <h1 style={{ fontFamily: AT.body, fontSize: 20, fontWeight: 700, color: AT.ink }}>Inventory</h1>
         {can("items.create") && (
-          <ABtn onClick={() => { setForm(emptyForm); setEditing(null); setCreating(true); }}>
+          <ABtn onClick={() => { setForm(emptyForm); setEditing(null); setDrawerTab("details"); setCreating(true); }}>
             <AIcon name="plus" size={15} color="#fff" /> New item
           </ABtn>
         )}
@@ -250,13 +251,23 @@ export function InventoryScreen({ nav: _nav }: { nav: Nav }) {
             {visible.map((i) => (
               <ATr key={i.id} onClick={() => {
                 setEditing(i);
+                setDrawerTab("details");
                 setForm({
                   sku: i.sku, title: i.title, description: i.description, condition: i.condition,
                   conditionNotes: i.conditionNotes ?? "", category: i.category ?? "other",
                   location: i.location, weight: i.weightGrams == null ? "" : String(i.weightGrams), marketCode: i.marketCode,
                 });
               }}>
-                <ATd mono>{i.sku}</ATd>
+                <ATd mono>
+                  {i.sku}
+                  {(unread.get(i.id) ?? 0) > 0 && (
+                    <span style={{
+                      marginLeft: 7, display: "inline-grid", placeItems: "center", verticalAlign: "middle",
+                      minWidth: 16, height: 16, padding: "0 4px", borderRadius: 999, background: AT.accent,
+                      color: "#fff", fontFamily: AT.body, fontSize: 10, fontWeight: 800,
+                    }}>{unread.get(i.id)}</span>
+                  )}
+                </ATd>
                 <ATd><span style={{ fontWeight: 600 }}>{i.title}</span></ATd>
                 <ATd>{conditionLabel(i.condition)}</ATd>
                 <ATd mono>{i.location || "—"}</ATd>
@@ -275,17 +286,46 @@ export function InventoryScreen({ nav: _nav }: { nav: Nav }) {
           onClose={() => { setCreating(false); setEditing(null); }}
           footer={
             <>
-              {editing && editing.status === "draft" && can("items.delete") && (
+              {drawerTab === "details" && editing && editing.status === "draft" && can("items.delete") && (
                 <ABtn kind="danger" onClick={() => void remove(editing)}>Delete</ABtn>
               )}
               <ABtn kind="ghost" onClick={() => { setCreating(false); setEditing(null); }}>Close</ABtn>
-              {(editing ? can("items.edit") : can("items.create")) && (
+              {drawerTab === "details" && (editing ? can("items.edit") : can("items.create")) && (
                 <ABtn onClick={() => void submit()} disabled={!form.sku || !form.title || (conditionRequiresNotes(form.condition) && form.conditionNotes.trim().length < 3)}>{editing ? "Save" : "Create"}</ABtn>
               )}
             </>
           }
         >
           <div style={{ display: "grid", gap: 14 }}>
+            {editing && (
+              <div style={{ display: "flex", gap: 2, borderBottom: `1px solid ${AT.rule}` }}>
+                {([
+                  { id: "details" as DrawerTab, label: "Details", badge: 0 },
+                  { id: "chat" as DrawerTab, label: t("wh.tab.chat"), badge: unread.get(editing.id) ?? 0 },
+                  { id: "history" as DrawerTab, label: t("wh.tab.history"), badge: 0 },
+                ]).map((tb) => (
+                  <button key={tb.id} onClick={() => setDrawerTab(tb.id)} style={{
+                    all: "unset", cursor: "pointer", padding: "8px 13px", fontFamily: AT.body,
+                    fontSize: 12.5, fontWeight: 600, color: drawerTab === tb.id ? AT.ink : AT.inkSoft,
+                    borderBottom: `2px solid ${drawerTab === tb.id ? AT.accent : "transparent"}`, marginBottom: -1,
+                    display: "inline-flex", alignItems: "center", gap: 6,
+                  }}>
+                    {tb.label}
+                    {tb.badge > 0 && (
+                      <span style={{
+                        display: "inline-grid", placeItems: "center", minWidth: 16, height: 16, padding: "0 4px",
+                        borderRadius: 999, background: AT.accent, color: "#fff", fontSize: 10, fontWeight: 800,
+                      }}>{tb.badge}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+            {editing && drawerTab === "chat" && (
+              <CommentsThread itemId={editing.id} bump={bump} onRead={refreshUnread} />
+            )}
+            {editing && drawerTab === "history" && <ActivityTimeline itemId={editing.id} />}
+            {(!editing || drawerTab === "details") && (<>
             {editing && (
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <ABadge tone={ITEM_STATUS_TONE[editing.status]?.tone ?? "neutral"}>{ITEM_STATUS_TONE[editing.status]?.label ?? editing.status}</ABadge>
@@ -391,20 +431,7 @@ export function InventoryScreen({ nav: _nav }: { nav: Nav }) {
                 />
               </AField>
             )}
-            {editing && movements.length > 0 && (
-              <AField label={`Stock movements (${movements.length})`}>
-                <div style={{ display: "grid", gap: 4, maxHeight: 180, overflowY: "auto" }}>
-                  {movements.map((m) => (
-                    <div key={m.id} style={{ display: "flex", gap: 8, fontSize: 12, color: AT.inkSoft, alignItems: "baseline" }}>
-                      <span style={{ fontFamily: AT.mono, fontWeight: 700, color: AT.ink, minWidth: 64 }}>{m.type}</span>
-                      <span style={{ fontFamily: AT.mono }}>{m.toLabel ?? "—"}</span>
-                      <span style={{ flex: 1 }}>{m.actorLabel}{m.reason ? ` · ${m.reason}` : ""}</span>
-                      <span>{formatDate(m.createdAt)}</span>
-                    </div>
-                  ))}
-                </div>
-              </AField>
-            )}
+            </>)}
           </div>
         </ADrawer>
       )}

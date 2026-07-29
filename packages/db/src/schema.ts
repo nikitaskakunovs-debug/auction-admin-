@@ -140,6 +140,65 @@ export const trustedDevices = pgTable(
   (t) => [index("trusted_devices_user_idx").on(t.userId), index("trusted_devices_token_idx").on(t.tokenHash)],
 );
 
+/** Small key-value store for business settings edited in the admin UI
+ * (grading-review scope, pick targets, …) — not for secrets. */
+export const appSettings = pgTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").$type<unknown>().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Standardized condition-note presets per grade (W2): workers pick chips,
+ * never type — so every lot's condition report reads the same way in all
+ * three languages. Editable in admin Settings → Conditions. */
+export const conditionPresets = pgTable(
+  "condition_presets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Which condition grade this preset belongs to (domain condition code). */
+    conditionCode: text("condition_code").notNull(),
+    textLv: text("text_lv").notNull(),
+    textRu: text("text_ru").notNull(),
+    textEn: text("text_en").notNull(),
+    position: integer("position").notNull().default(0),
+    active: boolean("active").notNull().default(true),
+  },
+  (t) => [index("condition_presets_code_idx").on(t.conditionCode, t.position)],
+);
+
+/** Per-item conversation between warehouse and admin — the "who said what"
+ * record; one thread per item, visible on both surfaces. */
+export const itemComments = pgTable(
+  "item_comments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    itemId: uuid("item_id")
+      .notNull()
+      .references(() => items.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").references(() => adminUsers.id),
+    /** Display snapshot surviving user deletion. */
+    authorLabel: text("author_label").notNull(),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("item_comments_item_idx").on(t.itemId, t.createdAt)],
+);
+
+/** Per-user read cursor for item threads — drives the unread dots. */
+export const itemCommentReads = pgTable(
+  "item_comment_reads",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => adminUsers.id, { onDelete: "cascade" }),
+    itemId: uuid("item_id")
+      .notNull()
+      .references(() => items.id, { onDelete: "cascade" }),
+    lastReadAt: timestamp("last_read_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("item_comment_reads_pk").on(t.userId, t.itemId)],
+);
+
 /** Warehouse shift presence — one row per admin per day, updated in place.
  * Statuses: working | coffee | lunch | done. Set from the warehouse phone;
  * shown on the admin live board; every change is audited. */
@@ -323,6 +382,21 @@ export const items = pgTable(
     condition: text("condition").notNull().default("good"),
     /** Required for "(SEE NOTES)" condition grades — describes the issue. */
     conditionNotes: text("condition_notes").notNull().default(""),
+    /** W2 preset-based grading: selected condition_presets ids (+ optional
+     * "other" text stays in conditionNotes; pre-W2 notes read as legacy). */
+    conditionPresetIds: jsonb("condition_preset_ids").$type<string[]>().notNull().default([]),
+    /** Grading review flow: none (ungraded/legacy) | pending_review |
+     * approved | rejected. Clean grades auto-approve unless the
+     * grading.reviewAll setting is on. */
+    gradeStatus: text("grade_status").notNull().default("none"),
+    gradedById: uuid("graded_by_id").references(() => adminUsers.id),
+    gradedAt: timestamp("graded_at", { withTimezone: true }),
+    reviewedById: uuid("reviewed_by_id").references(() => adminUsers.id),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    /** Preset reject reason shown to the worker; cleared on re-grade. */
+    gradeRejectReason: text("grade_reject_reason"),
+    /** Set when a reviewer edited or rejected and the worker hasn't seen it. */
+    gradeNoticePending: boolean("grade_notice_pending").notNull().default(false),
     /** Domain category code (storefront browse filter); "other" = unsorted. */
     category: text("category").notNull().default("other"),
     location: text("location").notNull().default(""),

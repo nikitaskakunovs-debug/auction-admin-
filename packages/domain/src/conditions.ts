@@ -138,3 +138,16 @@ export function conditionRequiresNotes(code: string): boolean {
 export function isKnownCondition(code: string): boolean {
   return byCode.has(code);
 }
+
+/**
+ * "Damaged-family" grades (W2 grading review): every "(SEE NOTES)" grade —
+ * the item has a described issue — plus the whole as-is family, which is sold
+ * with known or unverified defects. Grading an item into one of these always
+ * queues it for listing-manager review before it can be listed; the remaining
+ * clean grades auto-approve (unless the grading.reviewAll setting is on).
+ */
+export function isDamagedFamilyCondition(code: string): boolean {
+  const def = byCode.get(code);
+  if (!def) return false;
+  return def.requiresNotes || def.code.startsWith("as_is");
+}

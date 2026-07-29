@@ -107,6 +107,8 @@ export const PERMISSIONS = [
   "orders.view", "orders.mark_paid", "orders.fulfil", "orders.refund", "orders.cancel_unpaid",
   // Pickup desk + warehouse ERP
   "pickup.view", "pickup.operate", "warehouse.manage",
+  // Grading review (W2): approve/edit/reject worker grades + condition presets
+  "grading.review",
   // Customers / bidders
   "customers.view", "customers.edit", "customers.strike", "customers.erase", "customers.vies_check",
   // Content
@@ -134,7 +136,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<RoleId, readonly Permissi
     "items.view", "items.create", "items.edit", "items.delete", "items.transition",
     "listings.view", "listings.create", "listings.edit", "listings.publish",
     "auctions.view", "auctions.monitor", "auctions.relist",
-    "warehouse.manage",
+    "warehouse.manage", "grading.review",
     "reports.view", "audit.view",
   ],
   // Commercial: pricing, reserves, promotions, analytics
