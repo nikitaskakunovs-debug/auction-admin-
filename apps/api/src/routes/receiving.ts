@@ -221,6 +221,19 @@ export function registerReceivingRoutes(app: FastifyInstance, ctx: AppContext, p
     return reply.type("text/html; charset=utf-8").send(html);
   });
 
+  /** One bin's label — reprint from the W3 bin drawer. */
+  app.get("/api/warehouse/locations/:id/label", guard("items.view"), async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const [b] = await ctx.db.select().from(warehouseLocations).where(eq(warehouseLocations.id, id));
+    if (!b) return reply.code(404).send({ error: "not_found" });
+    const qr = await QRCode.toString(`BIN:${b.id}`, { type: "svg", margin: 0, errorCorrectionLevel: "M" });
+    const html = labelPage(
+      `<div class="label"><div class="qr">${qr}</div><div class="txt"><div class="sku">${esc(b.label)}</div><div class="cond">${esc(b.zone)}</div></div></div>`,
+      `Label ${b.label}`,
+    );
+    return reply.type("text/html; charset=utf-8").send(html);
+  });
+
   /** Bin labels — the whole rack plan on one print run. */
   app.get("/api/warehouse/locations/labels", guard("warehouse.manage"), async (_req, reply) => {
     const bins = await ctx.db

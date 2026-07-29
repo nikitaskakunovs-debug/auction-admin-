@@ -117,6 +117,9 @@ export const PERMISSIONS = [
   "finance.view", "invoices.view", "invoices.issue",
   // Reports
   "reports.view",
+  // W3 warehouse productivity stats — deliberately NOT in the operations set
+  // so floor workers don't see each other's numbers (owner decision).
+  "stats.view",
   // Administration
   "settings.view", "settings.edit", "team.view", "team.manage", "roles.manage",
   "markets.view", "markets.edit", "audit.view",
@@ -137,7 +140,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<RoleId, readonly Permissi
     "listings.view", "listings.create", "listings.edit", "listings.publish",
     "auctions.view", "auctions.monitor", "auctions.relist",
     "warehouse.manage", "grading.review",
-    "reports.view", "audit.view",
+    "reports.view", "stats.view", "audit.view",
   ],
   // Commercial: pricing, reserves, promotions, analytics
   sales_manager: [
@@ -145,7 +148,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<RoleId, readonly Permissi
     "listings.view", "listings.edit", "listings.set_pricing",
     "auctions.view", "auctions.monitor", "auctions.extend",
     "customers.view", "customers.vies_check",
-    "reports.view", "finance.view", "audit.view",
+    "reports.view", "stats.view", "finance.view", "audit.view",
   ],
   // Orders, payments, pick/pack, pickup desk, refunds. items.edit covers the
   // warehouse grading station: photos, condition + notes, weight.

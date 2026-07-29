@@ -145,6 +145,12 @@ const D = {
   "wh.binCleared": { lv: "Plaukts noņemts", ru: "Полка очищена", en: "Bin cleared" },
   "wh.putawayFailed": { lv: "Novietošana neizdevās", ru: "Размещение не удалось", en: "Putaway failed" },
   "wh.notABin": { lv: "Tas nav plaukta kods — notēmējiet uz plaukta QR", ru: "Это не код полки — наведите на QR полки", en: "That's not a bin label — aim at the shelf's QR" },
+  // W3 bin browser
+  "wh.bins": { lv: "Plaukti", ru: "Полки", en: "Bins" },
+  "wh.noBins": { lv: "Nav plauktu", ru: "Полок нет", en: "No bins" },
+  "wh.emptyBin": { lv: "Tukšs", ru: "Пусто", en: "Empty" },
+  "wh.binContents": { lv: "Plauktā", ru: "На полке", en: "In this bin" },
+  "wh.pieces": { lv: "preces", ru: "шт.", en: "items" },
   "wh.printLabel": { lv: "🖨️ Drukāt etiķeti", ru: "🖨️ Печать этикетки", en: "🖨️ Print label" },
   "wh.scanNext": { lv: "Skenēt nākamo →", ru: "Сканировать следующий →", en: "Scan next →" },
   "wh.history": { lv: "Vēsture — kurš ko darīja", ru: "История — кто что делал", en: "History — who did what" },

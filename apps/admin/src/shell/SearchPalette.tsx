@@ -60,7 +60,8 @@ const GO_TO: Array<{ label: string; screen: string }> = [
   { label: "Dashboard", screen: "dashboard" }, { label: "Auctions", screen: "auctions" },
   { label: "Listings", screen: "listings" }, { label: "Inventory", screen: "inventory" },
   { label: "Receiving", screen: "receiving" }, { label: "Orders", screen: "orders" },
-  { label: "Pickup", screen: "pickup" }, { label: "Bidders", screen: "customers" },
+  { label: "Pickup", screen: "pickup" }, { label: "Stats", screen: "whstats" },
+  { label: "Bidders", screen: "customers" },
   { label: "Finance", screen: "finance" }, { label: "Content", screen: "content" },
   { label: "Settings", screen: "settings" }, { label: "Activity", screen: "activity" },
 ];

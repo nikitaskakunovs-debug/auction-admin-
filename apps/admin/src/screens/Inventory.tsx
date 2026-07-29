@@ -57,7 +57,7 @@ interface Bin { id: string; label: string; zone: string; active: boolean }
 /** Drawer tabs — details plus the W2 Saruna (chat) and Vēsture (history). */
 type DrawerTab = "details" | "chat" | "history";
 
-export function InventoryScreen({ nav: _nav }: { nav: Nav }) {
+export function InventoryScreen({ nav }: { nav: Nav }) {
   const { can } = useAuth();
   const { t } = useT();
   const toast = useToast();
@@ -82,6 +82,23 @@ export function InventoryScreen({ nav: _nav }: { nav: Nav }) {
     void api.get<{ markets: Market[] }>("/api/markets").then((r) => setMarkets(r.markets)).catch(() => undefined);
     void api.get<{ locations: Bin[] }>("/api/warehouse/locations").then((r) => setBins(r.locations.filter((b) => b.active))).catch(() => undefined);
   }, []);
+
+  // Deep link (#/inventory/<itemId>) from ⌘K search and the W3 bin drawer —
+  // opens the item's detail drawer directly.
+  const param = nav.route.param;
+  useEffect(() => {
+    if (!param) return;
+    void api.get<{ item: Item }>(`/api/items/${param}`).then((r) => {
+      const i = r.item;
+      setEditing(i);
+      setDrawerTab("details");
+      setForm({
+        sku: i.sku, title: i.title, description: i.description, condition: i.condition,
+        conditionNotes: i.conditionNotes ?? "", category: i.category ?? "other",
+        location: i.location, weight: i.weightGrams == null ? "" : String(i.weightGrams), marketCode: i.marketCode,
+      });
+    }).catch(() => undefined);
+  }, [param]);
 
   const putaway = async (locationId: string | null) => {
     if (!editing) return;
