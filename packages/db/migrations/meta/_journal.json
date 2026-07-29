@@ -155,6 +155,13 @@
       "when": 1785346943175,
       "tag": "0021_wise_leper_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1785350226198,
+      "tag": "0022_freezing_sugar_man",
+      "breakpoints": true
     }
   ]
 }

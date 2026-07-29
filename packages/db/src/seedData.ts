@@ -107,6 +107,19 @@ export async function seedDatabase(db: Db, opts: SeedOptions = {}): Promise<void
     }
   }
 
+  // ── Bidder tag starter set (A3) — only when the vocabulary is empty, so
+  // renames/retires in Settings survive every later seed run. ───────────────
+  const existingTags = await db.select({ id: t.customerTagDefs.id }).from(t.customerTagDefs).limit(1);
+  if (existingTags.length === 0) {
+    await db.insert(t.customerTagDefs).values([
+      { name: "VIP", color: "gold", position: 0 },
+      { name: "Dealer", color: "green", position: 1 },
+      { name: "Wholesale", color: "blue", position: 2 },
+      { name: "Risk", color: "red", position: 3 },
+      { name: "Problem payer", color: "orange", position: 4 },
+    ]);
+  }
+
   // ── Condition-note presets (W2 grading chips, lv/ru/en) ───────────────────
   // Baseline config like markets/bins: ensured on every seed, but the table is
   // admin-editable and rows carry random uuids, so only fill it when empty.

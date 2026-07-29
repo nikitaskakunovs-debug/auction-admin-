@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { customers, invoices, orders } from "@auction/db";
 import { viesFormatValid, viesParse, type ViesCheck } from "@auction/domain";
-import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gte, ilike, lt, or, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { writeAudit } from "../audit.js";
@@ -49,14 +49,31 @@ export function registerFinanceRoutes(app: FastifyInstance, ctx: AppContext, per
 
   // ── Invoices ──────────────────────────────────────────────────────────────
 
-  app.get("/api/invoices", guard("invoices.view"), async () => {
+  app.get("/api/invoices", guard("invoices.view"), async (req) => {
+    const q = req.query as { q?: string; from?: string; to?: string; limit?: string; offset?: string };
+    const conds = [];
+    if (q.q) conds.push(or(ilike(invoices.number, `%${q.q}%`), ilike(orders.ref, `%${q.q}%`), ilike(orders.customerAlias, `%${q.q}%`)));
+    const dayStart = (d: string) => new Date(`${d}T00:00:00.000Z`);
+    if (q.from) conds.push(gte(invoices.issuedAt, dayStart(q.from)));
+    if (q.to) conds.push(lt(invoices.issuedAt, new Date(dayStart(q.to).getTime() + 86_400_000)));
+    const where = conds.length ? and(...conds) : undefined;
+    const limit = Math.min(Math.max(Number(q.limit) || 500, 1), 500);
+    const offset = Math.max(Number(q.offset) || 0, 0);
     const rows = await ctx.db
       .select({ invoice: invoices, orderRef: orders.ref, orderStatus: orders.status, totalCents: orders.totalCents })
       .from(invoices)
       .innerJoin(orders, eq(invoices.orderId, orders.id))
+      .where(where)
       .orderBy(desc(invoices.issuedAt))
-      .limit(500);
+      .limit(limit)
+      .offset(offset);
+    const [totalRow] = await ctx.db
+      .select({ n: sql<string>`count(*)` })
+      .from(invoices)
+      .innerJoin(orders, eq(invoices.orderId, orders.id))
+      .where(where);
     return {
+      total: Number(totalRow!.n),
       invoices: rows.map((r) => ({
         id: r.invoice.id,
         number: r.invoice.number,

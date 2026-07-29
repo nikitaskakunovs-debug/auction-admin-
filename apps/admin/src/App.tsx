@@ -6,6 +6,7 @@ import { SearchPalette, type SearchTarget } from "./shell/SearchPalette.js";
 import { TabBar, type Tab } from "./shell/TabBar.js";
 import { AT } from "./theme.js";
 import { AIcon, type IconName } from "./ui.js";
+import { useBadges, WARN_BADGES } from "./useBadges.js";
 import { DashboardScreen } from "./screens/Dashboard.js";
 import { AuctionsScreen } from "./screens/Auctions.js";
 import { AuctionMonitorScreen } from "./screens/AuctionMonitor.js";
@@ -237,6 +238,9 @@ export function App() {
   const whHost = isWarehouseHost();
   const bootRoute = activeTab; // for board detection below
 
+  // A3 sidebar pills — only for the signed-in full-admin shell.
+  const badges = useBadges(Boolean(user) && !whHost && bootRoute.screen !== "board" && bootRoute.screen !== "wh");
+
   // Waiting-room TVs render without a login: #/board shows only the
   // PII-free public board payload (ticket numbers, progress, zone counts).
   if (!whHost && bootRoute.screen === "board") return <BoardScreen view={bootRoute.param} />;
@@ -332,6 +336,16 @@ export function App() {
               }}>
                 <AIcon name={s.icon} size={16} color={isActive ? "#fff" : "rgba(255,255,255,0.55)"} />
                 {s.label}
+                {(badges[s.id] ?? 0) > 0 && (
+                  <span style={{
+                    marginLeft: "auto", minWidth: 17, height: 17, borderRadius: 999, padding: "0 5px",
+                    display: "inline-grid", placeItems: "center", fontSize: 10, fontWeight: 800,
+                    background: WARN_BADGES.has(s.id) ? AT.warn : AT.accent, color: "#fff",
+                    fontVariantNumeric: "tabular-nums",
+                  }}>
+                    {badges[s.id]! > 99 ? "99+" : badges[s.id]}
+                  </span>
+                )}
               </button>
             );
           })}

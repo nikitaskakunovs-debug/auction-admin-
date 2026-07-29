@@ -168,7 +168,11 @@ export interface Customer {
   blockedAt: string | null;
   notes: string;
   erasedAt: string | null;
+  /** A3: customer_tag_defs ids. */
+  tags: string[];
   createdAt: string;
+  /** Present on the A3 power list response. */
+  outstandingFeeCents?: number;
 }
 
 export interface Invoice {

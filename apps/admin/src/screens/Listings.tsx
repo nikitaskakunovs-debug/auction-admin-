@@ -1,13 +1,19 @@
 import { conditionByCode } from "@auction/domain/conditions";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, ApiError, type Auction, type Item, type Listing, type Market } from "../api.js";
 import type { Nav } from "../App.js";
 import { useAuth } from "../auth.js";
+import { exportCSV, exportPDFPrint, exportXLS } from "../exporters.js";
 import { formatDay, formatDate, formatEur } from "../format.js";
+import {
+  BulkBar, BulkBtn, bulkDividerStyle, checkboxStyle, dateInputStyle, ExportMenu, FilterChips,
+  makeFilterTools, SearchBox, useDebounced, useSavedViews, useSelection, useStoredFilters,
+  ViewsBar, type FilterChip,
+} from "../powerkit.js";
 import { AT, AUCTION_STATUS_TONE, ITEM_STATUS_TONE } from "../theme.js";
 import {
   ABadge, ABtn, ACard, ADrawer, AEmpty, AField, AIcon, AInput, APills, ASelect,
-  ATable, ATd, ATr, useToast,
+  AStat, ATable, ATd, ATr, useConfirm, useToast,
 } from "../ui.js";
 
 const PILLS = [
@@ -16,6 +22,52 @@ const PILLS = [
   { id: "published", label: "Published" },
   { id: "archived", label: "Archived" },
 ];
+
+// ── A3 power filters (server-side) ───────────────────────────────────────────
+
+interface Filters {
+  status: string;
+  type: string;
+  market: string;
+  from: string;
+  to: string;
+  sort: string;
+  q: string;
+}
+
+const DEFAULT_FILTERS: Filters = { status: "all", type: "all", market: "all", from: "", to: "", sort: "newest", q: "" };
+const filterTools = makeFilterTools(DEFAULT_FILTERS);
+const FILTERS_KEY = "listingsFilters.v1";
+const PAGE = 50;
+const EXPORT_PAGE = 200;
+
+interface ListResponse {
+  listings: Listing[];
+  total: number;
+  counts: Record<string, number>;
+}
+
+function buildQuery(f: Filters, limit: number, offset: number): string {
+  const p = new URLSearchParams();
+  if (f.status !== "all") p.set("status", f.status);
+  if (f.type !== "all") p.set("type", f.type);
+  if (f.market !== "all") p.set("market", f.market);
+  if (f.from) p.set("from", f.from);
+  if (f.to) p.set("to", f.to);
+  if (f.sort !== "newest") p.set("sort", f.sort);
+  if (f.q.trim().length >= 2) p.set("q", f.q.trim());
+  p.set("limit", String(limit));
+  p.set("offset", String(offset));
+  return p.toString();
+}
+
+const SORTS = [
+  { value: "newest", label: "Newest first" },
+  { value: "oldest", label: "Oldest first" },
+  { value: "title", label: "Title A→Z" },
+];
+
+const EXPORT_HEADERS = ["Title", "Type", "Item SKU", "Item status", "Price €", "Reserve €", "Market", "Status", "Created"];
 
 const eurToCents = (v: string): number | null => {
   const n = parseFloat(v.replace(",", "."));
@@ -51,8 +103,16 @@ const toLocalInput = (d: Date): string => {
 export function ListingsScreen({ nav }: { nav: Nav }) {
   const { can } = useAuth();
   const toast = useToast();
+  const confirm = useConfirm();
   const [listings, setListings] = useState<Listing[]>([]);
-  const [filter, setFilter] = useState("all");
+  const [total, setTotal] = useState(0);
+  const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [refreshTick, setRefreshTick] = useState(0);
+  const [filters, setFilters] = useState<Filters>(() => filterTools.loadStored(FILTERS_KEY));
+  const [qInput, setQInput] = useState(filters.q);
+  const [bulkPub, setBulkPub] = useState(false);
+  const seq = useRef(0);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Listing | null>(null);
   const [history, setHistory] = useState<Auction[]>([]);
@@ -84,14 +144,58 @@ export function ListingsScreen({ nav }: { nav: Nav }) {
     }
   };
 
-  const load = () => {
-    void api.get<{ listings: Listing[] }>("/api/listings").then((r) => setListings(r.listings)).catch(() => undefined);
-  };
+  useDebounced(qInput, (v) => setFilters((f) => (f.q === v ? f : { ...f, q: v })));
+  useStoredFilters(FILTERS_KEY, filters);
+
+  const sv = useSavedViews({
+    screen: "listings",
+    filters,
+    defaults: DEFAULT_FILTERS,
+    normalize: filterTools.normalize,
+    same: filterTools.same,
+    apply: (f) => {
+      setQInput(f.q);
+      setFilters(f);
+    },
+  });
+  const selection = useSelection(listings);
+  const { selected, setSelected, allSelected, toggleAll, toggleOne, selectedRows } = selection;
+  const selectedDrafts = selectedRows.filter((l) => l.status === "draft");
+
+  /** Mutation handlers call load() — it refreshes page 0 of the current filter. */
+  const load = () => setRefreshTick((t) => t + 1);
   useEffect(() => {
-    load();
+    const s = ++seq.current;
+    void api.get<ListResponse>(`/api/listings?${buildQuery(filters, PAGE, 0)}`).then((r) => {
+      if (seq.current !== s) return;
+      setListings(r.listings);
+      setTotal(r.total);
+      setStatusCounts(r.counts);
+      setSelected(new Set());
+      setBulkPub(false);
+    }).catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters, refreshTick]);
+  useEffect(() => {
     void loadReady();
     void api.get<{ markets: Market[] }>("/api/markets").then((r) => setMarkets(r.markets)).catch(() => undefined);
   }, []);
+
+  const loadMore = async () => {
+    setLoadingMore(true);
+    try {
+      const r = await api.get<ListResponse>(`/api/listings?${buildQuery(filters, PAGE, listings.length)}`);
+      setListings((prev) => {
+        const seen = new Set(prev.map((l) => l.id));
+        return [...prev, ...r.listings.filter((l) => !seen.has(l.id))];
+      });
+      setTotal(r.total);
+    } catch {
+      toast("Failed to load more", "danger");
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   const set = (patch: Partial<FormState>) => setForm((f) => ({ ...f, ...patch }));
 
@@ -254,13 +358,109 @@ export function ListingsScreen({ nav }: { nav: Nav }) {
     }
   };
 
-  const counts = useMemo(() => {
-    const map: Record<string, number> = { all: listings.length };
-    for (const p of PILLS.slice(1)) map[p.id] = listings.filter((l) => l.status === p.id).length;
-    return map;
-  }, [listings]);
+  const counts: Record<string, number> = {
+    all: Object.values(statusCounts).reduce((a, n) => a + n, 0),
+    draft: statusCounts.draft ?? 0,
+    published: statusCounts.published ?? 0,
+    archived: statusCounts.archived ?? 0,
+  };
 
-  const visible = filter === "all" ? listings : listings.filter((l) => l.status === filter);
+  const setF = (patch: Partial<Filters>) => setFilters((f) => ({ ...f, ...patch }));
+  const clearAll = () => {
+    setQInput("");
+    setFilters({ ...DEFAULT_FILTERS });
+  };
+
+  const chips: FilterChip[] = [];
+  if (filters.status !== "all") chips.push({ key: "status", label: PILLS.find((p) => p.id === filters.status)?.label ?? filters.status, clear: () => setF({ status: "all" }) });
+  if (filters.type !== "all") chips.push({ key: "type", label: `Type: ${filters.type}`, clear: () => setF({ type: "all" }) });
+  if (filters.market !== "all") chips.push({ key: "market", label: `Market: ${filters.market}`, clear: () => setF({ market: "all" }) });
+  if (filters.from) chips.push({ key: "from", label: `From ${filters.from}`, clear: () => setF({ from: "" }) });
+  if (filters.to) chips.push({ key: "to", label: `To ${filters.to}`, clear: () => setF({ to: "" }) });
+  if (filters.sort !== "newest") chips.push({ key: "sort", label: SORTS.find((s) => s.value === filters.sort)?.label ?? filters.sort, clear: () => setF({ sort: "newest" }) });
+  if (filters.q.trim()) chips.push({ key: "q", label: `"${filters.q.trim()}"`, clear: () => { setQInput(""); setF({ q: "" }); } });
+
+  // ── Export ─────────────────────────────────────────────────────────────────
+
+  const toExportRow = (l: Listing): string[] => [
+    l.title,
+    l.type,
+    l.itemSku ?? "",
+    l.itemStatus ?? "",
+    l.type === "auction" ? centsToEur(l.startPriceCents) : centsToEur(l.priceCents),
+    centsToEur(l.reserveCents),
+    l.marketCode,
+    l.status,
+    l.createdAt.slice(0, 10),
+  ];
+
+  const gatherExportRows = async (): Promise<Listing[]> => {
+    if (selectedRows.length > 0) return selectedRows;
+    const out: Listing[] = [];
+    for (;;) {
+      const r = await api.get<ListResponse>(`/api/listings?${buildQuery(filters, EXPORT_PAGE, out.length)}`);
+      out.push(...r.listings);
+      if (r.listings.length === 0 || out.length >= r.total) break;
+    }
+    return out;
+  };
+
+  const runExport = async (fmt: "csv" | "xls" | "pdf") => {
+    try {
+      const list = await gatherExportRows();
+      if (list.length === 0) return toast("Nothing to export", "warn");
+      const body = list.map(toExportRow);
+      if (fmt === "csv") exportCSV("listings", EXPORT_HEADERS, body);
+      else if (fmt === "xls") exportXLS("listings", EXPORT_HEADERS, body, "Listings");
+      else exportPDFPrint("Listings export", EXPORT_HEADERS, body);
+      toast(`Exported ${list.length} listings`, "ok");
+    } catch {
+      toast("Export failed", "danger");
+    }
+  };
+
+  // ── Bulk publish (with optional schedule) + bulk archive ──────────────────
+
+  const bulkPublish = async (withSchedule: boolean) => {
+    try {
+      const r = await api.post<{ published: number; scheduled: number; failed: Array<{ id: string; error: string }> }>(
+        "/api/listings/bulk/publish",
+        {
+          ids: selectedDrafts.map((l) => l.id),
+          ...(withSchedule
+            ? { schedule: { startsAt: new Date(sched.startsAt).toISOString(), endsAt: new Date(sched.endsAt).toISOString() } }
+            : {}),
+        },
+      );
+      const msg = `${r.published} published${r.scheduled > 0 ? `, ${r.scheduled} auctions scheduled` : ""}${r.failed.length > 0 ? ` · ${r.failed.length} failed` : ""}`;
+      toast(msg, r.failed.length > 0 ? "warn" : "ok");
+      setBulkPub(false);
+      load();
+      void loadReady();
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Bulk publish failed", "danger");
+    }
+  };
+
+  const bulkArchive = async () => {
+    const r = await confirm({
+      title: `Archive ${selectedDrafts.length} draft listing${selectedDrafts.length === 1 ? "" : "s"}?`,
+      body: "Only drafts are archived — published listings are skipped. The items stay in stock.",
+      confirmLabel: "Archive drafts",
+    });
+    if (!r.ok) return;
+    try {
+      const res = await api.post<{ archived: number; skipped: number }>("/api/listings/bulk/archive", {
+        ids: selectedDrafts.map((l) => l.id),
+      });
+      toast(`${res.archived} archived${res.skipped > 0 ? ` · ${res.skipped} skipped` : ""}`, "ok");
+      load();
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Bulk archive failed", "danger");
+    }
+  };
+
+  const exportCount = selected.size > 0 ? selected.size : total;
 
   const priceFields = (
     <>
@@ -288,51 +488,152 @@ export function ListingsScreen({ nav }: { nav: Nav }) {
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <h1 style={{ fontFamily: AT.body, fontSize: 20, fontWeight: 700, color: AT.ink }}>Listings</h1>
-        <div style={{ display: "flex", gap: 8 }}>
-          {can("listings.create") && can("listings.publish") && (
-            <ABtn kind={readyCount > 0 ? "dark" : "ghost"} onClick={() => void openQueue()}>
-              Ready to list{readyCount > 0 ? ` (${readyCount})` : ""}
-            </ABtn>
-          )}
-          {can("listings.create") && (
-            <ABtn onClick={() => void openCreate()}>
-              <AIcon name="plus" size={15} color="#fff" /> New listing
-            </ABtn>
-          )}
-        </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <h1 style={{ fontFamily: AT.body, fontSize: 20, fontWeight: 700, color: AT.ink, flex: 1 }}>Listings</h1>
+        <ExportMenu count={exportCount} scope={selected.size > 0 ? "selected" : "filtered"} noun="listings" onPick={(fmt) => void runExport(fmt)} />
+        {can("listings.create") && can("listings.publish") && (
+          <ABtn kind={readyCount > 0 ? "dark" : "ghost"} onClick={() => void openQueue()}>
+            Ready to list{readyCount > 0 ? ` (${readyCount})` : ""}
+          </ABtn>
+        )}
+        {can("listings.create") && (
+          <ABtn onClick={() => void openCreate()}>
+            <AIcon name="plus" size={15} color="#fff" /> New listing
+          </ABtn>
+        )}
       </div>
 
-      <APills options={PILLS.map((p) => ({ id: p.id, label: p.label, count: counts[p.id] ?? 0 }))} value={filter} onChange={setFilter} />
+      <ViewsBar {...sv.ViewsBarProps} />
+
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+        <AStat label="Draft" value={counts.draft ?? 0} />
+        <AStat label="Published" value={counts.published ?? 0} tone={(counts.published ?? 0) > 0 ? "ok" : undefined} />
+        <AStat label="Ready to list" value={readyCount} tone={readyCount > 0 ? "accent" : undefined} sub={noPhotoCount > 0 ? `${noPhotoCount} drafts still need photos` : undefined} />
+        <AStat label="Archived" value={counts.archived ?? 0} />
+      </div>
+
+      <APills options={PILLS.map((p) => ({ id: p.id, label: p.label, count: counts[p.id] ?? 0 }))} value={filters.status} onChange={(v) => setF({ status: v })} />
+
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <SearchBox value={qInput} onChange={setQInput} placeholder="Search title or SKU…" />
+        <ASelect
+          value={filters.type}
+          onChange={(v) => setF({ type: v })}
+          options={[{ value: "all", label: "All types" }, { value: "auction", label: "Auction" }, { value: "fixed", label: "Fixed price" }]}
+        />
+        <ASelect
+          value={filters.market}
+          onChange={(v) => setF({ market: v })}
+          options={[{ value: "all", label: "All markets" }, ...markets.map((m) => ({ value: m.code, label: m.code }))]}
+        />
+        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: AT.body, fontSize: 12.5, color: AT.inkSoft }}>
+          <input type="date" value={filters.from} max={filters.to || undefined} onChange={(e) => setF({ from: e.target.value })} style={dateInputStyle} />
+          –
+          <input type="date" value={filters.to} min={filters.from || undefined} onChange={(e) => setF({ to: e.target.value })} style={dateInputStyle} />
+        </label>
+        <ASelect value={filters.sort} onChange={(v) => setF({ sort: v })} options={SORTS} />
+      </div>
+
+      <FilterChips chips={chips} onClearAll={clearAll} />
 
       <ACard pad={false}>
-        {visible.length === 0 ? (
-          <AEmpty text="No listings here yet." />
+        {listings.length === 0 ? (
+          <AEmpty text="No listings match these filters." />
         ) : (
-          <ATable head={["Title", "Type", "Item", "Price", "Reserve", "Market", "Created", "Status"]}>
-            {visible.map((l) => (
-              <ATr key={l.id} onClick={() => openEdit(l)}>
-                <ATd><span style={{ fontWeight: 600 }}>{l.title}</span></ATd>
-                <ATd><ABadge tone={l.type === "auction" ? "accent" : "neutral"}>{l.type}</ABadge></ATd>
-                <ATd>
-                  <div style={{ fontFamily: AT.mono, fontSize: 11.5 }}>{l.itemSku}</div>
-                  {l.itemStatus && (
-                    <ABadge tone={ITEM_STATUS_TONE[l.itemStatus]?.tone ?? "neutral"}>
-                      {ITEM_STATUS_TONE[l.itemStatus]?.label ?? l.itemStatus}
-                    </ABadge>
-                  )}
-                </ATd>
-                <ATd mono right>{l.type === "auction" ? (l.startPriceCents != null ? formatEur(l.startPriceCents) : "—") : l.priceCents != null ? formatEur(l.priceCents) : "—"}</ATd>
-                <ATd mono right>{l.reserveCents != null ? formatEur(l.reserveCents) : "—"}</ATd>
-                <ATd>{l.marketCode}</ATd>
-                <ATd>{formatDay(l.createdAt)}</ATd>
-                <ATd><ABadge tone={l.status === "published" ? "ok" : "neutral"}>{l.status}</ABadge></ATd>
-              </ATr>
-            ))}
-          </ATable>
+          <>
+            <ATable head={[
+              <input key="all" type="checkbox" checked={allSelected} onChange={toggleAll} style={checkboxStyle} aria-label="Select all visible listings" />,
+              "Title", "Type", "Item", "Price", "Reserve", "Market", "Created", "Status",
+            ]}>
+              {listings.map((l) => (
+                <ATr key={l.id} onClick={() => openEdit(l)} active={selected.has(l.id)}>
+                  <ATd style={{ width: 34 }}>
+                    <input
+                      type="checkbox"
+                      checked={selected.has(l.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={() => toggleOne(l.id)}
+                      style={checkboxStyle}
+                      aria-label={`Select ${l.title}`}
+                    />
+                  </ATd>
+                  <ATd><span style={{ fontWeight: 600 }}>{l.title}</span></ATd>
+                  <ATd><ABadge tone={l.type === "auction" ? "accent" : "neutral"}>{l.type}</ABadge></ATd>
+                  <ATd>
+                    <div style={{ fontFamily: AT.mono, fontSize: 11.5 }}>{l.itemSku}</div>
+                    {l.itemStatus && (
+                      <ABadge tone={ITEM_STATUS_TONE[l.itemStatus]?.tone ?? "neutral"}>
+                        {ITEM_STATUS_TONE[l.itemStatus]?.label ?? l.itemStatus}
+                      </ABadge>
+                    )}
+                  </ATd>
+                  <ATd mono right>{l.type === "auction" ? (l.startPriceCents != null ? formatEur(l.startPriceCents) : "—") : l.priceCents != null ? formatEur(l.priceCents) : "—"}</ATd>
+                  <ATd mono right>{l.reserveCents != null ? formatEur(l.reserveCents) : "—"}</ATd>
+                  <ATd>{l.marketCode}</ATd>
+                  <ATd>{formatDay(l.createdAt)}</ATd>
+                  <ATd><ABadge tone={l.status === "published" ? "ok" : "neutral"}>{l.status}</ABadge></ATd>
+                </ATr>
+              ))}
+            </ATable>
+            {listings.length < total && (
+              <div style={{ padding: 12, display: "flex", justifyContent: "center", borderTop: `1px solid ${AT.ruleSoft}` }}>
+                <ABtn kind="ghost" size="sm" disabled={loadingMore} onClick={() => void loadMore()}>
+                  {loadingMore ? "Loading…" : `Load more (${listings.length} of ${total})`}
+                </ABtn>
+              </div>
+            )}
+          </>
         )}
       </ACard>
+
+      <BulkBar count={selected.size} onClear={() => { setSelected(new Set()); setBulkPub(false); }}>
+        {can("listings.publish") && selectedDrafts.length > 0 && (
+          <>
+            <span style={bulkDividerStyle} />
+            <BulkBtn onClick={() => setBulkPub((v) => !v)}>Publish… ({selectedDrafts.length})</BulkBtn>
+          </>
+        )}
+        {can("listings.edit") && selectedDrafts.length > 0 && (
+          <>
+            <span style={bulkDividerStyle} />
+            <BulkBtn onClick={() => void bulkArchive()}>Archive ({selectedDrafts.length})</BulkBtn>
+          </>
+        )}
+        <span style={bulkDividerStyle} />
+        <BulkBtn onClick={() => void runExport("csv")}>Export CSV</BulkBtn>
+      </BulkBar>
+
+      {/* Bulk publish dialog — publish now or publish + schedule the auctions. */}
+      {bulkPub && selectedDrafts.length > 0 && (
+        <div
+          style={{ position: "fixed", inset: 0, zIndex: 80, display: "grid", placeItems: "center", background: "rgba(10,10,10,0.4)" }}
+          onClick={() => setBulkPub(false)}
+        >
+          <div onClick={(e) => e.stopPropagation()} style={{ width: 460, maxWidth: "92vw", background: AT.panel, borderRadius: AT.radius, padding: 20, display: "grid", gap: 12 }}>
+            <h2 style={{ fontFamily: AT.body, fontSize: 15.5, fontWeight: 700, color: AT.ink }}>
+              Publish {selectedDrafts.length} draft{selectedDrafts.length === 1 ? "" : "s"}?
+            </h2>
+            <p style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.inkSoft, lineHeight: 1.5 }}>
+              Items go to "listed". Optionally schedule an auction run for the auction-type listings — fixed-price listings just go live.
+            </p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <AField label="Auction starts">
+                <input type="datetime-local" value={sched.startsAt} onChange={(e) => setSched((x) => ({ ...x, startsAt: e.target.value }))} style={{ ...dateInputStyle, width: "100%", height: 36 }} />
+              </AField>
+              <AField label="Auction ends">
+                <input type="datetime-local" value={sched.endsAt} min={sched.startsAt} onChange={(e) => setSched((x) => ({ ...x, endsAt: e.target.value }))} style={{ ...dateInputStyle, width: "100%", height: 36 }} />
+              </AField>
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <ABtn kind="ghost" onClick={() => setBulkPub(false)}>Cancel</ABtn>
+              <ABtn kind="ghost" onClick={() => void bulkPublish(false)}>Publish only</ABtn>
+              <ABtn onClick={() => void bulkPublish(true)} disabled={new Date(sched.endsAt) <= new Date(sched.startsAt)}>
+                Publish + schedule
+              </ABtn>
+            </div>
+          </div>
+        </div>
+      )}
 
       {queue !== null && (
         <ADrawer
