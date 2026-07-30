@@ -5,18 +5,33 @@ import type { ApiConfig } from "../config.js";
  * pattern as the payment providers: "off" → null client, reports stay
  * in-app; "simulate" → in-memory driver the test suite can poke.
  *
- * Comments travel as plain text inside a single-paragraph ADF document —
- * Jira Cloud requires ADF, and one paragraph round-trips cleanly.
+ * Issues are created with a structured ADF document (headings, a code block
+ * for the console tail, and a link back to the admin panel); comments travel
+ * as single-paragraph ADF and round-trip cleanly.
  */
 
 export interface JiraIssueInput {
   summary: string;
-  /** Plain-text body; rendered as ADF paragraphs (split on blank lines). */
-  description: string;
   /** low | normal | high | blocker — mapped to Jira priority names. */
   severity: string;
   /** Extra labels, e.g. the report type ('visual', 'idea'). */
   labels: string[];
+  /** The reporter's description, verbatim. */
+  body: string;
+  /** Optional steps-to-reproduce text. */
+  steps: string;
+  /** "key: value" context lines (reporter, screen, role, version…). */
+  contextLines: string[];
+  /** Console/API-failure tail — rendered as a code block. */
+  consoleLog: string[];
+  /** Deep link to the report + chat in the admin panel. */
+  panelUrl: string | null;
+}
+
+export interface JiraAttachment {
+  filename: string;
+  data: Buffer;
+  contentType: string;
 }
 
 export interface JiraComment {
@@ -32,10 +47,19 @@ export interface JiraIssueState {
   comments: JiraComment[];
 }
 
+export interface JiraConnection {
+  ok: boolean;
+  /** Display name of the integration account when ok. */
+  user?: string;
+  error?: string;
+}
+
 export interface JiraClient {
   createIssue(input: JiraIssueInput): Promise<{ key: string }>;
+  addAttachments(key: string, files: JiraAttachment[]): Promise<void>;
   addComment(key: string, body: string): Promise<{ id: string }>;
   getIssue(key: string): Promise<JiraIssueState | null>;
+  checkConnection(): Promise<JiraConnection>;
 }
 
 export class JiraError extends Error {
@@ -55,17 +79,47 @@ const PRIORITY: Record<string, string> = {
   low: "Low",
 };
 
+// ── ADF helpers ──────────────────────────────────────────────────────────────
+
+type AdfNode = Record<string, unknown>;
+
+const text = (t: string): AdfNode => ({ type: "text", text: t });
+const paragraph = (t: string): AdfNode => ({ type: "paragraph", content: [text(t)] });
+const heading = (t: string): AdfNode => ({ type: "heading", attrs: { level: 3 }, content: [text(t)] });
+const codeBlock = (t: string): AdfNode => ({ type: "codeBlock", attrs: {}, content: [text(t)] });
+const linkParagraph = (label: string, href: string): AdfNode => ({
+  type: "paragraph",
+  content: [{ type: "text", text: label, marks: [{ type: "link", attrs: { href } }] }],
+});
+
+/** The full issue description as an ADF document. */
+export function issueDescriptionAdf(input: JiraIssueInput): AdfNode {
+  const content: AdfNode[] = input.body
+    .split(/\n{2,}/)
+    .filter((b) => b.trim().length > 0)
+    .map(paragraph);
+  if (input.steps.trim().length > 0) {
+    content.push(heading("Steps to reproduce"));
+    content.push(...input.steps.split(/\n{2,}/).filter((b) => b.trim()).map(paragraph));
+  }
+  if (input.contextLines.length > 0) {
+    content.push(heading("Context"));
+    content.push(paragraph(input.contextLines.join("\n")));
+  }
+  if (input.consoleLog.length > 0) {
+    content.push(heading(`Console tail (${input.consoleLog.length} lines)`));
+    content.push(codeBlock(input.consoleLog.slice(-30).join("\n")));
+  }
+  if (input.panelUrl) {
+    content.push(linkParagraph("Open the report & chat in the admin panel", input.panelUrl));
+  }
+  return { type: "doc", version: 1, content: content.length > 0 ? content : [paragraph(" ")] };
+}
+
 /** Plain text → minimal ADF document (paragraph per line-block). */
-function adf(text: string): Record<string, unknown> {
-  const blocks = text.split(/\n{2,}/).filter((b) => b.trim().length > 0);
-  return {
-    type: "doc",
-    version: 1,
-    content: (blocks.length > 0 ? blocks : [" "]).map((b) => ({
-      type: "paragraph",
-      content: [{ type: "text", text: b }],
-    })),
-  };
+function commentAdf(body: string): AdfNode {
+  const blocks = body.split(/\n{2,}/).filter((b) => b.trim().length > 0);
+  return { type: "doc", version: 1, content: (blocks.length > 0 ? blocks : [" "]).map(paragraph) };
 }
 
 /** ADF (or string) → readable plain text; tolerant of unknown node types. */
@@ -121,7 +175,7 @@ class LiveJiraClient implements JiraClient {
         project: { key: this.project },
         issuetype: { name: input.labels.includes("idea") ? "Task" : "Bug" },
         summary: input.summary,
-        description: adf(input.description),
+        description: issueDescriptionAdf(input),
         labels: ["izsoli-admin", ...input.labels],
         priority: { name: PRIORITY[input.severity] ?? "Medium" },
       },
@@ -129,8 +183,26 @@ class LiveJiraClient implements JiraClient {
     return { key: r.key };
   }
 
+  async addAttachments(key: string, files: JiraAttachment[]): Promise<void> {
+    if (files.length === 0) return;
+    const form = new FormData();
+    for (const f of files) {
+      form.append("file", new Blob([new Uint8Array(f.data)], { type: f.contentType }), f.filename);
+    }
+    const res = await fetch(`${this.baseUrl}/rest/api/3/issue/${key}/attachments`, {
+      method: "POST",
+      headers: {
+        authorization: this.auth,
+        // Required by Jira for multipart endpoints (XSRF protection opt-out).
+        "x-atlassian-token": "no-check",
+      },
+      body: form,
+    });
+    if (!res.ok) throw new JiraError(`jira attachments failed: ${res.status}`, res.status);
+  }
+
   async addComment(key: string, body: string): Promise<{ id: string }> {
-    const r = await this.call<{ id: string }>("POST", `/issue/${key}/comment`, { body: adf(body) });
+    const r = await this.call<{ id: string }>("POST", `/issue/${key}/comment`, { body: commentAdf(body) });
     return { id: r.id };
   }
 
@@ -156,6 +228,15 @@ class LiveJiraClient implements JiraClient {
       throw err;
     }
   }
+
+  async checkConnection(): Promise<JiraConnection> {
+    try {
+      const me = await this.call<{ displayName: string }>("GET", "/myself");
+      return { ok: true, user: me.displayName };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message.slice(0, 200) : "unknown error" };
+    }
+  }
 }
 
 // ── Simulated client (tests) ─────────────────────────────────────────────────
@@ -163,6 +244,7 @@ class LiveJiraClient implements JiraClient {
 interface SimIssue {
   key: string;
   input: JiraIssueInput;
+  attachments: string[];
   statusCategory: string;
   comments: JiraComment[];
   nextCommentId: number;
@@ -176,8 +258,14 @@ export class SimulatedJiraClient implements JiraClient {
 
   async createIssue(input: JiraIssueInput): Promise<{ key: string }> {
     const key = `${this.project}-${++this.seq + 40}`;
-    this.issues.set(key, { key, input, statusCategory: "to do", comments: [], nextCommentId: 1 });
+    this.issues.set(key, { key, input, attachments: [], statusCategory: "to do", comments: [], nextCommentId: 1 });
     return { key };
+  }
+
+  async addAttachments(key: string, files: JiraAttachment[]): Promise<void> {
+    const issue = this.issues.get(key);
+    if (!issue) throw new JiraError(`no simulated issue ${key}`, 404);
+    issue.attachments.push(...files.map((f) => f.filename));
   }
 
   async addComment(key: string, body: string): Promise<{ id: string }> {
@@ -192,6 +280,10 @@ export class SimulatedJiraClient implements JiraClient {
     const issue = this.issues.get(key);
     if (!issue) return null;
     return { statusCategory: issue.statusCategory, comments: [...issue.comments] };
+  }
+
+  async checkConnection(): Promise<JiraConnection> {
+    return { ok: true, user: "Simulated integration" };
   }
 
   // ── Test hooks ─────────────────────────────────────────────────────────────
@@ -210,6 +302,10 @@ export class SimulatedJiraClient implements JiraClient {
     const issue = this.issues.get(key);
     if (!issue) throw new Error(`no simulated issue ${key}`);
     issue.statusCategory = statusCategory;
+  }
+
+  issue(key: string): SimIssue | null {
+    return this.issues.get(key) ?? null;
   }
 
   lastIssue(): SimIssue | null {

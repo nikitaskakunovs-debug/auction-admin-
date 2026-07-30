@@ -136,6 +136,8 @@ export interface ApiConfig {
     /** Project key new issues are created in, e.g. IZS. */
     project: string;
   } | null;
+  /** Shared secret for the inbound Jira webhook; null disables the endpoint. */
+  jiraWebhookSecret: string | null;
   /** Parcel sender identity printed on labels (the warehouse). */
   shipSender: {
     name: string;
@@ -303,6 +305,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
           },
     dpdMode,
     jiraMode,
+    jiraWebhookSecret: env.JIRA_WEBHOOK_SECRET ?? null,
     jira:
       jiraMode === "off"
         ? null

@@ -1,6 +1,6 @@
-import { mkdir, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { DeleteObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import type { ApiConfig } from "./config.js";
 
 /**
@@ -13,6 +13,8 @@ import type { ApiConfig } from "./config.js";
 export interface PhotoStorage {
   /** Persist a processed image and return its public URL. */
   put(key: string, body: Buffer, contentType: string): Promise<string>;
+  /** Read an object back (Jira attachment upload); null when missing. */
+  get(key: string): Promise<Buffer | null>;
   /** Best-effort delete — missing objects are not an error. */
   remove(key: string): Promise<void>;
   /** Storage key for a URL this store produced, or null for foreign URLs. */
@@ -42,6 +44,10 @@ class LocalPhotoStorage implements PhotoStorage {
     await mkdir(path.dirname(file), { recursive: true });
     await writeFile(file, body);
     return `${this.baseUrl}/uploads/${key}`;
+  }
+
+  async get(key: string): Promise<Buffer | null> {
+    return await readFile(this.fileFor(key)).catch(() => null);
   }
 
   async remove(key: string): Promise<void> {
@@ -77,6 +83,16 @@ class S3PhotoStorage implements PhotoStorage {
       }),
     );
     return `${this.cfg.publicUrl}/${key}`;
+  }
+
+  async get(key: string): Promise<Buffer | null> {
+    try {
+      const r = await this.client.send(new GetObjectCommand({ Bucket: this.cfg.bucket, Key: key }));
+      const bytes = await r.Body?.transformToByteArray();
+      return bytes ? Buffer.from(bytes) : null;
+    } catch {
+      return null;
+    }
   }
 
   async remove(key: string): Promise<void> {

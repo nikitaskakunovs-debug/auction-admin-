@@ -6,6 +6,7 @@ import sharp from "sharp";
 import { z } from "zod";
 import { writeAudit } from "../audit.js";
 import type { AppContext } from "../context.js";
+import { sendReportToJira, syncOneReport } from "../engine/bugSync.js";
 import { requirePermission, type PermissionService } from "../auth/rbac.js";
 
 const actor = (req: { admin?: { sub: string; name: string } }) => ({
@@ -26,23 +27,6 @@ const reportBody = z.object({
   consoleLog: z.array(z.string().max(600)).max(100).default([]),
   attachments: z.array(z.string().max(500)).max(10).default([]),
 });
-
-const TYPE_LABEL: Record<string, string> = {
-  bug: "Bug", visual: "Visual glitch", data: "Wrong data", slow: "Slow", idea: "Idea",
-};
-
-/** The Jira issue description — everything IT needs, in plain paragraphs. */
-function jiraDescription(r: z.infer<typeof reportBody>, reporter: string): string {
-  const parts = [
-    r.body,
-    r.steps ? `Steps to reproduce:\n${r.steps}` : "",
-    `Reported by ${reporter} from the admin panel.\nScreen: ${r.screen || "?"}\n` +
-      Object.entries(r.context).map(([k, v]) => `${k}: ${v}`).join("\n"),
-    r.attachments.length > 0 ? `Attachments:\n${r.attachments.join("\n")}` : "",
-    r.consoleLog.length > 0 ? `Console tail (${r.consoleLog.length} lines):\n${r.consoleLog.slice(-20).join("\n")}` : "",
-  ];
-  return parts.filter(Boolean).join("\n\n");
-}
 
 export function registerBugRoutes(app: FastifyInstance, ctx: AppContext, perms: PermissionService): void {
   const guard = (p: Parameters<typeof requirePermission>[1]) => ({ preHandler: requirePermission(perms, p) });
@@ -92,24 +76,9 @@ export function registerBugRoutes(app: FastifyInstance, ctx: AppContext, perms: 
     const body = reportBody.safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: body.error.flatten() });
 
-    let jiraKey: string | null = null;
-    if (ctx.jira) {
-      const summary = `[${TYPE_LABEL[body.data.type]}] ${body.data.body.slice(0, 90)}${body.data.body.length > 90 ? "…" : ""}`;
-      try {
-        const issue = await ctx.jira.createIssue({
-          summary,
-          description: jiraDescription(body.data, req.admin!.name),
-          severity: body.data.severity,
-          labels: [body.data.type],
-        });
-        jiraKey = issue.key;
-      } catch {
-        // Jira down ≠ report lost: it stays "open" and can be re-sent later.
-        jiraKey = null;
-      }
-    }
-
-    const [row] = await ctx.db
+    // Insert first, then send — a Jira outage leaves a queued report the
+    // scheduler retries, never a lost one.
+    const [inserted] = await ctx.db
       .insert(bugReports)
       .values({
         reporterId: req.admin!.sub,
@@ -122,11 +91,11 @@ export function registerBugRoutes(app: FastifyInstance, ctx: AppContext, perms: 
         severity: body.data.severity,
         attachments: body.data.attachments,
         consoleLog: body.data.consoleLog,
-        jiraKey,
-        status: jiraKey ? "sent" : "open",
+        status: "open",
       })
       .returning();
-    await writeAudit(ctx.db, actor(req), "settings", "bug_reported", jiraKey ?? row!.id, {
+    const row = await sendReportToJira(ctx, inserted!);
+    await writeAudit(ctx.db, actor(req), "settings", "bug_reported", row.jiraKey ?? row.id, {
       severity: body.data.severity,
       type: body.data.type,
       screen: body.data.screen,
@@ -255,7 +224,8 @@ export function registerBugRoutes(app: FastifyInstance, ctx: AppContext, perms: 
     return { ok: true };
   });
 
-  /** Bugs-tab moderation: drop a non-issue without touching Jira. */
+  /** Bugs-tab moderation: drop a non-issue. If a ticket already exists,
+   * leave a note on it so IT doesn't keep working an orphan. */
   app.post("/api/bugs/:id/dismiss", guard("audit.view"), async (req, reply) => {
     const [row] = await ctx.db
       .update(bugReports)
@@ -263,7 +233,45 @@ export function registerBugRoutes(app: FastifyInstance, ctx: AppContext, perms: 
       .where(eq(bugReports.id, (req.params as { id: string }).id))
       .returning();
     if (!row) return reply.code(404).send({ error: "not_found" });
+    if (ctx.jira && row.jiraKey) {
+      await ctx.jira
+        .addComment(row.jiraKey, `Dismissed in the admin panel by ${req.admin!.name} — no further work needed.`)
+        .catch(() => undefined);
+    }
     await writeAudit(ctx.db, actor(req), "settings", "bug_dismissed", row.jiraKey ?? row.id);
     return { report: row };
   });
+
+  // ── Connection health (the Bugs-tab status card) ───────────────────────────
+
+  app.get("/api/bugs/jira-status", guard("audit.view"), async () => {
+    if (!ctx.jira) return { mode: "off" as const };
+    const conn = await ctx.jira.checkConnection();
+    return {
+      mode: ctx.config.jiraMode,
+      project: ctx.config.jira?.project ?? "?",
+      webhook: ctx.config.jiraWebhookSecret !== null,
+      ...conn,
+    };
+  });
+
+  // ── Jira webhook — near-instant inbound sync (polling stays as fallback) ───
+
+  app.post(
+    "/api/jira/webhook",
+    { config: { rateLimit: { max: 120, timeWindow: "1 minute" } } },
+    async (req, reply) => {
+      const secret = ctx.config.jiraWebhookSecret;
+      // Unconfigured → the endpoint doesn't exist as far as the world knows.
+      if (!secret) return reply.code(404).send({ error: "not_found" });
+      if ((req.query as { secret?: string }).secret !== secret) {
+        return reply.code(401).send({ error: "unauthenticated" });
+      }
+      const key = (req.body as { issue?: { key?: string } } | null)?.issue?.key;
+      if (typeof key !== "string" || key.length === 0) return reply.code(204).send();
+      const [report] = await ctx.db.select().from(bugReports).where(eq(bugReports.jiraKey, key));
+      if (report) await syncOneReport(ctx, report).catch(() => undefined);
+      return reply.code(204).send();
+    },
+  );
 }

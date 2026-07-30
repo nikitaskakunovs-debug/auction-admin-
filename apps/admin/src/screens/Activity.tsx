@@ -121,10 +121,52 @@ const BUG_STATUS: Record<string, { label: string; tone: Tone }> = {
 };
 const BUG_SEV_TONE: Record<string, Tone> = { low: "neutral", normal: "neutral", high: "warn", blocker: "danger" };
 
+interface JiraStatus {
+  mode: string;
+  project?: string;
+  webhook?: boolean;
+  ok?: boolean;
+  user?: string;
+  error?: string;
+}
+
+/** Connection-health strip: is the Jira bridge alive, and how fast is inbound sync? */
+function JiraStatusCard({ status }: { status: JiraStatus }) {
+  const off = status.mode === "off";
+  const tone: Tone = off ? "neutral" : status.ok ? "ok" : "danger";
+  const dot = toneColors[tone].fg;
+  return (
+    <div
+      style={{
+        display: "flex", alignItems: "center", gap: 9, padding: "8px 14px",
+        background: toneColors[tone].bg, border: `1px solid ${AT.rule}`, borderRadius: 10,
+        fontFamily: AT.body, fontSize: 12.5, color: AT.ink,
+      }}
+    >
+      <span style={{ width: 8, height: 8, borderRadius: 999, background: dot, flexShrink: 0 }} />
+      {off ? (
+        <span style={{ color: AT.inkSoft }}>Jira is not configured — reports stay in the panel and send once it's connected.</span>
+      ) : status.ok ? (
+        <span>
+          Jira connected as <b>{status.user}</b> · project <b style={{ fontFamily: AT.mono }}>{status.project}</b>
+          {status.mode === "simulate" ? " · simulated" : ""} ·{" "}
+          {status.webhook ? "webhook on (instant sync)" : "webhook off (5-min polling)"}
+        </span>
+      ) : (
+        <span style={{ color: toneColors.danger.fg }}>
+          Jira connection failed — reports queue until it recovers.{" "}
+          <span style={{ fontFamily: AT.mono, fontSize: 11 }}>{status.error}</span>
+        </span>
+      )}
+    </div>
+  );
+}
+
 function BugsTab({ onCount }: { onCount: (n: number) => void }) {
   const toast = useToast();
   const [reports, setReports] = useState<BugReport[]>([]);
   const [open, setOpen] = useState<BugReport | null>(null);
+  const [jira, setJira] = useState<JiraStatus | null>(null);
 
   const load = useCallback(() => {
     void api.get<{ reports: BugReport[] }>("/api/bugs").then((r) => {
@@ -133,6 +175,9 @@ function BugsTab({ onCount }: { onCount: (n: number) => void }) {
     }).catch(() => undefined);
   }, [onCount]);
   useEffect(load, [load]);
+  useEffect(() => {
+    void api.get<JiraStatus>("/api/bugs/jira-status").then(setJira).catch(() => undefined);
+  }, []);
 
   const dismiss = async (r: BugReport) => {
     try {
@@ -147,6 +192,7 @@ function BugsTab({ onCount }: { onCount: (n: number) => void }) {
 
   return (
     <>
+      {jira && <JiraStatusCard status={jira} />}
       <ACard pad={false}>
         {reports.length === 0 ? (
           <AEmpty text="No problem reports yet — the 🐞 button in the sidebar files them (phones too)." />

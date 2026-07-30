@@ -185,11 +185,35 @@ JIRA_PROJECT=IZS
 ```
 
 and restart the api container. From then on every report creates a Bug
-(Ideas create Tasks) with severity→priority mapping; panel replies post as
-issue comments prefixed with the author's name, and the scheduler pulls IT's
-comments + status transitions back every 5 minutes (Done → the reporter's
-"Fixed ✓" banner). If Jira is unreachable a report is still saved with
-status "Queued" — nothing is lost.
+(Ideas create Tasks) with severity→priority mapping and a formatted
+description (steps, context, console tail as a code block, deep link back to
+the panel); screenshots/recordings are uploaded as native Jira attachments.
+Panel replies post as issue comments prefixed with the author's name, and
+the scheduler pulls IT's comments + status transitions back every 5 minutes
+(Done → the reporter's "Fixed ✓" banner). If Jira is unreachable a report
+is still saved with status "Queued" and the scheduler retries it — chat
+written while queued is backfilled onto the ticket once it sends. The Bugs
+tab shows a live connection card (account, project, webhook state) so a bad
+token is visible at a glance.
+
+**Instant sync (optional).** Polling means IT replies can take up to 5
+minutes to appear. To make them instant, set a shared secret in
+`/opt/auction/deploy/.env`:
+
+```
+JIRA_WEBHOOK_SECRET=<long random string, e.g. openssl rand -hex 24>
+```
+
+restart the api container, then in Jira → Settings → System → WebHooks
+create a webhook pointing at
+
+```
+https://api.izsoli.lv/api/jira/webhook?secret=<the same string>
+```
+
+with events "Issue → updated" and "Comment → created". The endpoint answers
+404 while the secret is unset and 401 on a mismatch; polling stays on as a
+fallback either way.
 
 ## Inbank BNPL (hire purchase / installments)
 
