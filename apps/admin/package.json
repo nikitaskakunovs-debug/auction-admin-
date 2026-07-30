@@ -12,10 +12,10 @@
   },
   "dependencies": {
     "@auction/domain": "workspace:*",
-    "@sentry/react": "^10.65.0",
+    "@sentry/react": "^10.69.0",
     "jsqr": "^1.4.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
   },
   "devDependencies": {
     "@types/react": "^19.0.7",
