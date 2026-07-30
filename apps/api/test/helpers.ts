@@ -11,6 +11,7 @@ import type { AppContext } from "../src/context.js";
 import { CapturingEmailAdapter } from "../src/email.js";
 import { createDpdClient } from "../src/engine/dpd.js";
 import { createInbankClient } from "../src/engine/inbank.js";
+import { createJiraClient } from "../src/engine/jira.js";
 import { createKlixClient } from "../src/engine/klix.js";
 import { createOmnivaClient } from "../src/engine/omniva.js";
 import { buildServer, type BuiltServer } from "../src/server.js";
@@ -66,7 +67,7 @@ export async function createWorld(): Promise<TestWorld> {
       warehouse_locations, stock_movements, pickup_tickets, pickup_ticket_items,
       customer_fees, consignments, payments, shipments,
       app_settings, condition_presets, item_comments, item_comment_reads,
-      customer_tag_defs cascade
+      customer_tag_defs, bug_reports, bug_report_comments, bug_report_reads cascade
   `);
   await seedDatabase(handle.db, { demoData: false });
 
@@ -88,6 +89,7 @@ export async function createWorld(): Promise<TestWorld> {
     INBANK_MODE: "simulate",
     OMNIVA_MODE: "simulate",
     DPD_MODE: "simulate",
+    JIRA_MODE: "simulate",
   });
   const email = new CapturingEmailAdapter();
   const ctx: AppContext = {
@@ -101,6 +103,7 @@ export async function createWorld(): Promise<TestWorld> {
     inbank: createInbankClient(config),
     omniva: createOmnivaClient(config),
     dpd: createDpdClient(config),
+    jira: createJiraClient(config),
     now: () => fakeNow ?? new Date(),
   };
   const server = await buildServer(ctx);

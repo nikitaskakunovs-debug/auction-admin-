@@ -7,6 +7,7 @@ import { useT, type Lang, type TKey } from "../i18n.js";
 import { CommentsThread, ActivityTimeline, useCommentsLive } from "../itemPanels.js";
 import { LangSwitch } from "../LangSwitch.js";
 import { openLabelWindow } from "../labels.js";
+import { ReportModal } from "../ReportModal.js";
 import { AT, ITEM_STATUS_TONE, toneColors, type Tone } from "../theme.js";
 import { useAuctionEvents } from "../useAuctionEvents.js";
 import { CameraScanner, normalizeScan } from "./CameraScanner.js";
@@ -168,6 +169,7 @@ export function WarehouseMode() {
   const { t } = useT();
   const [view, setView] = useState<View>({ v: "home" });
   const [flash, setFlash] = useState<{ text: string; tone: "ok" | "danger" } | null>(null);
+  const [reporting, setReporting] = useState(false);
 
   const toast = (text: string, tone: "ok" | "danger" = "ok") => {
     setFlash({ text, tone });
@@ -270,6 +272,9 @@ export function WarehouseMode() {
               </a>
             </div>
             {(can("pickup.operate") || can("warehouse.manage")) && <StatusSelector toast={toast} />}
+            <button style={{ ...S.btn, ...S.btnGhost, minHeight: 48 }} onClick={() => setReporting(true)}>
+              🐞 {t("bug.title")}
+            </button>
             <ScannerSetupCard onTryScan={() => setView({ v: "scan" })} />
             <div style={{ display: "flex", justifyContent: "center" }}>
               <LangSwitch />
@@ -300,6 +305,12 @@ export function WarehouseMode() {
         {view.v === "bins" && <BinsList toast={toast} onOpen={(id, label) => setView({ v: "bin", id, label })} />}
         {view.v === "bin" && <BinContentsView id={view.id} onItem={(code) => void openItem(code)} />}
       </main>
+      {reporting && (
+        <ReportModal
+          screen={view.v === "item" ? `warehouse · ${view.data.item.sku}` : `warehouse · ${view.v}`}
+          onClose={() => setReporting(false)}
+        />
+      )}
     </div>
   );
 }

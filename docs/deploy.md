@@ -170,6 +170,27 @@ cash. Checkouts carry the order's payment deadline as a strict expiry, so a
 stale payment link can't collect money for an order you've since cancelled.
 Chargebacks/disputes are handled in the Klix merchant portal.
 
+## Jira problem reports (Phase E)
+
+The 🐞 "Report a problem" button (admin sidebar + warehouse phones) works
+out of the box — reports and the chat with IT live in the panel (Activity →
+Bug reports). To mirror them into Jira, fill in `/opt/auction/deploy/.env`:
+
+```
+JIRA_MODE=live
+JIRA_BASE_URL=https://<your-site>.atlassian.net
+JIRA_EMAIL=<integration account email>
+JIRA_API_TOKEN=<api token from id.atlassian.com>
+JIRA_PROJECT=IZS
+```
+
+and restart the api container. From then on every report creates a Bug
+(Ideas create Tasks) with severity→priority mapping; panel replies post as
+issue comments prefixed with the author's name, and the scheduler pulls IT's
+comments + status transitions back every 5 minutes (Done → the reporter's
+"Fixed ✓" banner). If Jira is unreachable a report is still saved with
+status "Queued" — nothing is lost.
+
 ## Inbank BNPL (hire purchase / installments)
 
 A second, independent BNPL provider next to Klix — also OFF by default

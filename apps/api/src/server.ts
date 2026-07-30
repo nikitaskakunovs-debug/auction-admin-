@@ -32,6 +32,7 @@ import { registerShippingRoutes } from "./routes/shipping.js";
 import { registerWarehouseOpsRoutes } from "./routes/warehouseOps.js";
 import { registerWarehouseStatsRoutes } from "./routes/warehouseStats.js";
 import { registerBadgeRoutes } from "./routes/badges.js";
+import { registerBugRoutes } from "./routes/bugs.js";
 import { registerWs } from "./ws.js";
 
 export interface BuiltServer {
@@ -126,6 +127,7 @@ export async function buildServer(ctx: AppContext, opts: { logger?: boolean } = 
   registerWarehouseOpsRoutes(app, ctx, perms);
   registerWarehouseStatsRoutes(app, ctx, perms);
   registerBadgeRoutes(app, ctx, perms);
+  registerBugRoutes(app, ctx, perms);
   registerGradingRoutes(app, ctx, perms);
   registerItemCommentRoutes(app, ctx, perms);
   registerReceivingRoutes(app, ctx, perms);

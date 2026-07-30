@@ -122,6 +122,20 @@ export interface ApiConfig {
     /** Locker-delivery service alias (confirm via GET /services at onboarding). */
     serviceAlias: string;
   } | null;
+  /**
+   * Jira Cloud (Phase E report-a-problem). "off" keeps reports in-app only;
+   * "live" talks to <site>.atlassian.net with an API token; "simulate" is the
+   * in-memory driver for the test suite.
+   */
+  jiraMode: "off" | "live" | "simulate";
+  jira: {
+    /** e.g. https://izsoli.atlassian.net */
+    baseUrl: string;
+    email: string;
+    apiToken: string;
+    /** Project key new issues are created in, e.g. IZS. */
+    project: string;
+  } | null;
   /** Parcel sender identity printed on labels (the warehouse). */
   shipSender: {
     name: string;
@@ -181,6 +195,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     env.DPD_MODE === "live" ? "live" : env.DPD_MODE === "simulate" ? "simulate" : "off";
   if (dpdMode === "live" && !env.DPD_API_TOKEN) {
     throw new Error("DPD_API_TOKEN must be set when DPD_MODE=live");
+  }
+
+  const jiraMode: "off" | "live" | "simulate" =
+    env.JIRA_MODE === "live" ? "live" : env.JIRA_MODE === "simulate" ? "simulate" : "off";
+  if (jiraMode === "live") {
+    for (const key of ["JIRA_BASE_URL", "JIRA_EMAIL", "JIRA_API_TOKEN", "JIRA_PROJECT"] as const) {
+      if (!env[key]) throw new Error(`${key} must be set when JIRA_MODE=live`);
+    }
   }
   const storageDriver: "local" | "s3" = env.STORAGE_DRIVER === "s3" ? "s3" : "local";
   if (storageDriver === "s3") {
@@ -280,6 +302,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
             password: env.OMNIVA_PASSWORD ?? "",
           },
     dpdMode,
+    jiraMode,
+    jira:
+      jiraMode === "off"
+        ? null
+        : {
+            baseUrl: (env.JIRA_BASE_URL ?? "https://simulated.atlassian.net").replace(/\/$/, ""),
+            email: env.JIRA_EMAIL ?? "sim@simulated",
+            apiToken: env.JIRA_API_TOKEN ?? "sim",
+            project: env.JIRA_PROJECT ?? "IZS",
+          },
     dpd:
       dpdMode === "off"
         ? null

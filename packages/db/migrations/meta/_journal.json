@@ -162,6 +162,13 @@
       "when": 1785350226198,
       "tag": "0022_freezing_sugar_man",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1785395262623,
+      "tag": "0023_spicy_weapon_omega",
+      "breakpoints": true
     }
   ]
 }

@@ -863,6 +863,76 @@ export const notifications = pgTable(
 
 // ── Append-only audit log ────────────────────────────────────────────────────
 
+// ── Phase E: report-a-problem + Jira sync ────────────────────────────────────
+
+/** One in-app problem report; mirrors a Jira issue once the token is set. */
+export const bugReports = pgTable(
+  "bug_reports",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    reporterId: uuid("reporter_id").references(() => adminUsers.id),
+    /** Display snapshot surviving user deletion. */
+    reporterLabel: text("reporter_label").notNull(),
+    /** Where it was filed: screen id + optional record ref. */
+    screen: text("screen").notNull().default(""),
+    /** Auto-captured context: role, market, viewport, version, url hash. */
+    context: jsonb("context").$type<Record<string, string>>().notNull().default({}),
+    body: text("body").notNull(),
+    steps: text("steps").notNull().default(""),
+    type: text("type").notNull().default("bug"), // bug | visual | data | slow | idea
+    severity: text("severity").notNull().default("normal"), // low | normal | high | blocker
+    /** Uploaded screenshot/recording URLs (existing storage driver). */
+    attachments: jsonb("attachments").$type<string[]>().notNull().default([]),
+    /** Ring-buffer snapshot: last console lines + failed API calls. */
+    consoleLog: jsonb("console_log").$type<string[]>().notNull().default([]),
+    jiraKey: text("jira_key"),
+    /** open (no Jira yet) | sent | in_progress | done | dismissed. */
+    status: text("status").notNull().default("open"),
+    /** IT's closing comment, shown in the green "Fixed" box. */
+    resolutionNote: text("resolution_note"),
+    /** Set on done until the reporter acknowledges the fixed-banner. */
+    noticePending: boolean("notice_pending").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("bug_reports_reporter_idx").on(t.reporterId, t.createdAt), index("bug_reports_status_idx").on(t.status)],
+);
+
+/** Chat with IT — mirrors the Jira issue's comment thread both ways. */
+export const bugReportComments = pgTable(
+  "bug_report_comments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    reportId: uuid("report_id")
+      .notNull()
+      .references(() => bugReports.id, { onDelete: "cascade" }),
+    authorId: uuid("author_id").references(() => adminUsers.id),
+    authorLabel: text("author_label").notNull(),
+    /** 'panel' = written here (reporter or IT-on-duty); 'it' = from Jira. */
+    side: text("side").notNull(),
+    /** Jira comment id (ours after posting, theirs on sync) — the dedupe key. */
+    jiraCommentId: text("jira_comment_id"),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("bug_report_comments_report_idx").on(t.reportId, t.createdAt)],
+);
+
+/** Per-admin read cursor per report (same pattern as item_comment_reads). */
+export const bugReportReads = pgTable(
+  "bug_report_reads",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => adminUsers.id, { onDelete: "cascade" }),
+    reportId: uuid("report_id")
+      .notNull()
+      .references(() => bugReports.id, { onDelete: "cascade" }),
+    lastReadAt: timestamp("last_read_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("bug_report_reads_pk").on(t.userId, t.reportId)],
+);
+
 export const auditLog = pgTable(
   "audit_log",
   {

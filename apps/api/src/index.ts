@@ -8,6 +8,7 @@ import type { AppContext } from "./context.js";
 import { createEmailAdapter } from "./email.js";
 import { createDpdClient } from "./engine/dpd.js";
 import { createInbankClient } from "./engine/inbank.js";
+import { createJiraClient } from "./engine/jira.js";
 import { createKlixClient } from "./engine/klix.js";
 import { createOmnivaClient } from "./engine/omniva.js";
 import { AuctionScheduler } from "./engine/scheduler.js";
@@ -29,6 +30,7 @@ const ctx: AppContext = {
   inbank: createInbankClient(config),
   omniva: createOmnivaClient(config),
   dpd: createDpdClient(config),
+  jira: createJiraClient(config),
   now: () => new Date(),
 };
 
