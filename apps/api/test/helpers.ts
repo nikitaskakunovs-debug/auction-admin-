@@ -90,6 +90,7 @@ export async function createWorld(): Promise<TestWorld> {
     OMNIVA_MODE: "simulate",
     DPD_MODE: "simulate",
     JIRA_MODE: "simulate",
+    JIRA_WEBHOOK_SECRET: "whsec-test",
   });
   const email = new CapturingEmailAdapter();
   const ctx: AppContext = {

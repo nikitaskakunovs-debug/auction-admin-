@@ -90,6 +90,13 @@ services:
       DPD_API_URL: ${DPD_API_URL:-}
       DPD_API_TOKEN: ${DPD_API_TOKEN:-}
       DPD_SERVICE_ALIAS: ${DPD_SERVICE_ALIAS:-}
+      # Jira problem reports (off until the integration account token; then JIRA_MODE=live).
+      JIRA_MODE: ${JIRA_MODE:-off}
+      JIRA_BASE_URL: ${JIRA_BASE_URL:-}
+      JIRA_EMAIL: ${JIRA_EMAIL:-}
+      JIRA_API_TOKEN: ${JIRA_API_TOKEN:-}
+      JIRA_PROJECT: ${JIRA_PROJECT:-IZS}
+      JIRA_WEBHOOK_SECRET: ${JIRA_WEBHOOK_SECRET:-}
       # Sentry error monitoring (off until SENTRY_DSN is set).
       SENTRY_DSN: ${SENTRY_DSN:-}
       SENTRY_ENVIRONMENT: production

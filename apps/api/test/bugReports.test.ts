@@ -53,8 +53,10 @@ describe("report-a-problem", () => {
     expect(issue.key).toBe(jiraKey);
     expect(issue.input.severity).toBe("blocker");
     expect(issue.input.labels).toContain("bug");
-    expect(issue.input.description).toContain("Steps to reproduce");
-    expect(issue.input.description).toContain("market: LV");
+    expect(issue.input.steps).toContain("Click refund");
+    expect(issue.input.contextLines).toContain("market: LV");
+    expect(issue.input.consoleLog).toHaveLength(1);
+    expect(issue.input.panelUrl).toContain("#/activity");
   });
 
   it("panel replies mirror into Jira with the author prefix and store the comment id", async () => {
@@ -144,5 +146,92 @@ describe("report-a-problem", () => {
     expect(report.status).toBe("open");
     expect(report.jiraKey).toBeNull();
     world.ctx.jira = broken;
+  });
+});
+
+describe("E2 hardening", () => {
+  it("retries queued reports on sync and backfills chat written while queued", async () => {
+    const broken = world.ctx.jira;
+    world.ctx.jira = null;
+    const res = await post("/api/bugs", { body: "Queued while Jira was down, with chat." });
+    const { report } = res.json() as { report: { id: string } };
+    // The reporter chats before Jira ever saw the ticket.
+    await post(`/api/bugs/${report.id}/comments`, { body: "Adding detail while offline." });
+    world.ctx.jira = broken;
+
+    await syncBugReports(world.ctx);
+
+    const [row] = await world.ctx.db.select().from(bugReports).where(eq(bugReports.id, report.id));
+    expect(row!.status).toBe("sent");
+    expect(row!.jiraKey).toMatch(/^IZS-\d+$/);
+    const issue = jira.issue(row!.jiraKey!)!;
+    expect(issue.comments).toHaveLength(1);
+    expect(issue.comments[0]!.body).toContain("Adding detail while offline.");
+    // The backfilled panel comment now carries its Jira id (no dupes later).
+    const comments = await world.ctx.db.select().from(bugReportComments).where(eq(bugReportComments.reportId, report.id));
+    expect(comments[0]!.jiraCommentId).not.toBeNull();
+    await syncBugReports(world.ctx);
+    const after = await world.ctx.db.select().from(bugReportComments).where(eq(bugReportComments.reportId, report.id));
+    expect(after).toHaveLength(1);
+  });
+
+  it("uploads stored files as native Jira attachments", async () => {
+    const url = await world.ctx.storage.put("bugs/e2-shot.webp", Buffer.from("fake-webp-bytes"), "image/webp");
+    const res = await post("/api/bugs", { body: "Report with a native attachment.", attachments: [url] });
+    expect(res.statusCode).toBe(200);
+    const { report } = res.json() as { report: { jiraKey: string } };
+    const issue = jira.issue(report.jiraKey)!;
+    expect(issue.attachments).toEqual(["e2-shot.webp"]);
+  });
+
+  it("dismissing a sent report leaves a note on the Jira ticket", async () => {
+    const res = await post("/api/bugs", { body: "Will be dismissed after sending." });
+    const { report } = res.json() as { report: { id: string; jiraKey: string } };
+    const dis = await post(`/api/bugs/${report.id}/dismiss`, {}, adminToken);
+    expect(dis.statusCode).toBe(200);
+    const issue = jira.issue(report.jiraKey)!;
+    expect(issue.comments.some((c) => c.body.includes("Dismissed in the admin panel"))).toBe(true);
+  });
+
+  it("reports connection health to the Bugs tab", async () => {
+    const res = await get<{ mode: string; project: string; ok: boolean; user?: string; webhook: boolean }>(
+      "/api/bugs/jira-status",
+      adminToken,
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.mode).toBe("simulate");
+    expect(res.body.ok).toBe(true);
+    expect(res.body.user).toBe("Simulated integration");
+    expect(res.body.webhook).toBe(true);
+
+    const denied = await world.server.app.inject({
+      method: "GET",
+      url: "/api/bugs/jira-status",
+      headers: auth(await loginAs(world, "content@auction.test")),
+    });
+    expect(denied.statusCode).toBe(403);
+  });
+
+  it("the webhook syncs one report instantly, guarded by the shared secret", async () => {
+    const res = await post("/api/bugs", { body: "Webhook round-trip report." });
+    const { report } = res.json() as { report: { id: string; jiraKey: string } };
+    jira.simulateItComment(report.jiraKey, "Instant reply via webhook.");
+
+    const bad = await world.server.app.inject({
+      method: "POST",
+      url: "/api/jira/webhook?secret=wrong",
+      payload: { issue: { key: report.jiraKey } },
+    });
+    expect(bad.statusCode).toBe(401);
+
+    const ok = await world.server.app.inject({
+      method: "POST",
+      url: "/api/jira/webhook?secret=whsec-test",
+      payload: { issue: { key: report.jiraKey } },
+    });
+    expect(ok.statusCode).toBe(204);
+
+    const comments = await world.ctx.db.select().from(bugReportComments).where(eq(bugReportComments.reportId, report.id));
+    expect(comments.some((c) => c.side === "it" && c.body === "Instant reply via webhook.")).toBe(true);
   });
 });
