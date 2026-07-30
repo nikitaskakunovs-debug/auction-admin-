@@ -1,6 +1,6 @@
-import { bugReportComments, bugReports } from "@auction/db";
+import { adminUsers, bugReportComments, bugReports } from "@auction/db";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
-import type { AppContext } from "../context.js";
+import { publishAdminEvent, type AppContext } from "../context.js";
 import type { JiraAttachment } from "./jira.js";
 
 /**
@@ -92,6 +92,29 @@ export async function sendReportToJira(ctx: AppContext, report: BugReportRow): P
   }
 }
 
+/** Reporter's email + WS ping — the "IT answered you" notification pair. */
+async function notifyReporter(ctx: AppContext, report: BugReportRow, subject: string, body: string): Promise<void> {
+  await publishAdminEvent(ctx, {
+    type: "bug_reply",
+    at: ctx.now().toISOString(),
+    data: { reportId: report.id, reporterId: report.reporterId, jiraKey: report.jiraKey },
+  }).catch(() => undefined);
+  if (!report.reporterId) return;
+  const [reporter] = await ctx.db
+    .select({ email: adminUsers.email })
+    .from(adminUsers)
+    .where(eq(adminUsers.id, report.reporterId));
+  if (!reporter) return;
+  const link = `${ctx.config.adminBaseUrl}/#/activity`;
+  await ctx.email
+    .send({
+      to: reporter.email,
+      subject,
+      text: `${body}\n\nJūsu ziņojums: "${report.body.slice(0, 120)}"\n\nAtvērt sarunu: ${link}\n(admin panelī — 🐞 poga sānu joslā → Mani ziņojumi)`,
+    })
+    .catch(() => undefined);
+}
+
 /** Pull one report's Jira state into the panel (comments + status). */
 export async function syncOneReport(ctx: AppContext, report: BugReportRow): Promise<void> {
   if (!ctx.jira || !report.jiraKey) return;
@@ -106,6 +129,7 @@ export async function syncOneReport(ctx: AppContext, report: BugReportRow): Prom
     .where(eq(bugReportComments.reportId, report.id));
   const seen = new Set(known.map((k) => k.jiraCommentId).filter(Boolean));
   let lastItComment: string | null = null;
+  let newItComments = 0;
   for (const c of issue.comments) {
     if (c.body.trim().length === 0) continue;
     if (!seen.has(c.id)) {
@@ -117,6 +141,7 @@ export async function syncOneReport(ctx: AppContext, report: BugReportRow): Prom
         body: c.body,
       });
       lastItComment = c.body;
+      newItComments += 1;
     }
   }
 
@@ -142,9 +167,13 @@ export async function syncOneReport(ctx: AppContext, report: BugReportRow): Prom
         .update(bugReports)
         .set({ status: "done", resolutionNote: note, noticePending: true, updatedAt: ctx.now() })
         .where(eq(bugReports.id, report.id));
-    } else {
-      await ctx.db.update(bugReports).set({ status: next, updatedAt: ctx.now() }).where(eq(bugReports.id, report.id));
+      await notifyReporter(ctx, report, `✓ Salabots — ${report.jiraKey}`, note ? `IT atzīmēja jūsu ziņojumu kā salabotu:\n\n${note}` : "IT atzīmēja jūsu ziņojumu kā salabotu.");
+      return;
     }
+    await ctx.db.update(bugReports).set({ status: next, updatedAt: ctx.now() }).where(eq(bugReports.id, report.id));
+  }
+  if (newItComments > 0) {
+    await notifyReporter(ctx, report, `IT atbildēja — ${report.jiraKey}`, `Jauna atbilde no IT:\n\n${lastItComment}`);
   }
 }
 

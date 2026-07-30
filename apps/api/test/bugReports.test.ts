@@ -2,7 +2,7 @@ import { bugReportComments, bugReports } from "@auction/db";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { syncBugReports } from "../src/engine/bugSync.js";
-import { SimulatedJiraClient } from "../src/engine/jira.js";
+import { adfToText, SimulatedJiraClient } from "../src/engine/jira.js";
 import { auth, createWorld, loginAs, type TestWorld } from "./helpers.js";
 
 /** Phase E — report-a-problem + Jira round-trip against the simulated client. */
@@ -233,5 +233,56 @@ describe("E2 hardening", () => {
 
     const comments = await world.ctx.db.select().from(bugReportComments).where(eq(bugReportComments.reportId, report.id));
     expect(comments.some((c) => c.side === "it" && c.body === "Instant reply via webhook.")).toBe(true);
+  });
+});
+
+describe("E3 live chat + notifications", () => {
+  it("adfToText keeps mentions, emoji and hard breaks", () => {
+    const adf = {
+      type: "doc",
+      version: 1,
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            { type: "mention", attrs: { id: "x", text: "@Nikita Skakunovs" } },
+            { type: "text", text: " yes please" },
+            { type: "hardBreak" },
+            { type: "text", text: "second line " },
+            { type: "emoji", attrs: { shortName: ":thumbsup:", text: "👍" } },
+          ],
+        },
+      ],
+    };
+    expect(adfToText(adf)).toBe("@Nikita Skakunovs yes please\nsecond line 👍");
+  });
+
+  it("opening a report pulls fresh Jira replies without waiting for the sweep", async () => {
+    const res = await post("/api/bugs", { body: "On-open sync report." });
+    const { report } = res.json() as { report: { id: string; jiraKey: string } };
+    jira.simulateItComment(report.jiraKey, "Fresh answer, no sweep ran.");
+
+    const detail = await get<{ comments: Array<{ side: string; body: string }> }>(`/api/bugs/${report.id}`);
+    expect(detail.status).toBe(200);
+    expect(detail.body.comments.some((c) => c.side === "it" && c.body === "Fresh answer, no sweep ran.")).toBe(true);
+  });
+
+  it("emails the reporter when IT replies and when the report is fixed", async () => {
+    const res = await post("/api/bugs", { body: "Notify me on answers." });
+    const { report } = res.json() as { report: { id: string; jiraKey: string } };
+
+    jira.simulateItComment(report.jiraKey, "We are on it.");
+    await syncBugReports(world.ctx);
+    const replyMail = world.email.sent.find((m) => m.subject === `IT atbildēja — ${report.jiraKey}`);
+    expect(replyMail).toBeDefined();
+    expect(replyMail!.to).toBe("ops@auction.test");
+    expect(replyMail!.text).toContain("We are on it.");
+
+    jira.simulateItComment(report.jiraKey, "Deployed a fix.");
+    jira.simulateStatus(report.jiraKey, "done");
+    await syncBugReports(world.ctx);
+    const doneMail = world.email.sent.find((m) => m.subject === `✓ Salabots — ${report.jiraKey}`);
+    expect(doneMail).toBeDefined();
+    expect(doneMail!.text).toContain("Deployed a fix.");
   });
 });

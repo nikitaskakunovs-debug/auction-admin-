@@ -27,7 +27,8 @@ export function useBadges(enabled: boolean): Record<string, number> {
       ev.type === "grade_review_pending" ||
       ev.type === "grade_edited" ||
       ev.type === "grade_rejected" ||
-      ev.type === "item_comment"
+      ev.type === "item_comment" ||
+      ev.type === "bug_reply"
     ) {
       refresh();
     }

@@ -417,6 +417,12 @@ export function ReportDetail({ report, onBack }: { report: BugReport; onBack: ()
     }).catch(() => undefined);
   }, [report.id]);
   useEffect(load, [load]);
+  // Live chat: keep polling while the conversation is on screen (the API
+  // pulls Jira on each hit, throttled server-side).
+  useEffect(() => {
+    const t = setInterval(load, 5_000);
+    return () => clearInterval(t);
+  }, [load]);
 
   const send = async () => {
     if (reply.trim().length === 0 || busy) return;

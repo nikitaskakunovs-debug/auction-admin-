@@ -130,8 +130,15 @@ export function adfToText(body: unknown): string {
   const walk = (node: unknown): void => {
     if (Array.isArray(node)) return node.forEach(walk);
     if (!node || typeof node !== "object") return;
-    const n = node as { type?: string; text?: string; content?: unknown };
+    const n = node as { type?: string; text?: string; content?: unknown; attrs?: { text?: string; shortName?: string; url?: string } };
     if (n.type === "text" && typeof n.text === "string") out.push(n.text);
+    // Inline nodes Jira uses in real comments: @mentions, emoji, forced
+    // breaks, pasted smart links — dropping them mangled replies like
+    // "@Nikita yes please" into just "yes please".
+    if (n.type === "mention") out.push(n.attrs?.text ?? "@?");
+    if (n.type === "emoji") out.push(n.attrs?.text ?? n.attrs?.shortName ?? "");
+    if (n.type === "hardBreak") out.push("\n");
+    if (n.type === "inlineCard" && n.attrs?.url) out.push(n.attrs.url);
     if (n.type === "paragraph") out.push("\n");
     if (n.content) walk(n.content);
   };
