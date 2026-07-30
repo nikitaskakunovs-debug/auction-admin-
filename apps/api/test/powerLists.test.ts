@@ -300,8 +300,9 @@ describe("badges", () => {
 
     const limited = await get<{ badges: Record<string, number> }>("/api/badges", contentToken);
     expect(limited.status).toBe(200);
-    // Content editor holds none of the pill permissions.
-    expect(Object.keys(limited.body.badges)).toHaveLength(0);
+    // Content editor holds none of the pill permissions — only the personal
+    // Phase E "my bug reports" counter every signed-in admin gets.
+    expect(Object.keys(limited.body.badges)).toEqual(["mybugs"]);
   });
 
   it("counts pending grading reviews", async () => {

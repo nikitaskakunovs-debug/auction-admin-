@@ -5,6 +5,7 @@ import type { ApiConfig } from "./config.js";
 import type { EmailAdapter } from "./email.js";
 import type { InbankClient } from "./engine/inbank.js";
 import type { KlixClient } from "./engine/klix.js";
+import type { JiraClient } from "./engine/jira.js";
 import type { OmnivaClient } from "./engine/omniva.js";
 import type { PhotoStorage } from "./storage.js";
 
@@ -26,6 +27,8 @@ export interface AppContext {
   omniva: OmnivaClient | null;
   /** DPD locker client — same interface as Omniva (null when DPD_MODE=off). */
   dpd: OmnivaClient | null;
+  /** Jira client for problem reports (null when JIRA_MODE=off). */
+  jira: JiraClient | null;
   /** Injectable clock so tests control time. */
   now: () => Date;
 }

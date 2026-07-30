@@ -1,4 +1,4 @@
-import { itemCommentReads, itemComments, items, notifications, pickupTickets } from "@auction/db";
+import { bugReports, itemCommentReads, itemComments, items, notifications, pickupTickets } from "@auction/db";
 import { dayKey } from "@auction/domain";
 import { and, eq, gt, isNull, or, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -60,6 +60,22 @@ export function registerBadgeRoutes(app: FastifyInstance, ctx: AppContext, perms
         .where(eq(notifications.status, "failed"));
       badges.notifications = Number(row!.n);
     }
+
+    // Phase E: my reports with unread IT messages or an unacked "fixed" notice
+    // — the dot on the sidebar's Report-a-problem button (every admin).
+    const [bugRow] = await ctx.db
+      .select({
+        // Correlated ref hand-qualified (drizzle renders sql`` refs unqualified).
+        n: sql<string>`count(*) filter (where ${bugReports.noticePending} or exists (
+          select 1 from bug_report_comments c
+          left join bug_report_reads r on r.report_id = c.report_id and r.user_id = ${req.admin.sub}
+          where c.report_id = bug_reports.id and c.side = 'it'
+            and (r.last_read_at is null or c.created_at > r.last_read_at)
+        ))`,
+      })
+      .from(bugReports)
+      .where(eq(bugReports.reporterId, req.admin.sub));
+    badges.mybugs = Number(bugRow!.n);
 
     return { badges };
   });

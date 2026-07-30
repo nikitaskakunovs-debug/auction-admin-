@@ -272,7 +272,12 @@ export class ApiClient {
     });
     if (res.status === 204) return undefined as T;
     const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-    if (!res.ok) throw new ApiError(res.status, json);
+    if (!res.ok) {
+      // Phase E evidence buffer — failed calls end up in problem reports.
+      const { recordApiFailure } = await import("./bugCapture.js");
+      recordApiFailure(method, url, res.status, typeof json.error === "string" ? json.error : "");
+      throw new ApiError(res.status, json);
+    }
     return json as T;
   }
 

@@ -57,6 +57,8 @@ export class AuctionScheduler {
         // Carrier tracking: poll active shipments (rate-limited to every
         // 30 min via its own Redis key — the per-second tick just asks).
         await this.pollShipments();
+        // Phase E: pull Jira statuses + IT comments (every 5 min).
+        await this.syncBugs();
         // Drain the outbox last so this tick's enqueues go out promptly.
         await dispatchNotifications(this.ctx);
       } finally {
@@ -95,6 +97,15 @@ export class AuctionScheduler {
     for (const shipment of active) {
       await refreshShipment(this.ctx, shipment).catch(() => undefined);
     }
+  }
+
+  /** Jira → panel sync, guarded by a 5-minute Redis marker. */
+  private async syncBugs(): Promise<void> {
+    if (!this.ctx.jira) return;
+    const marker = await this.ctx.redis.set("bugs:sync", "1", "PX", 5 * 60 * 1000, "NX");
+    if (marker !== "OK") return;
+    const { syncBugReports } = await import("./bugSync.js");
+    await syncBugReports(this.ctx).catch((err) => console.error("bug sync failed", err));
   }
 
   private async openDue(): Promise<void> {

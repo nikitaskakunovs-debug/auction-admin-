@@ -7,6 +7,7 @@ import { TabBar, type Tab } from "./shell/TabBar.js";
 import { AT } from "./theme.js";
 import { AIcon, type IconName } from "./ui.js";
 import { useBadges, WARN_BADGES } from "./useBadges.js";
+import { ReportModal } from "./ReportModal.js";
 import { DashboardScreen } from "./screens/Dashboard.js";
 import { AuctionsScreen } from "./screens/Auctions.js";
 import { AuctionMonitorScreen } from "./screens/AuctionMonitor.js";
@@ -116,6 +117,7 @@ export function App() {
   const [shell, setShell] = useState<ShellState>(bootShell);
   const [focused, setFocused] = useState<"a" | "b">("a");
   const [palette, setPalette] = useState(false);
+  const [reporting, setReporting] = useState(false);
 
   const { tabs, activeId, split, splitId } = shell;
   const activeTab = tabs.find((t) => t.id === activeId) ?? tabs[0]!;
@@ -358,6 +360,21 @@ export function App() {
             📦 Warehouse mode
           </button>
         )}
+        {/* Phase E — report a problem; dot = IT wrote back or fixed something. */}
+        <button onClick={() => setReporting(true)} style={{
+          all: "unset", cursor: "pointer", margin: "0 10px 8px", padding: "9px 10px", borderRadius: 8,
+          fontSize: 12.5, fontWeight: 700, color: AT.sideSoft, border: `1px dashed ${AT.sideRule}`, textAlign: "center",
+          position: "relative",
+        }}>
+          🐞 Report a problem
+          {(badges.mybugs ?? 0) > 0 && (
+            <span style={{
+              position: "absolute", top: 6, right: 8, minWidth: 16, height: 16, borderRadius: 999,
+              background: AT.accent, color: "#fff", fontSize: 10, fontWeight: 800,
+              display: "inline-grid", placeItems: "center", padding: "0 4px",
+            }}>{badges.mybugs}</span>
+          )}
+        </button>
         <div style={{ padding: 12, borderTop: `1px solid ${AT.sideRule}`, display: "flex", alignItems: "center", gap: 9 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{user.name}</div>
@@ -389,6 +406,12 @@ export function App() {
       </main>
 
       {palette && <SearchPalette allowedScreens={allowedIds} onOpen={onSearchOpen} onClose={() => setPalette(false)} />}
+      {reporting && (
+        <ReportModal
+          screen={activeTab.param ? `${activeTab.screen} · ${activeTab.param.slice(0, 24)}` : activeTab.screen}
+          onClose={() => setReporting(false)}
+        />
+      )}
     </div>
   );
 }
