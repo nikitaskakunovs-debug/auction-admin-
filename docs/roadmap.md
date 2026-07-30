@@ -37,11 +37,11 @@ Legend: ✅ live · 🔨 in progress · 🎯 planned (phase) · 💬 needs desig
 |---|---|---|
 | ✅ A1 | Tabs, split view, ⌘K search | shipped |
 | ✅ A2 | Orders power screen (views/filters/export/bulk/detail) | shipped |
-| 🎯 A3 | Power UI on Inventory/Listings/Bidders/Finance; bidder tags+segments; notifications pills | next unless reordered |
+| ✅ A3 | Power UI on Inventory/Listings/Bidders/Finance; bidder tags+segments; sidebar pills | shipped |
 | ✅ W1 | Warehouse ops I: live pick board + notifications + timers + handoff + quarantine + unshelf + scanner CTA | shipped |
 | ✅ W2 | Warehouse ops II: grading approval flow + condition preset notes + item chat + changelog tabs | shipped |
 | ✅ W3 | Warehouse ops III: productivity stats + bin browser | shipped |
-| 🎯 E | Report-a-problem + Jira (screenshot, recording, chat, status sync) | design page → approve |
+| 🎯 E | Report-a-problem + Jira (screenshot, recording, chat with IT, status sync) | design v2 published → awaiting approval + Jira project key |
 | 🎯 B | Mobile-responsive admin + collapsible sidebar | design approved (Phase A artifact §5) |
 | 💬 C | Storefront upgrade + Google/Meta tags + GA4/Pixel | waiting on owner's HTML file |
 | 🎯 D | LV/RU/EN across all admin screens | any time |
