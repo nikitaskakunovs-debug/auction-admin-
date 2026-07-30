@@ -5,7 +5,9 @@ export interface AuctionEvent {
   type:
     | "bid" | "extended" | "opened" | "closed" | "cancelled" | "bid_voided" | "subscribed" | "pickup_checkin"
     // W2 grading review + item conversations:
-    | "grade_review_pending" | "grade_edited" | "grade_rejected" | "item_comment";
+    | "grade_review_pending" | "grade_edited" | "grade_rejected" | "item_comment"
+    // Phase E: IT answered a problem report.
+    | "bug_reply";
   auctionId?: string;
   at?: string;
   data?: Record<string, unknown>;

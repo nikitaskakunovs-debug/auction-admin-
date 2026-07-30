@@ -158,9 +158,19 @@ export function registerBugRoutes(app: FastifyInstance, ctx: AppContext, perms: 
   };
 
   app.get("/api/bugs/:id", { preHandler: signedIn }, async (req, reply) => {
-    const report = await loadVisible(req, (req.params as { id: string }).id);
+    let report = await loadVisible(req, (req.params as { id: string }).id);
     if (report === null) return reply.code(404).send({ error: "not_found" });
     if (report === "forbidden") return reply.code(403).send({ error: "forbidden" });
+    // Opening a chat pulls Jira right now (throttled) — replies appear on
+    // open/poll instead of waiting for the 5-min sweep or the webhook.
+    if (ctx.jira && report.jiraKey && (report.status === "sent" || report.status === "in_progress")) {
+      const fresh = await ctx.redis.set(`bugs:syncone:${report.id}`, "1", "EX", 10, "NX");
+      if (fresh) {
+        await syncOneReport(ctx, report).catch(() => undefined);
+        const [reloaded] = await ctx.db.select().from(bugReports).where(eq(bugReports.id, report.id));
+        report = reloaded ?? report;
+      }
+    }
     const comments = await ctx.db
       .select()
       .from(bugReportComments)
