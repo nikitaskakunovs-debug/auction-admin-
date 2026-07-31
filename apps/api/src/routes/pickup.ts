@@ -86,11 +86,22 @@ export function registerPickupRoutes(app: FastifyInstance, ctx: AppContext, perm
     return result;
   });
 
-  const completeBody = z.object({ pickupCode: z.string().regex(/^\d{6}$/) });
+  // Either the client's code, or a written reason for handing over without it.
+  const completeBody = z
+    .object({
+      pickupCode: z.string().regex(/^\d{6}$/).optional(),
+      overrideReason: z.string().min(3).max(300).optional(),
+    })
+    .refine((v) => Boolean(v.pickupCode ?? v.overrideReason), { message: "pickupCode or overrideReason required" });
   app.post("/api/pickup/tickets/:id/complete", guard("pickup.operate"), async (req, reply) => {
     const body = completeBody.safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: "6-digit pickupCode required" });
-    const result = await completeTicket(ctx, (req.params as { id: string }).id, body.data.pickupCode, actor(req));
+    // W4 — a client who lost the code can still collect, but only with a
+    // written reason recorded under the operator's name.
+    const override = body.data.overrideReason && body.data.overrideReason.trim().length >= 3
+      ? { reason: body.data.overrideReason.trim() }
+      : undefined;
+    const result = await completeTicket(ctx, (req.params as { id: string }).id, body.data.pickupCode ?? "", actor(req), override);
     if (!result.ok) {
       return reply.code(result.error === "invalid_pickup_code" ? 403 : 409).send({ error: result.error });
     }

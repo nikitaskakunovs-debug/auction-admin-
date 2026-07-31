@@ -313,7 +313,15 @@ export async function markDelivering(ctx: AppContext, ticketId: string, actor: A
  * from their pass (any order on the ticket matches). Picked items are handed
  * over → `delivered`; missing/damaged lines stay flagged for support.
  */
-export async function completeTicket(ctx: AppContext, ticketId: string, code: string, actor: Actor): Promise<TicketActionResult> {
+export async function completeTicket(
+  ctx: AppContext,
+  ticketId: string,
+  code: string,
+  actor: Actor,
+  /** W4 — desk override for a client who lost the code. The reason is
+   * mandatory at the route layer and lands in the audit trail. */
+  override?: { reason: string },
+): Promise<TicketActionResult> {
   const result = await ctx.db.transaction(async (tx): Promise<TicketActionResult> => {
     const [ticket] = await tx.select().from(pickupTickets).where(eq(pickupTickets.id, ticketId)).for("update");
     if (!ticket) return { ok: false, error: "not_found" };
@@ -324,7 +332,13 @@ export async function completeTicket(ctx: AppContext, ticketId: string, code: st
       .select({ id: orders.id, pickupCode: orders.pickupCode })
       .from(orders)
       .where(inArray(orders.id, lines.map((l) => l.orderId)));
-    if (!lineOrders.some((o) => o.pickupCode !== null && o.pickupCode === code)) {
+    if (override) {
+      // Identity was checked in person; who allowed it and why is recorded.
+      await writeAudit(tx, actor, "pickup", "handover_override", `#${ticket.number}`, {
+        ticketId,
+        reason: override.reason,
+      });
+    } else if (!lineOrders.some((o) => o.pickupCode !== null && o.pickupCode === code)) {
       await writeAudit(tx, actor, "pickup", "handover_code_rejected", `#${ticket.number}`, { ticketId });
       return { ok: false, error: "invalid_pickup_code" };
     }

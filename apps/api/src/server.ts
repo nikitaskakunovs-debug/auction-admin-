@@ -24,6 +24,7 @@ import { registerListingRoutes } from "./routes/listings.js";
 import { registerOrderRoutes } from "./routes/orders.js";
 import { registerPaymentRoutes } from "./routes/payments.js";
 import { registerPickupRoutes } from "./routes/pickup.js";
+import { registerFrontDeskRoutes } from "./routes/frontDesk.js";
 import { registerPublicRoutes } from "./routes/public.js";
 import { registerReceivingRoutes } from "./routes/receiving.js";
 import { registerSearchRoutes } from "./routes/search.js";
@@ -124,6 +125,7 @@ export async function buildServer(ctx: AppContext, opts: { logger?: boolean } = 
   registerAdminRoutes(app, ctx, perms);
   registerCmsRoutes(app, ctx, perms);
   registerPickupRoutes(app, ctx, perms);
+  registerFrontDeskRoutes(app, ctx, perms);
   registerWarehouseOpsRoutes(app, ctx, perms);
   registerWarehouseStatsRoutes(app, ctx, perms);
   registerBadgeRoutes(app, ctx, perms);

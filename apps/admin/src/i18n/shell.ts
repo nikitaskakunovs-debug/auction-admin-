@@ -9,6 +9,7 @@ export const SHELL = {
   "sh.nav.inventory": { lv: "Krājumi", ru: "Товары", en: "Inventory" },
   "sh.nav.receiving": { lv: "Pieņemšana", ru: "Приёмка", en: "Receiving" },
   "sh.nav.orders": { lv: "Pasūtījumi", ru: "Заказы", en: "Orders" },
+  "sh.nav.desk": { lv: "Lete", ru: "Стойка", en: "Front desk" },
   "sh.nav.pickup": { lv: "Izsniegšana", ru: "Выдача", en: "Pickup" },
   "sh.nav.whstats": { lv: "Statistika", ru: "Статистика", en: "Stats" },
   "sh.nav.customers": { lv: "Solītāji", ru: "Участники", en: "Bidders" },
