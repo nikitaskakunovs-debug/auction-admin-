@@ -4,10 +4,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError, type ConditionPreset, type Item, type Market } from "../api.js";
 import type { Nav } from "../App.js";
 import { useAuth } from "../auth.js";
+import { exportCSV } from "../exporters.js";
 import { formatDate } from "../format.js";
-import { useT, type Lang } from "../i18n.js";
+import { useT, type Lang, type TKey } from "../i18n.js";
 import { openLabelWindow as openLabel } from "../labels.js";
-import { AT } from "../theme.js";
+import { AT, type Tone } from "../theme.js";
 import {
   ABadge, ABtn, ACard, ADrawer, AEmpty, AField, AIcon, AInput, APills, ASelect,
   AStat, ATable, ATd, ATr, useConfirm, useToast,
@@ -61,7 +62,7 @@ export function ReceivingScreen({ nav }: { nav: Nav }) {
 
   // W2 grading review queue — only for reviewers; badge stays live over WS.
   const canReview = can("grading.review");
-  const [tab, setTab] = useState<"deliveries" | "review" | "bins">("deliveries");
+  const [tab, setTab] = useState<"deliveries" | "review" | "bins" | "counts">("deliveries");
   const [pending, setPending] = useState<ReviewItem[]>([]);
 
   const loadReview = useCallback(() => {
@@ -285,6 +286,7 @@ export function ReceivingScreen({ nav }: { nav: Nav }) {
           { id: "deliveries" as const, label: t("rcv.tabDeliveries"), count: list.length },
           ...(canReview ? [{ id: "review" as const, label: t("rcv.tabReview"), count: pending.length }] : []),
           { id: "bins" as const, label: t("wh.bins") },
+          { id: "counts" as const, label: t("rc.cnt.tab") },
         ]}
         value={tab}
         onChange={setTab}
@@ -294,6 +296,8 @@ export function ReceivingScreen({ nav }: { nav: Nav }) {
         <GradingReviewQueue items={pending} reload={loadReview} />
       ) : tab === "bins" ? (
         <BinsBrowser nav={nav} />
+      ) : tab === "counts" ? (
+        <StockCountsTab />
       ) : (
         <ACard pad={false}>
           {list.length === 0 ? (
@@ -591,6 +595,300 @@ function GradingReviewQueue({ items, reload }: { items: ReviewItem[]; reload: ()
             </div>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+// ── W5/W6: Stock counts ("Inventarizācija") ──────────────────────────────────
+
+type CountStatus = "open" | "approved" | "cancelled";
+
+interface StockCount {
+  id: string;
+  name: string;
+  status: CountStatus;
+  startedAt: string;
+  binCount: number;
+  doneCount: number;
+  scanCount: number;
+  zones: string[];
+}
+
+type Outcome = "match" | "wrong_bin" | "missing" | "moved_during" | "unknown_label";
+
+interface DiffLine {
+  outcome: Outcome;
+  itemId: string | null;
+  sku: string | null;
+  title: string | null;
+  expectedLabel: string | null;
+  foundLabel: string | null;
+  code: string | null;
+}
+
+interface CountDiff {
+  count: StockCount;
+  tally: Record<Outcome, number>;
+  lines: DiffLine[];
+}
+
+const COUNT_STATUS: Record<CountStatus, { key: TKey; tone: Tone }> = {
+  open: { key: "rc.cnt.stOpen", tone: "accent" },
+  approved: { key: "rc.cnt.stApproved", tone: "ok" },
+  cancelled: { key: "rc.cnt.stCancelled", tone: "neutral" },
+};
+
+const OUTCOME_META: Record<Outcome, { key: TKey; tone: Tone }> = {
+  match: { key: "rc.cnt.match", tone: "ok" },
+  wrong_bin: { key: "rc.cnt.wrongBin", tone: "warn" },
+  missing: { key: "rc.cnt.missing", tone: "danger" },
+  moved_during: { key: "rc.cnt.movedDuring", tone: "neutral" },
+  unknown_label: { key: "rc.cnt.unknown", tone: "danger" },
+};
+
+function StockCountsTab() {
+  const { can } = useAuth();
+  const { t } = useT();
+  const toast = useToast();
+  const confirm = useConfirm();
+  const [counts, setCounts] = useState<StockCount[]>([]);
+  const [zones, setZones] = useState<string[]>([]);
+  const [creating, setCreating] = useState(false);
+  const [createName, setCreateName] = useState("");
+  const [createZones, setCreateZones] = useState<Set<string>>(new Set());
+  const [diff, setDiff] = useState<CountDiff | null>(null);
+  const [showMatches, setShowMatches] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(() => {
+    void api.get<{ counts: StockCount[] }>("/api/stock-counts").then((r) => setCounts(r.counts)).catch(() => undefined);
+  }, []);
+  useEffect(load, [load]);
+
+  // Distinct zone names for the create form, from the active bin list.
+  useEffect(() => {
+    void api
+      .get<{ locations: Array<{ zone: string; active: boolean }> }>("/api/warehouse/locations")
+      .then((r) => setZones([...new Set(r.locations.filter((l) => l.active).map((l) => l.zone))].sort()))
+      .catch(() => undefined);
+  }, []);
+
+  const openDetail = (id: string) => {
+    void api.get<CountDiff>(`/api/stock-counts/${id}/diff`).then(setDiff).catch(() => undefined);
+  };
+
+  const create = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await api.post<{ count: StockCount }>("/api/stock-counts", { name: createName.trim(), zones: [...createZones] });
+      toast(`${createName.trim()} ${t("rc.cnt.tStarted")}`, "ok");
+      setCreating(false);
+      load();
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : t("rc.cnt.startFailed"), "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const approve = async () => {
+    if (!diff || busy) return;
+    const r = await confirm({
+      title: `${t("rc.cnt.approveBtn")} — ${diff.count.name}?`,
+      body: t("rc.cnt.approveBody"),
+      confirmLabel: t("rc.cnt.approveBtn"),
+    });
+    if (!r.ok) return;
+    setBusy(true);
+    try {
+      const res = await api.post<{ ok: boolean; moved: number; missing: number }>(`/api/stock-counts/${diff.count.id}/approve`);
+      toast(`${t("rc.cnt.tApproved")} — ${res.moved} ${t("rc.cnt.movedN")}, ${res.missing} ${t("rc.cnt.missingN")}`, "ok");
+      load();
+      openDetail(diff.count.id);
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : t("rcv.approveFailed"), "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const cancelCount = async () => {
+    if (!diff || busy) return;
+    const r = await confirm({
+      title: `${t("rc.cnt.cancelBtn")} — ${diff.count.name}?`,
+      body: t("rc.cnt.cancelBody"),
+      confirmLabel: t("rc.cnt.cancelBtn"),
+      danger: true,
+    });
+    if (!r.ok) return;
+    setBusy(true);
+    try {
+      await api.post(`/api/stock-counts/${diff.count.id}/cancel`);
+      toast(`${diff.count.name} ${t("rc.cnt.tCancelled")}`, "ok");
+      load();
+      openDetail(diff.count.id);
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : t("rc.cnt.cancelFailed"), "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const exportDiff = () => {
+    if (!diff) return;
+    exportCSV(
+      "stock-count-diff",
+      ["SKU", t("c.title"), t("rc.cnt.expectedCol"), t("rc.cnt.foundCol"), t("rc.cnt.outcome")],
+      diff.lines.map((l) => [l.sku ?? l.code ?? "", l.title ?? "", l.expectedLabel ?? "", l.foundLabel ?? "", t(OUTCOME_META[l.outcome].key)]),
+    );
+  };
+
+  // ── Detail: diff for one session ────────────────────────────────────────────
+  if (diff) {
+    const c = diff.count;
+    const st = COUNT_STATUS[c.status];
+    const open = c.status === "open";
+    const lines = showMatches ? diff.lines : diff.lines.filter((l) => l.outcome !== "match");
+    return (
+      <div style={{ display: "grid", gap: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <ABtn kind="ghost" size="sm" onClick={() => { setDiff(null); setShowMatches(false); load(); }}>← {t("rc.cnt.all")}</ABtn>
+          <h1 style={{ fontFamily: AT.body, fontSize: 20, fontWeight: 700, color: AT.ink }}>
+            {c.name} <span style={{ color: AT.inkSoft, fontWeight: 500 }}>· {t("rc.cnt.started").toLowerCase()} {formatDate(c.startedAt)}</span>
+          </h1>
+          <ABadge tone={st.tone}>{t(st.key)}</ABadge>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+            <ABtn kind="ghost" size="sm" onClick={exportDiff}>{t("rc.cnt.csv")}</ABtn>
+            {open && can("warehouse.manage") && (
+              <ABtn kind="danger" size="sm" onClick={() => void cancelCount()} disabled={busy}>{t("rc.cnt.cancelBtn")}</ABtn>
+            )}
+            {open && can("grading.review") && (
+              <ABtn kind="dark" size="sm" onClick={() => void approve()} disabled={busy}>{t("rc.cnt.approveBtn")}</ABtn>
+            )}
+          </div>
+        </div>
+
+        {c.status === "approved" && (
+          <div style={{ fontFamily: AT.body, fontSize: 13, color: AT.ok, fontWeight: 600 }}>{t("rc.cnt.approvedNote")}</div>
+        )}
+
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <AStat label={t("rc.cnt.match")} value={diff.tally.match} tone="ok" />
+          <AStat label={t("rc.cnt.wrongBin")} value={diff.tally.wrong_bin} tone="warn" />
+          <AStat label={t("rc.cnt.missing")} value={diff.tally.missing} tone="danger" />
+          <AStat label={t("rc.cnt.movedDuring")} value={diff.tally.moved_during} />
+          <AStat label={t("rc.cnt.unknown")} value={diff.tally.unknown_label} tone="danger" />
+        </div>
+
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: AT.body, fontSize: 13, color: AT.ink, cursor: "pointer", width: "fit-content" }}>
+          <input type="checkbox" checked={showMatches} onChange={() => setShowMatches((v) => !v)} />
+          {t("rc.cnt.showMatches")}
+        </label>
+
+        <ACard pad={false}>
+          {lines.length === 0 ? (
+            <AEmpty text={t("rc.cnt.noDiff")} />
+          ) : (
+            <ATable head={["SKU", t("c.title"), t("rc.cnt.expectedCol"), t("rc.cnt.foundCol"), t("rc.cnt.outcome")]}>
+              {lines.map((l, i) => {
+                const om = OUTCOME_META[l.outcome];
+                return (
+                  <ATr key={`${l.itemId ?? l.code ?? "line"}-${i}`}>
+                    <ATd mono>{l.sku ?? l.code ?? "—"}</ATd>
+                    <ATd><span style={{ fontWeight: 600 }}>{l.title ?? "—"}</span></ATd>
+                    <ATd mono>{l.expectedLabel ?? "—"}</ATd>
+                    <ATd mono>{l.foundLabel ?? "—"}</ATd>
+                    <ATd><ABadge tone={om.tone}>{t(om.key)}</ABadge></ATd>
+                  </ATr>
+                );
+              })}
+            </ATable>
+          )}
+        </ACard>
+      </div>
+    );
+  }
+
+  // ── Sessions list ───────────────────────────────────────────────────────────
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      {can("warehouse.manage") && (
+        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <ABtn onClick={() => {
+            setCreateName(`${t("rc.cnt.tab")} ${new Date().toISOString().slice(0, 10)}`);
+            setCreateZones(new Set());
+            setCreating(true);
+          }}>
+            <AIcon name="plus" size={15} color="#fff" /> {t("rc.cnt.start")}
+          </ABtn>
+        </div>
+      )}
+
+      <ACard pad={false}>
+        {counts.length === 0 ? (
+          <AEmpty text={t("rc.cnt.empty")} />
+        ) : (
+          <ATable head={[t("rc.cnt.name"), t("rc.cnt.started"), t("rc.cnt.zones"), t("rc.cnt.progress"), t("rc.cnt.scans"), t("c.status")]}>
+            {counts.map((c) => {
+              const st = COUNT_STATUS[c.status];
+              return (
+                <ATr key={c.id} onClick={() => openDetail(c.id)}>
+                  <ATd><span style={{ fontWeight: 600 }}>{c.name}</span></ATd>
+                  <ATd>{formatDate(c.startedAt)}</ATd>
+                  <ATd>{c.zones.length > 0 ? c.zones.join(", ") : t("rc.cnt.wholeWh")}</ATd>
+                  <ATd right>{c.doneCount} / {c.binCount} {t("rcv.binsWord")}</ATd>
+                  <ATd right>{c.scanCount}</ATd>
+                  <ATd><ABadge tone={st.tone}>{t(st.key)}</ABadge></ATd>
+                </ATr>
+              );
+            })}
+          </ATable>
+        )}
+      </ACard>
+
+      {creating && (
+        <ADrawer
+          title={t("rc.cnt.start")}
+          onClose={() => setCreating(false)}
+          footer={
+            <>
+              <ABtn kind="ghost" onClick={() => setCreating(false)}>{t("c.cancel")}</ABtn>
+              <ABtn onClick={() => void create()} disabled={createName.trim().length < 2 || busy}>{t("rc.cnt.start")}</ABtn>
+            </>
+          }
+        >
+          <div style={{ display: "grid", gap: 14 }}>
+            <AField label={t("rc.cnt.name")}>
+              <AInput value={createName} onChange={setCreateName} />
+            </AField>
+            <AField label={t("rc.cnt.zones")} hint={t("rc.cnt.zonesHint")}>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {zones.map((z) => {
+                  const on = createZones.has(z);
+                  return (
+                    <button
+                      key={z}
+                      onClick={() => setCreateZones((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(z)) next.delete(z);
+                        else next.add(z);
+                        return next;
+                      })}
+                      style={{
+                        all: "unset", boxSizing: "border-box", cursor: "pointer", padding: "6px 12px", borderRadius: 999,
+                        fontFamily: AT.body, fontSize: 12.5, fontWeight: 600,
+                        background: on ? AT.ink : AT.panel, color: on ? "#fff" : AT.ink,
+                        border: `1px solid ${on ? AT.ink : AT.rule}`,
+                      }}
+                    >{z}</button>
+                  );
+                })}
+              </div>
+            </AField>
+          </div>
+        </ADrawer>
       )}
     </div>
   );
