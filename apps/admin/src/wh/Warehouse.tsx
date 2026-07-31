@@ -1678,7 +1678,7 @@ function CountBinView({ countId, countName, locationId, binLabel, toast, onDone,
   return (
     <div style={{ display: "grid", gap: 12 }}>
       <div style={{ ...S.card, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-        <span style={{ fontFamily: AT.mono, fontSize: 19, fontWeight: 800 }}>{binLabel}</span>
+        <span style={{ fontFamily: AT.mono, fontSize: 19, fontWeight: 800, whiteSpace: "nowrap", flexShrink: 0 }}>{binLabel}</span>
         <span style={{ fontSize: 12.5, color: AT.inkSoft, fontWeight: 600, textAlign: "right", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{countName}</span>
       </div>
 
