@@ -343,6 +343,11 @@ const D = {
   "wh.cnt.binDoneOk": { lv: "Plaukts atzīmēts kā pabeigts", ru: "Полка отмечена как готовая", en: "Bin marked as done" },
   "wh.cnt.closed": { lv: "Inventarizācija ir slēgta", ru: "Инвентаризация закрыта", en: "This stock count is closed" },
   "wh.cnt.scanFailed": { lv: "Skenēšana neizdevās — mēģiniet vēlreiz", ru: "Скан не удался — попробуйте ещё раз", en: "Scan failed — try again" },
+  "wh.cnt.loadFailed": { lv: "Neizdevās ielādēt — mēģiniet vēlreiz.", ru: "Не удалось загрузить — попробуйте ещё раз.", en: "Couldn't load — try again." },
+  "wh.cnt.noAccess": { lv: "Nav tiesību inventarizācijai. Sazinieties ar vadītāju.", ru: "Нет прав на инвентаризацию. Обратитесь к руководителю.", en: "You don't have access to stock counts. Ask a manager." },
+  "wh.cnt.retry": { lv: "Mēģināt vēlreiz", ru: "Повторить", en: "Try again" },
+  "wh.cnt.binOutOfScope": { lv: "Šis plaukts nav šajā inventarizācijā — izvēlieties plauktu no saraksta", ru: "Эта полка не входит в эту инвентаризацию — выберите полку из списка", en: "This bin isn't part of this stock count — pick one from the list" },
+  "wh.cnt.otherBinHint": { lv: "Prece pierakstīta citā plauktā. Ja tā tiešām ir šeit, noskenējiet to vēlreiz šajā plauktā — skaitās pēdējais skenējums.", ru: "Товар числится на другой полке. Если он действительно здесь, отсканируйте его ещё раз на этой полке — засчитывается последний скан.", en: "This item is recorded in another bin. If it really is here, scan it again in this bin — the latest scan wins." },
 } satisfies Record<string, Entry>;
 
 /** Phase D — every screen area contributes its own module; keys must be

@@ -266,7 +266,11 @@ export function WarehouseMode() {
             {can("items.view") && (
               <button style={{ ...S.btn, ...S.btnGhost }} onClick={() => setView({ v: "bins" })}>🗂️ {t("wh.bins")}</button>
             )}
-            <button style={{ ...S.btn, ...S.btnGhost }} onClick={() => setView({ v: "cnt" })}>📋 {t("wh.cnt.title")}</button>
+            {/* Counting needs items.view to read the sessions AND warehouse.manage
+                to scan / close a bin — showing the tile without both is a dead end. */}
+            {can("items.view") && can("warehouse.manage") && (
+              <button style={{ ...S.btn, ...S.btnGhost }} onClick={() => setView({ v: "cnt" })}>📋 {t("wh.cnt.title")}</button>
+            )}
             <div style={{ ...S.card, display: "flex", alignItems: "center", gap: 10 }}>
               <div style={{
                 width: 38, height: 38, borderRadius: 999, background: AT.accentSoft, color: AT.accent,
@@ -1523,16 +1527,40 @@ interface StockCountBin {
   done: boolean;
 }
 
+/**
+ * A failed load must never be dressed up as "nothing to count": 401/403 means
+ * the account lost the permission, anything else is a real outage.
+ */
+const countLoadErrorKey = (err: unknown): TKey =>
+  err instanceof ApiError && (err.status === 401 || err.status === 403) ? "wh.cnt.noAccess" : "wh.cnt.loadFailed";
+
+function CountLoadError({ messageKey, onRetry }: { messageKey: TKey; onRetry: () => void }) {
+  const { t } = useT();
+  return (
+    <div style={{ ...S.card, border: `1.5px solid ${AT.dangerSoft}`, display: "grid", gap: 10 }}>
+      <div style={{ fontSize: 14.5, fontWeight: 700, color: AT.danger, lineHeight: 1.45 }}>{t(messageKey)}</div>
+      <button style={{ ...S.btn, ...S.btnGhost, minHeight: 46, boxShadow: "none" }} onClick={onRetry}>{t("wh.cnt.retry")}</button>
+    </div>
+  );
+}
+
 /** Open counting sessions — pick one to start walking shelves. */
 function CountList({ onPick }: { onPick: (c: StockCountRow) => void }) {
   const { t } = useT();
   const [counts, setCounts] = useState<StockCountRow[] | null>(null);
+  const [error, setError] = useState<TKey | null>(null);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
+    let alive = true;
+    setCounts(null);
+    setError(null);
     void api
       .get<{ counts: StockCountRow[] }>("/api/stock-counts")
-      .then((r) => setCounts(r.counts.filter((c) => c.status === "open")))
-      .catch(() => setCounts([]));
-  }, []);
+      .then((r) => { if (alive) setCounts(r.counts.filter((c) => c.status === "open")); })
+      .catch((err: unknown) => { if (alive) setError(countLoadErrorKey(err)); });
+    return () => { alive = false; };
+  }, [attempt]);
+  if (error) return <CountLoadError messageKey={error} onRetry={() => setAttempt((n) => n + 1)} />;
   if (counts === null) return <div style={{ ...S.card, color: AT.inkSoft }}>{t("wh.loading")}</div>;
   if (counts.length === 0) {
     return (
@@ -1564,9 +1592,19 @@ function CountList({ onPick }: { onPick: (c: StockCountRow) => void }) {
 function CountSessionView({ id, onBin }: { id: string; onBin: (locationId: string, binLabel: string) => void }) {
   const { t } = useT();
   const [data, setData] = useState<{ count: StockCountRow; bins: StockCountBin[]; scanCount: number } | null>(null);
+  const [error, setError] = useState<TKey | null>(null);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
-    void api.get<{ count: StockCountRow; bins: StockCountBin[]; scanCount: number }>(`/api/stock-counts/${id}`).then((r) => setData(r)).catch(() => undefined);
-  }, [id]);
+    let alive = true;
+    setData(null);
+    setError(null);
+    void api
+      .get<{ count: StockCountRow; bins: StockCountBin[]; scanCount: number }>(`/api/stock-counts/${id}`)
+      .then((r) => { if (alive) setData(r); })
+      .catch((err: unknown) => { if (alive) setError(countLoadErrorKey(err)); });
+    return () => { alive = false; };
+  }, [id, attempt]);
+  if (error) return <CountLoadError messageKey={error} onRetry={() => setAttempt((n) => n + 1)} />;
   if (!data) return <div style={{ ...S.card, color: AT.inkSoft }}>{t("wh.loading")}</div>;
   const bins = [...data.bins].sort((a, b) => a.label.localeCompare(b.label));
   return (
@@ -1608,10 +1646,13 @@ type CountScanResult = { known: false } | { known: true; sku: string; title: str
 
 interface CountScanEntry {
   key: number;
+  /** Identity used to collapse re-scans of the same item into one row. */
+  id: string;
   code: string;
   sku: string | null;
   title: string | null;
   kind: "ok" | "other" | "unknown";
+  times: number;
 }
 
 /**
@@ -1634,21 +1675,46 @@ function CountBinView({ countId, countName, locationId, binLabel, toast, onDone,
   const [busy, setBusy] = useState(false);
   const seq = useRef(0);
 
+  /**
+   * Both count endpoints answer 409 for two very different situations: the
+   * session was closed under us, or this bin isn't in the session's scope.
+   * Either way the worker must stop scanning into a void — send them back.
+   * Returns true when the error was a conflict we handled.
+   */
+  const handleConflict = (err: ApiError): boolean => {
+    if (err.status !== 409) return false;
+    if (err.body.error === "bin_out_of_scope") {
+      toast(t("wh.cnt.binOutOfScope"), "danger");
+      onDone(); // back to the bin list — the scoped shelves are all there
+      return true;
+    }
+    toast(t("wh.cnt.closed"), "danger");
+    onClosed();
+    return true;
+  };
+
   const submit = async (raw: string) => {
     const c = raw.trim();
     if (c.length < 3 || busy) return;
     setBusy(true);
     try {
       const r = await api.post<CountScanResult>(`/api/stock-counts/${countId}/scan`, { code: c, locationId });
-      const entry: CountScanEntry = r.known
-        ? { key: ++seq.current, code: c, sku: r.sku, title: r.title, kind: r.samePlace ? "ok" : "other" }
-        : { key: ++seq.current, code: c, sku: null, title: null, kind: "unknown" };
-      setScans((list) => [entry, ...list]);
+      const kind: CountScanEntry["kind"] = r.known ? (r.samePlace ? "ok" : "other") : "unknown";
+      const id = r.known ? r.sku : c.toUpperCase();
+      const sku = r.known ? r.sku : null;
+      const title = r.known ? r.title : null;
+      // The server keeps the LATEST scan per item, so a re-scan in this bin is a
+      // correction, not a second piece — update the row it already has.
+      setScans((list) => {
+        const at = list.findIndex((s) => s.id === id);
+        if (at < 0) return [{ key: ++seq.current, id, code: c, sku, title, kind, times: 1 }, ...list];
+        const next = [...list];
+        const prev = next[at]!;
+        next[at] = { ...prev, code: c, sku: sku ?? prev.sku, title: title ?? prev.title, kind, times: prev.times + 1 };
+        return next;
+      });
     } catch (err) {
-      if (err instanceof ApiError && err.status === 409) {
-        toast(t("wh.cnt.closed"), "danger");
-        onClosed();
-      } else {
+      if (!(err instanceof ApiError) || !handleConflict(err)) {
         toast(err instanceof ApiError ? err.message : t("wh.cnt.scanFailed"), "danger");
       }
     } finally {
@@ -1664,10 +1730,7 @@ function CountBinView({ countId, countName, locationId, binLabel, toast, onDone,
       toast(t("wh.cnt.binDoneOk"));
       onDone();
     } catch (err) {
-      if (err instanceof ApiError && err.status === 409) {
-        toast(t("wh.cnt.closed"), "danger");
-        onClosed();
-      } else {
+      if (!(err instanceof ApiError) || !handleConflict(err)) {
         toast(err instanceof ApiError ? err.message : t("wh.actionFailed"), "danger");
       }
     } finally {
@@ -1721,11 +1784,23 @@ function CountBinView({ countId, countName, locationId, binLabel, toast, onDone,
                 <span style={{ display: "block", fontFamily: AT.mono, fontSize: 14, fontWeight: 700 }}>{s.sku ?? s.code}</span>
                 {s.title && <span style={{ display: "block", fontSize: 12, color: AT.inkSoft, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.title}</span>}
               </span>
+              {s.times > 1 && (
+                <span style={{ fontSize: 12, fontWeight: 800, color: AT.inkSoft, flexShrink: 0 }}>×{s.times}</span>
+              )}
               {s.kind !== "ok" && (
                 <Pill text={t(s.kind === "other" ? "wh.cnt.otherBin" : "wh.cnt.unknown")} tone={s.kind === "other" ? "warn" : "danger"} />
               )}
             </div>
           ))
+        )}
+        {/* Latest scan wins server-side — say so, so «cits plaukts» reads as
+            something the worker can fix by scanning again right here. */}
+        {scans.some((s) => s.kind === "other") && (
+          <div style={{
+            marginTop: 8, padding: "9px 11px", borderRadius: 10,
+            background: AT.warnSoft, color: AT.warn,
+            fontSize: 12.5, fontWeight: 600, lineHeight: 1.45,
+          }}>{t("wh.cnt.otherBinHint")}</div>
         )}
       </div>
 
