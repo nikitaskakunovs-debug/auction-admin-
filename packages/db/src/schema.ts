@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
@@ -364,6 +365,37 @@ export const stockMovements = pgTable(
 
 // ── Receiving (consignments / deliveries) ────────────────────────────────────
 
+/**
+ * R1 — who we buy from. Until now the supplier was free text retyped on every
+ * delivery, so "Nordic Trade OÜ" and "nordic trade" were different suppliers
+ * and "what do we owe them?" had no answer.
+ *
+ * Payment terms and bank details are commercial: the API only accepts them
+ * from finance.view holders, and strips them for everyone else.
+ */
+export const suppliers = pgTable(
+  "suppliers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    regNo: text("reg_no").notNull().default(""),
+    vatNo: text("vat_no").notNull().default(""),
+    email: text("email").notNull().default(""),
+    phone: text("phone").notNull().default(""),
+    address: text("address").notNull().default(""),
+    /** IBAN — finance-only, like every other money field. */
+    bankAccount: text("bank_account").notNull().default(""),
+    /** Days from invoice date to due date; the default this supplier bills on. */
+    paymentTermsDays: integer("payment_terms_days").notNull().default(14),
+    notes: text("notes").notNull().default(""),
+    active: boolean("active").notNull().default(true),
+    createdById: uuid("created_by_id").references(() => adminUsers.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("suppliers_name_idx").on(sql`lower(${t.name})`), index("suppliers_active_idx").on(t.active)],
+);
+
 /** One inbound delivery (pallet, supplier lot, buy-out). Items are received
  * against it one by one at the intake station, each writing an `intake`
  * stock movement. */
@@ -373,7 +405,10 @@ export const consignments = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     /** Human ref (CON-0042) from the counters row lock. */
     ref: text("ref").notNull(),
+    /** Display snapshot of the supplier's name, kept alongside supplierId so
+     * old deliveries still read correctly if a supplier is later renamed. */
     supplier: text("supplier").notNull(),
+    supplierId: uuid("supplier_id").references(() => suppliers.id),
     notes: text("notes").notNull().default(""),
     marketCode: text("market_code")
       .notNull()
@@ -1029,6 +1064,61 @@ export const bugReportReads = pgTable(
     lastReadAt: timestamp("last_read_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("bug_report_reads_pk").on(t.userId, t.reportId)],
+);
+
+/**
+ * R1 — a bill FROM a supplier. Everything else called "invoice" in this schema
+ * is buyer-side and hangs off an order; this is the other direction, and hangs
+ * off a delivery.
+ *
+ * `status` is derived from the payments below and stored so the overdue list
+ * is one indexed read: unpaid | partly_paid | paid | cancelled.
+ */
+export const supplierInvoices = pgTable(
+  "supplier_invoices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    supplierId: uuid("supplier_id")
+      .notNull()
+      .references(() => suppliers.id),
+    /** Usually one bill per delivery, but a bill can arrive without one. */
+    consignmentId: uuid("consignment_id").references(() => consignments.id),
+    /** The supplier's own number, as printed — not ours to generate. */
+    number: text("number").notNull(),
+    invoiceDate: timestamp("invoice_date", { withTimezone: true }).notNull(),
+    dueDate: timestamp("due_date", { withTimezone: true }).notNull(),
+    amountCents: integer("amount_cents").notNull(),
+    status: text("status").notNull().default("unpaid"),
+    note: text("note").notNull().default(""),
+    createdById: uuid("created_by_id").references(() => adminUsers.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("supplier_invoices_status_idx").on(t.status, t.dueDate),
+    index("supplier_invoices_supplier_idx").on(t.supplierId),
+    index("supplier_invoices_consignment_idx").on(t.consignmentId),
+  ],
+);
+
+/** Money actually sent. Several per invoice — part payments are normal. */
+export const supplierPayments = pgTable(
+  "supplier_payments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    invoiceId: uuid("invoice_id")
+      .notNull()
+      .references(() => supplierInvoices.id, { onDelete: "cascade" }),
+    amountCents: integer("amount_cents").notNull(),
+    paidAt: timestamp("paid_at", { withTimezone: true }).notNull(),
+    /** bank_transfer | cash | card | other */
+    method: text("method").notNull().default("bank_transfer"),
+    note: text("note").notNull().default(""),
+    actorId: uuid("actor_id").references(() => adminUsers.id),
+    actorLabel: text("actor_label").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("supplier_payments_invoice_idx").on(t.invoiceId)],
 );
 
 export const auditLog = pgTable(
