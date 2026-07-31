@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type Invoice, type VatReport } from "../api.js";
 import type { Nav } from "../App.js";
+import { useAuth } from "../auth.js";
 import { exportCSV, exportPDFPrint, exportXLS } from "../exporters.js";
 import { formatDate, formatEur } from "../format.js";
 import { useT, type TKey } from "../i18n.js";
@@ -28,12 +29,17 @@ function today(): string {
 
 export function FinanceScreen({ nav: _nav }: { nav: Nav }) {
   const { t } = useT();
+  const { can } = useAuth();
   const [tab, setTab] = useState("payments");
+  // W6: profit & stock value — purchase costs are private to finance.view.
+  const tabs: { id: string; label: TKey }[] = can("finance.view")
+    ? [...TABS, { id: "profit", label: "fin.pf.tab" }]
+    : TABS;
   return (
     <div style={{ display: "grid", gap: 14 }}>
       <h1 style={{ fontFamily: AT.body, fontSize: 20, fontWeight: 700, color: AT.ink }}>{t("fin.title")}</h1>
       <div style={{ display: "flex", gap: 2, borderBottom: `1px solid ${AT.rule}` }}>
-        {TABS.map((tb) => (
+        {tabs.map((tb) => (
           <button key={tb.id} onClick={() => setTab(tb.id)} style={{
             all: "unset", cursor: "pointer", padding: "9px 14px", fontFamily: AT.body,
             fontSize: 13, fontWeight: 600, color: tab === tb.id ? AT.ink : AT.inkSoft,
@@ -41,7 +47,7 @@ export function FinanceScreen({ nav: _nav }: { nav: Nav }) {
           }}>{t(tb.label)}</button>
         ))}
       </div>
-      {tab === "payments" ? <PaymentsTab /> : tab === "invoices" ? <InvoicesTab /> : <VatTab />}
+      {tab === "payments" ? <PaymentsTab /> : tab === "invoices" ? <InvoicesTab /> : tab === "profit" ? <ProfitTab /> : <VatTab />}
     </div>
   );
 }
@@ -532,6 +538,220 @@ function VatTab() {
           </ATable>
         )}
       </ACard>
+    </div>
+  );
+}
+
+// ── W6: Profit & stock value (finance.view only) ─────────────────────────────
+
+interface ProfitLine {
+  sku: string;
+  title: string;
+  orderRef: string;
+  paidAt: string;
+  soldCents: number;
+  costCents: number | null;
+  profitCents: number | null;
+  marginPct: number | null;
+}
+interface ProfitConsignment {
+  ref: string;
+  supplier: string;
+  receivedCount: number;
+  soldCount: number;
+  profitCents: number | null;
+  noCostData: number;
+}
+interface ProfitReport {
+  summary: { soldCount: number; revenueCents: number; profitCents: number; marginPct: number | null; noCostData: number };
+  lines: ProfitLine[];
+  consignments: ProfitConsignment[];
+}
+interface StockBucket { units: number; valueCents: number; noCostData: number }
+interface StockValue { ready: StockBucket; drafts: StockBucket; quarantine: StockBucket; total: StockBucket }
+
+/** Signed profit in green/red; em-dash when the cost is unknown. */
+function ProfitCell({ cents }: { cents: number | null }) {
+  if (cents == null) return <span style={{ color: AT.inkSoft }}>—</span>;
+  const color = cents > 0 ? AT.ok : cents < 0 ? AT.danger : AT.ink;
+  return <strong style={{ color }}>{formatEur(cents)}</strong>;
+}
+
+const pct = (v: number | null): string => (v == null ? "—" : `${v.toFixed(1)}%`);
+
+/**
+ * Profit per sold item (hammer − purchase cost, before buyer premium/VAT),
+ * today's stock value and per-consignment profitability. Costs are optional:
+ * items without one are never assumed free — they are counted separately as
+ * "no cost data" and excluded from profit totals.
+ */
+function ProfitTab() {
+  const { t } = useT();
+  const toast = useToast();
+  const [from, setFrom] = useState(monthStart());
+  const [to, setTo] = useState(today());
+  const [report, setReport] = useState<ProfitReport | null>(null);
+  const [stock, setStock] = useState<StockValue | null>(null);
+
+  const run = () => {
+    // `to` is exclusive in the API; include the chosen end day.
+    const toExclusive = new Date(new Date(to).getTime() + 86_400_000).toISOString().slice(0, 10);
+    void api
+      .get<ProfitReport>(`/api/reports/profit?from=${from}&to=${toExclusive}`)
+      .then(setReport)
+      .catch(() => toast(t("fin.pf.loadFailed"), "danger"));
+  };
+  useEffect(run, []);
+  useEffect(() => {
+    void api.get<StockValue>("/api/reports/stock-value").then(setStock).catch(() => undefined);
+  }, []);
+
+  const lineHeaders = [
+    "SKU", t("fin.pf.th.item"), t("fin.th.order"), `${t("fin.pf.th.sold")} €`,
+    `${t("fin.pf.th.cost")} €`, `${t("fin.pf.th.profit")} €`, "%",
+  ];
+  const runExport = () => {
+    if (!report || report.lines.length === 0) return toast(t("fin.nothingToExport"), "warn");
+    const body = report.lines.map((l) => [
+      l.sku,
+      l.title,
+      l.orderRef,
+      (l.soldCents / 100).toFixed(2),
+      l.costCents == null ? "" : (l.costCents / 100).toFixed(2),
+      l.profitCents == null ? "" : (l.profitCents / 100).toFixed(2),
+      l.marginPct == null ? "" : l.marginPct.toFixed(1),
+    ]);
+    exportCSV(`profit-${from}-to-${to}`, lineHeaders, body);
+  };
+
+  const stockRows: { label: TKey; bucket: StockBucket }[] = stock
+    ? [
+        { label: "fin.pf.stock.ready", bucket: stock.ready },
+        { label: "fin.pf.stock.drafts", bucket: stock.drafts },
+        { label: "fin.pf.stock.quarantine", bucket: stock.quarantine },
+      ]
+    : [];
+
+  const noDataNote = (n: number) =>
+    n > 0 ? (
+      <span style={{ fontFamily: AT.body, fontSize: 10.5, color: AT.warn, marginLeft: 8 }}>
+        {t("fin.pf.stock.noData")}: {n}
+      </span>
+    ) : null;
+
+  const s = report?.summary;
+  return (
+    <div style={{ display: "grid", gap: 14 }}>
+      <div style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
+        <AField label={t("fin.pf.from")}><AInput type="date" value={from} onChange={setFrom} /></AField>
+        <AField label={t("fin.pf.toIncl")}><AInput type="date" value={to} onChange={setTo} /></AField>
+        <ABtn onClick={run}>{t("fin.pf.run")}</ABtn>
+        {report && report.lines.length > 0 && (
+          <ABtn kind="ghost" onClick={runExport}><AIcon name="download" size={13} /> {t("fin.pf.exportCsv")}</ABtn>
+        )}
+        <span style={{ fontFamily: AT.body, fontSize: 11.5, color: AT.inkSoft, marginLeft: "auto" }}>
+          {t("fin.pf.basis")}
+        </span>
+      </div>
+
+      {s && (
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <AStat label={t("fin.pf.stat.sold")} value={s.soldCount} sub={`${t("fin.pf.itemsSuffix")} · ${t("fin.pf.revenue")} ${formatEur(s.revenueCents)}`} />
+          <AStat label={t("fin.pf.stat.profit")} value={formatEur(s.profitCents)} tone={s.profitCents > 0 ? "ok" : s.profitCents < 0 ? "danger" : undefined} />
+          <AStat label={t("fin.pf.stat.margin")} value={pct(s.marginPct)} />
+          <AStat
+            label={t("fin.pf.stat.noData")}
+            value={s.noCostData}
+            tone={s.noCostData > 0 ? "warn" : undefined}
+            sub={s.noCostData > 0 ? t("fin.pf.noDataHint") : undefined}
+          />
+        </div>
+      )}
+
+      <ACard pad={false}>
+        {!report || report.lines.length === 0 ? (
+          <AEmpty text={t("fin.pf.linesEmpty")} />
+        ) : (
+          <ATable head={["SKU", t("fin.pf.th.item"), t("fin.th.order"), t("fin.pf.th.sold"), t("fin.pf.th.cost"), t("fin.pf.th.profit"), "%"]}>
+            {report.lines.map((l, idx) => (
+              <ATr key={`${l.orderRef}-${idx}`}>
+                <ATd mono>{l.sku}</ATd>
+                <ATd><span style={{ fontWeight: 600 }}>{l.title}</span></ATd>
+                <ATd mono>{l.orderRef}</ATd>
+                <ATd mono right>{formatEur(l.soldCents)}</ATd>
+                <ATd mono right>
+                  {l.costCents == null
+                    ? <span style={{ color: AT.inkSoft, fontFamily: AT.body, fontSize: 11.5 }}>{t("fin.pf.noCost")}</span>
+                    : formatEur(l.costCents)}
+                </ATd>
+                <ATd mono right><ProfitCell cents={l.profitCents} /></ATd>
+                <ATd mono right>{pct(l.marginPct)}</ATd>
+              </ATr>
+            ))}
+          </ATable>
+        )}
+      </ACard>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 14, alignItems: "start" }}>
+        <ACard title={t("fin.pf.stock.title")} pad={false}>
+          {!stock ? (
+            <AEmpty text={t("c.loading")} />
+          ) : (
+            <div style={{ display: "grid" }}>
+              {stockRows.map((r) => (
+                <div key={r.label} style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "10px 16px", borderBottom: `1px solid ${AT.ruleSoft}` }}>
+                  <span style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.ink }}>
+                    {t(r.label)}
+                    {noDataNote(r.bucket.noCostData)}
+                  </span>
+                  <span style={{ marginLeft: "auto", fontFamily: AT.body, fontSize: 11.5, color: AT.inkSoft }}>
+                    {r.bucket.units} {t("fin.pf.stock.units")}
+                  </span>
+                  <span style={{ fontFamily: AT.mono, fontSize: 12.5, fontWeight: 600, color: AT.ink, minWidth: 80, textAlign: "right" }}>
+                    {formatEur(r.bucket.valueCents)}
+                  </span>
+                </div>
+              ))}
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "10px 16px" }}>
+                <span style={{ fontFamily: AT.body, fontSize: 12.5, fontWeight: 700, color: AT.ink }}>
+                  {t("c.total")}
+                  {noDataNote(stock.total.noCostData)}
+                </span>
+                <span style={{ marginLeft: "auto", fontFamily: AT.body, fontSize: 11.5, color: AT.inkSoft }}>
+                  {stock.total.units} {t("fin.pf.stock.units")}
+                </span>
+                <span style={{ fontFamily: AT.mono, fontSize: 12.5, fontWeight: 700, color: AT.ink, minWidth: 80, textAlign: "right" }}>
+                  {formatEur(stock.total.valueCents)}
+                </span>
+              </div>
+            </div>
+          )}
+        </ACard>
+
+        <ACard title={t("fin.pf.cons.title")} pad={false}>
+          {!report || report.consignments.length === 0 ? (
+            <AEmpty text={t("fin.pf.cons.empty")} />
+          ) : (
+            <div style={{ display: "grid" }}>
+              {report.consignments.map((c) => (
+                <div key={c.ref} style={{ display: "flex", alignItems: "baseline", gap: 10, padding: "10px 16px", borderBottom: `1px solid ${AT.ruleSoft}` }}>
+                  <span style={{ fontFamily: AT.mono, fontSize: 12, fontWeight: 700, color: AT.ink }}>{c.ref}</span>
+                  <span style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {c.supplier}
+                    {noDataNote(c.noCostData)}
+                  </span>
+                  <span style={{ marginLeft: "auto", fontFamily: AT.body, fontSize: 11.5, color: AT.inkSoft, whiteSpace: "nowrap" }}>
+                    {c.soldCount}/{c.receivedCount} {t("fin.pf.cons.sold")}
+                  </span>
+                  <span style={{ fontFamily: AT.mono, fontSize: 12.5, minWidth: 70, textAlign: "right" }}>
+                    <ProfitCell cents={c.profitCents} />
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </ACard>
+      </div>
     </div>
   );
 }

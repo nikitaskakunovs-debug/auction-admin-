@@ -72,9 +72,34 @@ interface FormState {
   location: string;
   weight: string;
   marketCode: string;
+  /** W6: purchase cost in EUR as typed — "" means unknown (null), never zero. */
+  cost: string;
 }
 
-const emptyForm: FormState = { sku: "", title: "", description: "", condition: "brand_new", conditionNotes: "", category: "other", location: "", weight: "", marketCode: "LV" };
+const emptyForm: FormState = { sku: "", title: "", description: "", condition: "brand_new", conditionNotes: "", category: "other", location: "", weight: "", marketCode: "LV", cost: "" };
+
+/** W6: purchase cost — the API includes costCents only for finance.view holders. */
+type ItemWithCost = Item & { costCents?: number | null };
+
+const itemCostStr = (i: Item): string => {
+  const c = (i as ItemWithCost).costCents;
+  return c == null ? "" : (c / 100).toFixed(2);
+};
+
+/** "12,50" / "12.5" → 1250; empty or invalid → null (unknown, never zero). */
+const costToCents = (s: string): number | null => {
+  const v = s.trim().replace(",", ".");
+  if (!v) return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : null;
+};
+
+const formFromItem = (i: Item): FormState => ({
+  sku: i.sku, title: i.title, description: i.description, condition: i.condition,
+  conditionNotes: i.conditionNotes ?? "", category: i.category ?? "other",
+  location: i.location, weight: i.weightGrams == null ? "" : String(i.weightGrams), marketCode: i.marketCode,
+  cost: itemCostStr(i),
+});
 
 interface Bin { id: string; label: string; zone: string; active: boolean }
 
@@ -218,11 +243,7 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
       const i = r.item;
       setEditing(i);
       setDrawerTab("details");
-      setForm({
-        sku: i.sku, title: i.title, description: i.description, condition: i.condition,
-        conditionNotes: i.conditionNotes ?? "", category: i.category ?? "other",
-        location: i.location, weight: i.weightGrams == null ? "" : String(i.weightGrams), marketCode: i.marketCode,
-      });
+      setForm(formFromItem(i));
     }).catch(() => undefined);
   }, [param]);
 
@@ -280,7 +301,11 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
   };
 
   const submit = async () => {
-    const body = {
+    const body: {
+      sku: string; title: string; description: string; condition: string; conditionNotes: string;
+      category: string; location: string; weightGrams: number | null; marketCode: string;
+      costCents?: number | null;
+    } = {
       sku: form.sku,
       title: form.title,
       description: form.description,
@@ -291,6 +316,13 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
       weightGrams: form.weight ? Number(form.weight) : null,
       marketCode: form.marketCode,
     };
+    // W6: only finance.view may send costCents (the API 403s otherwise), and
+    // only when the operator actually changed it — untouched items stay as-is.
+    if (can("finance.view")) {
+      const orig = editing ? (editing as ItemWithCost).costCents ?? null : null;
+      const next = costToCents(form.cost);
+      if (next !== orig) body.costCents = next;
+    }
     try {
       if (editing) {
         await api.patch(`/api/items/${editing.id}`, body);
@@ -512,11 +544,7 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
               <button key={i.id} onClick={() => {
                 setEditing(i);
                 setDrawerTab("details");
-                setForm({
-                  sku: i.sku, title: i.title, description: i.description, condition: i.condition,
-                  conditionNotes: i.conditionNotes ?? "", category: i.category ?? "other",
-                  location: i.location, weight: i.weightGrams == null ? "" : String(i.weightGrams), marketCode: i.marketCode,
-                });
+                setForm(formFromItem(i));
               }} style={{
                 all: "unset", cursor: "pointer", display: "grid", gap: 5,
                 padding: "13px 14px", borderBottom: `1px solid ${AT.ruleSoft}`,
@@ -559,11 +587,7 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
                 <ATr key={i.id} active={selected.has(i.id)} onClick={() => {
                   setEditing(i);
                   setDrawerTab("details");
-                  setForm({
-                    sku: i.sku, title: i.title, description: i.description, condition: i.condition,
-                    conditionNotes: i.conditionNotes ?? "", category: i.category ?? "other",
-                    location: i.location, weight: i.weightGrams == null ? "" : String(i.weightGrams), marketCode: i.marketCode,
-                  });
+                  setForm(formFromItem(i));
                 }}>
                   <ATd style={{ width: 34 }}>
                     <input
@@ -712,6 +736,11 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
               </AField>
               <AField label="Location (note)"><AInput value={form.location} onChange={(v) => set({ location: v })} placeholder="A-01-03" /></AField>
               <AField label="Weight (grams)"><AInput value={form.weight} onChange={(v) => set({ weight: v })} placeholder="1200" /></AField>
+              {can("finance.view") && (
+                <AField label={t("inv.cost.label")} hint={t("inv.cost.private")}>
+                  <AInput type="number" value={form.cost} onChange={(v) => set({ cost: v })} placeholder={t("inv.cost.unknown")} />
+                </AField>
+              )}
             </div>
             {conditionByCode(form.condition) && (
               <div style={{ fontSize: 12, color: AT.inkSoft, marginTop: -8 }}>{conditionByCode(form.condition)!.description}</div>

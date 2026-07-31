@@ -97,6 +97,11 @@ export const INVENTORY = {
   "inv.whBinHint": { lv: "Plaukta maiņa ieraksta novietošanu/pārvietošanu krājumu žurnālā.", ru: "Смена полки записывает размещение/перемещение в складской журнал.", en: "Changing the bin writes a putaway/move into the stock ledger." },
   "inv.noBinOpt": { lv: "— bez plaukta —", ru: "— без полки —", en: "— no bin —" },
 
+  // ── W6: purchase cost (finance-only) ───────────────────────────────────────
+  "inv.cost.label": { lv: "Iepirkuma cena (EUR)", ru: "Закупочная цена (EUR)", en: "Purchase cost (EUR)" },
+  "inv.cost.unknown": { lv: "nav datu", ru: "нет данных", en: "no data" },
+  "inv.cost.private": { lv: "Redzams tikai finansēm — atstājiet tukšu, ja iepirkuma cena nav zināma.", ru: "Видно только финансам — оставьте пустым, если закупочная цена неизвестна.", en: "Visible to finance only — leave empty if the purchase cost is unknown." },
+
   // ── Category names (mapped by @auction/domain category code) ──────────────
   "inv.cat.electronics": { lv: "Elektronika", ru: "Электроника", en: "Electronics" },
   "inv.cat.appliances": { lv: "Sadzīves tehnika", ru: "Бытовая техника", en: "Home appliances" },
