@@ -29,6 +29,7 @@ import { registerPublicRoutes } from "./routes/public.js";
 import { registerReceivingRoutes } from "./routes/receiving.js";
 import { registerSearchRoutes } from "./routes/search.js";
 import { registerStockCountRoutes } from "./routes/stockCounts.js";
+import { registerSupplierRoutes } from "./routes/suppliers.js";
 import { registerViewRoutes } from "./routes/views.js";
 import { registerShippingRoutes } from "./routes/shipping.js";
 import { registerWarehouseOpsRoutes } from "./routes/warehouseOps.js";
@@ -146,6 +147,7 @@ export async function buildServer(ctx: AppContext, opts: { logger?: boolean } = 
   registerGradingRoutes(app, ctx, perms);
   registerItemCommentRoutes(app, ctx, perms);
   registerReceivingRoutes(app, ctx, perms);
+  registerSupplierRoutes(app, ctx, perms);
   registerPublicRoutes(app, ctx);
   registerPaymentRoutes(app, ctx);
   registerShippingRoutes(app, ctx, perms);

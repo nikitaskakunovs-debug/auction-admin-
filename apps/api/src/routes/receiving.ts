@@ -1,4 +1,4 @@
-import { consignments, counters, items, stockMovements, warehouseLocations } from "@auction/db";
+import { consignments, counters, items, stockMovements, suppliers, warehouseLocations } from "@auction/db";
 import {
   conditionByCode,
   conditionRequiresNotes,
@@ -72,6 +72,9 @@ export function registerReceivingRoutes(app: FastifyInstance, ctx: AppContext, p
 
   const consignmentBody = z.object({
     supplier: z.string().min(2).max(120),
+    /** R1 — the supplier record this delivery belongs to. The text above stays
+     * as the display snapshot so old paperwork still reads the same. */
+    supplierId: z.string().uuid().optional(),
     marketCode: z.string().length(2),
     notes: z.string().max(2000).default(""),
     expectedCount: z.number().int().min(0).default(0),
@@ -80,11 +83,39 @@ export function registerReceivingRoutes(app: FastifyInstance, ctx: AppContext, p
   app.post("/api/consignments", guard("warehouse.manage"), async (req, reply) => {
     const body = consignmentBody.safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: body.error.flatten() });
+
+    // Given an id, the supplier's own name wins over whatever was typed.
+    // Given only a name, link it to an existing supplier when one matches —
+    // that is how the free-text era stops adding new spellings.
+    let supplierId = body.data.supplierId ?? null;
+    let supplierName = body.data.supplier;
+    if (supplierId) {
+      const [s] = await ctx.db.select().from(suppliers).where(eq(suppliers.id, supplierId));
+      if (!s) return reply.code(404).send({ error: "supplier_not_found" });
+      supplierName = s.name;
+    } else {
+      const [s] = await ctx.db
+        .select({ id: suppliers.id, name: suppliers.name })
+        .from(suppliers)
+        .where(sql`lower(${suppliers.name}) = lower(${body.data.supplier.trim()})`);
+      if (s) {
+        supplierId = s.id;
+        supplierName = s.name;
+      }
+    }
+
     const row = await ctx.db.transaction(async (tx) => {
       const ref = formatConsignmentRef(await nextCounter(tx, "consignment_ref"));
       const [created] = await tx
         .insert(consignments)
-        .values({ ...body.data, marketCode: body.data.marketCode.toUpperCase(), ref, createdById: req.admin!.sub })
+        .values({
+          ...body.data,
+          supplier: supplierName,
+          supplierId,
+          marketCode: body.data.marketCode.toUpperCase(),
+          ref,
+          createdById: req.admin!.sub,
+        })
         .returning();
       await writeAudit(tx, actor(req), "item", "consignment_created", ref, { supplier: body.data.supplier });
       return created;
@@ -134,6 +165,25 @@ export function registerReceivingRoutes(app: FastifyInstance, ctx: AppContext, p
       .returning();
     if (!row) return reply.code(409).send({ error: "not_open" });
     await writeAudit(ctx.db, actor(req), "item", "consignment_closed", row.ref);
+    return { consignment: row };
+  });
+
+  /** Attach a delivery to a supplier after the fact — older deliveries whose
+   * typed name matched nothing during the backfill need this before they can
+   * carry an invoice. */
+  app.patch("/api/consignments/:id/supplier", guard("warehouse.manage"), async (req, reply) => {
+    const body = z.object({ supplierId: z.string().uuid() }).safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: body.error.flatten() });
+    const { id } = req.params as { id: string };
+    const [supplier] = await ctx.db.select().from(suppliers).where(eq(suppliers.id, body.data.supplierId));
+    if (!supplier) return reply.code(404).send({ error: "supplier_not_found" });
+    const [row] = await ctx.db
+      .update(consignments)
+      .set({ supplierId: supplier.id, supplier: supplier.name })
+      .where(eq(consignments.id, id))
+      .returning();
+    if (!row) return reply.code(404).send({ error: "not_found" });
+    await writeAudit(ctx.db, actor(req), "item", "consignment_supplier_set", row.ref, { supplier: supplier.name });
     return { consignment: row };
   });
 
