@@ -1,5 +1,10 @@
 # Baltic Auction Platform — Engine + Admin
 
+> 📘 **Full developer documentation lives in [`docs/handbook/`](./docs/handbook/README.md)** —
+> architecture, database schema, complete API reference, frontends, deploy
+> runbook, integrations, security model, and an annotated screenshot tour of
+> every screen.
+
 Single-seller auction house for **Latvia / Estonia / Lithuania**. This repository implements
 **build-order steps 1 + 5** of the platform design (V1.8_Green): the custom TypeScript
 **auction engine** and the **admin panel with 7 permissioned roles**, on PostgreSQL + Redis.
