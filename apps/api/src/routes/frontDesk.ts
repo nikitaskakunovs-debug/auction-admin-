@@ -31,12 +31,20 @@ export function registerFrontDeskRoutes(app: FastifyInstance, ctx: AppContext, p
     if (q.length < 2) return reply.code(400).send({ error: "query_too_short" });
     const like = `%${q}%`;
 
-    // An order ref or a pickup code identifies the person just as well as a
-    // name — the counter types whatever the client happens to have.
+    // An order ref, a pickup code or the phone given for a parcel identifies
+    // the person just as well as a name — the counter types whatever the
+    // client happens to have. (Phone lives on the order, not the account.)
+    const digits = q.replace(/[\s()-]/g, "");
     const [byOrder] = await ctx.db
       .select({ customerId: orders.customerId })
       .from(orders)
-      .where(or(ilike(orders.ref, q), eq(orders.pickupCode, q)))
+      .where(
+        or(
+          ilike(orders.ref, q),
+          eq(orders.pickupCode, q),
+          ...(digits.length >= 5 ? [ilike(orders.recipientPhone, `%${digits}%`)] : []),
+        ),
+      )
       .limit(1);
 
     const matches = byOrder
