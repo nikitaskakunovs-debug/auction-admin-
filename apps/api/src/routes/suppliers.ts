@@ -339,6 +339,9 @@ export function registerSupplierRoutes(app: FastifyInstance, ctx: AppContext, pe
         dueThisWeekCents: Number(agg!.dueThisWeekCents),
         paidThisMonthCents: Number(agg!.paidThisMonthCents),
         count: Number(agg!.count),
+        // Same name the payables report uses, so a caller reading both is not
+        // made to remember which one says `count`.
+        invoiceCount: Number(agg!.count),
       },
     };
   });
