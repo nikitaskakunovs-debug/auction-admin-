@@ -166,10 +166,30 @@ export function registerFinanceRoutes(app: FastifyInstance, ctx: AppContext, per
   // ── W6: profit & stock valuation ──────────────────────────────────────────
 
   /**
+   * An order stops being a sale the moment the money goes back, and `paidAt`
+   * does not say so: a full refund leaves `paidAt` in place and flips the
+   * status to `refunded` (routes/orders.ts), and a no-show cancellation keeps
+   * `paidAt` too while setting `cancelled` and putting the unit back on the
+   * shelf as `no_pickup_cancelled` (engine/noShow.ts). Order statuses are
+   * awaiting_payment | paid | cancelled | refunded (db schema) — only `paid`
+   * is still a completed sale, so every money figure below filters on the
+   * status, never on `paidAt` alone.
+   */
+  const SOLD_ORDER_STATUSES = ["paid"];
+
+  /** Rows handed to the browser's table; the totals always cover the whole window. */
+  const LINE_LIMIT = 2000;
+
+  /**
    * Effective unit cost = the item's own purchase cost plus its share of the
    * delivery's extra costs (transport/cleaning), spread pro-rata over every
    * unit received with that consignment. An item with no recorded cost stays
    * `null` — "no data", never assumed zero (approved design decision).
+   *
+   * The share is rounded per unit (not floor-plus-remainder as in receiving's
+   * spread-cost) so the same expression can be written in SQL for the summary
+   * aggregate; a remainder split would depend on row order and make the two
+   * disagree. Worst case the report drifts by under a cent per unit.
    */
   const extraShareMap = async (): Promise<Map<string, number>> => {
     const rows = await ctx.db
@@ -199,13 +219,24 @@ export function registerFinanceRoutes(app: FastifyInstance, ctx: AppContext, per
   /**
    * Profit = hammer price − effective cost, before buyer premium and VAT
    * (those are the buyer's side of the invoice). Basis: orders paid in the
-   * window. Every total carries a no-cost-data count so a profit figure is
-   * never quietly based on half the sales.
+   * window that are still sales (see SOLD_ORDER_STATUSES). Every total carries
+   * a no-cost-data count so a profit figure is never quietly based on half the
+   * sales, and the summary is aggregated in the database so it covers the
+   * whole window even when the line table below is truncated.
    */
   app.get("/api/reports/profit", guard("finance.view"), async (req, reply) => {
     const q = z.object({ from: z.coerce.date(), to: z.coerce.date() }).safeParse(req.query);
     if (!q.success) return reply.code(400).send({ error: "invalid_range", detail: "from and to (ISO dates) required" });
     const { from, to } = q.data;
+
+    // Sales that are still sales, paid inside the window. Refunded and
+    // no-show-cancelled orders keep their `paidAt` and must not be booked.
+    const soldInWindow = and(
+      inArray(orders.status, SOLD_ORDER_STATUSES),
+      isNotNull(orders.paidAt),
+      gte(orders.paidAt, from),
+      lt(orders.paidAt, to),
+    );
 
     const shares = await extraShareMap();
     const rows = await ctx.db
@@ -220,9 +251,9 @@ export function registerFinanceRoutes(app: FastifyInstance, ctx: AppContext, per
       })
       .from(orders)
       .innerJoin(items, eq(orders.itemId, items.id))
-      .where(and(isNotNull(orders.paidAt), gte(orders.paidAt, from), lt(orders.paidAt, to)))
+      .where(soldInWindow)
       .orderBy(desc(orders.paidAt))
-      .limit(2000);
+      .limit(LINE_LIMIT);
 
     const lines = rows.map((r) => {
       const cost = effectiveCost(r.costCents, r.consignmentId, shares);
@@ -237,9 +268,30 @@ export function registerFinanceRoutes(app: FastifyInstance, ctx: AppContext, per
         marginPct: cost === null || cost === 0 ? null : Math.round(((r.hammerCents - cost) / cost) * 100),
       };
     });
-    const known = lines.filter((l) => l.costCents !== null);
-    const totalCost = known.reduce((n, l) => n + l.costCents!, 0);
-    const totalProfit = known.reduce((n, l) => n + l.profitCents!, 0);
+    // Totals come from the database, never from `lines`: the table is capped
+    // at LINE_LIMIT rows, so reducing over it would report the total of the
+    // first page as the total of the period. Same pro-rata extras as
+    // effectiveCost(), written in SQL — the delivery's extra cost over the
+    // number of units that delivery received.
+    const extraShareSql = sql`coalesce(round(${consignments.extraCostCents}::numeric / nullif((select count(*) from ${items} u where u.consignment_id = ${consignments.id}), 0)), 0)`;
+    const [agg] = await ctx.db
+      .select({
+        soldCount: sql<string>`count(*)`,
+        revenueCents: sql<string>`coalesce(sum(${orders.hammerCents}), 0)`,
+        // Cost and profit are summed only over rows that have a cost: a blank
+        // cost is unknown, never zero, and is reported as noCostData instead.
+        costCents: sql<string>`coalesce(sum(${items.costCents} + ${extraShareSql}) filter (where ${items.costCents} is not null), 0)`,
+        profitCents: sql<string>`coalesce(sum(${orders.hammerCents} - ${items.costCents} - ${extraShareSql}) filter (where ${items.costCents} is not null), 0)`,
+        noCostData: sql<string>`count(*) filter (where ${items.costCents} is null)`,
+      })
+      .from(orders)
+      .innerJoin(items, eq(orders.itemId, items.id))
+      .leftJoin(consignments, eq(items.consignmentId, consignments.id))
+      .where(soldInWindow);
+
+    const soldCount = Number(agg!.soldCount);
+    const totalCost = Number(agg!.costCents);
+    const totalProfit = Number(agg!.profitCents);
 
     // Delivery scoreboard: sold/received per consignment (all-time — a pallet
     // pays off over months, not inside the report window).
@@ -248,14 +300,19 @@ export function registerFinanceRoutes(app: FastifyInstance, ctx: AppContext, per
         id: consignments.id,
         ref: consignments.ref,
         supplier: consignments.supplier,
-        received: sql<string>`count(${items.id})`,
-        sold: sql<string>`count(${orders.paidAt})`,
-        profitKnown: sql<string>`coalesce(sum(case when ${orders.paidAt} is not null and ${items.costCents} is not null then ${orders.hammerCents} - ${items.costCents} else 0 end), 0)`,
-        soldKnown: sql<string>`coalesce(sum(case when ${orders.paidAt} is not null and ${items.costCents} is not null then 1 else 0 end), 0)`,
+        // The orders join fans a unit out into one row per sale, so a plain
+        // count(items.id) would count a twice-sold unit as two units received.
+        received: sql<string>`count(distinct ${items.id})`,
+        sold: sql<string>`count(distinct ${orders.id})`,
+        profitKnown: sql<string>`coalesce(sum(${orders.hammerCents} - ${items.costCents}) filter (where ${orders.id} is not null and ${items.costCents} is not null), 0)`,
+        soldKnown: sql<string>`count(*) filter (where ${orders.id} is not null and ${items.costCents} is not null)`,
       })
       .from(consignments)
       .leftJoin(items, eq(items.consignmentId, consignments.id))
-      .leftJoin(orders, and(eq(orders.itemId, items.id), isNotNull(orders.paidAt)))
+      .leftJoin(
+        orders,
+        and(eq(orders.itemId, items.id), inArray(orders.status, SOLD_ORDER_STATUSES), isNotNull(orders.paidAt)),
+      )
       .groupBy(consignments.id)
       .orderBy(desc(consignments.createdAt))
       .limit(30);
@@ -264,11 +321,15 @@ export function registerFinanceRoutes(app: FastifyInstance, ctx: AppContext, per
       from: from.toISOString(),
       to: to.toISOString(),
       summary: {
-        soldCount: lines.length,
-        revenueCents: lines.reduce((n, l) => n + l.soldCents, 0),
+        soldCount,
+        revenueCents: Number(agg!.revenueCents),
         profitCents: totalProfit,
         marginPct: totalCost > 0 ? Math.round((totalProfit / totalCost) * 100) : null,
-        noCostData: lines.length - known.length,
+        noCostData: Number(agg!.noCostData),
+        // True when `lines` is only the first page: the table is a partial
+        // view of the period, these totals never are.
+        truncated: soldCount > lines.length,
+        lineLimit: LINE_LIMIT,
       },
       lines,
       consignments: conRows.map((r) => {
@@ -289,7 +350,12 @@ export function registerFinanceRoutes(app: FastifyInstance, ctx: AppContext, per
 
   /** What the shelves are worth today, at purchase cost, in three buckets. */
   app.get("/api/reports/stock-value", guard("finance.view"), async (_req, reply) => {
-    const IN_STOCK = ["draft", "listed", "live", "unsold"];
+    // Everything physically in the warehouse and still ours to sell. The two
+    // *_cancelled statuses are units whose sale fell through (unpaid winner,
+    // no-show pickup): the goods came back and are relistable, so they are
+    // stock. `won`/`awaiting_payment`/`paid` are sold and merely awaiting
+    // collection — valuing those as stock would count them twice.
+    const IN_STOCK = ["draft", "listed", "live", "unsold", "unpaid_cancelled", "no_pickup_cancelled"];
     const shares = await extraShareMap();
     const rows = await ctx.db
       .select({
