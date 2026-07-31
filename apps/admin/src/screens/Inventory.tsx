@@ -717,7 +717,9 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
                 fontSize: 13, color: AT.ink, padding: 10, resize: "vertical",
               }} />
             </AField>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            {/* minmax(0,…): a long <select> option (condition labels) otherwise
+                sets the column's min-content width and squeezes the other one. */}
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 12 }}>
               <AField label="Condition">
                 <ASelect
                   value={form.condition}
