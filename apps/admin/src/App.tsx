@@ -18,6 +18,7 @@ import { ListingsScreen } from "./screens/Listings.js";
 import { InventoryScreen } from "./screens/Inventory.js";
 import { OrdersScreen } from "./screens/Orders.js";
 import { PickupScreen } from "./screens/Pickup.js";
+import { FrontDeskScreen } from "./screens/FrontDesk.js";
 import { ReceivingScreen } from "./screens/Receiving.js";
 import { WarehouseStatsScreen } from "./screens/WarehouseStats.js";
 import { BoardScreen } from "./screens/Board.js";
@@ -64,6 +65,7 @@ const SCREENS: ScreenDef[] = [
   { id: "inventory", labelKey: "sh.nav.inventory", icon: "inventory", permission: "items.view", render: (nav) => <InventoryScreen nav={nav} /> },
   { id: "receiving", labelKey: "sh.nav.receiving", icon: "inventory", permission: "warehouse.manage", render: (nav) => <ReceivingScreen nav={nav} /> },
   { id: "orders", labelKey: "sh.nav.orders", icon: "orders", permission: "orders.view", render: (nav) => <OrdersScreen nav={nav} /> },
+  { id: "desk", labelKey: "sh.nav.desk", icon: "users", permission: "pickup.operate", render: (nav) => <FrontDeskScreen nav={nav} /> },
   { id: "pickup", labelKey: "sh.nav.pickup", icon: "inventory", permission: "pickup.view", render: (nav) => <PickupScreen nav={nav} /> },
   // W3 — warehouse productivity; stats.view is seeded to managers only.
   { id: "whstats", labelKey: "sh.nav.whstats", icon: "analytics", permission: "stats.view", render: (nav) => <WarehouseStatsScreen nav={nav} /> },

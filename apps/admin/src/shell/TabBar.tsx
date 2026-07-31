@@ -19,7 +19,7 @@ export interface Tab {
 const NAME_KEYS: Record<string, TKey> = {
   dashboard: "sh.nav.dashboard", auctions: "sh.nav.auctions", listings: "sh.nav.listings",
   inventory: "sh.nav.inventory", receiving: "sh.nav.receiving", orders: "sh.nav.orders",
-  pickup: "sh.nav.pickup", whstats: "sh.nav.whstats", customers: "sh.nav.customers",
+  desk: "sh.nav.desk", pickup: "sh.nav.pickup", whstats: "sh.nav.whstats", customers: "sh.nav.customers",
   finance: "sh.nav.finance", content: "sh.nav.content", settings: "sh.nav.settings",
   notifications: "sh.nav.notifications", activity: "sh.nav.activity", security: "sh.nav.security",
 };

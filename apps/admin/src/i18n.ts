@@ -5,6 +5,7 @@ import { CONTENT } from "./i18n/content.js";
 import { CUSTOMERS } from "./i18n/customers.js";
 import { DASHBOARD } from "./i18n/dashboard.js";
 import { FINANCE } from "./i18n/finance.js";
+import { FRONTDESK } from "./i18n/frontdesk.js";
 import { INVENTORY } from "./i18n/inventory.js";
 import { LISTINGS } from "./i18n/listings.js";
 import { MISC } from "./i18n/misc.js";
@@ -342,6 +343,7 @@ const ALL = {
   ...WHSTATS,
   ...CUSTOMERS,
   ...FINANCE,
+  ...FRONTDESK,
   ...CONTENT,
   ...SETTINGS,
   ...MISC,
