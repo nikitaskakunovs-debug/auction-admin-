@@ -85,7 +85,10 @@ type View =
   | { v: "pick" }
   | { v: "ticket"; id: string }
   | { v: "bins" }
-  | { v: "bin"; id: string; label: string };
+  | { v: "bin"; id: string; label: string }
+  | { v: "cnt" }
+  | { v: "cnt-session"; id: string; name: string }
+  | { v: "cnt-bin"; countId: string; countName: string; locationId: string; binLabel: string };
 
 const SHADOW = "0 1px 2px rgba(10,10,10,0.06), 0 4px 14px rgba(10,10,10,0.05)";
 
@@ -196,13 +199,18 @@ export function WarehouseMode() {
     view.v === "receive-into" ? view.con.ref :
     view.v === "pick" ? t("wh.pickQueue") :
     view.v === "bins" ? t("wh.bins") :
-    view.v === "bin" ? view.label : t("wh.ticket");
+    view.v === "bin" ? view.label :
+    view.v === "cnt" ? t("wh.cnt.title") :
+    view.v === "cnt-session" ? view.name :
+    view.v === "cnt-bin" ? view.binLabel : t("wh.ticket");
 
   const back = () => {
-    if (view.v === "item" || view.v === "scan" || view.v === "receive" || view.v === "pick" || view.v === "bins") setView({ v: "home" });
+    if (view.v === "item" || view.v === "scan" || view.v === "receive" || view.v === "pick" || view.v === "bins" || view.v === "cnt") setView({ v: "home" });
     else if (view.v === "receive-into") setView({ v: "receive" });
     else if (view.v === "ticket") setView({ v: "pick" });
     else if (view.v === "bin") setView({ v: "bins" });
+    else if (view.v === "cnt-session") setView({ v: "cnt" });
+    else if (view.v === "cnt-bin") setView({ v: "cnt-session", id: view.countId, name: view.countName });
   };
 
   return (
@@ -258,6 +266,11 @@ export function WarehouseMode() {
             {can("items.view") && (
               <button style={{ ...S.btn, ...S.btnGhost }} onClick={() => setView({ v: "bins" })}>🗂️ {t("wh.bins")}</button>
             )}
+            {/* Counting needs items.view to read the sessions AND warehouse.manage
+                to scan / close a bin — showing the tile without both is a dead end. */}
+            {can("items.view") && can("warehouse.manage") && (
+              <button style={{ ...S.btn, ...S.btnGhost }} onClick={() => setView({ v: "cnt" })}>📋 {t("wh.cnt.title")}</button>
+            )}
             <div style={{ ...S.card, display: "flex", alignItems: "center", gap: 10 }}>
               <div style={{
                 width: 38, height: 38, borderRadius: 999, background: AT.accentSoft, color: AT.accent,
@@ -304,6 +317,24 @@ export function WarehouseMode() {
         {view.v === "ticket" && <TicketView id={view.id} toast={toast} onDone={() => setView({ v: "pick" })} />}
         {view.v === "bins" && <BinsList toast={toast} onOpen={(id, label) => setView({ v: "bin", id, label })} />}
         {view.v === "bin" && <BinContentsView id={view.id} onItem={(code) => void openItem(code)} />}
+        {view.v === "cnt" && <CountList onPick={(c) => setView({ v: "cnt-session", id: c.id, name: c.name })} />}
+        {view.v === "cnt-session" && (
+          <CountSessionView
+            id={view.id}
+            onBin={(locationId, binLabel) => setView({ v: "cnt-bin", countId: view.id, countName: view.name, locationId, binLabel })}
+          />
+        )}
+        {view.v === "cnt-bin" && (
+          <CountBinView
+            countId={view.countId}
+            countName={view.countName}
+            locationId={view.locationId}
+            binLabel={view.binLabel}
+            toast={toast}
+            onDone={() => setView({ v: "cnt-session", id: view.countId, name: view.countName })}
+            onClosed={() => setView({ v: "cnt" })}
+          />
+        )}
       </main>
       {reporting && (
         <ReportModal
@@ -1472,6 +1503,310 @@ function TicketView({ id, toast, onDone }: {
           >{t("wh.completeHandover")}</button>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── W5/W6: stock counting — «Inventarizācija», blind counts ──────────────────
+
+interface StockCountRow {
+  id: string;
+  name: string;
+  status: "open" | "approved" | "cancelled";
+  startedAt: string;
+  binCount: number;
+  doneCount: number;
+  scanCount: number;
+}
+
+interface StockCountBin {
+  id: string;
+  label: string;
+  zone: string;
+  scanned: number;
+  done: boolean;
+}
+
+/**
+ * A failed load must never be dressed up as "nothing to count": 401/403 means
+ * the account lost the permission, anything else is a real outage.
+ */
+const countLoadErrorKey = (err: unknown): TKey =>
+  err instanceof ApiError && (err.status === 401 || err.status === 403) ? "wh.cnt.noAccess" : "wh.cnt.loadFailed";
+
+function CountLoadError({ messageKey, onRetry }: { messageKey: TKey; onRetry: () => void }) {
+  const { t } = useT();
+  return (
+    <div style={{ ...S.card, border: `1.5px solid ${AT.dangerSoft}`, display: "grid", gap: 10 }}>
+      <div style={{ fontSize: 14.5, fontWeight: 700, color: AT.danger, lineHeight: 1.45 }}>{t(messageKey)}</div>
+      <button style={{ ...S.btn, ...S.btnGhost, minHeight: 46, boxShadow: "none" }} onClick={onRetry}>{t("wh.cnt.retry")}</button>
+    </div>
+  );
+}
+
+/** Open counting sessions — pick one to start walking shelves. */
+function CountList({ onPick }: { onPick: (c: StockCountRow) => void }) {
+  const { t } = useT();
+  const [counts, setCounts] = useState<StockCountRow[] | null>(null);
+  const [error, setError] = useState<TKey | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    setCounts(null);
+    setError(null);
+    void api
+      .get<{ counts: StockCountRow[] }>("/api/stock-counts")
+      .then((r) => { if (alive) setCounts(r.counts.filter((c) => c.status === "open")); })
+      .catch((err: unknown) => { if (alive) setError(countLoadErrorKey(err)); });
+    return () => { alive = false; };
+  }, [attempt]);
+  if (error) return <CountLoadError messageKey={error} onRetry={() => setAttempt((n) => n + 1)} />;
+  if (counts === null) return <div style={{ ...S.card, color: AT.inkSoft }}>{t("wh.loading")}</div>;
+  if (counts.length === 0) {
+    return (
+      <div style={{ ...S.card, display: "grid", gap: 6 }}>
+        <div style={{ fontSize: 15, fontWeight: 700 }}>{t("wh.cnt.noneOpen")}</div>
+        <div style={{ fontSize: 13, color: AT.inkSoft, lineHeight: 1.5 }}>{t("wh.cnt.noneOpenHint")}</div>
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: "grid", gap: 10 }}>
+      <div style={S.label}>{t("wh.cnt.pickSession")}</div>
+      {counts.map((c) => (
+        <button key={c.id} onClick={() => onPick(c)} style={{ ...S.btn, ...S.btnGhost, justifyContent: "space-between", minHeight: 64 }}>
+          <span style={{ textAlign: "left", minWidth: 0, flex: 1 }}>
+            <span style={{ display: "block", fontSize: 15, fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
+            <span style={{ display: "block", fontSize: 12, color: AT.inkSoft, fontWeight: 600 }}>
+              {c.doneCount} / {c.binCount} {t("wh.cnt.shelves")} · {c.scanCount} {t("wh.cnt.scans")}
+            </span>
+          </span>
+          <span style={{ fontSize: 20, color: AT.inkSoft }}>›</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** One session: its bins sorted by label — pick a shelf to count. */
+function CountSessionView({ id, onBin }: { id: string; onBin: (locationId: string, binLabel: string) => void }) {
+  const { t } = useT();
+  const [data, setData] = useState<{ count: StockCountRow; bins: StockCountBin[]; scanCount: number } | null>(null);
+  const [error, setError] = useState<TKey | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    setData(null);
+    setError(null);
+    void api
+      .get<{ count: StockCountRow; bins: StockCountBin[]; scanCount: number }>(`/api/stock-counts/${id}`)
+      .then((r) => { if (alive) setData(r); })
+      .catch((err: unknown) => { if (alive) setError(countLoadErrorKey(err)); });
+    return () => { alive = false; };
+  }, [id, attempt]);
+  if (error) return <CountLoadError messageKey={error} onRetry={() => setAttempt((n) => n + 1)} />;
+  if (!data) return <div style={{ ...S.card, color: AT.inkSoft }}>{t("wh.loading")}</div>;
+  const bins = [...data.bins].sort((a, b) => a.label.localeCompare(b.label));
+  return (
+    <div style={{ display: "grid", gap: 10 }}>
+      <div style={{ ...S.card, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={S.label}>{t("wh.cnt.progress")}</span>
+        <span style={{ fontSize: 14, fontWeight: 800 }}>
+          {data.count.doneCount} / {data.count.binCount} {t("wh.cnt.shelves")} · {data.scanCount} {t("wh.cnt.scans")}
+        </span>
+      </div>
+      <div style={S.label}>{t("wh.cnt.pickBin")}</div>
+      {bins.map((b) => (
+        <button
+          key={b.id}
+          onClick={() => onBin(b.id, b.label)}
+          style={{ ...S.btn, ...S.btnGhost, justifyContent: "space-between", minHeight: 58, ...(b.done ? { opacity: 0.55 } : {}) }}
+        >
+          <span style={{ textAlign: "left" }}>
+            <span style={{ display: "block", fontFamily: AT.mono, fontSize: 15 }}>{b.label}</span>
+            <span style={{ display: "block", fontSize: 11.5, color: AT.inkSoft, fontWeight: 600 }}>{b.zone}</span>
+          </span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <span style={{
+              fontSize: 12.5, fontWeight: 800, borderRadius: 999, padding: "3px 11px",
+              background: b.scanned > 0 ? AT.accentSoft : AT.surfaceAlt,
+              color: b.scanned > 0 ? AT.accent : AT.inkSoft,
+            }}>
+              {b.scanned} {t("wh.cnt.scans")}
+            </span>
+            {b.done && <span style={{ color: AT.ok, fontSize: 17, fontWeight: 800 }}>✓</span>}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+type CountScanResult = { known: false } | { known: true; sku: string; title: string; samePlace: boolean };
+
+interface CountScanEntry {
+  key: number;
+  /** Identity used to collapse re-scans of the same item into one row. */
+  id: string;
+  code: string;
+  sku: string | null;
+  title: string | null;
+  kind: "ok" | "other" | "unknown";
+  times: number;
+}
+
+/**
+ * The counting screen — BLIND by design: it never shows what the shelf is
+ * supposed to hold, only what this device has scanned so far.
+ */
+function CountBinView({ countId, countName, locationId, binLabel, toast, onDone, onClosed }: {
+  countId: string;
+  countName: string;
+  locationId: string;
+  binLabel: string;
+  toast: (t: string, tone?: "ok" | "danger") => void;
+  onDone: () => void;
+  onClosed: () => void;
+}) {
+  const { t } = useT();
+  const [scans, setScans] = useState<CountScanEntry[]>([]);
+  const [code, setCode] = useState("");
+  const [camera, setCamera] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const seq = useRef(0);
+
+  /**
+   * Both count endpoints answer 409 for two very different situations: the
+   * session was closed under us, or this bin isn't in the session's scope.
+   * Either way the worker must stop scanning into a void — send them back.
+   * Returns true when the error was a conflict we handled.
+   */
+  const handleConflict = (err: ApiError): boolean => {
+    if (err.status !== 409) return false;
+    if (err.body.error === "bin_out_of_scope") {
+      toast(t("wh.cnt.binOutOfScope"), "danger");
+      onDone(); // back to the bin list — the scoped shelves are all there
+      return true;
+    }
+    toast(t("wh.cnt.closed"), "danger");
+    onClosed();
+    return true;
+  };
+
+  const submit = async (raw: string) => {
+    const c = raw.trim();
+    if (c.length < 3 || busy) return;
+    setBusy(true);
+    try {
+      const r = await api.post<CountScanResult>(`/api/stock-counts/${countId}/scan`, { code: c, locationId });
+      const kind: CountScanEntry["kind"] = r.known ? (r.samePlace ? "ok" : "other") : "unknown";
+      const id = r.known ? r.sku : c.toUpperCase();
+      const sku = r.known ? r.sku : null;
+      const title = r.known ? r.title : null;
+      // The server keeps the LATEST scan per item, so a re-scan in this bin is a
+      // correction, not a second piece — update the row it already has.
+      setScans((list) => {
+        const at = list.findIndex((s) => s.id === id);
+        if (at < 0) return [{ key: ++seq.current, id, code: c, sku, title, kind, times: 1 }, ...list];
+        const next = [...list];
+        const prev = next[at]!;
+        next[at] = { ...prev, code: c, sku: sku ?? prev.sku, title: title ?? prev.title, kind, times: prev.times + 1 };
+        return next;
+      });
+    } catch (err) {
+      if (!(err instanceof ApiError) || !handleConflict(err)) {
+        toast(err instanceof ApiError ? err.message : t("wh.cnt.scanFailed"), "danger");
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const finish = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await api.post(`/api/stock-counts/${countId}/bin-done`, { locationId });
+      toast(t("wh.cnt.binDoneOk"));
+      onDone();
+    } catch (err) {
+      if (!(err instanceof ApiError) || !handleConflict(err)) {
+        toast(err instanceof ApiError ? err.message : t("wh.actionFailed"), "danger");
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      <div style={{ ...S.card, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+        <span style={{ fontFamily: AT.mono, fontSize: 19, fontWeight: 800, whiteSpace: "nowrap", flexShrink: 0 }}>{binLabel}</span>
+        <span style={{ fontSize: 12.5, color: AT.inkSoft, fontWeight: 600, textAlign: "right", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{countName}</span>
+      </div>
+
+      <button style={{ ...S.btn, ...S.btnAccent, minHeight: 64, fontSize: 17 }} onClick={() => setCamera(true)}>{t("wh.scanCamera")}</button>
+      {camera && (
+        <CameraScanner
+          hint={t("wh.aimItem")}
+          onCode={(raw) => { setCamera(false); void submit(normalizeScan(raw)); }}
+          onClose={() => setCamera(false)}
+        />
+      )}
+      <form
+        onSubmit={(e) => { e.preventDefault(); void submit(code); setCode(""); }}
+        style={{ display: "grid", gap: 8 }}
+      >
+        <div style={S.label}>{t("wh.scanOrType")}</div>
+        <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="LOT-000123" autoCapitalize="characters" style={{ ...S.input, fontFamily: AT.mono, fontSize: 18, textAlign: "center" }} />
+      </form>
+
+      <div style={{ ...S.card, display: "grid", gap: 4 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={S.label}>{t("wh.cnt.scannedHere")}</span>
+          <span style={{ fontSize: 14, fontWeight: 800 }}>{scans.length}</span>
+        </div>
+        {scans.length === 0 ? (
+          <div style={{ color: AT.inkSoft, fontSize: 13.5, lineHeight: 1.5, paddingTop: 4 }}>{t("wh.cnt.blindHint")}</div>
+        ) : (
+          scans.map((s, i) => (
+            <div key={s.key} style={{
+              display: "flex", alignItems: "center", gap: 10, padding: "8px 0",
+              borderBottom: i === scans.length - 1 ? "none" : `1px solid ${AT.ruleSoft}`,
+            }}>
+              <span style={{
+                fontSize: 17, width: 22, textAlign: "center", fontWeight: 800, flexShrink: 0,
+                color: s.kind === "ok" ? AT.ok : s.kind === "other" ? AT.warn : AT.danger,
+              }}>
+                {s.kind === "ok" ? "✓" : s.kind === "other" ? "→" : "?"}
+              </span>
+              <span style={{ minWidth: 0, flex: 1 }}>
+                <span style={{ display: "block", fontFamily: AT.mono, fontSize: 14, fontWeight: 700 }}>{s.sku ?? s.code}</span>
+                {s.title && <span style={{ display: "block", fontSize: 12, color: AT.inkSoft, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.title}</span>}
+              </span>
+              {s.times > 1 && (
+                <span style={{ fontSize: 12, fontWeight: 800, color: AT.inkSoft, flexShrink: 0 }}>×{s.times}</span>
+              )}
+              {s.kind !== "ok" && (
+                <Pill text={t(s.kind === "other" ? "wh.cnt.otherBin" : "wh.cnt.unknown")} tone={s.kind === "other" ? "warn" : "danger"} />
+              )}
+            </div>
+          ))
+        )}
+        {/* Latest scan wins server-side — say so, so «cits plaukts» reads as
+            something the worker can fix by scanning again right here. */}
+        {scans.some((s) => s.kind === "other") && (
+          <div style={{
+            marginTop: 8, padding: "9px 11px", borderRadius: 10,
+            background: AT.warnSoft, color: AT.warn,
+            fontSize: 12.5, fontWeight: 600, lineHeight: 1.45,
+          }}>{t("wh.cnt.otherBinHint")}</div>
+        )}
+      </div>
+
+      <button style={{ ...S.btn, minHeight: 60, fontSize: 17, ...(busy ? { opacity: 0.6 } : {}) }} disabled={busy} onClick={() => void finish()}>
+        ✅ {t("wh.cnt.binDone")}
+      </button>
     </div>
   );
 }

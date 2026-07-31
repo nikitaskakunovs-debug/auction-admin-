@@ -137,6 +137,73 @@ export function registerReceivingRoutes(app: FastifyInstance, ctx: AppContext, p
     return { consignment: row };
   });
 
+  // ── W6: delivery costs (finance-only) ──────────────────────────────────────
+
+  const costsBody = z.object({
+    /** Transport/cleaning etc. for the whole delivery — spread pro-rata over
+     * its units at report time, never written onto individual items. */
+    extraCostCents: z.number().int().min(0).max(1_000_000_000).nullable(),
+  });
+
+  app.patch("/api/consignments/:id/costs", guard("finance.view"), async (req, reply) => {
+    const body = costsBody.safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: body.error.flatten() });
+    const { id } = req.params as { id: string };
+    const [row] = await ctx.db
+      .update(consignments)
+      .set({ extraCostCents: body.data.extraCostCents })
+      .where(eq(consignments.id, id))
+      .returning();
+    if (!row) return reply.code(404).send({ error: "not_found" });
+    await writeAudit(ctx.db, actor(req), "item", "consignment_costs_set", row.ref, {
+      extraCostCents: body.data.extraCostCents,
+    });
+    return { consignment: row };
+  });
+
+  const spreadBody = z.object({
+    /** What the whole pallet cost. Split evenly across every received unit;
+     * individual units can still be overridden afterwards in Inventory. */
+    totalCents: z.number().int().min(0).max(1_000_000_000),
+  });
+
+  app.post("/api/consignments/:id/spread-cost", guard("finance.view"), async (req, reply) => {
+    const body = spreadBody.safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: body.error.flatten() });
+    const { id } = req.params as { id: string };
+    const result = await ctx.db.transaction(async (tx) => {
+      const [con] = await tx.select().from(consignments).where(eq(consignments.id, id)).for("update");
+      if (!con) return null;
+      const rows = await tx
+        .select({ id: items.id })
+        .from(items)
+        .where(eq(items.consignmentId, id))
+        .orderBy(items.sku);
+      if (rows.length === 0) return "no_items" as const;
+      // Even split; the first (total % n) units carry one extra cent so the
+      // per-unit costs sum back to exactly what was paid.
+      const share = Math.floor(body.data.totalCents / rows.length);
+      const remainder = body.data.totalCents % rows.length;
+      for (let i = 0; i < rows.length; i++) {
+        await tx
+          .update(items)
+          .set({ costCents: share + (i < remainder ? 1 : 0), updatedAt: ctx.now() })
+          .where(eq(items.id, rows[i]!.id));
+      }
+      // Recorded as `costCents` deliberately: the audit feed is readable with
+      // audit.view, and the response hook strips exactly the cost-named keys —
+      // a `totalCents` key here would publish the pallet price to every role.
+      await writeAudit(tx, actor(req), "item", "cost_spread", con.ref, {
+        costCents: body.data.totalCents,
+        units: rows.length,
+      });
+      return { units: rows.length, perUnitCents: share };
+    });
+    if (result === null) return reply.code(404).send({ error: "not_found" });
+    if (result === "no_items") return reply.code(409).send({ error: "no_items" });
+    return { ok: true, ...result };
+  });
+
   // ── Receive one unit (intake station's rapid-entry endpoint) ───────────────
 
   const receiveBody = z.object({
@@ -146,6 +213,9 @@ export function registerReceivingRoutes(app: FastifyInstance, ctx: AppContext, p
     category: z.string().refine(isKnownCategory, "unknown category").default("other"),
     description: z.string().default(""),
     weightGrams: z.number().int().positive().nullable().optional(),
+    /** W6: per-unit purchase cost. Only finance.view may send it — the intake
+     * form hides the field from everyone else. */
+    costCents: z.number().int().min(0).max(100_000_000).nullable().optional(),
   });
 
   app.post("/api/consignments/:id/receive", guard("warehouse.manage"), async (req, reply) => {
@@ -153,6 +223,8 @@ export function registerReceivingRoutes(app: FastifyInstance, ctx: AppContext, p
     if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: body.error.flatten() });
     if (conditionRequiresNotes(body.data.condition) && body.data.conditionNotes.trim().length < 3)
       return reply.code(400).send({ error: "condition_notes_required", detail: "This condition grade is a SEE NOTES grade — describe the issue." });
+    if (body.data.costCents !== undefined && !(await perms.has(req.admin!.role, "finance.view")))
+      return reply.code(403).send({ error: "forbidden", permission: "finance.view" });
     const { id } = req.params as { id: string };
 
     const result = await ctx.db.transaction(async (tx) => {
@@ -169,6 +241,7 @@ export function registerReceivingRoutes(app: FastifyInstance, ctx: AppContext, p
           condition: body.data.condition,
           conditionNotes: body.data.conditionNotes,
           weightGrams: body.data.weightGrams ?? null,
+          costCents: body.data.costCents ?? null,
           marketCode: con.marketCode,
           consignmentId: con.id,
           status: "draft",

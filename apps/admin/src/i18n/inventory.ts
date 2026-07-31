@@ -97,6 +97,14 @@ export const INVENTORY = {
   "inv.whBinHint": { lv: "Plaukta maiņa ieraksta novietošanu/pārvietošanu krājumu žurnālā.", ru: "Смена полки записывает размещение/перемещение в складской журнал.", en: "Changing the bin writes a putaway/move into the stock ledger." },
   "inv.noBinOpt": { lv: "— bez plaukta —", ru: "— без полки —", en: "— no bin —" },
 
+  // ── W6: purchase cost (finance-only) ───────────────────────────────────────
+  "inv.cost.label": { lv: "Iepirkuma cena (EUR)", ru: "Закупочная цена (EUR)", en: "Purchase cost (EUR)" },
+  "inv.cost.unknown": { lv: "nav datu", ru: "нет данных", en: "no data" },
+  "inv.cost.private": { lv: "Redzams tikai finansēm — atstājiet tukšu, ja iepirkuma cena nav zināma.", ru: "Видно только финансам — оставьте пустым, если закупочная цена неизвестна.", en: "Visible to finance only — leave empty if the purchase cost is unknown." },
+  "inv.cost.invalid": { lv: "Ievadiet summu, piemēram 12,50 (bez mīnusa). Tukšs lauks nozīmē “nav datu”.", ru: "Введите сумму, например 12,50 (без минуса). Пустое поле означает «нет данных».", en: "Enter an amount like 12.50 (no minus). An empty field means “no data”." },
+  "inv.cost.invalidToast": { lv: "Iepirkuma cena nav derīga — labojiet lauku vai atstājiet to tukšu", ru: "Закупочная цена введена неверно — исправьте поле или оставьте его пустым", en: "The purchase cost isn't valid — fix the field or leave it empty" },
+  "inv.cost.onlyCost": { lv: "Ar savām tiesībām šeit varat saglabāt tikai iepirkuma cenu — pārējie labojumi netiks saglabāti.", ru: "С вашими правами здесь сохраняется только закупочная цена — остальные правки не сохранятся.", en: "With your permissions only the purchase cost is saved here — other edits will not be saved." },
+
   // ── Category names (mapped by @auction/domain category code) ──────────────
   "inv.cat.electronics": { lv: "Elektronika", ru: "Электроника", en: "Electronics" },
   "inv.cat.appliances": { lv: "Sadzīves tehnika", ru: "Бытовая техника", en: "Home appliances" },

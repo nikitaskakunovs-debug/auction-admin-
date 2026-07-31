@@ -38,6 +38,10 @@ const itemBody = z.object({
   dims: z.object({ l: z.number(), w: z.number(), h: z.number() }).nullable().optional(),
   photos: z.array(z.string()).default([]),
   marketCode: z.string().length(2),
+  /** W6: purchase cost — only finance.view may read or write it; the routes
+   * check the permission before accepting it and a global preSerialization
+   * hook strips it from responses for everyone else. */
+  costCents: z.number().int().min(0).max(100_000_000).nullable().optional(),
 });
 
 export function registerItemRoutes(app: FastifyInstance, ctx: AppContext, perms: PermissionService): void {
@@ -163,6 +167,8 @@ export function registerItemRoutes(app: FastifyInstance, ctx: AppContext, perms:
     if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: body.error.flatten() });
     if (conditionRequiresNotes(body.data.condition) && body.data.conditionNotes.trim().length < 3)
       return reply.code(400).send({ error: "condition_notes_required", detail: "This condition grade is a SEE NOTES grade — describe the issue." });
+    if (body.data.costCents !== undefined && !(await perms.has(req.admin!.role, "finance.view")))
+      return reply.code(403).send({ error: "forbidden", permission: "finance.view" });
     const [row] = await ctx.db
       .insert(items)
       .values({ ...body.data, weightGrams: body.data.weightGrams ?? null, dims: body.data.dims ?? null })
@@ -183,6 +189,8 @@ export function registerItemRoutes(app: FastifyInstance, ctx: AppContext, perms:
       (body.data.conditionPresetIds ?? []).length === 0
     )
       return reply.code(400).send({ error: "condition_notes_required", detail: "This condition grade is a SEE NOTES grade — describe the issue." });
+    if (body.data.costCents !== undefined && !(await perms.has(req.admin!.role, "finance.view")))
+      return reply.code(403).send({ error: "forbidden", permission: "finance.view" });
     const { id } = req.params as { id: string };
     // A patch that carries `condition` is a (re-)grade: it stamps the grader
     // and runs the W2 review rules. Damaged-family grades — and everything,
@@ -246,6 +254,29 @@ export function registerItemRoutes(app: FastifyInstance, ctx: AppContext, perms:
         data: { itemId: result.row.id, sku: result.row.sku, condition: result.row.condition },
       });
     return { item: result.row };
+  });
+
+  /**
+   * Purchase cost lives on its own route because it answers to a different
+   * permission than the rest of the item: `finance.view`, not `items.edit`.
+   * The Finance and Sales Manager roles hold the former without the latter —
+   * through the main PATCH they could see the field and never save it.
+   */
+  const costBody = z.object({ costCents: z.number().int().min(0).max(100_000_000).nullable() });
+  app.patch("/api/items/:id/cost", guard("finance.view"), async (req, reply) => {
+    const body = costBody.safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: body.error.flatten() });
+    const { id } = req.params as { id: string };
+    const [row] = await ctx.db
+      .update(items)
+      .set({ costCents: body.data.costCents, updatedAt: ctx.now() })
+      .where(eq(items.id, id))
+      .returning();
+    if (!row) return reply.code(404).send({ error: "not_found" });
+    // `costCents` as the detail key is load-bearing: the audit feed is visible
+    // with audit.view, and the response hook strips exactly the cost-named keys.
+    await writeAudit(ctx.db, actor(req), "item", "cost_set", row.sku, { costCents: body.data.costCents });
+    return { item: row };
   });
 
   // ── Photos ─────────────────────────────────────────────────────────────────

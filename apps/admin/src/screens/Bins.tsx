@@ -55,6 +55,7 @@ const MOVE_KEY: Record<string, TKey> = {
   restock: "act.restock",
   handover: "act.handover",
   adjust: "act.adjust",
+  count_adjust: "act.count_adjust",
 };
 const moveLabel = (ty: string): string => {
   const k = MOVE_KEY[ty];

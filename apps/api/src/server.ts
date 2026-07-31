@@ -28,6 +28,7 @@ import { registerFrontDeskRoutes } from "./routes/frontDesk.js";
 import { registerPublicRoutes } from "./routes/public.js";
 import { registerReceivingRoutes } from "./routes/receiving.js";
 import { registerSearchRoutes } from "./routes/search.js";
+import { registerStockCountRoutes } from "./routes/stockCounts.js";
 import { registerViewRoutes } from "./routes/views.js";
 import { registerShippingRoutes } from "./routes/shipping.js";
 import { registerWarehouseOpsRoutes } from "./routes/warehouseOps.js";
@@ -112,6 +113,17 @@ export async function buildServer(ctx: AppContext, opts: { logger?: boolean } = 
 
   const perms = new PermissionService(ctx.db);
 
+  // W6: purchase cost is private to finance.view. Rather than trusting every
+  // route (present and future) that returns item or consignment rows to
+  // remember to strip it, one global hook removes cost fields from any JSON
+  // payload for everyone else — warehouse staff, bidders, the public site.
+  app.addHook("preSerialization", async (req, _reply, payload) => {
+    if (payload === null || typeof payload !== "object") return payload;
+    if (req.admin && (await perms.has(req.admin.role, "finance.view"))) return payload;
+    stripCostDeep(payload);
+    return payload;
+  });
+
   app.get("/api/health", async () => ({ ok: true, at: ctx.now().toISOString() }));
 
   registerAuthRoutes(app, ctx, perms);
@@ -126,6 +138,7 @@ export async function buildServer(ctx: AppContext, opts: { logger?: boolean } = 
   registerCmsRoutes(app, ctx, perms);
   registerPickupRoutes(app, ctx, perms);
   registerFrontDeskRoutes(app, ctx, perms);
+  registerStockCountRoutes(app, ctx, perms);
   registerWarehouseOpsRoutes(app, ctx, perms);
   registerWarehouseStatsRoutes(app, ctx, perms);
   registerBadgeRoutes(app, ctx, perms);
@@ -141,4 +154,19 @@ export async function buildServer(ctx: AppContext, opts: { logger?: boolean } = 
   await registerWs(app, ctx);
 
   return { app, perms };
+}
+
+const COST_KEYS = ["costCents", "extraCostCents"] as const;
+
+/** Delete cost fields anywhere in a response payload (in place). Depth-capped:
+ * real payloads are shallow (list → row → nested json), cycles impossible. */
+function stripCostDeep(node: unknown, depth = 0): void {
+  if (depth > 6 || node === null || typeof node !== "object" || node instanceof Date) return;
+  if (Array.isArray(node)) {
+    for (const el of node) stripCostDeep(el, depth + 1);
+    return;
+  }
+  const obj = node as Record<string, unknown>;
+  for (const key of COST_KEYS) if (key in obj) delete obj[key];
+  for (const value of Object.values(obj)) stripCostDeep(value, depth + 1);
 }

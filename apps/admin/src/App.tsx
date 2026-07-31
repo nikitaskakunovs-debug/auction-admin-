@@ -53,10 +53,20 @@ interface ScreenDef {
   /** Translation key for the screen name (sidebar, drawer, tab titles). */
   labelKey: TKey;
   icon: IconName;
-  /** Permission required to see this screen; null = every signed-in admin. */
-  permission: string | null;
+  /**
+   * Permission required to see this screen; null = every signed-in admin.
+   * An array means ANY of the listed permissions is enough — a screen whose
+   * tabs answer to different permissions (Finance: invoices vs. profit) must
+   * open for holders of either one.
+   */
+  permission: string | string[] | null;
   render: (nav: Nav) => ReactNode;
 }
+
+/** Single source of truth for "may this role open that screen?" — the nav
+ * filter, the route guard, the tab bar and ⌘K all go through `allowed`. */
+const screenAllowed = (s: ScreenDef, can: (permission: string) => boolean): boolean =>
+  s.permission === null || (Array.isArray(s.permission) ? s.permission.some((p) => can(p)) : can(s.permission));
 
 const SCREENS: ScreenDef[] = [
   { id: "dashboard", labelKey: "sh.nav.dashboard", icon: "dashboard", permission: null, render: (nav) => <DashboardScreen nav={nav} /> },
@@ -70,7 +80,9 @@ const SCREENS: ScreenDef[] = [
   // W3 — warehouse productivity; stats.view is seeded to managers only.
   { id: "whstats", labelKey: "sh.nav.whstats", icon: "analytics", permission: "stats.view", render: (nav) => <WarehouseStatsScreen nav={nav} /> },
   { id: "customers", labelKey: "sh.nav.customers", icon: "users", permission: "customers.view", render: (nav) => <CustomersScreen nav={nav} /> },
-  { id: "finance", labelKey: "sh.nav.finance", icon: "finance", permission: "invoices.view", render: (nav) => <FinanceScreen nav={nav} /> },
+  // W6: the profit/stock-value tab answers to finance.view — Sales Manager
+  // holds it without invoices.view and must still reach the screen.
+  { id: "finance", labelKey: "sh.nav.finance", icon: "finance", permission: ["invoices.view", "finance.view"], render: (nav) => <FinanceScreen nav={nav} /> },
   { id: "content", labelKey: "sh.nav.content", icon: "list", permission: "content.view", render: (nav) => <ContentScreen nav={nav} /> },
   { id: "settings", labelKey: "sh.nav.settings", icon: "settings", permission: "settings.view", render: (nav) => <SettingsScreen nav={nav} /> },
   { id: "notifications", labelKey: "sh.nav.notifications", icon: "bell", permission: "audit.view", render: (nav) => <NotificationsScreen nav={nav} /> },
@@ -270,7 +282,7 @@ export function App() {
   // Phone-first PWA shell for storage workers — own layout, same session/RBAC.
   if (whHost || bootRoute.screen === "wh") return <WarehouseMode />;
 
-  const allowed = SCREENS.filter((s) => s.permission === null || can(s.permission));
+  const allowed = SCREENS.filter((s) => screenAllowed(s, can));
   const allowedIds = new Set(allowed.map((s) => s.id));
 
   const renderPane = (tab: Tab, pane: "a" | "b") => {

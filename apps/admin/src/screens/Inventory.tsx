@@ -72,9 +72,43 @@ interface FormState {
   location: string;
   weight: string;
   marketCode: string;
+  /** W6: purchase cost in EUR as typed — "" means unknown (null), never zero. */
+  cost: string;
 }
 
-const emptyForm: FormState = { sku: "", title: "", description: "", condition: "brand_new", conditionNotes: "", category: "other", location: "", weight: "", marketCode: "LV" };
+const emptyForm: FormState = { sku: "", title: "", description: "", condition: "brand_new", conditionNotes: "", category: "other", location: "", weight: "", marketCode: "LV", cost: "" };
+
+/** W6: purchase cost — the API includes costCents only for finance.view holders. */
+type ItemWithCost = Item & { costCents?: number | null };
+
+const itemCostStr = (i: Item): string => {
+  const c = (i as ItemWithCost).costCents;
+  return c == null ? "" : (c / 100).toFixed(2);
+};
+
+/**
+ * Purchase cost as typed → cents. "Unknown" and "you mistyped it" must never
+ * collapse into the same value: only an EMPTY field means null (unknown), and
+ * anything unparseable or negative is rejected so a typo can't overwrite a
+ * recorded cost with "no data". Comma decimals and stray spaces are fine.
+ */
+type CostParse = { ok: true; cents: number | null } | { ok: false; cents: null };
+
+const parseCost = (s: string): CostParse => {
+  const v = s.replace(/\s/g, "").replace(",", ".");
+  if (!v) return { ok: true, cents: null };
+  if (!/^(\d+(\.\d+)?|\.\d+)$/.test(v)) return { ok: false, cents: null };
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0) return { ok: false, cents: null };
+  return { ok: true, cents: Math.round(n * 100) };
+};
+
+const formFromItem = (i: Item): FormState => ({
+  sku: i.sku, title: i.title, description: i.description, condition: i.condition,
+  conditionNotes: i.conditionNotes ?? "", category: i.category ?? "other",
+  location: i.location, weight: i.weightGrams == null ? "" : String(i.weightGrams), marketCode: i.marketCode,
+  cost: itemCostStr(i),
+});
 
 interface Bin { id: string; label: string; zone: string; active: boolean }
 
@@ -218,11 +252,7 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
       const i = r.item;
       setEditing(i);
       setDrawerTab("details");
-      setForm({
-        sku: i.sku, title: i.title, description: i.description, condition: i.condition,
-        conditionNotes: i.conditionNotes ?? "", category: i.category ?? "other",
-        location: i.location, weight: i.weightGrams == null ? "" : String(i.weightGrams), marketCode: i.marketCode,
-      });
+      setForm(formFromItem(i));
     }).catch(() => undefined);
   }, [param]);
 
@@ -239,6 +269,15 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
   };
 
   const set = (patch: Partial<FormState>) => setForm((f) => ({ ...f, ...patch }));
+
+  // ── W6: purchase cost — own permission (finance.view), own endpoint ───────
+  /** items.edit covers the item body; the cost field does not answer to it. */
+  const canEditItem = editing ? can("items.edit") : can("items.create");
+  const showCost = can("finance.view");
+  const costParsed = parseCost(form.cost);
+  const costInvalid = showCost && !costParsed.ok;
+  /** Finance/Sales Manager: cost only — the rest of the form is not theirs. */
+  const costOnly = Boolean(editing) && showCost && !canEditItem;
 
   // ── Photos (upload → server re-encodes to web+thumb webp) ────────────────
   const thumbOf = (u: string) => (u.includes("-web.webp") ? u.replace("-web.webp", "-thumb.webp") : u);
@@ -280,6 +319,10 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
   };
 
   const submit = async () => {
+    // A rejected cost never leaves the drawer — sending it would blank a real
+    // purchase price the moment someone fat-fingers the field.
+    if (showCost && !costParsed.ok) return toast(t("inv.cost.invalidToast"), "danger");
+
     const body = {
       sku: form.sku,
       title: form.title,
@@ -291,12 +334,24 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
       weightGrams: form.weight ? Number(form.weight) : null,
       marketCode: form.marketCode,
     };
+    // W6: the purchase cost answers to finance.view, the rest of the item to
+    // items.edit — Finance and Sales Manager hold the former without the
+    // latter, so the cost travels on its own route (PATCH …/cost) and never
+    // rides along in the item payload. Only an actual change is sent.
+    const origCost = editing ? (editing as ItemWithCost).costCents ?? null : null;
+    const nextCost = costParsed.cents;
+    const costChanged = showCost && costParsed.ok && nextCost !== origCost;
     try {
       if (editing) {
-        await api.patch(`/api/items/${editing.id}`, body);
+        // Item first, then the cost: a user who may do both ends up with one
+        // coherent state; a finance-only user still saves the cost alone.
+        if (canEditItem) await api.patch(`/api/items/${editing.id}`, body);
+        if (costChanged) await api.patch(`/api/items/${editing.id}/cost`, { costCents: nextCost });
         toast(t("inv.saved"), "ok");
       } else {
-        await api.post("/api/items", body);
+        // On create the cost can ride along: POST already answers to
+        // items.create and checks finance.view for the cost field itself.
+        await api.post("/api/items", costChanged ? { ...body, costCents: nextCost } : body);
         toast(t("inv.created"), "ok");
       }
       setCreating(false);
@@ -304,6 +359,9 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
       load();
     } catch (err) {
       toast(err instanceof ApiError ? err.message : t("wh.saveFailed"), "danger");
+      // Part of the save may have landed (item saved, cost rejected) — refresh
+      // so the list shows what actually stuck.
+      load();
     }
   };
 
@@ -512,11 +570,7 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
               <button key={i.id} onClick={() => {
                 setEditing(i);
                 setDrawerTab("details");
-                setForm({
-                  sku: i.sku, title: i.title, description: i.description, condition: i.condition,
-                  conditionNotes: i.conditionNotes ?? "", category: i.category ?? "other",
-                  location: i.location, weight: i.weightGrams == null ? "" : String(i.weightGrams), marketCode: i.marketCode,
-                });
+                setForm(formFromItem(i));
               }} style={{
                 all: "unset", cursor: "pointer", display: "grid", gap: 5,
                 padding: "13px 14px", borderBottom: `1px solid ${AT.ruleSoft}`,
@@ -559,11 +613,7 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
                 <ATr key={i.id} active={selected.has(i.id)} onClick={() => {
                   setEditing(i);
                   setDrawerTab("details");
-                  setForm({
-                    sku: i.sku, title: i.title, description: i.description, condition: i.condition,
-                    conditionNotes: i.conditionNotes ?? "", category: i.category ?? "other",
-                    location: i.location, weight: i.weightGrams == null ? "" : String(i.weightGrams), marketCode: i.marketCode,
-                  });
+                  setForm(formFromItem(i));
                 }}>
                   <ATd style={{ width: 34 }}>
                     <input
@@ -636,8 +686,13 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
                 <ABtn kind="danger" onClick={() => void remove(editing)}>{t("c.delete")}</ABtn>
               )}
               <ABtn kind="ghost" onClick={() => { setCreating(false); setEditing(null); }}>{t("c.close")}</ABtn>
-              {drawerTab === "details" && (editing ? can("items.edit") : can("items.create")) && (
-                <ABtn onClick={() => void submit()} disabled={!form.sku || !form.title || (conditionRequiresNotes(form.condition) && form.conditionNotes.trim().length < 3)}>{editing ? t("c.save") : t("c.create")}</ABtn>
+              {/* A finance-only user has no items.edit but must still be able
+                  to save the one field that is theirs. */}
+              {drawerTab === "details" && (canEditItem || costOnly) && (
+                <ABtn
+                  onClick={() => void submit()}
+                  disabled={costInvalid || (canEditItem && (!form.sku || !form.title || (conditionRequiresNotes(form.condition) && form.conditionNotes.trim().length < 3)))}
+                >{editing ? t("c.save") : t("c.create")}</ABtn>
               )}
             </>
           }
@@ -685,6 +740,15 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
                 </ABtn>
               </div>
             )}
+            {costOnly && (
+              <div style={{
+                fontFamily: AT.body, fontSize: 11.5, lineHeight: 1.45, color: AT.inkSoft,
+                background: AT.surfaceAlt, border: `1px solid ${AT.ruleSoft}`,
+                borderRadius: AT.radiusSm, padding: "9px 12px",
+              }}>
+                {t("inv.cost.onlyCost")}
+              </div>
+            )}
             <AField label="SKU"><AInput value={form.sku} onChange={(v) => set({ sku: v })} placeholder="LOT-0042" /></AField>
             <AField label={t("c.title")}><AInput value={form.title} onChange={(v) => set({ title: v })} /></AField>
             <AField label={t("c.description")}>
@@ -693,7 +757,9 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
                 fontSize: 13, color: AT.ink, padding: 10, resize: "vertical",
               }} />
             </AField>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            {/* minmax(0,…): a long <select> option (condition labels) otherwise
+                sets the column's min-content width and squeezes the other one. */}
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 12 }}>
               <AField label="Condition">
                 <ASelect
                   value={form.condition}
@@ -712,6 +778,23 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
               </AField>
               <AField label="Location (note)"><AInput value={form.location} onChange={(v) => set({ location: v })} placeholder="A-01-03" /></AField>
               <AField label="Weight (grams)"><AInput value={form.weight} onChange={(v) => set({ weight: v })} placeholder="1200" /></AField>
+              {showCost && (
+                <AField label={t("inv.cost.label")} hint={t("inv.cost.private")}>
+                  {/* Text, not number: a number input silently drops "12,50"
+                      and hands us an empty string — i.e. "no data". */}
+                  <AInput
+                    value={form.cost}
+                    onChange={(v) => set({ cost: v })}
+                    placeholder={t("inv.cost.unknown")}
+                    style={costInvalid ? { border: `1px solid ${AT.danger}` } : undefined}
+                  />
+                  {costInvalid && (
+                    <div style={{ fontFamily: AT.body, fontSize: 11.5, color: AT.danger, marginTop: 4 }}>
+                      {t("inv.cost.invalid")}
+                    </div>
+                  )}
+                </AField>
+              )}
             </div>
             {conditionByCode(form.condition) && (
               <div style={{ fontSize: 12, color: AT.inkSoft, marginTop: -8 }}>{conditionByCode(form.condition)!.description}</div>

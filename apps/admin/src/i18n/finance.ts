@@ -7,6 +7,7 @@ export const FINANCE = {
   "fin.tab.payments": { lv: "Maksājumi", ru: "Платежи", en: "Payments" },
   "fin.tab.invoices": { lv: "Rēķini", ru: "Счета", en: "Invoices" },
   "fin.tab.vat": { lv: "PVN atskaite", ru: "Отчёт НДС", en: "VAT report" },
+  "fin.noTabs": { lv: "Jūsu lomai šeit nav pieejamu sadaļu.", ru: "Для вашей роли здесь нет доступных разделов.", en: "No section here is available to your role." },
 
   // ── Payments: pills / stats ────────────────────────────────────────────────
   "fin.ps.paid": { lv: "Apmaksāti", ru: "Оплачены", en: "Paid" },
@@ -72,4 +73,45 @@ export const FINANCE = {
   "fin.vat.rcInvoices": { lv: "RC rēķini", ru: "Счета RC", en: "RC invoices" },
   "fin.vat.loadFailed": { lv: "Neizdevās ielādēt atskaiti", ru: "Не удалось загрузить отчёт", en: "Failed to load the report" },
   "fin.vat.reportTitle": { lv: "PVN atskaite", ru: "Отчёт НДС", en: "VAT report" },
+
+  // ── W6: Profit & stock value ───────────────────────────────────────────────
+  "fin.pf.tab": { lv: "Peļņa un vērtība", ru: "Прибыль и стоимость", en: "Profit & value" },
+  "fin.pf.from": { lv: "No", ru: "С", en: "From" },
+  "fin.pf.toIncl": { lv: "Līdz (ieskaitot)", ru: "По (включительно)", en: "To (inclusive)" },
+  "fin.pf.run": { lv: "Veidot atskaiti", ru: "Сформировать отчёт", en: "Run report" },
+  "fin.pf.loadFailed": { lv: "Neizdevās ielādēt peļņas atskaiti", ru: "Не удалось загрузить отчёт о прибыли", en: "Failed to load the profit report" },
+  "fin.pf.basis": { lv: "Peļņa = āmura cena − iepirkuma cena, pirms pircēja piemaksas un PVN", ru: "Прибыль = цена молотка − закупочная цена, до комиссии покупателя и НДС", en: "Profit = hammer price − purchase cost, before buyer premium and VAT" },
+  "fin.pf.stat.sold": { lv: "Pārdots", ru: "Продано", en: "Sold" },
+  "fin.pf.itemsSuffix": { lv: "preces", ru: "товаров", en: "items" },
+  "fin.pf.revenue": { lv: "apgrozījums", ru: "выручка", en: "revenue" },
+  "fin.pf.stat.profit": { lv: "Peļņa", ru: "Прибыль", en: "Profit" },
+  // The API divides profit by COST, so this is a markup, not a margin —
+  // all three languages must say markup or the number reads ~20% too high.
+  "fin.pf.stat.margin": { lv: "Vidējais uzcenojums", ru: "Средняя наценка", en: "Average markup" },
+  "fin.pf.stat.marginHint": { lv: "peļņa ÷ iepirkuma cena", ru: "прибыль ÷ закупочная цена", en: "profit ÷ purchase cost" },
+  "fin.pf.stat.noData": { lv: "Bez izmaksu datiem", ru: "Без данных о закупке", en: "No cost data" },
+  "fin.pf.noDataHint": { lv: "peļņas summa neietver preces bez iepirkuma cenas", ru: "сумма прибыли не включает товары без закупочной цены", en: "profit totals exclude items without a purchase cost" },
+  "fin.pf.th.item": { lv: "Prece", ru: "Товар", en: "Item" },
+  "fin.pf.th.sold": { lv: "Pārdots", ru: "Продано", en: "Sold" },
+  "fin.pf.th.cost": { lv: "Iepirkts", ru: "Закупка", en: "Cost" },
+  "fin.pf.th.profit": { lv: "Peļņa", ru: "Прибыль", en: "Profit" },
+  // Per-line percentage is profit ÷ cost as well — markup, like the stat tile.
+  "fin.pf.th.markupPct": { lv: "Uzcenojums %", ru: "Наценка %", en: "Markup %" },
+  "fin.pf.noCost": { lv: "nav datu", ru: "нет данных", en: "no data" },
+  "fin.pf.linesEmpty": { lv: "Šajā periodā nav apmaksātu pārdošanu.", ru: "За этот период нет оплаченных продаж.", en: "No paid sales in this period." },
+  "fin.pf.exportCsv": { lv: "Eksportēt CSV", ru: "Экспорт CSV", en: "Export CSV" },
+  "fin.pf.exportCsvVisible": { lv: "Eksportēt CSV (redzamās rindas)", ru: "Экспорт CSV (видимые строки)", en: "Export CSV (visible rows)" },
+  "fin.pf.exportTitle": { lv: "Peļņas atskaite", ru: "Отчёт о прибыли", en: "Profit report" },
+  // Shown when the API caps `lines` but still totals the whole period.
+  "fin.pf.truncated": { lv: "Tabulā redzami tikai perioda jaunākie {n} pārdevumi. Kopsavilkuma skaitļi augstāk aptver visu periodu; arī CSV eksports satur tikai šīs redzamās rindas.", ru: "В таблице показаны только последние {n} продаж периода. Итоги выше охватывают весь период; экспорт CSV тоже содержит только эти видимые строки.", en: "The table lists only the newest {n} sales of the period. The totals above cover the whole period; the CSV export likewise contains only these visible rows." },
+  "fin.pf.exportedPartial": { lv: "Eksportētas tikai redzamās rindas — ne viss periods", ru: "Экспортированы только видимые строки — не весь период", en: "Exported the visible rows only — not the whole period" },
+  "fin.pf.stock.title": { lv: "Krājumu vērtība šodien", ru: "Стоимость запасов на сегодня", en: "Stock value today" },
+  "fin.pf.stock.ready": { lv: "Plauktos (gatavs pārdošanai)", ru: "На полках (готово к продаже)", en: "On shelves (ready to sell)" },
+  "fin.pf.stock.drafts": { lv: "Melnraksti", ru: "Черновики", en: "Drafts" },
+  "fin.pf.stock.quarantine": { lv: "Karantīnā vai bojāti", ru: "В карантине или повреждены", en: "Quarantined or damaged" },
+  "fin.pf.stock.units": { lv: "gab.", ru: "шт.", en: "pcs" },
+  "fin.pf.stock.noData": { lv: "bez datiem", ru: "без данных", en: "no data" },
+  "fin.pf.cons.title": { lv: "Piegāžu rentabilitāte", ru: "Рентабельность поставок", en: "Consignment profitability" },
+  "fin.pf.cons.sold": { lv: "pārdoti", ru: "продано", en: "sold" },
+  "fin.pf.cons.empty": { lv: "Šajā periodā nav piegāžu ar pārdotām precēm.", ru: "За этот период нет поставок с проданными товарами.", en: "No consignments with sold items in this period." },
 } satisfies Record<string, Entry>;

@@ -382,6 +382,9 @@ export const consignments = pgTable(
     status: text("status").notNull().default("open"),
     /** Units the paperwork promises; 0 = unknown. */
     expectedCount: integer("expected_count").notNull().default(0),
+    /** W6 — delivery-level extra costs (transport, cleaning…), spread
+     * pro-rata across the units at report time. Null = none recorded. */
+    extraCostCents: integer("extra_cost_cents"),
     createdById: uuid("created_by_id").references(() => adminUsers.id),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     closedAt: timestamp("closed_at", { withTimezone: true }),
@@ -427,6 +430,10 @@ export const items = pgTable(
     photos: jsonb("photos").$type<string[]>().notNull().default([]),
     /** Inbound delivery this item arrived with (null for pre-receiving rows). */
     consignmentId: uuid("consignment_id").references(() => consignments.id),
+    /** W6 — what the unit cost us (purchase price). Null = unknown; old
+     * stock stays blank rather than assumed zero. Visible only to
+     * finance.view — the API strips it for everyone else. */
+    costCents: integer("cost_cents"),
     /** Warehouse lifecycle state (domain ItemStatus). */
     status: text("status").notNull().default("draft"),
     marketCode: text("market_code")
@@ -435,7 +442,14 @@ export const items = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("items_sku_idx").on(t.sku), index("items_status_idx").on(t.status)],
+  (t) => [
+    uniqueIndex("items_sku_idx").on(t.sku),
+    index("items_status_idx").on(t.status),
+    /** W5 stock-taking: the diff pulls every item in the scoped bins. */
+    index("items_location_idx").on(t.locationId),
+    /** W6 cost/margin: the finance reports group and join on the delivery. */
+    index("items_consignment_idx").on(t.consignmentId),
+  ],
 );
 
 // ── Listings (auction or fixed-price) ────────────────────────────────────────
@@ -794,6 +808,90 @@ export const counters = pgTable("counters", {
   key: text("key").primaryKey(),
   value: bigint("value", { mode: "number" }).notNull().default(0),
 });
+
+// ── W5: stock-taking (inventarizācija) ──────────────────────────────────────
+
+/**
+ * One reviewed line of a count, as snapshotted at approval time. Structurally
+ * identical to the API's `DiffLine` (apps/api/src/routes/stockCounts.ts), which
+ * stays the source of truth — this mirror only exists so the jsonb column is
+ * typed without the db package depending on the api package.
+ */
+export type StockCountResultLine = {
+  outcome: "match" | "wrong_bin" | "missing" | "moved_during" | "unknown_label";
+  itemId: string | null;
+  sku: string | null;
+  title: string | null;
+  expectedLocationId: string | null;
+  expectedLabel: string | null;
+  foundLocationId: string | null;
+  foundLabel: string | null;
+  code: string | null;
+  /** The same item/code turned up in more than one bin during the session. */
+  multipleBins: boolean;
+};
+
+/** One counting session. The shelf keeps working during a count — the diff
+ * uses stock_movements after startedAt to tell "legitimately left" apart
+ * from "missing". Nothing changes stock until a manager approves. */
+export const stockCounts = pgTable(
+  "stock_counts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    /** Scope: whole warehouse when both empty. */
+    zones: jsonb("zones").$type<string[]>().notNull().default([]),
+    locationIds: jsonb("location_ids").$type<string[]>().notNull().default([]),
+    /** Bins the counters marked finished — "missing" only applies to these. */
+    doneLocationIds: jsonb("done_location_ids").$type<string[]>().notNull().default([]),
+    /** open | approved | cancelled. */
+    status: text("status").notNull().default("open"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    createdById: uuid("created_by_id").references(() => adminUsers.id),
+    approvedById: uuid("approved_by_id").references(() => adminUsers.id),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    /**
+     * Snapshot of the diff as it stood when the manager approved. Recomputing
+     * after approval would answer against corrected data (missing items now
+     * have no bin, wrong-bin items now match) and the review screen would go
+     * blank — so the record of what was actually corrected is frozen here.
+     * Null while the session is open.
+     */
+    result: jsonb("result").$type<{
+      tally: Record<string, number>;
+      lines: StockCountResultLine[];
+      moved: number;
+      missing: number;
+    }>(),
+  },
+  (t) => [index("stock_counts_status_idx").on(t.status)],
+);
+
+/** One QR/SKU read during a session — who scanned what, where, when. Blind
+ * by design: the phone never shows what the bin is supposed to hold. */
+export const stockCountScans = pgTable(
+  "stock_count_scans",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    countId: uuid("count_id")
+      .notNull()
+      .references(() => stockCounts.id, { onDelete: "cascade" }),
+    /** Raw code as scanned (kept for unknown-label review). */
+    code: text("code").notNull(),
+    /** Resolved item; null = label the system doesn't know. A scan must never
+     * outlive its item — every other item-child table cascades, and without it
+     * DELETE /api/items/:id fails forever on this FK. */
+    itemId: uuid("item_id").references(() => items.id, { onDelete: "cascade" }),
+    /** The bin being counted when this was scanned. */
+    locationId: uuid("location_id")
+      .notNull()
+      .references(() => warehouseLocations.id),
+    scannedById: uuid("scanned_by_id").references(() => adminUsers.id),
+    scannedByLabel: text("scanned_by_label").notNull().default(""),
+    scannedAt: timestamp("scanned_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("stock_count_scans_count_idx").on(t.countId)],
+);
 
 // ── CMS pages (Shhh editor architecture, persistence in Postgres) ───────────
 
