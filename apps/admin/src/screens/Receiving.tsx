@@ -318,6 +318,11 @@ export function ReceivingScreen({ nav }: { nav: Nav }) {
               <AField label={t("rcv.category")}>
                 <ASelect value={form.category} onChange={(v) => setForm({ ...form, category: v })} options={CATEGORIES.map((c) => ({ value: c.code, label: c.label }))} />
               </AField>
+              {/* The grade's description belongs directly under the grade —
+                  the cost field goes after it, not between the two. */}
+              {conditionByCode(form.condition) && (
+                <div style={{ fontSize: 12, color: AT.inkSoft, marginTop: -6 }}>{conditionByCode(form.condition)!.description}</div>
+              )}
               {canCost && (
                 <AField label={t("rcv.cost.intake")} hint={t("rcv.cost.intakeHint")}>
                   <AInput
@@ -328,9 +333,6 @@ export function ReceivingScreen({ nav }: { nav: Nav }) {
                   />
                   <CostError show={intakeCost === "bad"} text={t("rcv.cost.badAmount")} />
                 </AField>
-              )}
-              {conditionByCode(form.condition) && (
-                <div style={{ fontSize: 12, color: AT.inkSoft, marginTop: -6 }}>{conditionByCode(form.condition)!.description}</div>
               )}
               <AField
                 label={needsNotes ? t("wh.condNotesRequired") : t("wh.condNotes")}
