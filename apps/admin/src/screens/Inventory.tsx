@@ -86,12 +86,21 @@ const itemCostStr = (i: Item): string => {
   return c == null ? "" : (c / 100).toFixed(2);
 };
 
-/** "12,50" / "12.5" → 1250; empty or invalid → null (unknown, never zero). */
-const costToCents = (s: string): number | null => {
-  const v = s.trim().replace(",", ".");
-  if (!v) return null;
+/**
+ * Purchase cost as typed → cents. "Unknown" and "you mistyped it" must never
+ * collapse into the same value: only an EMPTY field means null (unknown), and
+ * anything unparseable or negative is rejected so a typo can't overwrite a
+ * recorded cost with "no data". Comma decimals and stray spaces are fine.
+ */
+type CostParse = { ok: true; cents: number | null } | { ok: false; cents: null };
+
+const parseCost = (s: string): CostParse => {
+  const v = s.replace(/\s/g, "").replace(",", ".");
+  if (!v) return { ok: true, cents: null };
+  if (!/^(\d+(\.\d+)?|\.\d+)$/.test(v)) return { ok: false, cents: null };
   const n = Number(v);
-  return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : null;
+  if (!Number.isFinite(n) || n < 0) return { ok: false, cents: null };
+  return { ok: true, cents: Math.round(n * 100) };
 };
 
 const formFromItem = (i: Item): FormState => ({
@@ -261,6 +270,15 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
 
   const set = (patch: Partial<FormState>) => setForm((f) => ({ ...f, ...patch }));
 
+  // ── W6: purchase cost — own permission (finance.view), own endpoint ───────
+  /** items.edit covers the item body; the cost field does not answer to it. */
+  const canEditItem = editing ? can("items.edit") : can("items.create");
+  const showCost = can("finance.view");
+  const costParsed = parseCost(form.cost);
+  const costInvalid = showCost && !costParsed.ok;
+  /** Finance/Sales Manager: cost only — the rest of the form is not theirs. */
+  const costOnly = Boolean(editing) && showCost && !canEditItem;
+
   // ── Photos (upload → server re-encodes to web+thumb webp) ────────────────
   const thumbOf = (u: string) => (u.includes("-web.webp") ? u.replace("-web.webp", "-thumb.webp") : u);
 
@@ -301,11 +319,11 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
   };
 
   const submit = async () => {
-    const body: {
-      sku: string; title: string; description: string; condition: string; conditionNotes: string;
-      category: string; location: string; weightGrams: number | null; marketCode: string;
-      costCents?: number | null;
-    } = {
+    // A rejected cost never leaves the drawer — sending it would blank a real
+    // purchase price the moment someone fat-fingers the field.
+    if (showCost && !costParsed.ok) return toast(t("inv.cost.invalidToast"), "danger");
+
+    const body = {
       sku: form.sku,
       title: form.title,
       description: form.description,
@@ -316,19 +334,24 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
       weightGrams: form.weight ? Number(form.weight) : null,
       marketCode: form.marketCode,
     };
-    // W6: only finance.view may send costCents (the API 403s otherwise), and
-    // only when the operator actually changed it — untouched items stay as-is.
-    if (can("finance.view")) {
-      const orig = editing ? (editing as ItemWithCost).costCents ?? null : null;
-      const next = costToCents(form.cost);
-      if (next !== orig) body.costCents = next;
-    }
+    // W6: the purchase cost answers to finance.view, the rest of the item to
+    // items.edit — Finance and Sales Manager hold the former without the
+    // latter, so the cost travels on its own route (PATCH …/cost) and never
+    // rides along in the item payload. Only an actual change is sent.
+    const origCost = editing ? (editing as ItemWithCost).costCents ?? null : null;
+    const nextCost = costParsed.cents;
+    const costChanged = showCost && costParsed.ok && nextCost !== origCost;
     try {
       if (editing) {
-        await api.patch(`/api/items/${editing.id}`, body);
+        // Item first, then the cost: a user who may do both ends up with one
+        // coherent state; a finance-only user still saves the cost alone.
+        if (canEditItem) await api.patch(`/api/items/${editing.id}`, body);
+        if (costChanged) await api.patch(`/api/items/${editing.id}/cost`, { costCents: nextCost });
         toast(t("inv.saved"), "ok");
       } else {
-        await api.post("/api/items", body);
+        // On create the cost can ride along: POST already answers to
+        // items.create and checks finance.view for the cost field itself.
+        await api.post("/api/items", costChanged ? { ...body, costCents: nextCost } : body);
         toast(t("inv.created"), "ok");
       }
       setCreating(false);
@@ -336,6 +359,9 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
       load();
     } catch (err) {
       toast(err instanceof ApiError ? err.message : t("wh.saveFailed"), "danger");
+      // Part of the save may have landed (item saved, cost rejected) — refresh
+      // so the list shows what actually stuck.
+      load();
     }
   };
 
@@ -660,8 +686,13 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
                 <ABtn kind="danger" onClick={() => void remove(editing)}>{t("c.delete")}</ABtn>
               )}
               <ABtn kind="ghost" onClick={() => { setCreating(false); setEditing(null); }}>{t("c.close")}</ABtn>
-              {drawerTab === "details" && (editing ? can("items.edit") : can("items.create")) && (
-                <ABtn onClick={() => void submit()} disabled={!form.sku || !form.title || (conditionRequiresNotes(form.condition) && form.conditionNotes.trim().length < 3)}>{editing ? t("c.save") : t("c.create")}</ABtn>
+              {/* A finance-only user has no items.edit but must still be able
+                  to save the one field that is theirs. */}
+              {drawerTab === "details" && (canEditItem || costOnly) && (
+                <ABtn
+                  onClick={() => void submit()}
+                  disabled={costInvalid || (canEditItem && (!form.sku || !form.title || (conditionRequiresNotes(form.condition) && form.conditionNotes.trim().length < 3)))}
+                >{editing ? t("c.save") : t("c.create")}</ABtn>
               )}
             </>
           }
@@ -709,6 +740,15 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
                 </ABtn>
               </div>
             )}
+            {costOnly && (
+              <div style={{
+                fontFamily: AT.body, fontSize: 11.5, lineHeight: 1.45, color: AT.inkSoft,
+                background: AT.surfaceAlt, border: `1px solid ${AT.ruleSoft}`,
+                borderRadius: AT.radiusSm, padding: "9px 12px",
+              }}>
+                {t("inv.cost.onlyCost")}
+              </div>
+            )}
             <AField label="SKU"><AInput value={form.sku} onChange={(v) => set({ sku: v })} placeholder="LOT-0042" /></AField>
             <AField label={t("c.title")}><AInput value={form.title} onChange={(v) => set({ title: v })} /></AField>
             <AField label={t("c.description")}>
@@ -738,9 +778,21 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
               </AField>
               <AField label="Location (note)"><AInput value={form.location} onChange={(v) => set({ location: v })} placeholder="A-01-03" /></AField>
               <AField label="Weight (grams)"><AInput value={form.weight} onChange={(v) => set({ weight: v })} placeholder="1200" /></AField>
-              {can("finance.view") && (
+              {showCost && (
                 <AField label={t("inv.cost.label")} hint={t("inv.cost.private")}>
-                  <AInput type="number" value={form.cost} onChange={(v) => set({ cost: v })} placeholder={t("inv.cost.unknown")} />
+                  {/* Text, not number: a number input silently drops "12,50"
+                      and hands us an empty string — i.e. "no data". */}
+                  <AInput
+                    value={form.cost}
+                    onChange={(v) => set({ cost: v })}
+                    placeholder={t("inv.cost.unknown")}
+                    style={costInvalid ? { border: `1px solid ${AT.danger}` } : undefined}
+                  />
+                  {costInvalid && (
+                    <div style={{ fontFamily: AT.body, fontSize: 11.5, color: AT.danger, marginTop: 4 }}>
+                      {t("inv.cost.invalid")}
+                    </div>
+                  )}
                 </AField>
               )}
             </div>

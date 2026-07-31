@@ -273,12 +273,37 @@ export function registerStockCountRoutes(app: FastifyInstance, ctx: AppContext, 
       : [];
     const expectedIds = new Set(expected.map((e) => e.id));
 
+    // The shelf keeps working during a count, so every classification below
+    // has to ask "did this item legitimately move after we started?". One
+    // query answers it for all of them instead of one query per line.
+    const involved = [...new Set([...expectedIds, ...scannedByItem.keys()])];
+    const movesByItem = new Map<string, Array<{ fromLocationId: string | null }>>();
+    if (involved.length > 0) {
+      const rows = await db
+        .select({ itemId: stockMovements.itemId, fromLocationId: stockMovements.fromLocationId })
+        .from(stockMovements)
+        .where(and(inArray(stockMovements.itemId, involved), gt(stockMovements.createdAt, count.startedAt)));
+      for (const m of rows) {
+        const list = movesByItem.get(m.itemId) ?? [];
+        list.push({ fromLocationId: m.fromLocationId });
+        movesByItem.set(m.itemId, list);
+      }
+    }
+    /** Did something take this item out of `bin` after the session opened? */
+    const leftBin = (itemId: string, bin: string | null): boolean =>
+      bin !== null && (movesByItem.get(itemId) ?? []).some((m) => m.fromLocationId === bin);
+
     for (const it of expected) {
       const scan = scannedByItem.get(it.id);
       if (scan) {
-        const same = scan.locationId === it.locationId;
+        // Scanned somewhere other than where the system files it. That is a
+        // misfiling — unless the item left the bin it was counted in after we
+        // counted it, in which case the system is right and we are stale:
+        // calling that `wrong_bin` made approval undo a legitimate move.
+        const outcome =
+          scan.locationId === it.locationId ? "match" : leftBin(it.id, scan.locationId) ? "moved_during" : "wrong_bin";
         lines.push({
-          outcome: same ? "match" : "wrong_bin",
+          outcome,
           itemId: it.id, sku: it.sku, title: it.title,
           expectedLocationId: it.locationId, expectedLabel: it.locationId ? allLabels.get(it.locationId) ?? null : null,
           foundLocationId: scan.locationId, foundLabel: allLabels.get(scan.locationId) ?? null, code: null,
@@ -291,19 +316,8 @@ export function registerStockCountRoutes(app: FastifyInstance, ctx: AppContext, 
       // Only a movement that took the item OUT of the bin we expected it in
       // excuses the absence — a putaway INTO that very bin used to downgrade a
       // genuine `missing` to `moved_during`.
-      const [moved] = await db
-        .select({ id: stockMovements.id })
-        .from(stockMovements)
-        .where(
-          and(
-            eq(stockMovements.itemId, it.id),
-            eq(stockMovements.fromLocationId, it.locationId),
-            gt(stockMovements.createdAt, count.startedAt),
-          ),
-        )
-        .limit(1);
       lines.push({
-        outcome: moved ? "moved_during" : "missing",
+        outcome: leftBin(it.id, it.locationId) ? "moved_during" : "missing",
         itemId: it.id, sku: it.sku, title: it.title,
         expectedLocationId: it.locationId, expectedLabel: allLabels.get(it.locationId) ?? null,
         foundLocationId: null, foundLabel: null, code: null,

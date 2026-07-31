@@ -13,10 +13,17 @@ import {
 import { AT } from "../theme.js";
 import { ABadge, ABtn, ACard, AEmpty, AField, AIcon, AInput, APills, AStat, ATable, ATd, ATr, useToast } from "../ui.js";
 
-const TABS: { id: string; label: TKey }[] = [
-  { id: "payments", label: "fin.tab.payments" },
-  { id: "invoices", label: "fin.tab.invoices" },
-  { id: "vat", label: "fin.tab.vat" },
+/**
+ * Each tab answers to its own permission and the screen opens for anyone who
+ * holds at least one of them (see SCREENS in App.tsx). Finance holds
+ * invoices.view; Sales Manager holds only finance.view and lands on Profit.
+ */
+const TABS: { id: string; label: TKey; permission: string }[] = [
+  { id: "payments", label: "fin.tab.payments", permission: "orders.view" },
+  { id: "invoices", label: "fin.tab.invoices", permission: "invoices.view" },
+  { id: "vat", label: "fin.tab.vat", permission: "invoices.view" },
+  // W6: profit & stock value — purchase costs are private to finance.view.
+  { id: "profit", label: "fin.pf.tab", permission: "finance.view" },
 ];
 
 function monthStart(): string {
@@ -30,11 +37,11 @@ function today(): string {
 export function FinanceScreen({ nav: _nav }: { nav: Nav }) {
   const { t } = useT();
   const { can } = useAuth();
-  const [tab, setTab] = useState("payments");
-  // W6: profit & stock value — purchase costs are private to finance.view.
-  const tabs: { id: string; label: TKey }[] = can("finance.view")
-    ? [...TABS, { id: "profit", label: "fin.pf.tab" }]
-    : TABS;
+  const tabs = TABS.filter((tb) => can(tb.permission));
+  // Start on the first tab this role may actually open — a finance.view-only
+  // user would otherwise land on a Payments tab the API refuses to serve.
+  const [tab, setTab] = useState(() => tabs[0]?.id ?? "profit");
+  const active = tabs.some((tb) => tb.id === tab) ? tab : tabs[0]?.id ?? null;
   return (
     <div style={{ display: "grid", gap: 14 }}>
       <h1 style={{ fontFamily: AT.body, fontSize: 20, fontWeight: 700, color: AT.ink }}>{t("fin.title")}</h1>
@@ -42,12 +49,16 @@ export function FinanceScreen({ nav: _nav }: { nav: Nav }) {
         {tabs.map((tb) => (
           <button key={tb.id} onClick={() => setTab(tb.id)} style={{
             all: "unset", cursor: "pointer", padding: "9px 14px", fontFamily: AT.body,
-            fontSize: 13, fontWeight: 600, color: tab === tb.id ? AT.ink : AT.inkSoft,
-            borderBottom: `2px solid ${tab === tb.id ? AT.accent : "transparent"}`, marginBottom: -1,
+            fontSize: 13, fontWeight: 600, color: active === tb.id ? AT.ink : AT.inkSoft,
+            borderBottom: `2px solid ${active === tb.id ? AT.accent : "transparent"}`, marginBottom: -1,
           }}>{t(tb.label)}</button>
         ))}
       </div>
-      {tab === "payments" ? <PaymentsTab /> : tab === "invoices" ? <InvoicesTab /> : tab === "profit" ? <ProfitTab /> : <VatTab />}
+      {active === "payments" ? <PaymentsTab />
+        : active === "invoices" ? <InvoicesTab />
+          : active === "vat" ? <VatTab />
+            : active === "profit" ? <ProfitTab />
+              : <AEmpty text={t("fin.noTabs")} />}
     </div>
   );
 }
@@ -563,7 +574,21 @@ interface ProfitConsignment {
   noCostData: number;
 }
 interface ProfitReport {
-  summary: { soldCount: number; revenueCents: number; profitCents: number; marginPct: number | null; noCostData: number };
+  /**
+   * The summary aggregates the WHOLE period; `lines` is capped at
+   * `lineLimit` newest sales. `truncated` says the two no longer agree —
+   * both stay optional so an older API build simply reads as "not capped".
+   */
+  summary: {
+    soldCount: number;
+    revenueCents: number;
+    profitCents: number;
+    /** profit ÷ cost — a markup, not a margin (see fin.pf.stat.margin). */
+    marginPct: number | null;
+    noCostData: number;
+    truncated?: boolean;
+    lineLimit?: number;
+  };
   lines: ProfitLine[];
   consignments: ProfitConsignment[];
 }
@@ -606,9 +631,14 @@ function ProfitTab() {
     void api.get<StockValue>("/api/reports/stock-value").then(setStock).catch(() => undefined);
   }, []);
 
+  // The table (and therefore the CSV) can be the newest N sales of a longer
+  // period — the totals above them are not.
+  const truncated = report?.summary.truncated === true;
+  const lineLimit = report?.summary.lineLimit ?? report?.lines.length ?? 0;
+
   const lineHeaders = [
     "SKU", t("fin.pf.th.item"), t("fin.th.order"), `${t("fin.pf.th.sold")} €`,
-    `${t("fin.pf.th.cost")} €`, `${t("fin.pf.th.profit")} €`, "%",
+    `${t("fin.pf.th.cost")} €`, `${t("fin.pf.th.profit")} €`, t("fin.pf.th.markupPct"),
   ];
   const runExport = () => {
     if (!report || report.lines.length === 0) return toast(t("fin.nothingToExport"), "warn");
@@ -621,7 +651,9 @@ function ProfitTab() {
       l.profitCents == null ? "" : (l.profitCents / 100).toFixed(2),
       l.marginPct == null ? "" : l.marginPct.toFixed(1),
     ]);
-    exportCSV(`profit-${from}-to-${to}`, lineHeaders, body);
+    // The file name carries the cap too — a CSV outlives the screen it came from.
+    exportCSV(truncated ? `profit-${from}-to-${to}-newest-${report.lines.length}` : `profit-${from}-to-${to}`, lineHeaders, body);
+    if (truncated) toast(t("fin.pf.exportedPartial"), "warn");
   };
 
   const stockRows: { label: TKey; bucket: StockBucket }[] = stock
@@ -647,7 +679,9 @@ function ProfitTab() {
         <AField label={t("fin.pf.toIncl")}><AInput type="date" value={to} onChange={setTo} /></AField>
         <ABtn onClick={run}>{t("fin.pf.run")}</ABtn>
         {report && report.lines.length > 0 && (
-          <ABtn kind="ghost" onClick={runExport}><AIcon name="download" size={13} /> {t("fin.pf.exportCsv")}</ABtn>
+          <ABtn kind="ghost" onClick={runExport}>
+            <AIcon name="download" size={13} /> {truncated ? t("fin.pf.exportCsvVisible") : t("fin.pf.exportCsv")}
+          </ABtn>
         )}
         <span style={{ fontFamily: AT.body, fontSize: 11.5, color: AT.inkSoft, marginLeft: "auto" }}>
           {t("fin.pf.basis")}
@@ -658,7 +692,7 @@ function ProfitTab() {
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
           <AStat label={t("fin.pf.stat.sold")} value={s.soldCount} sub={`${t("fin.pf.itemsSuffix")} · ${t("fin.pf.revenue")} ${formatEur(s.revenueCents)}`} />
           <AStat label={t("fin.pf.stat.profit")} value={formatEur(s.profitCents)} tone={s.profitCents > 0 ? "ok" : s.profitCents < 0 ? "danger" : undefined} />
-          <AStat label={t("fin.pf.stat.margin")} value={pct(s.marginPct)} />
+          <AStat label={t("fin.pf.stat.margin")} value={pct(s.marginPct)} sub={t("fin.pf.stat.marginHint")} />
           <AStat
             label={t("fin.pf.stat.noData")}
             value={s.noCostData}
@@ -668,11 +702,21 @@ function ProfitTab() {
         </div>
       )}
 
+      {truncated && report && (
+        <div style={{
+          fontFamily: AT.body, fontSize: 11.5, lineHeight: 1.45, color: AT.inkSoft,
+          background: AT.surfaceAlt, border: `1px solid ${AT.ruleSoft}`,
+          borderRadius: AT.radiusSm, padding: "9px 12px",
+        }}>
+          {t("fin.pf.truncated").replace("{n}", String(lineLimit || report.lines.length))}
+        </div>
+      )}
+
       <ACard pad={false}>
         {!report || report.lines.length === 0 ? (
           <AEmpty text={t("fin.pf.linesEmpty")} />
         ) : (
-          <ATable head={["SKU", t("fin.pf.th.item"), t("fin.th.order"), t("fin.pf.th.sold"), t("fin.pf.th.cost"), t("fin.pf.th.profit"), "%"]}>
+          <ATable head={["SKU", t("fin.pf.th.item"), t("fin.th.order"), t("fin.pf.th.sold"), t("fin.pf.th.cost"), t("fin.pf.th.profit"), t("fin.pf.th.markupPct")]}>
             {report.lines.map((l, idx) => (
               <ATr key={`${l.orderRef}-${idx}`}>
                 <ATd mono>{l.sku}</ATd>
