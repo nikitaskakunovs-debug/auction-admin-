@@ -442,7 +442,14 @@ export const items = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("items_sku_idx").on(t.sku), index("items_status_idx").on(t.status)],
+  (t) => [
+    uniqueIndex("items_sku_idx").on(t.sku),
+    index("items_status_idx").on(t.status),
+    /** W5 stock-taking: the diff pulls every item in the scoped bins. */
+    index("items_location_idx").on(t.locationId),
+    /** W6 cost/margin: the finance reports group and join on the delivery. */
+    index("items_consignment_idx").on(t.consignmentId),
+  ],
 );
 
 // ── Listings (auction or fixed-price) ────────────────────────────────────────
@@ -804,6 +811,26 @@ export const counters = pgTable("counters", {
 
 // ── W5: stock-taking (inventarizācija) ──────────────────────────────────────
 
+/**
+ * One reviewed line of a count, as snapshotted at approval time. Structurally
+ * identical to the API's `DiffLine` (apps/api/src/routes/stockCounts.ts), which
+ * stays the source of truth — this mirror only exists so the jsonb column is
+ * typed without the db package depending on the api package.
+ */
+export type StockCountResultLine = {
+  outcome: "match" | "wrong_bin" | "missing" | "moved_during" | "unknown_label";
+  itemId: string | null;
+  sku: string | null;
+  title: string | null;
+  expectedLocationId: string | null;
+  expectedLabel: string | null;
+  foundLocationId: string | null;
+  foundLabel: string | null;
+  code: string | null;
+  /** The same item/code turned up in more than one bin during the session. */
+  multipleBins: boolean;
+};
+
 /** One counting session. The shelf keeps working during a count — the diff
  * uses stock_movements after startedAt to tell "legitimately left" apart
  * from "missing". Nothing changes stock until a manager approves. */
@@ -823,6 +850,19 @@ export const stockCounts = pgTable(
     createdById: uuid("created_by_id").references(() => adminUsers.id),
     approvedById: uuid("approved_by_id").references(() => adminUsers.id),
     approvedAt: timestamp("approved_at", { withTimezone: true }),
+    /**
+     * Snapshot of the diff as it stood when the manager approved. Recomputing
+     * after approval would answer against corrected data (missing items now
+     * have no bin, wrong-bin items now match) and the review screen would go
+     * blank — so the record of what was actually corrected is frozen here.
+     * Null while the session is open.
+     */
+    result: jsonb("result").$type<{
+      tally: Record<string, number>;
+      lines: StockCountResultLine[];
+      moved: number;
+      missing: number;
+    }>(),
   },
   (t) => [index("stock_counts_status_idx").on(t.status)],
 );
@@ -838,8 +878,10 @@ export const stockCountScans = pgTable(
       .references(() => stockCounts.id, { onDelete: "cascade" }),
     /** Raw code as scanned (kept for unknown-label review). */
     code: text("code").notNull(),
-    /** Resolved item; null = label the system doesn't know. */
-    itemId: uuid("item_id").references(() => items.id),
+    /** Resolved item; null = label the system doesn't know. A scan must never
+     * outlive its item — every other item-child table cascades, and without it
+     * DELETE /api/items/:id fails forever on this FK. */
+    itemId: uuid("item_id").references(() => items.id, { onDelete: "cascade" }),
     /** The bin being counted when this was scanned. */
     locationId: uuid("location_id")
       .notNull()

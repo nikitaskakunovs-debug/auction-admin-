@@ -176,6 +176,13 @@
       "when": 1785520778329,
       "tag": "0024_lumpy_johnny_storm",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1785524768862,
+      "tag": "0025_amazing_ultragirl",
+      "breakpoints": true
     }
   ]
 }
