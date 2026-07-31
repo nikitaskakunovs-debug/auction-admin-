@@ -69,11 +69,26 @@ export function SettingsScreen({ nav: _nav }: { nav: Nav }) {
 
 // ── A3: bidder-tag vocabulary ────────────────────────────────────────────────
 
+const COLOR_KEYS: Record<string, TKey> = {
+  gold: "set.col.gold",
+  green: "set.col.green",
+  blue: "set.col.blue",
+  red: "set.col.red",
+  orange: "set.col.orange",
+  grey: "set.col.grey",
+};
+
 function TagsTab() {
+  const { t } = useT();
   const toast = useToast();
   const [tags, setTags] = useState<TagDef[]>([]);
   const [name, setName] = useState("");
   const [color, setColor] = useState("grey");
+
+  const colorLabel = (c: string) => {
+    const key = COLOR_KEYS[c];
+    return key ? t(key) : c;
+  };
 
   const load = () => {
     void api.get<{ tags: TagDef[] }>("/api/customer-tags").then((r) => setTags(r.tags)).catch(() => undefined);
@@ -83,28 +98,28 @@ function TagsTab() {
   const create = async () => {
     try {
       await api.post("/api/customer-tags", { name: name.trim(), color });
-      toast(`Tag "${name.trim()}" created`, "ok");
+      toast(`${t("set.tagCreatedA")} "${name.trim()}" ${t("set.tagCreatedB")}`, "ok");
       setName("");
       load();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Create failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("set.createFailed"), "danger");
     }
   };
 
-  const patch = async (t: TagDef, body: Record<string, unknown>, okMsg: string) => {
+  const patch = async (tag: TagDef, body: Record<string, unknown>, okMsg: string) => {
     try {
-      await api.patch(`/api/customer-tags/${t.id}`, body);
+      await api.patch(`/api/customer-tags/${tag.id}`, body);
       toast(okMsg, "ok");
       load();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Save failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("set.saveFailed"), "danger");
     }
   };
 
-  const rename = (t: TagDef) => {
-    const next = window.prompt("Rename tag:", t.name);
-    if (!next || !next.trim() || next.trim() === t.name) return;
-    void patch(t, { name: next.trim() }, "Tag renamed");
+  const rename = (tag: TagDef) => {
+    const next = window.prompt(t("set.renamePrompt"), tag.name);
+    if (!next || !next.trim() || next.trim() === tag.name) return;
+    void patch(tag, { name: next.trim() }, t("set.tagRenamed"));
   };
 
   const COLORS = Object.keys(TAG_STYLES);
@@ -112,35 +127,34 @@ function TagsTab() {
   return (
     <div style={{ display: "grid", gap: 14, maxWidth: 640 }}>
       <div style={{ fontFamily: AT.body, fontSize: 13, color: AT.inkSoft }}>
-        Colored labels for bidders — used as chips and filters on the Bidders screen. Retiring a tag hides
-        it from pickers; bidders that carry it keep it until it's removed.
+        {t("set.tagsIntro")}
       </div>
       <ACard pad={false}>
-        <ATable head={["Tag", "Color", "Status", ""]}>
-          {tags.map((t) => (
-            <ATr key={t.id}>
-              <ATd><TagChip tag={t} /></ATd>
+        <ATable head={[t("set.thTag"), t("set.thColor"), t("c.status"), ""]}>
+          {tags.map((tag) => (
+            <ATr key={tag.id}>
+              <ATd><TagChip tag={tag} /></ATd>
               <ATd>
                 <span style={{ display: "inline-flex", gap: 4 }}>
                   {COLORS.map((c) => (
                     <button
                       key={c}
-                      title={c}
-                      onClick={() => void patch(t, { color: c }, "Color saved")}
+                      title={colorLabel(c)}
+                      onClick={() => void patch(tag, { color: c }, t("set.colorSaved"))}
                       style={{
                         all: "unset", cursor: "pointer", width: 18, height: 18, borderRadius: 5,
-                        background: TAG_STYLES[c]!.bg, border: `2px solid ${t.color === c ? TAG_STYLES[c]!.fg : "transparent"}`,
+                        background: TAG_STYLES[c]!.bg, border: `2px solid ${tag.color === c ? TAG_STYLES[c]!.fg : "transparent"}`,
                       }}
                     />
                   ))}
                 </span>
               </ATd>
-              <ATd>{t.active ? <ABadge tone="ok">active</ABadge> : <ABadge tone="neutral">retired</ABadge>}</ATd>
+              <ATd>{tag.active ? <ABadge tone="ok">{t("set.active")}</ABadge> : <ABadge tone="neutral">{t("set.retired")}</ABadge>}</ATd>
               <ATd right>
                 <span style={{ display: "inline-flex", gap: 6 }}>
-                  <ABtn size="sm" kind="ghost" onClick={() => rename(t)}>Rename</ABtn>
-                  <ABtn size="sm" kind="ghost" onClick={() => void patch(t, { active: !t.active }, t.active ? "Tag retired" : "Tag reactivated")}>
-                    {t.active ? "Retire" : "Reactivate"}
+                  <ABtn size="sm" kind="ghost" onClick={() => rename(tag)}>{t("set.rename")}</ABtn>
+                  <ABtn size="sm" kind="ghost" onClick={() => void patch(tag, { active: !tag.active }, tag.active ? t("set.tagRetired") : t("set.tagReactivated"))}>
+                    {tag.active ? t("set.retire") : t("set.reactivate")}
                   </ABtn>
                 </span>
               </ATd>
@@ -149,11 +163,11 @@ function TagsTab() {
         </ATable>
       </ACard>
       <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
-        <AField label="New tag"><AInput value={name} onChange={setName} placeholder="Collector" style={{ width: 200 }} /></AField>
-        <AField label="Color">
-          <ASelect value={color} onChange={setColor} options={COLORS.map((c) => ({ value: c, label: c }))} />
+        <AField label={t("set.newTag")}><AInput value={name} onChange={setName} placeholder={t("set.tagPlaceholder")} style={{ width: 200 }} /></AField>
+        <AField label={t("set.color")}>
+          <ASelect value={color} onChange={setColor} options={COLORS.map((c) => ({ value: c, label: colorLabel(c) }))} />
         </AField>
-        <ABtn onClick={() => void create()} disabled={name.trim().length === 0}>Add tag</ABtn>
+        <ABtn onClick={() => void create()} disabled={name.trim().length === 0}>{t("set.addTag")}</ABtn>
       </div>
     </div>
   );
@@ -181,6 +195,7 @@ interface MarketDraft {
 
 function MarketsTab() {
   const { can } = useAuth();
+  const { t } = useT();
   const toast = useToast();
   const [markets, setMarkets] = useState<Market[]>([]);
   const [drafts, setDrafts] = useState<Record<string, MarketDraft>>({});
@@ -222,17 +237,17 @@ function MarketsTab() {
       fromCents: Math.round(parseFloat(t.from.replace(",", ".")) * 100),
       incrementCents: Math.round(parseFloat(t.inc.replace(",", ".")) * 100),
     }));
-    if (tiers.some((t) => !Number.isFinite(t.fromCents) || !Number.isFinite(t.incrementCents) || t.incrementCents <= 0)) {
-      toast("Increment table has invalid numbers", "danger");
+    if (tiers.some((x) => !Number.isFinite(x.fromCents) || !Number.isFinite(x.incrementCents) || x.incrementCents <= 0)) {
+      toast(t("set.incInvalid"), "danger");
       return;
     }
     if (tiers[0]?.fromCents !== 0) {
-      toast("First increment tier must start at €0.00", "danger");
+      toast(t("set.incFirstZero"), "danger");
       return;
     }
     for (let i = 1; i < tiers.length; i++) {
       if (tiers[i]!.fromCents <= tiers[i - 1]!.fromCents) {
-        toast("Increment tiers must be strictly ascending", "danger");
+        toast(t("set.incAscending"), "danger");
         return;
       }
     }
@@ -249,10 +264,10 @@ function MarketsTab() {
         active: d.active,
         incrementTable: tiers,
       });
-      toast(`${m.code} saved`, "ok");
+      toast(`${m.code} — ${t("c.saved")}`, "ok");
       load();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Save failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("set.saveFailed"), "danger");
     }
   };
 
@@ -268,38 +283,38 @@ function MarketsTab() {
               <span style={{ display: "inline-flex", alignItems: "center", gap: 9 }}>
                 {m.name}
                 <span style={{ fontFamily: AT.mono, fontSize: 11, background: AT.surfaceAlt, borderRadius: 6, padding: "2px 7px" }}>{m.code}</span>
-                {d.active ? <ABadge tone="ok">active</ABadge> : <ABadge tone="neutral">inactive</ABadge>}
+                {d.active ? <ABadge tone="ok">{t("set.active")}</ABadge> : <ABadge tone="neutral">{t("set.inactive")}</ABadge>}
               </span>
             }
-            actions={editable ? <ABtn size="sm" onClick={() => void save(m)}>Save</ABtn> : undefined}
+            actions={editable ? <ABtn size="sm" onClick={() => void save(m)}>{t("c.save")}</ABtn> : undefined}
           >
             <div style={{ display: "grid", gap: 14 }}>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12 }}>
-                <AField label="VAT %" hint="Confirm with your accountant.">
+                <AField label={t("set.vat")} hint={t("set.vatHint")}>
                   <AInput value={d.vat} onChange={(v) => setDraft(m.code, { vat: v })} style={{ opacity: editable ? 1 : 0.6 }} />
                 </AField>
-                <AField label="Buyer premium %">
+                <AField label={t("set.premium")}>
                   <AInput value={d.premium} onChange={(v) => setDraft(m.code, { premium: v })} style={{ opacity: editable ? 1 : 0.6 }} />
                 </AField>
-                <AField label="Anti-snipe (sec)">
+                <AField label={t("set.antiSnipe")}>
                   <AInput value={d.antiSnipe} onChange={(v) => setDraft(m.code, { antiSnipe: v })} style={{ opacity: editable ? 1 : 0.6 }} />
                 </AField>
-                <AField label="Pickup window (days)" hint="After payment; then auto-cancel.">
+                <AField label={t("set.pickupWindow")} hint={t("set.pickupHint")}>
                   <AInput value={d.pickupDays} onChange={(v) => setDraft(m.code, { pickupDays: v })} style={{ opacity: editable ? 1 : 0.6 }} />
                 </AField>
-                <AField label="Restock fee %" hint="Retained on no-show.">
+                <AField label={t("set.restockFee")} hint={t("set.restockHint")}>
                   <AInput value={d.restockFee} onChange={(v) => setDraft(m.code, { restockFee: v })} style={{ opacity: editable ? 1 : 0.6 }} />
                 </AField>
-                <AField label="Omniva parcel machine €" hint="Delivery price charged to the buyer.">
+                <AField label={t("set.omniva")} hint={t("set.deliveryHint")}>
                   <AInput value={d.omnivaPrice} onChange={(v) => setDraft(m.code, { omnivaPrice: v })} style={{ opacity: editable ? 1 : 0.6 }} />
                 </AField>
-                <AField label="DPD locker €" hint="Delivery price charged to the buyer.">
+                <AField label={t("set.dpd")} hint={t("set.deliveryHint")}>
                   <AInput value={d.dpdPrice} onChange={(v) => setDraft(m.code, { dpdPrice: v })} style={{ opacity: editable ? 1 : 0.6 }} />
                 </AField>
-                <AField label="Handling fee €" hint="Packing fee on shipped orders. Never part of the 10% premium.">
+                <AField label={t("set.handling")} hint={t("set.handlingHint")}>
                   <AInput value={d.handlingFee} onChange={(v) => setDraft(m.code, { handlingFee: v })} style={{ opacity: editable ? 1 : 0.6 }} />
                 </AField>
-                <AField label="Languages">
+                <AField label={t("set.languages")}>
                   <div style={{ display: "flex", gap: 5, paddingTop: 8 }}>
                     {m.languages.map((l) => (
                       <span key={l} style={{ fontFamily: AT.mono, fontSize: 11, background: AT.surfaceAlt, borderRadius: 6, padding: "3px 8px" }}>{l}</span>
@@ -307,9 +322,9 @@ function MarketsTab() {
                   </div>
                 </AField>
                 {editable && (
-                  <AField label="Status">
+                  <AField label={t("c.status")}>
                     <ABtn size="sm" kind={d.active ? "ghost" : "dark"} onClick={() => setDraft(m.code, { active: !d.active })}>
-                      {d.active ? "Deactivate" : "Activate"}
+                      {d.active ? t("set.deactivate") : t("set.activate")}
                     </ABtn>
                   </AField>
                 )}
@@ -317,7 +332,7 @@ function MarketsTab() {
 
               <div>
                 <div style={{ fontFamily: AT.body, fontSize: 12, fontWeight: 700, color: AT.ink, marginBottom: 7 }}>
-                  Bid increment table <span style={{ color: AT.inkSoft, fontWeight: 400 }}>(from price → increment)</span>
+                  {t("set.incTable")} <span style={{ color: AT.inkSoft, fontWeight: 400 }}>{t("set.incTableHint")}</span>
                 </div>
                 <div style={{ display: "grid", gap: 6, maxWidth: 420 }}>
                   {d.tiers.map((t, i) => (
@@ -345,7 +360,7 @@ function MarketsTab() {
                       const last = d.tiers[d.tiers.length - 1];
                       setDraft(m.code, { tiers: [...d.tiers, { from: last ? String(parseFloat(last.from) * 2 || 0) : "0", inc: last?.inc ?? "1.00" }] });
                     }}>
-                      <AIcon name="plus" size={13} /> Add tier
+                      <AIcon name="plus" size={13} /> {t("set.addTier")}
                     </ABtn>
                   )}
                 </div>
@@ -362,6 +377,7 @@ function MarketsTab() {
 
 function TeamTab() {
   const { can } = useAuth();
+  const { t } = useT();
   const toast = useToast();
   const [users, setUsers] = useState<TeamUser[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
@@ -378,13 +394,13 @@ function TeamTab() {
   const patchUser = async (u: TeamUser, patch: Record<string, unknown>) => {
     try {
       await api.patch(`/api/team/${u.id}`, patch);
-      toast("Saved", "ok");
+      toast(t("c.saved"), "ok");
       load();
     } catch (err) {
       if (err instanceof ApiError && err.body.error === "cannot_demote_last_super_admin") {
-        toast("You cannot demote or deactivate the last Super Admin", "danger");
+        toast(t("set.lastSuperAdmin"), "danger");
       } else {
-        toast(err instanceof ApiError ? err.message : "Save failed", "danger");
+        toast(err instanceof ApiError ? err.message : t("set.saveFailed"), "danger");
       }
     }
   };
@@ -392,11 +408,11 @@ function TeamTab() {
   const invite = async () => {
     try {
       await api.post("/api/team", form);
-      toast("User invited", "ok");
+      toast(t("set.userInvited"), "ok");
       setInviting(false);
       load();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Invite failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("set.inviteFailed"), "danger");
     }
   };
 
@@ -405,12 +421,12 @@ function TeamTab() {
       {manage && (
         <div>
           <ABtn onClick={() => { setForm({ name: "", email: "", password: "", roleId: "support" }); setInviting(true); }}>
-            <AIcon name="plus" size={15} color="#fff" /> Invite user
+            <AIcon name="plus" size={15} color="#fff" /> {t("set.inviteUser")}
           </ABtn>
         </div>
       )}
       <ACard pad={false}>
-        <ATable head={["User", "Email", "Role", "Status", "Joined", ""]}>
+        <ATable head={[t("set.thUser"), t("set.thEmail"), t("set.thRole"), t("c.status"), t("set.thJoined"), ""]}>
           {users.map((u) => (
             <ATr key={u.id}>
               <ATd>
@@ -431,12 +447,12 @@ function TeamTab() {
                   roles.find((r) => r.id === u.roleId)?.label ?? u.roleId
                 )}
               </ATd>
-              <ATd>{u.active ? <ABadge tone="ok">active</ABadge> : <ABadge tone="neutral">disabled</ABadge>}</ATd>
+              <ATd>{u.active ? <ABadge tone="ok">{t("set.active")}</ABadge> : <ABadge tone="neutral">{t("set.disabled")}</ABadge>}</ATd>
               <ATd>{formatDay(u.createdAt)}</ATd>
               <ATd right>
                 {manage && (
                   <ABtn size="sm" kind="ghost" onClick={() => void patchUser(u, { active: !u.active })}>
-                    {u.active ? "Disable" : "Enable"}
+                    {u.active ? t("set.disable") : t("set.enable")}
                   </ABtn>
                 )}
               </ATd>
@@ -447,22 +463,22 @@ function TeamTab() {
 
       {inviting && (
         <ADrawer
-          title="Invite team member"
+          title={t("set.inviteMember")}
           onClose={() => setInviting(false)}
           footer={
             <>
-              <ABtn kind="ghost" onClick={() => setInviting(false)}>Cancel</ABtn>
-              <ABtn onClick={() => void invite()} disabled={!form.name || !form.email || form.password.length < 8}>Invite</ABtn>
+              <ABtn kind="ghost" onClick={() => setInviting(false)}>{t("c.cancel")}</ABtn>
+              <ABtn onClick={() => void invite()} disabled={!form.name || !form.email || form.password.length < 8}>{t("set.invite")}</ABtn>
             </>
           }
         >
           <div style={{ display: "grid", gap: 14 }}>
-            <AField label="Name"><AInput value={form.name} onChange={(v) => setForm({ ...form, name: v })} /></AField>
-            <AField label="Email"><AInput value={form.email} onChange={(v) => setForm({ ...form, email: v })} type="email" /></AField>
-            <AField label="Password" hint="Min 8 characters; they should change it after first sign-in.">
+            <AField label={t("set.name")}><AInput value={form.name} onChange={(v) => setForm({ ...form, name: v })} /></AField>
+            <AField label={t("set.email")}><AInput value={form.email} onChange={(v) => setForm({ ...form, email: v })} type="email" /></AField>
+            <AField label={t("set.password")} hint={t("set.passwordHint")}>
               <AInput value={form.password} onChange={(v) => setForm({ ...form, password: v })} type="password" />
             </AField>
-            <AField label="Role">
+            <AField label={t("set.role")}>
               <ASelect value={form.roleId} onChange={(v) => setForm({ ...form, roleId: v })} options={roles.map((r) => ({ value: r.id, label: r.label }))} />
             </AField>
           </div>
@@ -476,6 +492,7 @@ function TeamTab() {
 
 function RolesTab() {
   const { can } = useAuth();
+  const { t } = useT();
   const toast = useToast();
   const [roles, setRoles] = useState<Role[]>([]);
   const [allPermissions, setAllPermissions] = useState<string[]>([]);
@@ -518,10 +535,10 @@ function RolesTab() {
       for (const roleId of dirty) {
         await api.put(`/api/roles/${roleId}/permissions`, { permissions: [...(grants[roleId] ?? [])] });
       }
-      toast(`Saved ${dirty.size} role${dirty.size === 1 ? "" : "s"}`, "ok");
+      toast(`${t("set.rolesSaved")}: ${dirty.size}`, "ok");
       load();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Save failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("set.saveFailed"), "danger");
     }
   };
 
@@ -529,19 +546,19 @@ function RolesTab() {
     <div style={{ display: "grid", gap: 12 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.inkSoft }}>
-          Action-level permissions per role. <strong>Super Admin is locked</strong> to the full set.
+          {t("set.rolesIntro")} <strong>{t("set.rolesLocked")}</strong>
         </div>
-        {editable && dirty.size > 0 && <ABtn onClick={() => void saveAll()}>Save changes ({dirty.size})</ABtn>}
+        {editable && dirty.size > 0 && <ABtn onClick={() => void saveAll()}>{t("set.saveChanges")} ({dirty.size})</ABtn>}
       </div>
       <ACard pad={false} style={{ overflowX: "auto" }}>
         <table style={{ borderCollapse: "collapse", width: "100%" }}>
           <thead>
             <tr>
-              <th style={thStyle}>Permission</th>
+              <th style={thStyle}>{t("set.thPermission")}</th>
               {roles.map((r) => (
                 <th key={r.id} style={{ ...thStyle, textAlign: "center" }}>
                   {r.label}
-                  {r.id === "super_admin" && <span title="locked"> 🔒</span>}
+                  {r.id === "super_admin" && <span title={t("set.locked")}> 🔒</span>}
                 </th>
               ))}
             </tr>
@@ -564,6 +581,27 @@ const thStyle: React.CSSProperties = {
   position: "sticky", top: 0,
 };
 
+const PERM_GROUP_KEYS: Record<string, TKey> = {
+  items: "set.pg.items",
+  listings: "set.pg.listings",
+  auctions: "set.pg.auctions",
+  orders: "set.pg.orders",
+  pickup: "set.pg.pickup",
+  warehouse: "set.pg.warehouse",
+  grading: "set.pg.grading",
+  customers: "set.pg.customers",
+  content: "set.pg.content",
+  finance: "set.pg.finance",
+  invoices: "set.pg.invoices",
+  reports: "set.pg.reports",
+  stats: "set.pg.stats",
+  settings: "set.pg.settings",
+  team: "set.pg.team",
+  roles: "set.pg.roles",
+  markets: "set.pg.markets",
+  audit: "set.pg.audit",
+};
+
 function GroupRows({ group, perms, roles, grants, toggle, editable }: {
   group: string;
   perms: string[];
@@ -572,13 +610,15 @@ function GroupRows({ group, perms, roles, grants, toggle, editable }: {
   toggle: (roleId: string, permission: string) => void;
   editable: boolean;
 }) {
+  const { t } = useT();
+  const groupKey = PERM_GROUP_KEYS[group];
   return (
     <>
       <tr>
         <td colSpan={roles.length + 1} style={{
           padding: "8px 12px 4px", fontFamily: AT.body, fontSize: 11, fontWeight: 700,
           color: AT.ink, textTransform: "uppercase", letterSpacing: "0.07em", background: "#FAFAF8",
-        }}>{group}</td>
+        }}>{groupKey ? t(groupKey) : group}</td>
       </tr>
       {perms.map((p) => (
         <tr key={p}>
@@ -628,6 +668,7 @@ const draftValid = (d: PresetDraft) =>
 
 function ConditionsTab() {
   const { can } = useAuth();
+  const { t } = useT();
   const toast = useToast();
   const confirm = useConfirm();
   const [presets, setPresets] = useState<ConditionPreset[]>([]);
@@ -655,7 +696,7 @@ function ConditionsTab() {
 
   const save = async (p: ConditionPreset) => {
     const d = drafts[p.id];
-    if (!d || !draftValid(d)) return toast("All three languages and a valid position are required", "danger");
+    if (!d || !draftValid(d)) return toast(t("set.presetInvalid"), "danger");
     try {
       await api.patch(`/api/condition-presets/${p.id}`, {
         textLv: d.textLv.trim(),
@@ -663,42 +704,42 @@ function ConditionsTab() {
         textEn: d.textEn.trim(),
         position: Number(d.position),
       });
-      toast("Preset saved", "ok");
+      toast(t("set.presetSaved"), "ok");
       load();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Save failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("set.saveFailed"), "danger");
     }
   };
 
   const retire = async (p: ConditionPreset) => {
     const r = await confirm({
-      title: `Retire "${p.textEn}"?`,
-      body: "Retired presets stop appearing in the grading chips; items that already reference them keep their notes.",
-      confirmLabel: "Retire",
+      title: `${t("set.retire")}: "${p.textEn}"?`,
+      body: t("set.retireBody"),
+      confirmLabel: t("set.retire"),
     });
     if (!r.ok) return;
     try {
       await api.delete(`/api/condition-presets/${p.id}`);
-      toast("Preset retired", "ok");
+      toast(t("set.presetRetired"), "ok");
       load();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Retire failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("set.retireFailed"), "danger");
     }
   };
 
   const reactivate = async (p: ConditionPreset) => {
     try {
       await api.patch(`/api/condition-presets/${p.id}`, { active: true });
-      toast("Preset reactivated", "ok");
+      toast(t("set.presetReactivated"), "ok");
       load();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("set.saveFailed"), "danger");
     }
   };
 
   const create = async (code: string) => {
     const d = adding[code];
-    if (!d || !draftValid(d)) return toast("All three languages and a valid position are required", "danger");
+    if (!d || !draftValid(d)) return toast(t("set.presetInvalid"), "danger");
     try {
       await api.post("/api/condition-presets", {
         conditionCode: code,
@@ -708,7 +749,7 @@ function ConditionsTab() {
         position: Number(d.position),
         active: true,
       });
-      toast("Preset added", "ok");
+      toast(t("set.presetAdded"), "ok");
       setAdding((a) => {
         const next = { ...a };
         delete next[code];
@@ -716,7 +757,7 @@ function ConditionsTab() {
       });
       load();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Create failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("set.createFailed"), "danger");
     }
   };
 
@@ -724,9 +765,9 @@ function ConditionsTab() {
     try {
       const r = await api.put<{ reviewAll: boolean }>("/api/settings/grading", { reviewAll: next });
       setReviewAll(r.reviewAll);
-      toast(r.reviewAll ? "Every grade now goes through review" : "Only damaged-family grades go through review", "ok");
+      toast(r.reviewAll ? t("set.reviewAllOn") : t("set.reviewAllOff"), "ok");
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Save failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("set.saveFailed"), "danger");
     }
   };
 
@@ -734,12 +775,12 @@ function ConditionsTab() {
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
-      <ACard title="Review scope">
+      <ACard title={t("set.reviewScope")}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <div style={{ fontFamily: AT.body, fontSize: 13, color: AT.ink }}>
-            <strong>Review every grade</strong>
+            <strong>{t("set.reviewEvery")}</strong>
             <div style={{ fontSize: 12, color: AT.inkSoft, marginTop: 3 }}>
-              When off, only damaged/AS-IS family grades wait for reviewer approval; clean grades auto-approve.
+              {t("set.reviewHint")}
             </div>
           </div>
           <div style={{ marginLeft: "auto" }}>
@@ -747,10 +788,10 @@ function ConditionsTab() {
               <span style={{ fontFamily: AT.body, fontSize: 12, color: AT.inkSoft }}>…</span>
             ) : canToggleScope ? (
               <ABtn size="sm" kind={reviewAll ? "primary" : "ghost"} onClick={() => void putReviewAll(!reviewAll)}>
-                {reviewAll ? "On — review everything" : "Off — damaged only"}
+                {reviewAll ? t("set.reviewOn") : t("set.reviewOff")}
               </ABtn>
             ) : (
-              <ABadge tone={reviewAll ? "accent" : "neutral"}>{reviewAll ? "review everything" : "damaged only"}</ABadge>
+              <ABadge tone={reviewAll ? "accent" : "neutral"}>{reviewAll ? t("set.reviewAllBadge") : t("set.damagedOnlyBadge")}</ABadge>
             )}
           </div>
         </div>
@@ -771,7 +812,7 @@ function ConditionsTab() {
             actions={
               !addDraft ? (
                 <ABtn size="sm" kind="soft" onClick={() => setAdding((a) => ({ ...a, [c.code]: { ...emptyDraft, position: String(rows.length) } }))}>
-                  <AIcon name="plus" size={13} /> Add preset
+                  <AIcon name="plus" size={13} /> {t("set.addPreset")}
                 </ABtn>
               ) : undefined
             }
@@ -779,10 +820,10 @@ function ConditionsTab() {
           >
             {rows.length === 0 && !addDraft ? (
               <div style={{ padding: 14, fontFamily: AT.body, fontSize: 12.5, color: AT.inkSoft }}>
-                No preset notes for this grade yet.
+                {t("set.noPresets")}
               </div>
             ) : (
-              <ATable head={["LV", "RU", "EN", "Pos", "Status", ""]}>
+              <ATable head={["LV", "RU", "EN", t("set.thPos"), t("c.status"), ""]}>
                 {rows.map((p) => {
                   const d = drafts[p.id] ?? draftOf(p);
                   return (
@@ -799,14 +840,14 @@ function ConditionsTab() {
                       <ATd style={{ width: 56, opacity: p.active ? 1 : 0.55 }}>
                         <AInput value={d.position} onChange={(v) => setDraft(p.id, { position: v })} style={cell} />
                       </ATd>
-                      <ATd>{p.active ? <ABadge tone="ok">active</ABadge> : <ABadge tone="neutral">retired</ABadge>}</ATd>
+                      <ATd>{p.active ? <ABadge tone="ok">{t("set.active")}</ABadge> : <ABadge tone="neutral">{t("set.retired")}</ABadge>}</ATd>
                       <ATd right>
                         <span style={{ display: "inline-flex", gap: 6 }}>
-                          {isDirty(p) && <ABtn size="sm" onClick={() => void save(p)}>Save</ABtn>}
+                          {isDirty(p) && <ABtn size="sm" onClick={() => void save(p)}>{t("c.save")}</ABtn>}
                           {p.active ? (
-                            <ABtn size="sm" kind="ghost" onClick={() => void retire(p)}>Retire</ABtn>
+                            <ABtn size="sm" kind="ghost" onClick={() => void retire(p)}>{t("set.retire")}</ABtn>
                           ) : (
-                            <ABtn size="sm" kind="ghost" onClick={() => void reactivate(p)}>Reactivate</ABtn>
+                            <ABtn size="sm" kind="ghost" onClick={() => void reactivate(p)}>{t("set.reactivate")}</ABtn>
                           )}
                         </span>
                       </ATd>
@@ -827,15 +868,15 @@ function ConditionsTab() {
                     <ATd style={{ width: 56 }}>
                       <AInput value={addDraft.position} onChange={(v) => setAdding((a) => ({ ...a, [c.code]: { ...a[c.code]!, position: v } }))} style={cell} />
                     </ATd>
-                    <ATd><ABadge tone="accent">new</ABadge></ATd>
+                    <ATd><ABadge tone="accent">{t("set.new")}</ABadge></ATd>
                     <ATd right>
                       <span style={{ display: "inline-flex", gap: 6 }}>
-                        <ABtn size="sm" onClick={() => void create(c.code)} disabled={!draftValid(addDraft)}>Create</ABtn>
+                        <ABtn size="sm" onClick={() => void create(c.code)} disabled={!draftValid(addDraft)}>{t("c.create")}</ABtn>
                         <ABtn size="sm" kind="ghost" onClick={() => setAdding((a) => {
                           const next = { ...a };
                           delete next[c.code];
                           return next;
-                        })}>Cancel</ABtn>
+                        })}>{t("c.cancel")}</ABtn>
                       </span>
                     </ATd>
                   </ATr>

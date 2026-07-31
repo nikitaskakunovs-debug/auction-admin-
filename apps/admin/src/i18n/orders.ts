@@ -25,6 +25,7 @@ export const ORDERS = {
   "ord.thOrder": { lv: "Pasūtījums", ru: "Заказ", en: "Order" },
   "ord.thBidder": { lv: "Solītājs", ru: "Покупатель", en: "Bidder" },
   "ord.thPayment": { lv: "Maksājums", ru: "Оплата", en: "Payment" },
+  "ord.manual": { lv: "manuāli", ru: "вручную", en: "manual" },
   "ord.selectAllAria": { lv: "Atlasīt visus redzamos pasūtījumus", ru: "Выбрать все видимые заказы", en: "Select all visible orders" },
   "ord.selectAria": { lv: "Atlasīt", ru: "Выбрать", en: "Select" },
   "ord.loadingOrders": { lv: "Ielādē pasūtījumus…", ru: "Загрузка заказов…", en: "Loading orders…" },

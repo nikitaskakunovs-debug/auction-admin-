@@ -4,6 +4,7 @@ import type { Nav } from "../App.js";
 import { useAuth } from "../auth.js";
 import { exportCSV, exportPDFPrint, exportXLS } from "../exporters.js";
 import { formatDay, formatEur } from "../format.js";
+import { orderStatusLabel, useT, type TKey } from "../i18n.js";
 import {
   BulkBar, BulkBtn, bulkDividerStyle, checkboxStyle, dateInputStyle, ExportMenu, FilterChips,
   makeFilterTools, SearchBox, TagChip, useDebounced, useSavedViews, useSelection, useStoredFilters,
@@ -39,11 +40,11 @@ interface ListResponse {
   counts: { all: number; active: number; blocked: number; erased: number; strikes: number };
 }
 
-const COUNTRIES = [
-  { value: "LV", label: "Latvia" },
-  { value: "EE", label: "Estonia" },
-  { value: "LT", label: "Lithuania" },
-  { value: "", label: "Other" },
+const COUNTRIES: { value: string; label: TKey }[] = [
+  { value: "LV", label: "cust.country.lv" },
+  { value: "EE", label: "cust.country.ee" },
+  { value: "LT", label: "cust.country.lt" },
+  { value: "", label: "cust.country.other" },
 ];
 
 // ── A3 power filters ─────────────────────────────────────────────────────────
@@ -66,19 +67,30 @@ const PAGE = 50;
 const EXPORT_PAGE = 200;
 
 const STATUS_PILLS = [
-  { id: "all", label: "All" },
-  { id: "active", label: "Active" },
-  { id: "blocked", label: "Blocked" },
-  { id: "strikes", label: "Strikes" },
-  { id: "erased", label: "Erased" },
-] as const;
+  { id: "all", label: "c.all" },
+  { id: "active", label: "cust.pill.active" },
+  { id: "blocked", label: "cust.pill.blocked" },
+  { id: "strikes", label: "cust.pill.strikes" },
+  { id: "erased", label: "cust.pill.erased" },
+] as const satisfies ReadonlyArray<{ id: keyof ListResponse["counts"]; label: TKey }>;
 
-const SORTS = [
-  { value: "newest", label: "Newest first" },
-  { value: "oldest", label: "Oldest first" },
-  { value: "alias", label: "Alias A→Z" },
-  { value: "strikes", label: "Most strikes" },
+const SORTS: { value: string; label: TKey }[] = [
+  { value: "newest", label: "cust.sort.newest" },
+  { value: "oldest", label: "cust.sort.oldest" },
+  { value: "alias", label: "cust.sort.alias" },
+  { value: "strikes", label: "cust.sort.strikes" },
 ];
+
+const FEE_TYPE_KEY: Record<CustomerFee["type"], TKey> = {
+  unpaid_restock: "cust.fees.unpaid",
+  no_pickup_restock: "cust.fees.noPickup",
+};
+
+const FEE_STATUS_KEY: Record<CustomerFee["status"], TKey> = {
+  outstanding: "cust.fees.st.outstanding",
+  settled: "cust.fees.st.settled",
+  waived: "cust.fees.st.waived",
+};
 
 function buildQuery(f: Filters, limit: number, offset: number): string {
   const p = new URLSearchParams();
@@ -95,10 +107,9 @@ function buildQuery(f: Filters, limit: number, offset: number): string {
   return p.toString();
 }
 
-const EXPORT_HEADERS = ["Alias", "Email", "Name", "Country", "Tags", "Strikes", "Fees due €", "Status", "Joined"];
-
 export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
   const { can } = useAuth();
+  const { t } = useT();
   const toast = useToast();
   const confirm = useConfirm();
   const [filters, setFilters] = useState<Filters>(() => filterTools.loadStored(FILTERS_KEY));
@@ -129,7 +140,7 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
       setQInput(f.q);
       setFilters(f);
     },
-    noun: "segment",
+    noun: t("cust.nounSegment"),
   });
   const selection = useSelection(rows);
   const { selected, setSelected, allSelected, toggleAll, toggleOne, selectedRows } = selection;
@@ -166,7 +177,7 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
       });
       setTotal(r.total);
     } catch {
-      toast("Failed to load more", "danger");
+      toast(t("cust.loadMoreFailed"), "danger");
     } finally {
       setLoadingMore(false);
     }
@@ -179,16 +190,27 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
   };
 
   const chips: FilterChip[] = [];
-  if (filters.status !== "all") chips.push({ key: "status", label: STATUS_PILLS.find((p) => p.id === filters.status)?.label ?? filters.status, clear: () => set({ status: "all" }) });
-  if (filters.tag !== "all") chips.push({ key: "tag", label: `Tag: ${tagById.get(filters.tag)?.name ?? "?"}`, clear: () => set({ tag: "all" }) });
-  if (filters.country !== "all") chips.push({ key: "country", label: `Country: ${filters.country || "Other"}`, clear: () => set({ country: "all" }) });
-  if (filters.debt !== "any") chips.push({ key: "debt", label: "Has outstanding fees", clear: () => set({ debt: "any" }) });
-  if (filters.from) chips.push({ key: "from", label: `From ${filters.from}`, clear: () => set({ from: "" }) });
-  if (filters.to) chips.push({ key: "to", label: `To ${filters.to}`, clear: () => set({ to: "" }) });
-  if (filters.sort !== "newest") chips.push({ key: "sort", label: SORTS.find((s) => s.value === filters.sort)?.label ?? filters.sort, clear: () => set({ sort: "newest" }) });
+  if (filters.status !== "all") {
+    const pill = STATUS_PILLS.find((p) => p.id === filters.status);
+    chips.push({ key: "status", label: pill ? t(pill.label) : filters.status, clear: () => set({ status: "all" }) });
+  }
+  if (filters.tag !== "all") chips.push({ key: "tag", label: `${t("cust.chip.tag")} ${tagById.get(filters.tag)?.name ?? "?"}`, clear: () => set({ tag: "all" }) });
+  if (filters.country !== "all") chips.push({ key: "country", label: `${t("cust.chip.country")} ${filters.country || t("cust.country.other")}`, clear: () => set({ country: "all" }) });
+  if (filters.debt !== "any") chips.push({ key: "debt", label: t("cust.hasFees"), clear: () => set({ debt: "any" }) });
+  if (filters.from) chips.push({ key: "from", label: `${t("cust.chip.from")} ${filters.from}`, clear: () => set({ from: "" }) });
+  if (filters.to) chips.push({ key: "to", label: `${t("cust.chip.to")} ${filters.to}`, clear: () => set({ to: "" }) });
+  if (filters.sort !== "newest") {
+    const s = SORTS.find((x) => x.value === filters.sort);
+    chips.push({ key: "sort", label: s ? t(s.label) : filters.sort, clear: () => set({ sort: "newest" }) });
+  }
   if (filters.q.trim()) chips.push({ key: "q", label: `"${filters.q.trim()}"`, clear: () => { setQInput(""); set({ q: "" }); } });
 
   // ── Export ────────────────────────────────────────────────────────────────
+
+  const exportHeaders = [
+    t("cust.f.alias"), t("cust.f.email"), t("cust.f.fullName"), t("cust.th.country"), t("cust.th.tags"),
+    t("cust.th.strikes"), `${t("cust.th.feesDue")} €`, t("c.status"), t("cust.th.joined"),
+  ];
 
   const toExportRow = (c: Customer): string[] => [
     c.alias,
@@ -198,7 +220,7 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
     c.tags.map((t) => tagById.get(t)?.name ?? "").filter(Boolean).join("; "),
     String(c.strikes),
     ((c.outstandingFeeCents ?? 0) / 100).toFixed(2),
-    c.erasedAt ? "erased" : c.blocked ? "blocked" : "active",
+    c.erasedAt ? t("cust.st.erased") : c.blocked ? t("cust.st.blocked") : t("cust.st.active"),
     c.createdAt.slice(0, 10),
   ];
 
@@ -216,14 +238,14 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
   const runExport = async (fmt: "csv" | "xls" | "pdf") => {
     try {
       const list = await gatherExportRows();
-      if (list.length === 0) return toast("Nothing to export", "warn");
+      if (list.length === 0) return toast(t("cust.nothingToExport"), "warn");
       const body = list.map(toExportRow);
-      if (fmt === "csv") exportCSV("bidders", EXPORT_HEADERS, body);
-      else if (fmt === "xls") exportXLS("bidders", EXPORT_HEADERS, body, "Bidders");
-      else exportPDFPrint("Bidders export", EXPORT_HEADERS, body);
-      toast(`Exported ${list.length} bidders`, "ok");
+      if (fmt === "csv") exportCSV("bidders", exportHeaders, body);
+      else if (fmt === "xls") exportXLS("bidders", exportHeaders, body, t("cust.title"));
+      else exportPDFPrint(t("cust.exportTitle"), exportHeaders, body);
+      toast(`${t("cust.exported")}: ${list.length}`, "ok");
     } catch {
-      toast("Export failed", "danger");
+      toast(t("cust.exportFailed"), "danger");
     }
   };
 
@@ -235,11 +257,11 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
         ids: selectedRows.map((c) => c.id),
         ...(mode === "add" ? { add: [tagId] } : { remove: [tagId] }),
       });
-      toast(`${r.updated} bidder${r.updated === 1 ? "" : "s"} updated`, "ok");
+      toast(`${t("cust.bulkUpdated")}: ${r.updated}`, "ok");
       setBulkTagMode(null);
       setRefreshTick((t) => t + 1);
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Tagging failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("cust.tagFailed"), "danger");
     }
   };
 
@@ -265,11 +287,11 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
         company: form.company || null,
         vatNo: form.vatNo || null,
       });
-      toast("Bidder created", "ok");
+      toast(t("cust.created"), "ok");
       setCreating(false);
       reload();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Create failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("cust.createFailed"), "danger");
     }
   };
 
@@ -277,11 +299,11 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
     if (!detail) return;
     try {
       await api.patch(`/api/customers/${detail.customer.id}`, { alias: edit.alias, name: edit.name || null, notes: edit.notes });
-      toast("Bidder saved", "ok");
+      toast(t("cust.saved"), "ok");
       openDetail(detail.customer.id);
       reload();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Save failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("cust.saveFailed"), "danger");
     }
   };
 
@@ -295,7 +317,7 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
       setDetail({ ...detail, customer: { ...detail.customer, tags: [...next] } });
       reload();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Tag update failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("cust.tagUpdateFailed"), "danger");
     }
   };
 
@@ -303,10 +325,10 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
     if (!detail) return;
     try {
       const r = await api.post<{ vies: { valid: boolean; consult: string } }>(`/api/customers/${detail.customer.id}/vies-check`);
-      toast(r.vies.valid ? `VIES: valid · consultation ${r.vies.consult}` : "VIES: number could NOT be validated — do not zero-rate", r.vies.valid ? "ok" : "danger");
+      toast(r.vies.valid ? `${t("cust.vies.toastValidPre")} ${r.vies.consult}` : t("cust.vies.toastInvalid"), r.vies.valid ? "ok" : "danger");
       openDetail(detail.customer.id);
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "VIES check failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("cust.vies.failed"), "danger");
     }
   };
 
@@ -315,20 +337,20 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
     let note = "";
     if (action === "waive") {
       const r = await confirm({
-        title: `Waive ${formatEur(fee.amountCents)} for ${fee.orderRef}?`,
-        body: "The claim is dropped and the account unblocks. Reason goes to the audit log.",
+        title: `${t("cust.fees.waiveTitlePre")} ${formatEur(fee.amountCents)} ${t("cust.fees.waiveTitleFor")} ${fee.orderRef}?`,
+        body: t("cust.fees.waiveBody"),
         requireReason: true,
-        confirmLabel: "Waive fee",
+        confirmLabel: t("cust.fees.waiveConfirm"),
       });
       if (!r.ok) return;
       note = r.reason ?? "";
     }
     try {
       await api.post(`/api/customers/${detail.customer.id}/fees/${fee.id}/${action}`, { note });
-      toast(action === "settle" ? "Fee settled — account unblocked" : "Fee waived", "ok");
+      toast(action === "settle" ? t("cust.fees.settled") : t("cust.fees.waived"), "ok");
       openDetail(detail.customer.id);
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Action failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("cust.fees.actionFailed"), "danger");
     }
   };
 
@@ -336,79 +358,79 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
   const ban = async () => {
     if (!detail) return;
     const r = await confirm({
-      title: `Suspend ${detail.customer.alias}?`,
-      body: "The account can no longer sign in to bid or buy. Use for zero-tolerance behaviour (threats, verbal abuse, aggression towards staff) or repeated strikes. The reason goes to the audit log.",
+      title: `${t("cust.ban.titlePre")} ${detail.customer.alias}?`,
+      body: t("cust.ban.body"),
       danger: true,
       requireReason: true,
-      confirmLabel: "Suspend account",
+      confirmLabel: t("cust.ban.confirm"),
     });
     if (!r.ok) return;
     try {
       await api.post(`/api/customers/${detail.customer.id}/block`, { reason: r.reason });
-      toast("Account suspended", "ok");
+      toast(t("cust.ban.done"), "ok");
       openDetail(detail.customer.id);
       reload();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("cust.failed"), "danger");
     }
   };
 
   const unban = async () => {
     if (!detail) return;
     const r = await confirm({
-      title: `Reinstate ${detail.customer.alias}?`,
-      body: "The account can bid and buy again (outstanding restock fees still pause bidding until settled). The reason goes to the audit log.",
+      title: `${t("cust.unban.titlePre")} ${detail.customer.alias}?`,
+      body: t("cust.unban.body"),
       requireReason: true,
-      confirmLabel: "Reinstate",
+      confirmLabel: t("cust.unban.confirm"),
     });
     if (!r.ok) return;
     try {
       await api.post(`/api/customers/${detail.customer.id}/unblock`, { reason: r.reason });
-      toast("Account reinstated", "ok");
+      toast(t("cust.unban.done"), "ok");
       openDetail(detail.customer.id);
       reload();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("cust.failed"), "danger");
     }
   };
 
   const strike = async () => {
     if (!detail) return;
     const r = await confirm({
-      title: `Add a strike to ${detail.customer.alias}?`,
-      body: "Strikes track unpaid-winner behaviour. Repeated strikes usually mean blocking the account.",
+      title: `${t("cust.strike.titlePre")} ${detail.customer.alias}?`,
+      body: t("cust.strike.body"),
       requireReason: true,
-      confirmLabel: "Add strike",
+      confirmLabel: t("cust.strike.confirm"),
     });
     if (!r.ok) return;
     try {
       await api.post(`/api/customers/${detail.customer.id}/strike`, { reason: r.reason });
-      toast("Strike added", "ok");
+      toast(t("cust.strike.added"), "ok");
       openDetail(detail.customer.id);
       reload();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("cust.failed"), "danger");
     }
   };
 
   const erase = async () => {
     if (!detail) return;
     const r = await confirm({
-      title: `GDPR-erase ${detail.customer.alias}?`,
-      body: "Personal data (name, company, VAT number, email) is permanently removed and the account blocked. Past orders keep their anonymised snapshots for accounting. This cannot be undone.",
+      title: `${t("cust.erase.titlePre")} ${detail.customer.alias}?`,
+      body: t("cust.erase.body"),
       danger: true,
       typeToConfirm: detail.customer.alias,
       requireReason: true,
-      confirmLabel: "Erase",
+      confirmLabel: t("cust.erase.confirm"),
     });
     if (!r.ok) return;
     try {
       await api.post(`/api/customers/${detail.customer.id}/erase`);
-      toast("Personal data erased", "ok");
+      toast(t("cust.erase.done"), "ok");
       setDetail(null);
       reload();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Erase failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("cust.erase.failed"), "danger");
     }
   };
 
@@ -417,16 +439,16 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
   return (
     <div style={{ display: "grid", gap: 14 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <h1 style={{ fontFamily: AT.body, fontSize: 20, fontWeight: 700, color: AT.ink, flex: 1 }}>Bidders</h1>
-        <ExportMenu count={exportCount} scope={selected.size > 0 ? "selected" : "filtered"} noun="bidders" onPick={(fmt) => void runExport(fmt)} />
+        <h1 style={{ fontFamily: AT.body, fontSize: 20, fontWeight: 700, color: AT.ink, flex: 1 }}>{t("cust.title")}</h1>
+        <ExportMenu count={exportCount} scope={selected.size > 0 ? "selected" : "filtered"} noun={t("cust.nounBidders")} onPick={(fmt) => void runExport(fmt)} />
         {can("customers.edit") && (
           <ABtn onClick={() => { setForm({ email: "", alias: "", name: "", country: "LV", company: "", vatNo: "" }); setCreating(true); }}>
-            <AIcon name="plus" size={15} color="#fff" /> New bidder
+            <AIcon name="plus" size={15} color="#fff" /> {t("cust.new")}
           </ABtn>
         )}
       </div>
 
-      <ViewsBar {...sv.ViewsBarProps} label="Segments" saveLabel="+ Save segment" />
+      <ViewsBar {...sv.ViewsBarProps} label={t("cust.segments")} saveLabel={t("cust.saveSegment")} />
 
       {/* Status pills with live server counts */}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -439,7 +461,7 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
               background: active ? AT.ink : AT.panel, color: active ? "#fff" : AT.ink,
               border: `1px solid ${active ? AT.ink : AT.rule}`,
             }}>
-              {p.label}
+              {t(p.label)}
               <span style={{ marginLeft: 6, opacity: 0.6, fontWeight: 700, fontSize: 11 }}>{counts?.[p.id] ?? 0}</span>
             </button>
           );
@@ -448,40 +470,40 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
 
       {/* Filter bar */}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-        <SearchBox value={qInput} onChange={setQInput} placeholder="Search alias, email or name…" />
+        <SearchBox value={qInput} onChange={setQInput} placeholder={t("cust.searchPh")} />
         <ASelect
           value={filters.tag}
           onChange={(v) => set({ tag: v })}
-          options={[{ value: "all", label: "All tags" }, ...tagDefs.map((t) => ({ value: t.id, label: t.name }))]}
+          options={[{ value: "all", label: t("cust.allTags") }, ...tagDefs.map((t) => ({ value: t.id, label: t.name }))]}
         />
         <ASelect
           value={filters.country}
           onChange={(v) => set({ country: v })}
-          options={[{ value: "all", label: "All countries" }, ...COUNTRIES.map((c) => ({ value: c.value, label: c.label }))]}
+          options={[{ value: "all", label: t("cust.allCountries") }, ...COUNTRIES.map((c) => ({ value: c.value, label: t(c.label) }))]}
         />
         <ASelect
           value={filters.debt}
           onChange={(v) => set({ debt: v })}
-          options={[{ value: "any", label: "Any balance" }, { value: "has", label: "Has outstanding fees" }]}
+          options={[{ value: "any", label: t("cust.anyBalance") }, { value: "has", label: t("cust.hasFees") }]}
         />
         <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: AT.body, fontSize: 12.5, color: AT.inkSoft }}>
           <input type="date" value={filters.from} max={filters.to || undefined} onChange={(e) => set({ from: e.target.value })} style={dateInputStyle} />
           –
           <input type="date" value={filters.to} min={filters.from || undefined} onChange={(e) => set({ to: e.target.value })} style={dateInputStyle} />
         </label>
-        <ASelect value={filters.sort} onChange={(v) => set({ sort: v })} options={SORTS} />
+        <ASelect value={filters.sort} onChange={(v) => set({ sort: v })} options={SORTS.map((s) => ({ value: s.value, label: t(s.label) }))} />
       </div>
 
       <FilterChips chips={chips} onClearAll={clearAll} />
 
       <ACard pad={false}>
         {rows.length === 0 ? (
-          <AEmpty text="No bidders match these filters." />
+          <AEmpty text={t("cust.empty")} />
         ) : (
           <>
             <ATable head={[
-              <input key="all" type="checkbox" checked={allSelected} onChange={toggleAll} style={checkboxStyle} aria-label="Select all visible bidders" />,
-              "Bidder", "Tags", "Country", "Strikes", "Fees due", "Status", "Joined",
+              <input key="all" type="checkbox" checked={allSelected} onChange={toggleAll} style={checkboxStyle} aria-label={t("cust.aria.selectAll")} />,
+              t("cust.th.bidder"), t("cust.th.tags"), t("cust.th.country"), t("cust.th.strikes"), t("cust.th.feesDue"), t("c.status"), t("cust.th.joined"),
             ]}>
               {rows.map((c) => {
                 const erased = c.erasedAt !== null;
@@ -494,7 +516,7 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
                         onClick={(e) => e.stopPropagation()}
                         onChange={() => toggleOne(c.id)}
                         style={checkboxStyle}
-                        aria-label={`Select ${c.alias}`}
+                        aria-label={`${t("cust.aria.select")} ${c.alias}`}
                       />
                     </ATd>
                     <ATd style={{ opacity: erased ? 0.5 : 1 }}>
@@ -529,7 +551,7 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
                         : <span style={{ color: AT.inkSoft }}>—</span>}
                     </ATd>
                     <ATd>
-                      {erased ? <ABadge tone="neutral">erased</ABadge> : c.blocked ? <ABadge tone="danger">blocked</ABadge> : <ABadge tone="ok">active</ABadge>}
+                      {erased ? <ABadge tone="neutral">{t("cust.st.erased")}</ABadge> : c.blocked ? <ABadge tone="danger">{t("cust.st.blocked")}</ABadge> : <ABadge tone="ok">{t("cust.st.active")}</ABadge>}
                     </ATd>
                     <ATd>{formatDay(c.createdAt)}</ATd>
                   </ATr>
@@ -539,7 +561,7 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
             {rows.length < total && (
               <div style={{ padding: 12, display: "flex", justifyContent: "center", borderTop: `1px solid ${AT.ruleSoft}` }}>
                 <ABtn kind="ghost" size="sm" disabled={loadingMore} onClick={() => void loadMore()}>
-                  {loadingMore ? "Loading…" : `Load more (${rows.length} of ${total})`}
+                  {loadingMore ? t("c.loading") : `${t("c.loadMore")} (${rows.length} ${t("c.of")} ${total})`}
                 </ABtn>
               </div>
             )}
@@ -551,12 +573,12 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
         {can("customers.edit") && (
           <>
             <span style={bulkDividerStyle} />
-            <BulkBtn onClick={() => setBulkTagMode((m) => (m === "add" ? null : "add"))}>Add tag ▾</BulkBtn>
-            <BulkBtn onClick={() => setBulkTagMode((m) => (m === "remove" ? null : "remove"))}>Remove tag ▾</BulkBtn>
+            <BulkBtn onClick={() => setBulkTagMode((m) => (m === "add" ? null : "add"))}>{t("cust.bulk.addTag")}</BulkBtn>
+            <BulkBtn onClick={() => setBulkTagMode((m) => (m === "remove" ? null : "remove"))}>{t("cust.bulk.removeTag")}</BulkBtn>
           </>
         )}
         <span style={bulkDividerStyle} />
-        <BulkBtn onClick={() => void runExport("csv")}>Export CSV</BulkBtn>
+        <BulkBtn onClick={() => void runExport("csv")}>{t("cust.bulk.exportCsv")}</BulkBtn>
         {bulkTagMode && (
           <>
             <span style={bulkDividerStyle} />
@@ -573,25 +595,25 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
 
       {creating && (
         <ADrawer
-          title="New bidder"
+          title={t("cust.new")}
           onClose={() => setCreating(false)}
           footer={
             <>
-              <ABtn kind="ghost" onClick={() => setCreating(false)}>Cancel</ABtn>
-              <ABtn onClick={() => void create()} disabled={!form.email || form.alias.length < 2}>Create</ABtn>
+              <ABtn kind="ghost" onClick={() => setCreating(false)}>{t("c.cancel")}</ABtn>
+              <ABtn onClick={() => void create()} disabled={!form.email || form.alias.length < 2}>{t("c.create")}</ABtn>
             </>
           }
         >
           <div style={{ display: "grid", gap: 14 }}>
-            <AField label="Email"><AInput value={form.email} onChange={(v) => setForm({ ...form, email: v })} type="email" /></AField>
-            <AField label="Alias" hint="Public display name shown in bid ledgers."><AInput value={form.alias} onChange={(v) => setForm({ ...form, alias: v })} /></AField>
-            <AField label="Full name"><AInput value={form.name} onChange={(v) => setForm({ ...form, name: v })} /></AField>
-            <AField label="Country">
-              <ASelect value={form.country} onChange={(v) => setForm({ ...form, country: v })} options={COUNTRIES} />
+            <AField label={t("cust.f.email")}><AInput value={form.email} onChange={(v) => setForm({ ...form, email: v })} type="email" /></AField>
+            <AField label={t("cust.f.alias")} hint={t("cust.f.aliasHint")}><AInput value={form.alias} onChange={(v) => setForm({ ...form, alias: v })} /></AField>
+            <AField label={t("cust.f.fullName")}><AInput value={form.name} onChange={(v) => setForm({ ...form, name: v })} /></AField>
+            <AField label={t("cust.f.country")}>
+              <ASelect value={form.country} onChange={(v) => setForm({ ...form, country: v })} options={COUNTRIES.map((c) => ({ value: c.value, label: t(c.label) }))} />
             </AField>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <AField label="Company"><AInput value={form.company} onChange={(v) => setForm({ ...form, company: v })} /></AField>
-              <AField label="VAT number"><AInput value={form.vatNo} onChange={(v) => setForm({ ...form, vatNo: v })} placeholder="EE123456789" /></AField>
+              <AField label={t("cust.f.company")}><AInput value={form.company} onChange={(v) => setForm({ ...form, company: v })} /></AField>
+              <AField label={t("cust.f.vatNo")}><AInput value={form.vatNo} onChange={(v) => setForm({ ...form, vatNo: v })} placeholder="EE123456789" /></AField>
             </div>
           </div>
         </ADrawer>
@@ -603,36 +625,36 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
             <span style={{ display: "inline-flex", alignItems: "center", gap: 9 }}>
               <AAvatar name={detail.customer.alias} size={26} />
               {detail.customer.alias}
-              {detail.customer.erasedAt && <ABadge tone="neutral">erased</ABadge>}
+              {detail.customer.erasedAt && <ABadge tone="neutral">{t("cust.st.erased")}</ABadge>}
             </span>
           }
           onClose={() => setDetail(null)}
           footer={
             detail.customer.erasedAt ? (
-              <ABtn kind="ghost" onClick={() => setDetail(null)}>Close</ABtn>
+              <ABtn kind="ghost" onClick={() => setDetail(null)}>{t("c.close")}</ABtn>
             ) : (
               <>
-                {can("customers.erase") && <ABtn kind="danger" onClick={() => void erase()}>GDPR erase</ABtn>}
-                {can("customers.strike") && <ABtn kind="ghost" onClick={() => void strike()}>Add strike</ABtn>}
-                <ABtn kind="ghost" onClick={() => setDetail(null)}>Close</ABtn>
-                {can("customers.edit") && <ABtn onClick={() => void save()}>Save</ABtn>}
+                {can("customers.erase") && <ABtn kind="danger" onClick={() => void erase()}>{t("cust.erase.btn")}</ABtn>}
+                {can("customers.strike") && <ABtn kind="ghost" onClick={() => void strike()}>{t("cust.strike.confirm")}</ABtn>}
+                <ABtn kind="ghost" onClick={() => setDetail(null)}>{t("c.close")}</ABtn>
+                {can("customers.edit") && <ABtn onClick={() => void save()}>{t("c.save")}</ABtn>}
               </>
             )
           }
         >
           <div style={{ display: "grid", gap: 14 }}>
             <div style={{ display: "flex", gap: 12 }}>
-              <Stat label="Bids" value={String(detail.bidStats.totalBids)} />
-              <Stat label="Auctions" value={String(detail.bidStats.auctionsBidOn)} />
-              <Stat label="Strikes" value={String(detail.customer.strikes)} warn={detail.customer.strikes > 0} />
-              <Stat label="Fees due" value={formatEur(detail.outstandingFeeCents)} warn={detail.outstandingFeeCents > 0} />
+              <Stat label={t("cust.stat.bids")} value={String(detail.bidStats.totalBids)} />
+              <Stat label={t("cust.stat.auctions")} value={String(detail.bidStats.auctionsBidOn)} />
+              <Stat label={t("cust.th.strikes")} value={String(detail.customer.strikes)} warn={detail.customer.strikes > 0} />
+              <Stat label={t("cust.th.feesDue")} value={formatEur(detail.outstandingFeeCents)} warn={detail.outstandingFeeCents > 0} />
             </div>
 
             {/* A3: tag editor — toggling saves immediately (audited). */}
             {!detail.customer.erasedAt && (
-              <AField label="Tags" hint={can("customers.edit") ? "Tap to toggle. Manage the vocabulary in Settings → Tags." : undefined}>
+              <AField label={t("cust.th.tags")} hint={can("customers.edit") ? t("cust.tagsHint") : undefined}>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {activeTagDefs.length === 0 && <span style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.inkSoft }}>No tags defined yet.</span>}
+                  {activeTagDefs.length === 0 && <span style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.inkSoft }}>{t("cust.noTagsDefined")}</span>}
                   {activeTagDefs.map((t) => {
                     const on = detail.customer.tags.includes(t.id);
                     return (
@@ -658,21 +680,21 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
               <div style={{ background: AT.surfaceAlt, borderRadius: AT.radiusSm, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10 }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontFamily: AT.body, fontSize: 12, fontWeight: 700 }}>
-                    VIES check{" "}
+                    {t("cust.vies.title")}{" "}
                     {detail.customer.vies ? (
-                      detail.customer.vies.valid ? <ABadge tone="ok">valid</ABadge> : <ABadge tone="danger">invalid</ABadge>
+                      detail.customer.vies.valid ? <ABadge tone="ok">{t("cust.vies.valid")}</ABadge> : <ABadge tone="danger">{t("cust.vies.invalid")}</ABadge>
                     ) : (
-                      <ABadge tone="warn">not verified</ABadge>
+                      <ABadge tone="warn">{t("cust.vies.notVerified")}</ABadge>
                     )}
                   </div>
                   <div style={{ fontFamily: AT.mono, fontSize: 10.5, color: AT.inkSoft, marginTop: 2 }}>
                     {detail.customer.vatNo}
-                    {detail.customer.vies ? ` · checked ${formatDay(detail.customer.vies.checkedAt)} · ${detail.customer.vies.consult}` : ""}
+                    {detail.customer.vies ? ` · ${t("cust.vies.checked")} ${formatDay(detail.customer.vies.checkedAt)} · ${detail.customer.vies.consult}` : ""}
                   </div>
                 </div>
                 {can("customers.vies_check") && !detail.customer.erasedAt && (
                   <ABtn size="sm" kind="dark" onClick={() => void viesCheck()}>
-                    {detail.customer.vies ? "Re-check" : "Validate"}
+                    {detail.customer.vies ? t("cust.vies.recheck") : t("cust.vies.validate")}
                   </ABtn>
                 )}
               </div>
@@ -680,9 +702,9 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
 
             {!detail.customer.erasedAt && can("customers.edit") && (
               <>
-                <AField label="Alias"><AInput value={edit.alias} onChange={(v) => setEdit({ ...edit, alias: v })} /></AField>
-                <AField label="Full name"><AInput value={edit.name} onChange={(v) => setEdit({ ...edit, name: v })} /></AField>
-                <AField label="Notes">
+                <AField label={t("cust.f.alias")}><AInput value={edit.alias} onChange={(v) => setEdit({ ...edit, alias: v })} /></AField>
+                <AField label={t("cust.f.fullName")}><AInput value={edit.name} onChange={(v) => setEdit({ ...edit, name: v })} /></AField>
+                <AField label={t("c.notes")}>
                   <textarea value={edit.notes} onChange={(e) => setEdit({ ...edit, notes: e.target.value })} rows={3} style={{
                     width: "100%", borderRadius: AT.radiusSm, border: `1px solid ${AT.rule}`, fontFamily: AT.body,
                     fontSize: 13, color: AT.ink, padding: 10, resize: "vertical",
@@ -696,35 +718,35 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
                 <div style={{ background: "#FBE3E3", border: "1px solid #E8B4B4", borderRadius: AT.radiusSm, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10 }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontFamily: AT.body, fontSize: 12, fontWeight: 700, color: "#8F1D21" }}>
-                      Account suspended{detail.customer.blockedAt ? ` · ${formatDay(detail.customer.blockedAt)}` : ""}
+                      {t("cust.suspendedTitle")}{detail.customer.blockedAt ? ` · ${formatDay(detail.customer.blockedAt)}` : ""}
                     </div>
-                    <div style={{ fontSize: 12, color: "#A54A4D", marginTop: 2 }}>{detail.customer.blockedReason || "No reason recorded"}</div>
+                    <div style={{ fontSize: 12, color: "#A54A4D", marginTop: 2 }}>{detail.customer.blockedReason || t("cust.noReason")}</div>
                   </div>
-                  <ABtn size="sm" kind="dark" onClick={() => void unban()}>Reinstate</ABtn>
+                  <ABtn size="sm" kind="dark" onClick={() => void unban()}>{t("cust.unban.confirm")}</ABtn>
                 </div>
               ) : (
                 <div>
-                  <ABtn kind="danger" size="sm" onClick={() => void ban()}>Suspend account</ABtn>
+                  <ABtn kind="danger" size="sm" onClick={() => void ban()}>{t("cust.ban.confirm")}</ABtn>
                 </div>
               )
             )}
 
             {detail.fees.length > 0 && (
-              <ACard title={`Restock fees (${detail.fees.length})`} pad={false}>
-                <ATable head={["Order", "Type", "Amount", "Status", ""]}>
+              <ACard title={`${t("cust.fees.title")} (${detail.fees.length})`} pad={false}>
+                <ATable head={[t("cust.fees.order"), t("cust.fees.type"), t("cust.fees.amount"), t("c.status"), ""]}>
                   {detail.fees.map((f) => (
                     <ATr key={f.id}>
                       <ATd mono>{f.orderRef}</ATd>
-                      <ATd>{f.type === "unpaid_restock" ? "unpaid" : "no pickup"}</ATd>
+                      <ATd>{t(FEE_TYPE_KEY[f.type])}</ATd>
                       <ATd mono right>{formatEur(f.amountCents)}</ATd>
                       <ATd>
-                        <ABadge tone={f.status === "outstanding" ? "danger" : f.status === "settled" ? "ok" : "neutral"}>{f.status}</ABadge>
+                        <ABadge tone={f.status === "outstanding" ? "danger" : f.status === "settled" ? "ok" : "neutral"}>{t(FEE_STATUS_KEY[f.status])}</ABadge>
                       </ATd>
                       <ATd right>
                         {f.status === "outstanding" && can("customers.strike") && (
                           <span style={{ display: "inline-flex", gap: 6 }}>
-                            <ABtn size="sm" onClick={() => void feeAction(f, "settle")}>Settle</ABtn>
-                            <ABtn size="sm" kind="ghost" onClick={() => void feeAction(f, "waive")}>Waive</ABtn>
+                            <ABtn size="sm" onClick={() => void feeAction(f, "settle")}>{t("cust.fees.settle")}</ABtn>
+                            <ABtn size="sm" kind="ghost" onClick={() => void feeAction(f, "waive")}>{t("cust.fees.waive")}</ABtn>
                           </span>
                         )}
                       </ATd>
@@ -734,18 +756,18 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
               </ACard>
             )}
 
-            <ACard title={`Orders (${detail.orders.length})`} pad={false}>
+            <ACard title={`${t("cust.orders.title")} (${detail.orders.length})`} pad={false}>
               {detail.orders.length === 0 ? (
-                <AEmpty text="No orders yet." />
+                <AEmpty text={t("cust.orders.empty")} />
               ) : (
-                <ATable head={["Ref", "Total", "Status"]}>
+                <ATable head={[t("cust.orders.ref"), t("c.total"), t("c.status")]}>
                   {detail.orders.map((o) => (
                     <ATr key={o.id}>
                       <ATd mono>{o.ref}</ATd>
                       <ATd mono right>{formatEur(o.totalCents)}</ATd>
                       <ATd>
                         <ABadge tone={ORDER_STATUS_TONE[o.status]?.tone ?? "neutral"}>
-                          {ORDER_STATUS_TONE[o.status]?.label ?? o.status}
+                          {orderStatusLabel(o.status)}
                         </ABadge>
                       </ATd>
                     </ATr>

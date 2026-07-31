@@ -43,6 +43,8 @@ export const SHELL = {
   "sh.grp.orders": { lv: "Pasūtījumi", ru: "Заказы", en: "Orders" },
   "sh.grp.bidders": { lv: "Solītāji", ru: "Участники", en: "Bidders" },
   "sh.grp.goto": { lv: "Pāriet uz", ru: "Перейти к", en: "Go to" },
+  "sh.blocked": { lv: "bloķēts", ru: "заблокирован", en: "blocked" },
+  "sh.strikes": { lv: "aizrādījumi", ru: "предупреждения", en: "strikes" },
 
   // ── Confirm dialog / shared UI-kit defaults (ui.tsx) ───────────────────────
   "sh.confirm": { lv: "Apstiprināt", ru: "Подтвердить", en: "Confirm" },

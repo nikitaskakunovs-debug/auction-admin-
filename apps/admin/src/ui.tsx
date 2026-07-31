@@ -13,6 +13,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { t, useT } from "./i18n.js";
 import { AT, toneColors, type Tone } from "./theme.js";
 
 // ── Icons ────────────────────────────────────────────────────────────────────
@@ -349,6 +350,7 @@ const ConfirmContext = createContext<(opts: ConfirmOptions) => Promise<{ ok: boo
 export const useConfirm = () => useContext(ConfirmContext);
 
 export function ConfirmProvider({ children }: { children: ReactNode }) {
+  useT(); // subscribe — dialog defaults follow the language
   const [state, setState] = useState<ConfirmState | null>(null);
   const [typed, setTyped] = useState("");
   const [reason, setReason] = useState("");
@@ -379,21 +381,21 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
             {state.typeToConfirm && (
               <div style={{ marginTop: 12 }}>
                 <div style={{ fontFamily: AT.body, fontSize: 12, color: AT.inkSoft, marginBottom: 5 }}>
-                  Type <strong style={{ color: AT.ink, fontFamily: AT.mono }}>{state.typeToConfirm}</strong> to confirm
+                  {t("sh.typeToConfirmPre")} <strong style={{ color: AT.ink, fontFamily: AT.mono }}>{state.typeToConfirm}</strong>{t("sh.typeToConfirmPost")}
                 </div>
                 <AInput value={typed} onChange={setTyped} autoFocus />
               </div>
             )}
             {state.requireReason && (
               <div style={{ marginTop: 12 }}>
-                <div style={{ fontFamily: AT.body, fontSize: 12, color: AT.inkSoft, marginBottom: 5 }}>Reason (required, goes to the audit log)</div>
-                <AInput value={reason} onChange={setReason} placeholder="Why?" autoFocus={!state.typeToConfirm} />
+                <div style={{ fontFamily: AT.body, fontSize: 12, color: AT.inkSoft, marginBottom: 5 }}>{t("sh.reasonAudit")}</div>
+                <AInput value={reason} onChange={setReason} placeholder={t("sh.reasonWhy")} autoFocus={!state.typeToConfirm} />
               </div>
             )}
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
-              <ABtn kind="ghost" onClick={() => finish(false)}>Cancel</ABtn>
+              <ABtn kind="ghost" onClick={() => finish(false)}>{t("c.cancel")}</ABtn>
               <ABtn kind={state.danger ? "danger" : "primary"} disabled={!!blocked} onClick={() => finish(true)}>
-                {state.confirmLabel ?? "Confirm"}
+                {state.confirmLabel ?? t("sh.confirm")}
               </ABtn>
             </div>
           </div>
@@ -449,7 +451,9 @@ export function useNowTick(intervalMs = 1000): number {
 }
 
 export function formatCountdown(msLeft: number): string {
-  if (msLeft <= 0) return "ended";
+  // Pure helper — reads the current language at call time (callers re-render
+  // every tick anyway, so a language switch shows up within a second).
+  if (msLeft <= 0) return t("sh.ended");
   const s = Math.floor(msLeft / 1000);
   const d = Math.floor(s / 86400);
   const h = Math.floor((s % 86400) / 3600);
