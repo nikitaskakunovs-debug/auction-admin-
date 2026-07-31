@@ -29,6 +29,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { writeAudit, SYSTEM_ACTOR, type Actor } from "../audit.js";
 import { BOARD_CHANNEL, publishAdminEvent, type AppContext } from "../context.js";
+import { slackCheckIn, slackHandover } from "./slackNotify.js";
 
 /**
  * Pickup engine: check-in → ticket → pick → deliver → handover, plus the
@@ -151,6 +152,9 @@ export async function checkInCustomer(ctx: AppContext, customerId: string, via: 
       .where(and(eq(orders.customerId, customerId), eq(orders.status, "paid"), eq(items.status, "paid")));
     if (collectable.length === 0) return { ok: false as const, error: "nothing_to_collect" as const };
 
+    const [cust] = await tx.select({ alias: customers.alias }).from(customers).where(eq(customers.id, customerId));
+    const customerAlias = cust?.alias ?? "";
+
     // Daily board number via the counters row lock (same pattern as invoices).
     const today = dayKey(ctx.now());
     const counterKey = `pickup:${today}`;
@@ -174,7 +178,7 @@ export async function checkInCustomer(ctx: AppContext, customerId: string, via: 
       via,
       orders: collectable.length,
     });
-    return { ok: true as const, ticketId: ticket!.id, number, alreadyCheckedIn: false, lineCount: collectable.length };
+    return { ok: true as const, ticketId: ticket!.id, number, alreadyCheckedIn: false, lineCount: collectable.length, slackVia: via, slackAlias: customerAlias };
   });
   if (result.ok) {
     await publishBoard(ctx);
@@ -185,6 +189,12 @@ export async function checkInCustomer(ctx: AppContext, customerId: string, via: 
         at: ctx.now().toISOString(),
         data: { ticketId: result.ticketId, number: result.number },
       });
+      slackCheckIn(ctx, {
+        ticketNumber: result.number,
+        alias: result.slackAlias ?? "",
+        lines: result.lineCount,
+        via: result.slackVia ?? "desk",
+      });
     }
   }
   return result;
@@ -192,7 +202,9 @@ export async function checkInCustomer(ctx: AppContext, customerId: string, via: 
 
 // ── Worker actions ───────────────────────────────────────────────────────────
 
-export type TicketActionResult = { ok: true } | { ok: false; error: string };
+export type TicketActionResult =
+  | { ok: true; slackTicket?: number; slackMinutes?: number | null }
+  | { ok: false; error: string };
 
 export async function claimTicket(ctx: AppContext, ticketId: string, actor: Actor): Promise<TicketActionResult> {
   const result = await ctx.db.transaction(async (tx): Promise<TicketActionResult> => {
@@ -337,9 +349,14 @@ export async function completeTicket(ctx: AppContext, ticketId: string, code: st
       handedOver: lines.filter((l) => l.status === "picked").length,
       flagged: lines.filter((l) => l.status === "missing" || l.status === "damaged").length,
     });
-    return { ok: true };
+    return { ok: true, slackTicket: ticket.number, slackMinutes: ticket.pickingStartedAt ? Math.round((ctx.now().getTime() - ticket.pickingStartedAt.getTime()) / 60000) : null };
   });
-  if (result.ok) await publishBoard(ctx);
+  if (result.ok) {
+    await publishBoard(ctx);
+    if (result.slackTicket !== undefined) {
+      slackHandover(ctx, { ticketNumber: result.slackTicket, worker: actor.label, minutes: result.slackMinutes ?? null });
+    }
+  }
   return result;
 }
 

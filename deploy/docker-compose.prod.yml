@@ -97,6 +97,12 @@ services:
       JIRA_API_TOKEN: ${JIRA_API_TOKEN:-}
       JIRA_PROJECT: ${JIRA_PROJECT:-IZS}
       JIRA_WEBHOOK_SECRET: ${JIRA_WEBHOOK_SECRET:-}
+      # Slack mirroring (off until the bot token; then SLACK_MODE=live).
+      SLACK_MODE: ${SLACK_MODE:-off}
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+      SLACK_CHANNEL_ORDERS: ${SLACK_CHANNEL_ORDERS:-#orders}
+      SLACK_CHANNEL_WAREHOUSE: ${SLACK_CHANNEL_WAREHOUSE:-#warehouse}
+      SLACK_CHANNEL_BUGS: ${SLACK_CHANNEL_BUGS:-#bugs}
       # Sentry error monitoring (off until SENTRY_DSN is set).
       SENTRY_DSN: ${SENTRY_DSN:-}
       SENTRY_ENVIRONMENT: production

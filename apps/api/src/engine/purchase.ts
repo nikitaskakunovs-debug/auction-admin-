@@ -6,6 +6,7 @@ import type { AppContext } from "../context.js";
 import { issueInvoice } from "./invoices.js";
 import { enqueueNotification } from "./notifications.js";
 import { buildPayUrl } from "./payLink.js";
+import { slackBuyNow } from "./slackNotify.js";
 
 /**
  * Fixed-price "buy it now". A fixed listing is backed by ONE unique warehouse
@@ -28,6 +29,8 @@ export interface BuyResult {
   ok: true;
   orderRef: string;
   totalCents: number;
+  /** S1 — extra fields the Slack mirror needs after the commit. */
+  slack?: { title: string; priceCents: number; orderId: string; alias: string };
 }
 
 export async function buyNow(
@@ -123,8 +126,17 @@ export async function buyNow(
       },
     });
 
-    return { ok: true, orderRef: ref, totalCents: inv.totalCents };
+    return { ok: true, orderRef: ref, totalCents: inv.totalCents, slack: { title: listing.title, priceCents: listing.priceCents!, orderId: order!.id, alias: buyer.alias } };
   });
 
+  if (result.ok && result.slack) {
+    slackBuyNow(ctx, {
+      title: result.slack.title,
+      priceCents: result.slack.priceCents,
+      orderRef: result.orderRef!,
+      bidderAlias: result.slack.alias,
+      orderId: result.slack.orderId,
+    });
+  }
   return result;
 }

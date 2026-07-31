@@ -1,6 +1,7 @@
 import { items, markets, orders } from "@auction/db";
 import { assertItemTransition, type ItemStatus } from "@auction/domain";
 import { eq } from "drizzle-orm";
+import { slackOrderPaid } from "./slackNotify.js";
 import { writeAudit } from "../audit.js";
 import type { AppContext } from "../context.js";
 import { enqueueNotification } from "./notifications.js";
@@ -26,7 +27,7 @@ export async function settleOrderPaid(
   // Allocated outside the tx (reads only); uniqueness is among active paid
   // orders, and the odds of a same-instant collision are negligible.
   const pickupCode = await generatePickupCode(ctx.db);
-  return ctx.db.transaction(async (tx) => {
+  const result = await ctx.db.transaction(async (tx) => {
     const [order] = await tx.select().from(orders).where(eq(orders.id, orderId)).for("update");
     if (!order) return { outcome: "not_found" as const };
     if (order.status !== "awaiting_payment") return { outcome: "not_awaiting" as const, status: order.status };
@@ -59,4 +60,13 @@ export async function settleOrderPaid(
     await writeAudit(tx, actor, "order", "marked_paid", order.ref, { totalCents: order.totalCents, fulfilment: order.fulfilment, ...meta });
     return { outcome: "settled" as const, order };
   });
+  if (result.outcome === "settled") {
+    slackOrderPaid(ctx, {
+      orderRef: result.order.ref,
+      totalCents: result.order.totalCents,
+      via: typeof meta.provider === "string" ? meta.provider : "manuāli",
+      orderId: result.order.id,
+    });
+  }
+  return result;
 }

@@ -6,6 +6,7 @@ import sharp from "sharp";
 import { z } from "zod";
 import { writeAudit } from "../audit.js";
 import type { AppContext } from "../context.js";
+import { slackBugReported } from "../engine/slackNotify.js";
 import { sendReportToJira, syncOneReport } from "../engine/bugSync.js";
 import { requirePermission, type PermissionService } from "../auth/rbac.js";
 
@@ -98,6 +99,13 @@ export function registerBugRoutes(app: FastifyInstance, ctx: AppContext, perms: 
     await writeAudit(ctx.db, actor(req), "settings", "bug_reported", row.jiraKey ?? row.id, {
       severity: body.data.severity,
       type: body.data.type,
+      screen: body.data.screen,
+    });
+    slackBugReported(ctx, {
+      jiraKey: row.jiraKey,
+      severity: body.data.severity,
+      reporter: actor(req).label,
+      body: body.data.body,
       screen: body.data.screen,
     });
     return { report: row };
@@ -255,13 +263,25 @@ export function registerBugRoutes(app: FastifyInstance, ctx: AppContext, perms: 
   // ── Connection health (the Bugs-tab status card) ───────────────────────────
 
   app.get("/api/bugs/jira-status", guard("audit.view"), async () => {
-    if (!ctx.jira) return { mode: "off" as const };
+    // S1 — the same card reports where events are mirrored.
+    const slack = ctx.slack
+      ? {
+          mode: ctx.config.slackMode,
+          channels: [
+            ctx.slack.channelName("orders"),
+            ctx.slack.channelName("warehouse"),
+            ctx.slack.channelName("bugs"),
+          ],
+        }
+      : { mode: "off" as const };
+    if (!ctx.jira) return { mode: "off" as const, slack };
     const conn = await ctx.jira.checkConnection();
     return {
       mode: ctx.config.jiraMode,
       project: ctx.config.jira?.project ?? "?",
       webhook: ctx.config.jiraWebhookSecret !== null,
       ...conn,
+      slack,
     };
   });
 

@@ -138,6 +138,16 @@ export interface ApiConfig {
   } | null;
   /** Shared secret for the inbound Jira webhook; null disables the endpoint. */
   jiraWebhookSecret: string | null;
+  /**
+   * Slack mirroring (Phase S1). "off" posts nothing; "live" uses a bot token
+   * (chat:write + chat:write.public); "simulate" is the in-memory test driver.
+   */
+  slackMode: "off" | "live" | "simulate";
+  slack: {
+    botToken: string;
+    /** Logical channel → Slack channel name (renameable without code). */
+    channels: { orders: string; warehouse: string; bugs: string };
+  } | null;
   /** Parcel sender identity printed on labels (the warehouse). */
   shipSender: {
     name: string;
@@ -206,6 +216,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       if (!env[key]) throw new Error(`${key} must be set when JIRA_MODE=live`);
     }
   }
+  const slackMode: "off" | "live" | "simulate" =
+    env.SLACK_MODE === "live" ? "live" : env.SLACK_MODE === "simulate" ? "simulate" : "off";
+  if (slackMode === "live" && !env.SLACK_BOT_TOKEN) {
+    throw new Error("SLACK_BOT_TOKEN must be set when SLACK_MODE=live");
+  }
+
   const storageDriver: "local" | "s3" = env.STORAGE_DRIVER === "s3" ? "s3" : "local";
   if (storageDriver === "s3") {
     for (const key of ["S3_BUCKET", "S3_ACCESS_KEY", "S3_SECRET_KEY", "S3_PUBLIC_URL"] as const) {
@@ -306,6 +322,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     dpdMode,
     jiraMode,
     jiraWebhookSecret: env.JIRA_WEBHOOK_SECRET ?? null,
+    slackMode,
+    slack:
+      slackMode === "off"
+        ? null
+        : {
+            botToken: env.SLACK_BOT_TOKEN ?? "sim",
+            channels: {
+              orders: env.SLACK_CHANNEL_ORDERS ?? "#orders",
+              warehouse: env.SLACK_CHANNEL_WAREHOUSE ?? "#warehouse",
+              bugs: env.SLACK_CHANNEL_BUGS ?? "#bugs",
+            },
+          },
     jira:
       jiraMode === "off"
         ? null

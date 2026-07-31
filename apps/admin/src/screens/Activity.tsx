@@ -238,6 +238,8 @@ interface JiraStatus {
   ok?: boolean;
   user?: string;
   error?: string;
+  /** S1 — where business events are mirrored (null/off when not configured). */
+  slack?: { mode: string; channels?: string[] };
 }
 
 /** Connection-health strip: is the Jira bridge alive, and how fast is inbound sync? */
@@ -267,6 +269,33 @@ function JiraStatusCard({ status }: { status: JiraStatus }) {
         <span style={{ color: toneColors.danger.fg }}>
           {t("ms.jiraFailed")}{" "}
           <span style={{ fontFamily: AT.mono, fontSize: 11 }}>{status.error}</span>
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** S1 — one line telling operators whether events reach Slack, and where. */
+function SlackStatusCard({ slack }: { slack: { mode: string; channels?: string[] } }) {
+  const { t } = useT();
+  const off = slack.mode === "off";
+  const tone: Tone = off ? "neutral" : "ok";
+  return (
+    <div
+      style={{
+        display: "flex", alignItems: "center", gap: 9, padding: "8px 14px",
+        background: toneColors[tone].bg, border: `1px solid ${AT.rule}`, borderRadius: 10,
+        fontFamily: AT.body, fontSize: 12.5, color: AT.ink,
+      }}
+    >
+      <span style={{ width: 8, height: 8, borderRadius: 999, background: toneColors[tone].fg, flexShrink: 0 }} />
+      {off ? (
+        <span style={{ color: AT.inkSoft }}>{t("ms.slackOff")}</span>
+      ) : (
+        <span>
+          {t("ms.slackOn")}{" "}
+          <b style={{ fontFamily: AT.mono }}>{(slack.channels ?? []).join(" · ")}</b>
+          {slack.mode === "simulate" ? ` · ${t("ms.jiraSimulated")}` : ""}
         </span>
       )}
     </div>
@@ -305,6 +334,7 @@ function BugsTab({ onCount }: { onCount: (n: number) => void }) {
   return (
     <>
       {jira && <JiraStatusCard status={jira} />}
+      {jira?.slack && <SlackStatusCard slack={jira.slack} />}
       <ACard pad={false}>
         {reports.length === 0 ? (
           <AEmpty text={t("ms.noBugs")} />

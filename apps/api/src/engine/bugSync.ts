@@ -1,5 +1,6 @@
 import { adminUsers, bugReportComments, bugReports } from "@auction/db";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { slackBugFixed, slackBugReply } from "./slackNotify.js";
 import { publishAdminEvent, type AppContext } from "../context.js";
 import type { JiraAttachment } from "./jira.js";
 
@@ -167,12 +168,14 @@ export async function syncOneReport(ctx: AppContext, report: BugReportRow): Prom
         .update(bugReports)
         .set({ status: "done", resolutionNote: note, noticePending: true, updatedAt: ctx.now() })
         .where(eq(bugReports.id, report.id));
+      slackBugFixed(ctx, { jiraKey: report.jiraKey, resolution: note ?? "" });
       await notifyReporter(ctx, report, `✓ Salabots — ${report.jiraKey}`, note ? `IT atzīmēja jūsu ziņojumu kā salabotu:\n\n${note}` : "IT atzīmēja jūsu ziņojumu kā salabotu.");
       return;
     }
     await ctx.db.update(bugReports).set({ status: next, updatedAt: ctx.now() }).where(eq(bugReports.id, report.id));
   }
   if (newItComments > 0) {
+    slackBugReply(ctx, { jiraKey: report.jiraKey, body: lastItComment ?? "" });
     await notifyReporter(ctx, report, `IT atbildēja — ${report.jiraKey}`, `Jauna atbilde no IT:\n\n${lastItComment}`);
   }
 }
