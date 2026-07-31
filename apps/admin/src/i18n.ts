@@ -319,6 +319,7 @@ const D = {
   "act.restock": { lv: "atgrieza plauktā", ru: "вернул(а) на полку", en: "restocked" },
   "act.handover": { lv: "izsniedza klientam", ru: "выдал(а) клиенту", en: "handed over" },
   "act.adjust": { lv: "koriģēja atrašanās vietu", ru: "скорректировал(а) место", en: "adjusted location" },
+  "act.count_adjust": { lv: "inventarizācijas korekcija", ru: "корректировка инвентаризации", en: "stock-count correction" },
   "act.graded": { lv: "novērtēja stāvokli", ru: "оценил(а) состояние", en: "graded condition" },
   "act.grade_approved": { lv: "apstiprināja novērtējumu", ru: "утвердил(а) оценку", en: "approved the grade" },
   "act.grade_edited": { lv: "laboja novērtējumu", ru: "исправил(а) оценку", en: "edited the grade" },
