@@ -52,7 +52,11 @@ const ITEM_TRANSITIONS: Record<ItemStatus, readonly ItemStatus[]> = {
   // listed → live is the auction path.
   listed: ["live", "won", "draft"],
   live: ["won", "unsold", "listed"], // → listed when an admin cancels the auction
-  won: ["awaiting_payment"],
+  // won → unpaid_cancelled: the buyer never paid. Normally the order moves the
+  // item to awaiting_payment first, but if that step was ever missed the lot
+  // would be stranded in `won` forever — and the scheduler's auto-cancel would
+  // throw on it every tick.
+  won: ["awaiting_payment", "unpaid_cancelled"],
   awaiting_payment: ["paid", "unpaid_cancelled"],
   // paid → no_pickup_cancelled is the scheduler's no-show cancel (design:
   // deadline → 5% restock fee retained → strike → restock queue).
