@@ -3,6 +3,7 @@ import { api } from "../api.js";
 import type { Nav } from "../App.js";
 import { useAuth } from "../auth.js";
 import { formatDate } from "../format.js";
+import { useT, type TKey } from "../i18n.js";
 import { AT } from "../theme.js";
 import { AAvatar, ABadge, ABtn, ACard, ADrawer, AEmpty, AField, AIcon, AInput, ATable, ATd, ATr, useConfirm, useToast } from "../ui.js";
 import { useIsMobile } from "../useMobile.js";
@@ -63,11 +64,27 @@ const STATUS_TONE: Record<Ticket["status"], "ok" | "warn" | "danger" | "neutral"
   cancelled: "danger",
 };
 
+/** Ticket statuses reuse the wh.status.* keys; completed/cancelled are pick.* */
+const STATUS_KEY: Record<Ticket["status"], TKey> = {
+  waiting: "wh.status.waiting",
+  picking: "wh.status.picking",
+  delivering: "wh.status.delivering",
+  completed: "pick.st.completed",
+  cancelled: "pick.st.cancelled",
+};
+
 const LINE_TONE: Record<PickLine["status"], "ok" | "warn" | "danger" | "neutral"> = {
   pending: "neutral",
   picked: "ok",
   missing: "danger",
   damaged: "warn",
+};
+
+const LINE_KEY: Record<PickLine["status"], TKey> = {
+  pending: "wh.status.pending",
+  picked: "wh.status.picked",
+  missing: "wh.status.missing",
+  damaged: "wh.status.damaged",
 };
 
 /** Short beep via WebAudio — no audio files. Context is created lazily and reused. */
@@ -118,6 +135,7 @@ function sortLines(lines: PickLine[]): PickLine[] {
 
 export function PickupScreen({ nav: _nav }: { nav: Nav }) {
   const { can } = useAuth();
+  const { t } = useT();
   const confirm = useConfirm();
   const toast = useToast();
   const mobile = useIsMobile();
@@ -150,7 +168,7 @@ export function PickupScreen({ nav: _nav }: { nav: Nav }) {
       .then((r) => {
         setTickets(r.tickets);
         // New-pick alert: the ticket list gained a waiting ticket between refreshes.
-        const waiting = new Set(r.tickets.filter((t) => t.status === "waiting").map((t) => t.id));
+        const waiting = new Set(r.tickets.filter((tk) => tk.status === "waiting").map((tk) => tk.id));
         const prev = knownWaiting.current;
         if (prev) {
           let fresh = 0;
@@ -204,9 +222,9 @@ export function PickupScreen({ nav: _nav }: { nav: Nav }) {
   };
 
   const operate = can("pickup.operate");
-  const open = tickets.find((t) => t.id === openId) ?? null;
-  const active = tickets.filter((t) => t.status === "waiting" || t.status === "picking" || t.status === "delivering");
-  const finished = tickets.filter((t) => t.status === "completed" || t.status === "cancelled");
+  const open = tickets.find((tk) => tk.id === openId) ?? null;
+  const active = tickets.filter((tk) => tk.status === "waiting" || tk.status === "picking" || tk.status === "delivering");
+  const finished = tickets.filter((tk) => tk.status === "completed" || tk.status === "cancelled");
 
   const act = async (fn: () => Promise<unknown>, okMsg: string) => {
     try {
@@ -214,7 +232,7 @@ export function PickupScreen({ nav: _nav }: { nav: Nav }) {
       toast(okMsg, "ok");
       load();
     } catch (err) {
-      toast((err as Error).message || "Action failed", "danger");
+      toast((err as Error).message || t("wh.actionFailed"), "danger");
     }
   };
 
@@ -222,53 +240,56 @@ export function PickupScreen({ nav: _nav }: { nav: Nav }) {
     act(async () => {
       const r = await api.post<{ ticketNumber: number; alreadyCheckedIn: boolean }>("/api/pickup/checkin", { query: checkinQuery.trim() });
       setCheckinQuery("");
-      toast(r.alreadyCheckedIn ? `Already checked in — ticket #${r.ticketNumber}` : `Ticket #${r.ticketNumber} created`, "ok");
-    }, "Checked in");
+      toast(r.alreadyCheckedIn ? `${t("pick.alreadyIn")} #${r.ticketNumber}` : `${t("wh.ticket")} #${r.ticketNumber} ${t("pick.tCreated")}`, "ok");
+    }, t("pick.checkedIn"));
 
-  const setLine = (t: Ticket, line: PickLine, status: "picked" | "missing" | "damaged") =>
-    act(() => api.post(`/api/pickup/tickets/${t.id}/lines/${line.id}`, { status }), status === "picked" ? `Picked ${line.sku}` : `${line.sku} flagged ${status}`);
+  const setLine = (tk: Ticket, line: PickLine, status: "picked" | "missing" | "damaged") =>
+    act(
+      () => api.post(`/api/pickup/tickets/${tk.id}/lines/${line.id}`, { status }),
+      status === "picked" ? `${line.sku} ${t("pick.tPicked")}` : `${line.sku}: ${t(LINE_KEY[status])}`,
+    );
 
-  const complete = (t: Ticket) =>
+  const complete = (tk: Ticket) =>
     act(async () => {
-      await api.post(`/api/pickup/tickets/${t.id}/complete`, { pickupCode: handoverCode.trim() });
+      await api.post(`/api/pickup/tickets/${tk.id}/complete`, { pickupCode: handoverCode.trim() });
       setHandoverCode("");
       setOpenId(null);
-    }, `Ticket #${t.number} handed over`);
+    }, `${t("wh.ticket")} #${tk.number}: ${t("wh.handedOver")}`);
 
-  const cancel = async (t: Ticket) => {
+  const cancel = async (tk: Ticket) => {
     const res = await confirm({
-      title: `Cancel ticket #${t.number}`,
-      body: "Items roll back to Paid; the pickup deadline keeps running.",
+      title: `${t("pick.cancelTicket")} #${tk.number}`,
+      body: t("pick.cancelBody"),
       requireReason: true,
       danger: true,
-      confirmLabel: "Cancel ticket",
+      confirmLabel: t("pick.cancelTicket"),
     });
     if (!res.ok) return;
     await act(async () => {
-      await api.post(`/api/pickup/tickets/${t.id}/cancel`, { reason: res.reason });
+      await api.post(`/api/pickup/tickets/${tk.id}/cancel`, { reason: res.reason });
       setOpenId(null);
-    }, "Ticket cancelled");
+    }, t("pick.tCancelled"));
   };
 
-  const doneCount = (t: Ticket) => t.lines.filter((l) => l.status !== "pending").length;
+  const doneCount = (tk: Ticket) => tk.lines.filter((l) => l.status !== "pending").length;
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-        <h1 style={{ fontFamily: AT.body, fontSize: 20, fontWeight: 700, color: AT.ink }}>Pickup desk</h1>
+        <h1 style={{ fontFamily: AT.body, fontSize: 20, fontWeight: 700, color: AT.ink }}>{t("pick.title")}</h1>
         <div style={{ display: "flex", gap: 8 }}>
-          <ABtn kind="ghost" size="sm" onClick={() => window.open("#/board", "_blank")}><AIcon name="activity" size={13} /> Open TV board</ABtn>
-          <ABtn kind="ghost" size="sm" onClick={load}><AIcon name="refund" size={13} /> Refresh</ABtn>
+          <ABtn kind="ghost" size="sm" onClick={() => window.open("#/board", "_blank")}><AIcon name="activity" size={13} /> {t("pick.openBoard")}</ABtn>
+          <ABtn kind="ghost" size="sm" onClick={load}><AIcon name="refund" size={13} /> {t("c.refresh")}</ABtn>
         </div>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: mobile ? "1fr" : "minmax(0, 1fr) 300px", gap: 14, alignItems: "start" }}>
         <ACard
-          title="Now picking"
+          title={t("pick.nowPicking")}
           actions={
             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: AT.inkSoft, fontFamily: AT.body }}>
-                Target
+                {t("pick.target")}
                 <input
                   type="number"
                   min={1}
@@ -283,39 +304,39 @@ export function PickupScreen({ nav: _nav }: { nav: Nav }) {
                     fontFamily: AT.mono, fontSize: 12.5, color: AT.ink, outline: "none", background: AT.panel,
                   }}
                 />
-                min
+                {t("pick.min")}
               </label>
               <button
                 onClick={() => setBell(0)}
-                title="New check-ins since last cleared — click to clear"
+                title={t("pick.bellTitle")}
                 style={{
                   all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6,
                   padding: "3px 9px", borderRadius: 999, fontFamily: AT.body, fontSize: 11.5, fontWeight: 700,
                   background: bell > 0 ? AT.warnSoft : AT.surfaceAlt, color: bell > 0 ? AT.warn : AT.inkSoft,
                 }}
               >
-                <AIcon name="activity" size={12} /> {bell} new
+                <AIcon name="activity" size={12} /> {bell} {t("pick.bellNew")}
               </button>
-              <ABtn kind="ghost" size="sm" onClick={toggleSound}>Sound: {soundOn ? "on" : "off"}</ABtn>
+              <ABtn kind="ghost" size="sm" onClick={toggleSound}>{soundOn ? t("pick.soundOn") : t("pick.soundOff")}</ABtn>
             </div>
           }
         >
           {(() => {
-            const live = tickets.filter((t) => t.status === "waiting" || t.status === "picking");
-            if (live.length === 0) return <div style={{ fontSize: 13, color: AT.inkSoft, fontFamily: AT.body }}>No one is waiting or picking right now.</div>;
+            const live = tickets.filter((tk) => tk.status === "waiting" || tk.status === "picking");
+            if (live.length === 0) return <div style={{ fontSize: 13, color: AT.inkSoft, fontFamily: AT.body }}>{t("pick.noLive")}</div>;
             return (
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                {live.map((t) => {
-                  const startIso = t.status === "picking" ? (t.pickingStartedAt ?? t.checkedInAt) : t.checkedInAt;
+                {live.map((tk) => {
+                  const startIso = tk.status === "picking" ? (tk.pickingStartedAt ?? tk.checkedInAt) : tk.checkedInAt;
                   const elapsedMs = Math.max(0, now - new Date(startIso).getTime());
                   const min = elapsedMs / 60_000;
                   const timerColor = min < target ? AT.ok : min < target * 2 ? AT.warn : AT.danger;
                   const over = min >= target;
-                  const picked = t.lines.filter((l) => l.status !== "pending").length;
+                  const picked = tk.lines.filter((l) => l.status !== "pending").length;
                   return (
                     <div
-                      key={t.id}
-                      onClick={() => setOpenId(t.id)}
+                      key={tk.id}
+                      onClick={() => setOpenId(tk.id)}
                       style={{
                         flex: "1 1 200px", minWidth: 200, maxWidth: 280, cursor: "pointer",
                         background: AT.panel, borderRadius: 12, padding: "10px 12px",
@@ -324,8 +345,8 @@ export function PickupScreen({ nav: _nav }: { nav: Nav }) {
                       }}
                     >
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        {t.claimedByName ? (
-                          <AAvatar name={t.claimedByName} size={24} />
+                        {tk.claimedByName ? (
+                          <AAvatar name={tk.claimedByName} size={24} />
                         ) : (
                           <span style={{
                             width: 24, height: 24, borderRadius: 999, background: AT.surfaceAlt, color: AT.inkSoft,
@@ -334,20 +355,20 @@ export function PickupScreen({ nav: _nav }: { nav: Nav }) {
                         )}
                         <span style={{
                           flex: 1, fontFamily: AT.body, fontSize: 12.5, fontWeight: 700,
-                          color: t.claimedByName ? AT.ink : AT.inkSoft,
+                          color: tk.claimedByName ? AT.ink : AT.inkSoft,
                           whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
                         }}>
-                          {t.claimedByName ?? "Unclaimed"}
+                          {tk.claimedByName ?? t("pick.unclaimed")}
                         </span>
-                        <ABadge tone={STATUS_TONE[t.status]}>{t.status}</ABadge>
+                        <ABadge tone={STATUS_TONE[tk.status]}>{t(STATUS_KEY[tk.status])}</ABadge>
                       </div>
                       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
-                        <span style={{ fontFamily: AT.mono, fontSize: 28, fontWeight: 800, color: AT.ink }}>#{t.number}</span>
+                        <span style={{ fontFamily: AT.mono, fontSize: 28, fontWeight: 800, color: AT.ink }}>#{tk.number}</span>
                         <span style={{ fontFamily: AT.mono, fontSize: 19, fontWeight: 800, color: timerColor }}>{fmtElapsed(elapsedMs)}</span>
                       </div>
                       <div style={{ fontFamily: AT.body, fontSize: 12, color: AT.inkSoft }}>
-                        {picked} of {t.lines.length} picked
-                        {t.passToName ? ` · offered to ${t.passToName}` : ""}
+                        {picked} {t("c.of")} {tk.lines.length} {t("pick.pickedSuffix")}
+                        {tk.passToName ? ` · ${t("pick.offeredTo")} ${tk.passToName}` : ""}
                       </div>
                     </div>
                   );
@@ -357,22 +378,22 @@ export function PickupScreen({ nav: _nav }: { nav: Nav }) {
           })()}
         </ACard>
 
-        <ACard title="Workers today" pad={false}>
+        <ACard title={t("pick.workersToday")} pad={false}>
           {workers.length === 0 ? (
-            <div style={{ padding: "14px 16px", fontSize: 13, color: AT.inkSoft, fontFamily: AT.body }}>No worker statuses yet today.</div>
+            <div style={{ padding: "14px 16px", fontSize: 13, color: AT.inkSoft, fontFamily: AT.body }}>{t("pick.noWorkers")}</div>
           ) : (
             <div>
               {workers.map((w, i) => {
                 const mins = Math.max(0, Math.floor((now - new Date(w.sinceAt).getTime()) / 60_000));
                 const badge =
                   w.status === "working" ? (
-                    <ABadge tone="ok">{w.currentTicketNumber !== null ? `Working · #${w.currentTicketNumber}` : "Working"}</ABadge>
+                    <ABadge tone="ok">{w.currentTicketNumber !== null ? `${t("wh.st.working")} · #${w.currentTicketNumber}` : t("wh.st.working")}</ABadge>
                   ) : w.status === "coffee" ? (
-                    <ABadge tone="warn">Coffee · {mins}m</ABadge>
+                    <ABadge tone="warn">{t("wh.st.coffee")} · {mins}m</ABadge>
                   ) : w.status === "lunch" ? (
-                    <ABadge tone="warn">Lunch · {mins}m</ABadge>
+                    <ABadge tone="warn">{t("wh.st.lunch")} · {mins}m</ABadge>
                   ) : (
-                    <ABadge tone="neutral">Shift done</ABadge>
+                    <ABadge tone="neutral">{t("wh.st.done")}</ABadge>
                   );
                 return (
                   <div
@@ -397,31 +418,31 @@ export function PickupScreen({ nav: _nav }: { nav: Nav }) {
       </div>
 
       {operate && (
-        <ACard title="Front-desk check-in">
+        <ACard title={t("pick.checkinTitle")}>
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             <div style={{ flex: "1 1 280px" }}>
-              <AInput value={checkinQuery} onChange={setCheckinQuery} placeholder="Order ref (A-1042), 6-digit pickup code, or email…" />
+              <AInput value={checkinQuery} onChange={setCheckinQuery} placeholder={t("pick.checkinPh")} />
             </div>
-            <ABtn onClick={deskCheckin} disabled={checkinQuery.trim().length < 2}>Check in</ABtn>
+            <ABtn onClick={deskCheckin} disabled={checkinQuery.trim().length < 2}>{t("pick.checkinBtn")}</ABtn>
           </div>
         </ACard>
       )}
 
-      <ACard title={`Today's queue (${active.length})`} pad={false}>
+      <ACard title={`${t("pick.todaysQueue")} (${active.length})`} pad={false}>
         {active.length === 0 ? (
-          <AEmpty text="No one is waiting. The kiosk and this desk both create tickets." />
+          <AEmpty text={t("pick.queueEmpty")} />
         ) : (
-          <ATable head={["Ticket", "Status", "Client", "Progress", "Checked in", ""]}>
-            {active.map((t) => (
-              <ATr key={t.id} onClick={() => setOpenId(t.id)}>
-                <ATd mono style={{ fontWeight: 700, fontSize: 16 }}>#{t.number}</ATd>
-                <ATd><ABadge tone={STATUS_TONE[t.status]}>{t.status}</ABadge></ATd>
-                <ATd>{t.customerAlias}</ATd>
-                <ATd mono>{doneCount(t)}/{t.lines.length}</ATd>
-                <ATd>{formatDate(t.checkedInAt)}</ATd>
+          <ATable head={[t("wh.ticket"), t("c.status"), t("pick.client"), t("pick.progress"), t("pick.checkedInCol"), ""]}>
+            {active.map((tk) => (
+              <ATr key={tk.id} onClick={() => setOpenId(tk.id)}>
+                <ATd mono style={{ fontWeight: 700, fontSize: 16 }}>#{tk.number}</ATd>
+                <ATd><ABadge tone={STATUS_TONE[tk.status]}>{t(STATUS_KEY[tk.status])}</ABadge></ATd>
+                <ATd>{tk.customerAlias}</ATd>
+                <ATd mono>{doneCount(tk)}/{tk.lines.length}</ATd>
+                <ATd>{formatDate(tk.checkedInAt)}</ATd>
                 <ATd right>
-                  {operate && t.status === "waiting" && (
-                    <ABtn size="sm" onClick={() => void act(() => api.post(`/api/pickup/tickets/${t.id}/claim`), `Claimed #${t.number}`)}>Claim</ABtn>
+                  {operate && tk.status === "waiting" && (
+                    <ABtn size="sm" onClick={() => void act(() => api.post(`/api/pickup/tickets/${tk.id}/claim`), `${t("pick.tClaimed")} #${tk.number}`)}>{t("pick.claim")}</ABtn>
                   )}
                 </ATd>
               </ATr>
@@ -431,14 +452,14 @@ export function PickupScreen({ nav: _nav }: { nav: Nav }) {
       </ACard>
 
       {finished.length > 0 && (
-        <ACard title={`Finished today (${finished.length})`} pad={false}>
-          <ATable head={["Ticket", "Status", "Client", "Lines"]}>
-            {finished.map((t) => (
-              <ATr key={t.id}>
-                <ATd mono>#{t.number}</ATd>
-                <ATd><ABadge tone={STATUS_TONE[t.status]}>{t.status}</ABadge></ATd>
-                <ATd>{t.customerAlias}</ATd>
-                <ATd mono>{t.lines.length}</ATd>
+        <ACard title={`${t("pick.finishedToday")} (${finished.length})`} pad={false}>
+          <ATable head={[t("wh.ticket"), t("c.status"), t("pick.client"), t("pick.lines")]}>
+            {finished.map((tk) => (
+              <ATr key={tk.id}>
+                <ATd mono>#{tk.number}</ATd>
+                <ATd><ABadge tone={STATUS_TONE[tk.status]}>{t(STATUS_KEY[tk.status])}</ABadge></ATd>
+                <ATd>{tk.customerAlias}</ATd>
+                <ATd mono>{tk.lines.length}</ATd>
               </ATr>
             ))}
           </ATable>
@@ -447,34 +468,34 @@ export function PickupScreen({ nav: _nav }: { nav: Nav }) {
 
       {open && (
         <ADrawer
-          title={`Ticket #${open.number} — ${open.customerAlias}`}
+          title={`${t("wh.ticket")} #${open.number} — ${open.customerAlias}`}
           onClose={() => setOpenId(null)}
           width={640}
           footer={
             operate ? (
               <div style={{ display: "flex", gap: 8, alignItems: "center", width: "100%", flexWrap: "wrap" }}>
                 {open.status === "waiting" && (
-                  <ABtn onClick={() => void act(() => api.post(`/api/pickup/tickets/${open.id}/claim`), `Claimed #${open.number}`)}>Claim & start picking</ABtn>
+                  <ABtn onClick={() => void act(() => api.post(`/api/pickup/tickets/${open.id}/claim`), `${t("pick.tClaimed")} #${open.number}`)}>{t("wh.claim")}</ABtn>
                 )}
                 {open.status === "picking" && (
                   <ABtn
                     disabled={open.lines.some((l) => l.status === "pending")}
-                    onClick={() => void act(() => api.post(`/api/pickup/tickets/${open.id}/delivering`), "On the way to the counter")}
+                    onClick={() => void act(() => api.post(`/api/pickup/tickets/${open.id}/delivering`), t("wh.onBoard"))}
                   >
-                    All picked → Delivering
+                    {t("pick.allPicked")}
                   </ABtn>
                 )}
                 {open.status === "delivering" && (
                   <>
                     <div style={{ width: 140 }}>
-                      <AInput value={handoverCode} onChange={setHandoverCode} placeholder="Client code" />
+                      <AInput value={handoverCode} onChange={setHandoverCode} placeholder={t("pick.clientCode")} />
                     </div>
-                    <ABtn disabled={!/^\d{6}$/.test(handoverCode.trim())} onClick={() => void complete(open)}>Verify & hand over</ABtn>
+                    <ABtn disabled={!/^\d{6}$/.test(handoverCode.trim())} onClick={() => void complete(open)}>{t("pick.verifyHandOver")}</ABtn>
                   </>
                 )}
                 <span style={{ flex: 1 }} />
                 {open.status !== "completed" && open.status !== "cancelled" && (
-                  <ABtn kind="danger" onClick={() => void cancel(open)}>Cancel ticket</ABtn>
+                  <ABtn kind="danger" onClick={() => void cancel(open)}>{t("pick.cancelTicket")}</ABtn>
                 )}
               </div>
             ) : undefined
@@ -482,12 +503,12 @@ export function PickupScreen({ nav: _nav }: { nav: Nav }) {
         >
           <div style={{ display: "grid", gap: 12 }}>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <ABadge tone={STATUS_TONE[open.status]}>{open.status}</ABadge>
+              <ABadge tone={STATUS_TONE[open.status]}>{t(STATUS_KEY[open.status])}</ABadge>
               <span style={{ fontSize: 12.5, color: AT.inkSoft }}>
-                via {open.checkedInVia} · {open.customerEmail}
+                {t("pick.via")} {open.checkedInVia} · {open.customerEmail}
               </span>
             </div>
-            <AField label={`Pick list (${doneCount(open)}/${open.lines.length}) — walking order`}>
+            <AField label={`${t("pick.pickList")} (${doneCount(open)}/${open.lines.length}) — ${t("pick.walkingOrder")}`}>
               <div style={{ display: "grid", gap: 6 }}>
                 {sortLines(open.lines).map((l) => (
                   <div
@@ -497,9 +518,9 @@ export function PickupScreen({ nav: _nav }: { nav: Nav }) {
                       border: `1px solid ${AT.rule}`, borderRadius: 10, background: l.status === "picked" ? "rgba(46,160,67,0.06)" : AT.panel,
                     }}
                   >
-                    <ABadge tone={LINE_TONE[l.status]}>{l.status}</ABadge>
+                    <ABadge tone={LINE_TONE[l.status]}>{t(LINE_KEY[l.status])}</ABadge>
                     <span style={{ fontFamily: AT.mono, fontSize: 12.5, minWidth: 130, fontWeight: 700 }}>
-                      {l.locationLabel ?? l.legacyLocation ?? "— no bin —"}
+                      {l.locationLabel ?? l.legacyLocation ?? t("pick.noBin")}
                     </span>
                     <span style={{ flex: 1, fontSize: 13 }}>
                       <span style={{ fontFamily: AT.mono, color: AT.inkSoft }}>{l.sku}</span> {l.title}
@@ -507,9 +528,9 @@ export function PickupScreen({ nav: _nav }: { nav: Nav }) {
                     </span>
                     {operate && open.status === "picking" && l.status === "pending" && (
                       <span style={{ display: "inline-flex", gap: 6 }}>
-                        <ABtn size="sm" onClick={() => void setLine(open, l, "picked")}>Picked</ABtn>
-                        <ABtn size="sm" kind="ghost" onClick={() => void setLine(open, l, "missing")}>Missing</ABtn>
-                        <ABtn size="sm" kind="ghost" onClick={() => void setLine(open, l, "damaged")}>Damaged</ABtn>
+                        <ABtn size="sm" onClick={() => void setLine(open, l, "picked")}>{t("wh.picked")}</ABtn>
+                        <ABtn size="sm" kind="ghost" onClick={() => void setLine(open, l, "missing")}>{t("wh.missing")}</ABtn>
+                        <ABtn size="sm" kind="ghost" onClick={() => void setLine(open, l, "damaged")}>{t("wh.damaged")}</ABtn>
                       </span>
                     )}
                   </div>
