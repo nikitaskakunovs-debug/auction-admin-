@@ -21,6 +21,7 @@ import { publishAuctionEvent, type AppContext } from "../context.js";
 import { issueInvoice } from "./invoices.js";
 import { enqueueNotification } from "./notifications.js";
 import { buildPayUrl } from "./payLink.js";
+import { slackAuctionWon } from "./slackNotify.js";
 
 export interface CloseOutcome {
   ok: true;
@@ -28,6 +29,8 @@ export interface CloseOutcome {
   status: AuctionStatus;
   orderRef?: string;
   hammerCents?: number;
+  /** S1 — extra fields the Slack mirror needs after the commit. */
+  slack?: { title: string; orderId: string; bidderAlias: string };
 }
 
 /**
@@ -142,6 +145,12 @@ export async function closeAuction(
         status: "ended_won" as AuctionStatus,
         orderRef: ref,
         hammerCents: auction.currentPriceCents,
+        // S1 — mirrored to Slack after the transaction commits.
+        slack: {
+          title: listing!.title,
+          orderId: createdOrder!.id,
+          bidderAlias: winner!.alias,
+        },
       };
     }
 
@@ -166,6 +175,15 @@ export async function closeAuction(
         ...(result.orderRef ? { orderRef: result.orderRef, hammerCents: result.hammerCents } : {}),
       },
     });
+    if (result.slack && result.orderRef && result.hammerCents !== undefined) {
+      slackAuctionWon(ctx, {
+        title: result.slack.title,
+        hammerCents: result.hammerCents,
+        orderRef: result.orderRef,
+        bidderAlias: result.slack.bidderAlias,
+        orderId: result.slack.orderId,
+      });
+    }
   }
   return result;
 }

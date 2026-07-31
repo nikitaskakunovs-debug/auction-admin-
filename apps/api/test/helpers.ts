@@ -12,6 +12,7 @@ import { CapturingEmailAdapter } from "../src/email.js";
 import { createDpdClient } from "../src/engine/dpd.js";
 import { createInbankClient } from "../src/engine/inbank.js";
 import { createJiraClient } from "../src/engine/jira.js";
+import { createSlackClient } from "../src/engine/slack.js";
 import { createKlixClient } from "../src/engine/klix.js";
 import { createOmnivaClient } from "../src/engine/omniva.js";
 import { buildServer, type BuiltServer } from "../src/server.js";
@@ -90,6 +91,7 @@ export async function createWorld(): Promise<TestWorld> {
     OMNIVA_MODE: "simulate",
     DPD_MODE: "simulate",
     JIRA_MODE: "simulate",
+    SLACK_MODE: "simulate",
     JIRA_WEBHOOK_SECRET: "whsec-test",
   });
   const email = new CapturingEmailAdapter();
@@ -105,6 +107,7 @@ export async function createWorld(): Promise<TestWorld> {
     omniva: createOmnivaClient(config),
     dpd: createDpdClient(config),
     jira: createJiraClient(config),
+    slack: createSlackClient(config),
     now: () => fakeNow ?? new Date(),
   };
   const server = await buildServer(ctx);

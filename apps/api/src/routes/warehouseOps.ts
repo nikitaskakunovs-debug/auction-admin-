@@ -3,6 +3,7 @@ import { assertTicketTransition, dayKey, type Permission, type TicketStatus } fr
 import { and, eq } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { slackItemPulled } from "../engine/slackNotify.js";
 import { writeAudit, type Actor } from "../audit.js";
 import type { AppContext } from "../context.js";
 import { publishBoard } from "../engine/pickup.js";
@@ -234,9 +235,16 @@ export function registerWarehouseOpsRoutes(app: FastifyInstance, ctx: AppContext
         reason: body.data.reason,
         quarantine: body.data.toQuarantine,
       });
-      return { locationId: toLocationId };
+      return { locationId: toLocationId, sku: item.sku, title: item.title };
     });
     if (result === null) return reply.code(404).send({ error: "not_found" });
+    slackItemPulled(ctx, {
+      sku: result.sku,
+      title: result.title,
+      reason: body.data.reason,
+      note: body.data.note ?? "",
+      quarantined: Boolean(body.data.toQuarantine),
+    });
     return { ok: true, locationId: result.locationId };
   });
 }

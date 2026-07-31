@@ -3,6 +3,7 @@ import { assertItemTransition, type ItemStatus } from "@auction/domain";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { slackShipmentRegistered } from "../engine/slackNotify.js";
 import { writeAudit } from "../audit.js";
 import type { AppContext } from "../context.js";
 import { dpdStatusFromEvents } from "../engine/dpd.js";
@@ -181,6 +182,12 @@ export function registerShippingRoutes(app: FastifyInstance, ctx: AppContext, pe
           machine: row.order.shippingTo!.name,
         });
         return inserted;
+      });
+      slackShipmentRegistered(ctx, {
+        orderRef: row.order.ref,
+        carrier: carrier.label,
+        barcode: registered.barcode,
+        orderId: id,
       });
       return { shipment: shipment! };
     } catch (err) {

@@ -3,6 +3,7 @@ import { assertItemTransition, computeNoShowSettlement, type ItemStatus } from "
 import { and, asc, desc, eq, gte, ilike, isNull, lte, or, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { slackOrderCancelled, slackRefund } from "../engine/slackNotify.js";
 import { writeAudit } from "../audit.js";
 import type { AppContext } from "../context.js";
 import { recordFee } from "../engine/fees.js";
@@ -317,6 +318,7 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext, perms
     if (result === null) return reply.code(404).send({ error: "not_found" });
     if (result === "not_refundable") return reply.code(409).send({ error: "order_not_paid" });
     if (result === "over_max") return reply.code(422).send({ error: "refund_exceeds_total" });
+    slackRefund(ctx, { orderRef: result.ref, amountCents: body.data.amountCents, reason: body.data.reason, orderId: id });
     return { ok: true };
   });
 
@@ -374,10 +376,11 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext, perms
         strike: body.data.strike,
         feeCents,
       });
-      return order;
+      return { ...order, slackFeeCents: feeCents };
     });
     if (result === null) return reply.code(404).send({ error: "not_found" });
     if (result === "not_awaiting") return reply.code(409).send({ error: "order_not_awaiting_payment" });
+    slackOrderCancelled(ctx, { orderRef: result.ref, reason: "unpaid", feeCents: result.slackFeeCents ?? 0, orderId: id });
     return { ok: true };
   });
 }

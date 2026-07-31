@@ -10,6 +10,7 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import QRCode from "qrcode";
 import { z } from "zod";
+import { slackConsignmentOpened } from "../engine/slackNotify.js";
 import { writeAudit } from "../audit.js";
 import type { AppContext } from "../context.js";
 import { requirePermission, type PermissionService } from "../auth/rbac.js";
@@ -87,6 +88,11 @@ export function registerReceivingRoutes(app: FastifyInstance, ctx: AppContext, p
         .returning();
       await writeAudit(tx, actor(req), "item", "consignment_created", ref, { supplier: body.data.supplier });
       return created;
+    });
+    slackConsignmentOpened(ctx, {
+      ref: row!.ref,
+      supplier: row!.supplier ?? "",
+      expected: row!.expectedCount ?? null,
     });
     return { consignment: row };
   });

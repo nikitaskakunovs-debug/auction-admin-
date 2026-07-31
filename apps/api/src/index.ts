@@ -9,6 +9,7 @@ import { createEmailAdapter } from "./email.js";
 import { createDpdClient } from "./engine/dpd.js";
 import { createInbankClient } from "./engine/inbank.js";
 import { createJiraClient } from "./engine/jira.js";
+import { createSlackClient } from "./engine/slack.js";
 import { createKlixClient } from "./engine/klix.js";
 import { createOmnivaClient } from "./engine/omniva.js";
 import { AuctionScheduler } from "./engine/scheduler.js";
@@ -31,6 +32,7 @@ const ctx: AppContext = {
   omniva: createOmnivaClient(config),
   dpd: createDpdClient(config),
   jira: createJiraClient(config),
+  slack: createSlackClient(config),
   now: () => new Date(),
 };
 

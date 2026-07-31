@@ -4,6 +4,7 @@ import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { slackGradeRejected } from "../engine/slackNotify.js";
 import { writeAudit, type Actor } from "../audit.js";
 import { publishAdminEvent, type AppContext } from "../context.js";
 import { requirePermission, type PermissionService } from "../auth/rbac.js";
@@ -251,6 +252,12 @@ export function registerGradingRoutes(app: FastifyInstance, ctx: AppContext, per
       type: "grade_rejected",
       at: ctx.now().toISOString(),
       data: { itemId: result.id, sku: result.sku, reason: result.gradeRejectReason },
+    });
+    slackGradeRejected(ctx, {
+      sku: result.sku,
+      title: result.title,
+      reason: result.gradeRejectReason ?? "",
+      reviewer: actor(req).label,
     });
     return { item: result };
   });
