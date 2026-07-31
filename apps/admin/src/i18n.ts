@@ -366,6 +366,11 @@ export const auctionStatusLabel = (s: string): string => statusLabel("c.ast.", s
 export const itemStatusLabel = (s: string): string => statusLabel("c.ist.", s);
 export const orderStatusLabel = (s: string): string => statusLabel("c.ost.", s);
 export const listingStatusLabel = (s: string): string => statusLabel("c.lst.", s);
+/** Audit-log action → sentence fragment; unknown actions become plain words. */
+export const auditActionLabel = (a: string): string => {
+  const label = statusLabel("ms.a.", a);
+  return label === a ? a.replace(/_/g, " ") : label;
+};
 
 /** Reactive translator — re-renders the component when the language changes. */
 export function useT(): { t: (key: TKey) => string; lang: Lang; setLang: (l: Lang) => void } {

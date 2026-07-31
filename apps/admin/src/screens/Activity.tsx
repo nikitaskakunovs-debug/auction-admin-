@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError, type AuditEntry } from "../api.js";
 import type { Nav } from "../App.js";
-import { formatDate } from "../format.js";
-import { useT, type TKey } from "../i18n.js";
+import { formatDate, formatEur } from "../format.js";
+import { auctionStatusLabel, auditActionLabel, itemStatusLabel, orderStatusLabel, useT, type TKey } from "../i18n.js";
 import { ReportDetail, type BugReport } from "../ReportModal.js";
 import { AT, toneColors, type Tone } from "../theme.js";
 import { AAvatar, ABadge, ABtn, ACard, ADrawer, AEmpty, AIcon, AInput, APills, ASelect, ATable, ATd, ATr, useToast } from "../ui.js";
@@ -20,6 +20,88 @@ const AREA_KEY: Record<string, TKey> = {
   team: "ms.ty.team",
   finance: "ms.ty.finance",
 };
+
+// ── Human-readable audit rendering — no raw codes in the table ──────────────
+
+/** Screen ids inside bug-report details → the sidebar's translated names. */
+const SCREEN_KEY: Record<string, TKey> = {
+  dashboard: "sh.nav.dashboard", auctions: "sh.nav.auctions", listings: "sh.nav.listings",
+  inventory: "sh.nav.inventory", receiving: "sh.nav.receiving", orders: "sh.nav.orders",
+  pickup: "sh.nav.pickup", whstats: "sh.nav.whstats", customers: "sh.nav.customers",
+  finance: "sh.nav.finance", content: "sh.nav.content", settings: "sh.nav.settings",
+  notifications: "sh.nav.notifications", activity: "sh.nav.activity", security: "sh.nav.security",
+  wh: "wh.title",
+};
+
+const BUG_TYPE_KEY: Record<string, TKey> = {
+  bug: "ms.bt.bug", visual: "ms.bt.visual", data: "ms.bt.data", slow: "ms.bt.slow", idea: "ms.bt.idea",
+};
+
+const SEV_KEY: Record<string, TKey> = {
+  low: "bug.sev.low", normal: "bug.sev.normal", high: "bug.sev.high", blocker: "bug.sev.blocker",
+};
+
+/** Statuses appear in details as from/to/status — try every vocabulary. */
+const anyStatusLabel = (v: string): string => {
+  for (const fn of [itemStatusLabel, orderStatusLabel, auctionStatusLabel]) {
+    const label = fn(v);
+    if (label !== v) return label;
+  }
+  return v;
+};
+
+const KEY_LABEL: Record<string, TKey> = {
+  reason: "ms.k.reason", note: "ms.k.note", type: "ms.k.type", screen: "ms.k.screen",
+  severity: "ms.k.severity", from: "ms.k.from", to: "ms.k.to", status: "ms.k.status",
+  amount: "ms.k.amount", count: "ms.k.count", email: "ms.k.email", role: "ms.k.role",
+  name: "ms.k.name", title: "ms.k.title", sku: "ms.k.sku", ref: "ms.k.ref",
+  number: "ms.k.number", ticket: "ms.k.ticket", code: "ms.k.code", provider: "ms.k.provider",
+  condition: "ms.k.condition", location: "ms.k.location", bin: "ms.k.bin",
+  supplier: "ms.k.supplier", market: "ms.k.market", fee: "ms.k.fee", deadline: "ms.k.deadline",
+  tags: "ms.k.tags", permissions: "ms.k.permissions", barcode: "ms.k.barcode",
+  invoice: "ms.k.invoice", order: "ms.k.order", photos: "ms.k.photos",
+  endsAt: "ms.k.endsAt", startsAt: "ms.k.startsAt",
+};
+
+/** camelCase / snake_case → plain words, for keys the map doesn't know. */
+const prettifyKey = (k: string): string =>
+  k.replace(/Cents$/, "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ").toLowerCase();
+
+const looksLikeIso = (v: string): boolean => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(v);
+const isUuid = (v: string): boolean => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+/** Uuids and similar opaque ids add nothing for a human — drop them. */
+const looksLikeId = (k: string, v: string): boolean => /(^|[a-z])(id|uuid)$/i.test(k) || isUuid(v);
+
+function detailValue(key: string, value: unknown, t: (k: TKey) => string): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "boolean") return t(value ? "c.yes" : "c.no");
+  if (typeof value === "number") return /cents$/i.test(key) ? formatEur(value) : String(value);
+  if (Array.isArray(value)) {
+    const parts = value.map((v) => detailValue(key.replace(/s$/, ""), v, t)).filter(Boolean);
+    return parts.length ? parts.join(", ") : null;
+  }
+  if (typeof value === "object") return null; // nested blobs stay in the tooltip
+  const s = String(value);
+  if (looksLikeId(key, s)) return null;
+  if (looksLikeIso(s)) return formatDate(s);
+  if (key === "screen") { const k = SCREEN_KEY[s]; return k ? t(k) : s; }
+  if (key === "type") { const k = BUG_TYPE_KEY[s]; if (k) return t(k); }
+  if (key === "severity") { const k = SEV_KEY[s]; return k ? t(k) : s; }
+  if (key === "from" || key === "to" || key === "status") return anyStatusLabel(s);
+  return s;
+}
+
+/** `{"type":"bug","screen":"whstats"}` → `Tips: kļūda · Ekrāns: Statistika`. */
+function humanizeDetail(detail: Record<string, unknown>, t: (k: TKey) => string): string {
+  const parts: string[] = [];
+  for (const [key, raw] of Object.entries(detail)) {
+    const value = detailValue(key, raw, t);
+    if (value === null) continue;
+    const labelKey = KEY_LABEL[key];
+    parts.push(`${labelKey ? t(labelKey) : prettifyKey(key)}: ${value}`);
+  }
+  return parts.join(" · ");
+}
 
 export function ActivityScreen({ nav: _nav }: { nav: Nav }) {
   const { t } = useT();
@@ -101,22 +183,24 @@ export function ActivityScreen({ nav: _nav }: { nav: Nav }) {
                       </span>
                     </ATd>
                     <ATd><ABadge tone="neutral">{areaLabel(e.type)}</ABadge></ATd>
-                    <ATd><span style={{ fontWeight: 600 }}>{e.action.replace(/_/g, " ")}</span></ATd>
-                    <ATd><span style={{ fontSize: 12.5 }}>{e.target || "—"}</span></ATd>
+                    <ATd><span style={{ fontWeight: 600 }}>{auditActionLabel(e.action)}</span></ATd>
+                    {/* Raw uuids mean nothing to a human — hide them (details/tooltip keep the trail). */}
+                    <ATd><span style={{ fontSize: 12.5 }}>{e.target && !isUuid(e.target) ? e.target : "—"}</span></ATd>
                     <ATd>
-                      {e.detail ? (
-                        <span
-                          title={JSON.stringify(e.detail, null, 2)}
-                          style={{
-                            fontFamily: AT.mono, fontSize: 11, color: AT.inkSoft, display: "inline-block",
-                            maxWidth: 360, overflow: "hidden", textOverflow: "ellipsis", verticalAlign: "bottom",
-                          }}
-                        >
-                          {JSON.stringify(e.detail)}
-                        </span>
-                      ) : (
-                        <span style={{ color: AT.inkSoft }}>—</span>
-                      )}
+                      {((text) =>
+                        text ? (
+                          <span
+                            title={e.detail ? JSON.stringify(e.detail, null, 2) : undefined}
+                            style={{
+                              fontSize: 12, color: AT.inkSoft, display: "inline-block", whiteSpace: "normal",
+                              maxWidth: 360, overflow: "hidden", textOverflow: "ellipsis", verticalAlign: "bottom",
+                            }}
+                          >
+                            {text}
+                          </span>
+                        ) : (
+                          <span style={{ color: AT.inkSoft }}>—</span>
+                        ))(e.detail ? humanizeDetail(e.detail, t) : "")}
                     </ATd>
                   </ATr>
                 ))}
