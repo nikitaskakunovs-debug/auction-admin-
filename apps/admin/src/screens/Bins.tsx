@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, ApiError } from "../api.js";
 import type { Nav } from "../App.js";
 import { useAuth } from "../auth.js";
+import { itemStatusLabel, t as tStatic, useT, type TKey } from "../i18n.js";
 import { openLabelWindow as openLabel } from "../labels.js";
 import { AT, ITEM_STATUS_TONE, toneColors, type Tone } from "../theme.js";
 import { ABadge, ABtn, ACard, ADrawer, AEmpty, AField, AInput, APills, useConfirm, useToast } from "../ui.js";
@@ -39,16 +40,32 @@ const thumbOf = (u: string) => (u.includes("-web.webp") ? u.replace("-web.webp",
 /** "2 h ago", "3 d ago" — coarse on purpose; the drawer has exact times. */
 function ago(iso: string): string {
   const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
-  if (s < 90) return "just now";
-  if (s < 5400) return `${Math.round(s / 60)} min ago`;
-  if (s < 129_600) return `${Math.round(s / 3600)} h ago`;
-  return `${Math.round(s / 86_400)} d ago`;
+  if (s < 90) return tStatic("rcv.agoJustNow");
+  if (s < 5400) return tStatic("rcv.agoMin").replace("{n}", String(Math.round(s / 60)));
+  if (s < 129_600) return tStatic("rcv.agoH").replace("{n}", String(Math.round(s / 3600)));
+  return tStatic("rcv.agoD").replace("{n}", String(Math.round(s / 86_400)));
 }
+
+/** Movement-ledger verbs reuse the act.* history keys; unknown types show raw. */
+const MOVE_KEY: Record<string, TKey> = {
+  intake: "act.intake",
+  putaway: "act.putaway",
+  move: "act.move",
+  pick: "act.pick",
+  restock: "act.restock",
+  handover: "act.handover",
+  adjust: "act.adjust",
+};
+const moveLabel = (ty: string): string => {
+  const k = MOVE_KEY[ty];
+  return k ? tStatic(k) : ty;
+};
 
 const emptyNewBin = { zone: "FRONT", aisle: "", rack: "", shelf: "", notes: "", capacity: "" };
 
 export function BinsBrowser({ nav }: { nav: Nav }) {
   const { can } = useAuth();
+  const { t } = useT();
   const toast = useToast();
   const [bins, setBins] = useState<BinRow[]>([]);
   const [q, setQ] = useState("");
@@ -88,41 +105,41 @@ export function BinsBrowser({ nav }: { nav: Nav }) {
         notes: newBin.notes,
         capacity: newBin.capacity === "" ? null : Number(newBin.capacity),
       });
-      toast(`${r.location.label} created`, "ok");
+      toast(`${r.location.label} ${t("rcv.tBinCreated")}`, "ok");
       setCreating(false);
       load();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Create failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("rcv.createFailed"), "danger");
     }
   };
 
   return (
     <div style={{ display: "grid", gap: 12 }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-        <AInput value={q} onChange={setQ} placeholder="Filter bins… (FRONT-A1)" style={{ width: 220 }} />
-        <APills options={[{ id: "all", label: "All zones" }, ...zones.map((z) => ({ id: z, label: z }))]} value={zone} onChange={setZone} />
+        <AInput value={q} onChange={setQ} placeholder={t("wh.filterBins")} style={{ width: 220 }} />
+        <APills options={[{ id: "all", label: t("rcv.allZones") }, ...zones.map((z) => ({ id: z, label: z }))]} value={zone} onChange={setZone} />
         <APills
           options={[
-            { id: "all" as const, label: "All" },
-            { id: "empty" as const, label: "Empty" },
-            { id: "over" as const, label: "Over capacity", count: bins.filter((b) => b.capacity !== null && b.itemCount > b.capacity).length },
+            { id: "all" as const, label: t("c.all") },
+            { id: "empty" as const, label: t("wh.emptyBin") },
+            { id: "over" as const, label: t("rcv.overCapacity"), count: bins.filter((b) => b.capacity !== null && b.itemCount > b.capacity).length },
           ]}
           value={fill}
           onChange={setFill}
         />
         {can("warehouse.manage") && (
           <div style={{ marginLeft: "auto" }}>
-            <ABtn size="sm" onClick={() => { setNewBin(emptyNewBin); setCreating(true); }}>New bin</ABtn>
+            <ABtn size="sm" onClick={() => { setNewBin(emptyNewBin); setCreating(true); }}>{t("rcv.newBin")}</ABtn>
           </div>
         )}
       </div>
 
-      {byZone.length === 0 && <ACard pad={false}><AEmpty text="No bins match. Bins are created here or auto-created (quarantine)." /></ACard>}
+      {byZone.length === 0 && <ACard pad={false}><AEmpty text={t("rcv.noBinsMatch")} /></ACard>}
 
       {byZone.map(([z, list]) => (
         <div key={z} style={{ display: "grid", gap: 8 }}>
           <div style={{ fontFamily: AT.body, fontSize: 11, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: AT.inkSoft }}>
-            {z} · {list.length} bins · {list.reduce((a, b) => a + b.itemCount, 0)} items
+            {z} · {list.length} {t("rcv.binsWord")} · {list.reduce((a, b) => a + b.itemCount, 0)} {t("wh.pieces")}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 8 }}>
             {list.map((b) => {
@@ -141,8 +158,8 @@ export function BinsBrowser({ nav }: { nav: Nav }) {
                   <span style={{ fontFamily: AT.mono, fontSize: 13, fontWeight: 700, color: AT.ink }}>{b.label}</span>
                   <span style={{ fontFamily: AT.body, fontSize: 12, color: over ? AT.warn : AT.inkSoft, fontWeight: over ? 700 : 400 }}>
                     {b.active
-                      ? `${b.itemCount} items${b.capacity !== null ? ` · cap ${b.capacity}` : ""}${over ? " · over!" : ""}`
-                      : `Retired · ${b.itemCount} items`}
+                      ? `${b.itemCount} ${t("wh.pieces")}${b.capacity !== null ? ` · ${t("rcv.cap")} ${b.capacity}` : ""}${over ? ` · ${t("rcv.overBang")}` : ""}`
+                      : `${t("rcv.retired")} · ${b.itemCount} ${t("wh.pieces")}`}
                   </span>
                   <span style={{ height: 5, borderRadius: 3, background: AT.surfaceAlt, overflow: "hidden" }}>
                     <span style={{
@@ -152,7 +169,7 @@ export function BinsBrowser({ nav }: { nav: Nav }) {
                     }} />
                   </span>
                   <span style={{ fontFamily: AT.body, fontSize: 11, color: AT.inkSoft }}>
-                    {b.lastActivity ? `${ago(b.lastActivity.at)} — ${b.lastActivity.type} · ${b.lastActivity.actorLabel}` : "no activity yet"}
+                    {b.lastActivity ? `${ago(b.lastActivity.at)} — ${moveLabel(b.lastActivity.type)} · ${b.lastActivity.actorLabel}` : t("rcv.noActivity")}
                   </span>
                 </button>
               );
@@ -165,27 +182,27 @@ export function BinsBrowser({ nav }: { nav: Nav }) {
 
       {creating && (
         <ADrawer
-          title="New bin"
+          title={t("rcv.newBin")}
           onClose={() => setCreating(false)}
           footer={
             <>
-              <ABtn kind="ghost" onClick={() => setCreating(false)}>Cancel</ABtn>
-              <ABtn onClick={() => void create()} disabled={newBin.zone.trim().length === 0}>Create bin</ABtn>
+              <ABtn kind="ghost" onClick={() => setCreating(false)}>{t("c.cancel")}</ABtn>
+              <ABtn onClick={() => void create()} disabled={newBin.zone.trim().length === 0}>{t("rcv.createBin")}</ABtn>
             </>
           }
         >
           <div style={{ display: "grid", gap: 14 }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <AField label="Zone"><AInput value={newBin.zone} onChange={(v) => setNewBin({ ...newBin, zone: v.toUpperCase() })} placeholder="FRONT" /></AField>
-              <AField label="Aisle"><AInput value={newBin.aisle} onChange={(v) => setNewBin({ ...newBin, aisle: v.toUpperCase() })} placeholder="A1" /></AField>
-              <AField label="Rack"><AInput value={newBin.rack} onChange={(v) => setNewBin({ ...newBin, rack: v.toUpperCase() })} placeholder="R2" /></AField>
-              <AField label="Shelf"><AInput value={newBin.shelf} onChange={(v) => setNewBin({ ...newBin, shelf: v.toUpperCase() })} placeholder="S3" /></AField>
+              <AField label={t("rcv.zone")}><AInput value={newBin.zone} onChange={(v) => setNewBin({ ...newBin, zone: v.toUpperCase() })} placeholder="FRONT" /></AField>
+              <AField label={t("rcv.aisle")}><AInput value={newBin.aisle} onChange={(v) => setNewBin({ ...newBin, aisle: v.toUpperCase() })} placeholder="A1" /></AField>
+              <AField label={t("rcv.rack")}><AInput value={newBin.rack} onChange={(v) => setNewBin({ ...newBin, rack: v.toUpperCase() })} placeholder="R2" /></AField>
+              <AField label={t("rcv.shelf")}><AInput value={newBin.shelf} onChange={(v) => setNewBin({ ...newBin, shelf: v.toUpperCase() })} placeholder="S3" /></AField>
             </div>
-            <AField label="Capacity" hint="Optional item limit — the browser flags the bin orange when it's exceeded. Leave empty for no tracking.">
+            <AField label={t("rcv.capacity")} hint={t("rcv.capacityHint")}>
               <AInput value={newBin.capacity} onChange={(v) => setNewBin({ ...newBin, capacity: v.replace(/\D/g, "") })} placeholder="10" style={{ width: 120 }} />
             </AField>
-            <AField label="Notes">
-              <AInput value={newBin.notes} onChange={(v) => setNewBin({ ...newBin, notes: v })} placeholder="Heavy items — bottom shelf" />
+            <AField label={t("c.notes")}>
+              <AInput value={newBin.notes} onChange={(v) => setNewBin({ ...newBin, notes: v })} placeholder={t("rcv.binNotesPh")} />
             </AField>
           </div>
         </ADrawer>
@@ -196,6 +213,7 @@ export function BinsBrowser({ nav }: { nav: Nav }) {
 
 function BinDrawer({ id, nav, onClose, onChanged }: { id: string; nav: Nav; onClose: () => void; onChanged: () => void }) {
   const { can } = useAuth();
+  const { t } = useT();
   const toast = useToast();
   const confirm = useConfirm();
   const [data, setData] = useState<BinContents | null>(null);
@@ -218,7 +236,7 @@ function BinDrawer({ id, nav, onClose, onChanged }: { id: string; nav: Nav; onCl
       load();
       onChanged();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Save failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("wh.saveFailed"), "danger");
     }
   };
 
@@ -226,14 +244,14 @@ function BinDrawer({ id, nav, onClose, onChanged }: { id: string; nav: Nav; onCl
     if (!data) return;
     if (data.bin.active && data.contents.length > 0) {
       const r = await confirm({
-        title: `Retire ${data.bin.label}?`,
-        body: `${data.contents.length} items still show this bin. Retiring hides it from putaway pickers; the items keep their location until moved.`,
-        confirmLabel: "Retire bin",
+        title: `${t("rcv.retire")} ${data.bin.label}?`,
+        body: `${data.contents.length} ${t("rcv.retireBody")}`,
+        confirmLabel: t("rcv.retireBin"),
         danger: true,
       });
       if (!r.ok) return;
     }
-    await patch({ active: !data.bin.active }, data.bin.active ? "Bin retired" : "Bin reactivated");
+    await patch({ active: !data.bin.active }, data.bin.active ? t("rcv.binRetired") : t("rcv.binReactivated"));
   };
 
   const capDirty = data !== null && capacity !== (data.bin.capacity === null ? "" : String(data.bin.capacity));
@@ -246,7 +264,7 @@ function BinDrawer({ id, nav, onClose, onChanged }: { id: string; nav: Nav; onCl
       title={
         <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
           <span style={{ fontFamily: AT.mono }}>{b.label}</span>
-          <ABadge tone={b.active ? "ok" : "neutral"}>{b.active ? "Active" : "Retired"}</ABadge>
+          <ABadge tone={b.active ? "ok" : "neutral"}>{b.active ? t("rcv.active") : t("rcv.retired")}</ABadge>
         </span>
       }
       onClose={onClose}
@@ -254,8 +272,8 @@ function BinDrawer({ id, nav, onClose, onChanged }: { id: string; nav: Nav; onCl
       footer={
         can("warehouse.manage") ? (
           <>
-            <ABtn kind="ghost" onClick={() => void openLabel(`/api/warehouse/locations/${id}/label`, (m) => toast(m, "danger"))}>🖨️ QR label</ABtn>
-            <ABtn kind={b.active ? "danger" : "primary"} onClick={() => void toggleActive()}>{b.active ? "Retire" : "Reactivate"}</ABtn>
+            <ABtn kind="ghost" onClick={() => void openLabel(`/api/warehouse/locations/${id}/label`, (m) => toast(m, "danger"))}>{t("rcv.qrLabel")}</ABtn>
+            <ABtn kind={b.active ? "danger" : "primary"} onClick={() => void toggleActive()}>{b.active ? t("rcv.retire") : t("rcv.reactivate")}</ABtn>
           </>
         ) : undefined
       }
@@ -263,34 +281,34 @@ function BinDrawer({ id, nav, onClose, onChanged }: { id: string; nav: Nav; onCl
       <div style={{ display: "grid", gap: 16 }}>
         {can("warehouse.manage") && (
           <div style={{ display: "grid", gridTemplateColumns: "140px 1fr", gap: 12, alignItems: "end" }}>
-            <AField label="Capacity" hint={capDirty ? " " : undefined}>
+            <AField label={t("rcv.capacity")} hint={capDirty ? " " : undefined}>
               <span style={{ display: "flex", gap: 6 }}>
                 <AInput value={capacity} onChange={(v) => setCapacity(v.replace(/\D/g, ""))} placeholder="—" style={{ width: 70 }} />
-                {capDirty && <ABtn size="sm" onClick={() => void patch({ capacity: capacity === "" ? null : Number(capacity) }, "Capacity saved")}>Save</ABtn>}
+                {capDirty && <ABtn size="sm" onClick={() => void patch({ capacity: capacity === "" ? null : Number(capacity) }, t("rcv.capacitySaved"))}>{t("c.save")}</ABtn>}
               </span>
             </AField>
-            <AField label="Notes">
+            <AField label={t("c.notes")}>
               <span style={{ display: "flex", gap: 6 }}>
-                <AInput value={notes} onChange={setNotes} placeholder="Heavy items — bottom shelf" />
-                {notesDirty && <ABtn size="sm" onClick={() => void patch({ notes }, "Notes saved")}>Save</ABtn>}
+                <AInput value={notes} onChange={setNotes} placeholder={t("rcv.binNotesPh")} />
+                {notesDirty && <ABtn size="sm" onClick={() => void patch({ notes }, t("rcv.notesSaved"))}>{t("c.save")}</ABtn>}
               </span>
             </AField>
           </div>
         )}
 
         <div>
-          <div style={sectionLabel}>Contents · {data.contents.length}{b.capacity !== null ? ` / ${b.capacity}` : ""}</div>
+          <div style={sectionLabel}>{t("wh.binContents")} · {data.contents.length}{b.capacity !== null ? ` / ${b.capacity}` : ""}</div>
           {data.contents.length === 0 ? (
-            <div style={{ fontFamily: AT.body, fontSize: 13, color: AT.inkSoft }}>Empty.</div>
+            <div style={{ fontFamily: AT.body, fontSize: 13, color: AT.inkSoft }}>{t("wh.emptyBin")}.</div>
           ) : (
             data.contents.map((c) => {
-              const st = ITEM_STATUS_TONE[c.status] ?? { label: c.status.replace(/_/g, " "), tone: "neutral" as Tone };
-              const tc = toneColors[st.tone];
+              const tone = ITEM_STATUS_TONE[c.status]?.tone ?? ("neutral" as Tone);
+              const tc = toneColors[tone];
               return (
                 <button
                   key={c.id}
                   onClick={() => nav.openTab?.("inventory", c.id)}
-                  title="Open in Inventory"
+                  title={t("rcv.openInventory")}
                   style={{
                     all: "unset", boxSizing: "border-box", cursor: "pointer", display: "flex", alignItems: "center",
                     gap: 10, padding: "7px 0", borderBottom: `1px solid ${AT.ruleSoft}`, width: "100%",
@@ -305,7 +323,7 @@ function BinDrawer({ id, nav, onClose, onChanged }: { id: string; nav: Nav; onCl
                     <span style={{ display: "block", fontFamily: AT.body, fontSize: 13, fontWeight: 600, color: AT.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title}</span>
                     <span style={{ fontFamily: AT.mono, fontSize: 11, color: AT.inkSoft }}>{c.sku} · {ago(c.sinceAt)}</span>
                   </span>
-                  <span style={{ background: tc.bg, color: tc.fg, borderRadius: 999, padding: "2px 9px", fontFamily: AT.body, fontSize: 11, fontWeight: 700, whiteSpace: "nowrap" }}>{st.label}</span>
+                  <span style={{ background: tc.bg, color: tc.fg, borderRadius: 999, padding: "2px 9px", fontFamily: AT.body, fontSize: 11, fontWeight: 700, whiteSpace: "nowrap" }}>{itemStatusLabel(c.status)}</span>
                 </button>
               );
             })
@@ -313,18 +331,18 @@ function BinDrawer({ id, nav, onClose, onChanged }: { id: string; nav: Nav; onCl
         </div>
 
         <div>
-          <div style={sectionLabel}>Bin activity</div>
+          <div style={sectionLabel}>{t("rcv.binActivity")}</div>
           {data.activity.length === 0 ? (
-            <div style={{ fontFamily: AT.body, fontSize: 13, color: AT.inkSoft }}>No movements yet.</div>
+            <div style={{ fontFamily: AT.body, fontSize: 13, color: AT.inkSoft }}>{t("rcv.noMovements")}</div>
           ) : (
             data.activity.map((a, i) => (
               <div key={i} style={{ display: "flex", alignItems: "baseline", gap: 9, padding: "6px 0", borderBottom: `1px solid ${AT.ruleSoft}`, fontFamily: AT.body, fontSize: 12.5 }}>
                 <span style={{
                   background: a.inbound ? AT.accentSoft : AT.okSoft, color: a.inbound ? AT.accent : AT.ok,
                   borderRadius: 999, padding: "1px 8px", fontSize: 10.5, fontWeight: 800, flexShrink: 0,
-                }}>{a.inbound ? "IN" : "OUT"}</span>
+                }}>{a.inbound ? t("rcv.in") : t("rcv.out")}</span>
                 <span style={{ fontFamily: AT.mono, fontSize: 11.5, fontWeight: 700 }}>{a.sku}</span>
-                <span style={{ color: AT.inkSoft }}>{a.type} · {a.actorLabel}</span>
+                <span style={{ color: AT.inkSoft }}>{moveLabel(a.type)} · {a.actorLabel}</span>
                 <span style={{ marginLeft: "auto", color: AT.inkSoft, fontSize: 11.5, flexShrink: 0 }}>{ago(a.at)}</span>
               </div>
             ))

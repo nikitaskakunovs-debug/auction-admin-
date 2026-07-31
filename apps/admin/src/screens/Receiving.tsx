@@ -46,6 +46,7 @@ interface ReviewItem {
 
 export function ReceivingScreen({ nav }: { nav: Nav }) {
   const { can } = useAuth();
+  const { t } = useT();
   const toast = useToast();
   const confirm = useConfirm();
   const [list, setList] = useState<Consignment[]>([]);
@@ -99,12 +100,12 @@ export function ReceivingScreen({ nav }: { nav: Nav }) {
         expectedCount: createForm.expected ? Number(createForm.expected) : 0,
         notes: createForm.notes,
       });
-      toast(`${r.consignment.ref} created`, "ok");
+      toast(`${r.consignment.ref} ${t("rcv.tCreated")}`, "ok");
       setCreating(false);
       load();
       openDetail(r.consignment.id);
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Create failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("rcv.createFailed"), "danger");
     }
   };
 
@@ -125,11 +126,11 @@ export function ReceivingScreen({ nav }: { nav: Nav }) {
       setReceived((prev) => [r.item, ...prev]);
       // Keep the grade for runs of identical stock; clear the per-unit fields.
       setForm((f) => ({ ...f, title: "", conditionNotes: "", weight: "" }));
-      toast(`${r.item.sku} received`, "ok");
+      toast(`${r.item.sku} ${t("wh.received")}`, "ok");
       titleRef.current?.focus();
       if (printAfter) void openLabel(`/api/items/${r.item.id}/label`, (m) => toast(m, "danger"));
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Receive failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("wh.receiveFailed"), "danger");
     } finally {
       setBusy(false);
     }
@@ -139,21 +140,21 @@ export function ReceivingScreen({ nav }: { nav: Nav }) {
     if (!active) return;
     const expected = active.expectedCount;
     const r = await confirm({
-      title: `Close ${active.ref}?`,
+      title: `${t("rcv.closeConsignment")} ${active.ref}?`,
       body:
         expected > 0 && received.length !== expected
-          ? `Paperwork expected ${expected} units but ${received.length} were received. Closing stops further receiving.`
-          : "Closing stops further receiving against this delivery.",
-      confirmLabel: "Close consignment",
+          ? `${t("rcv.mismatchA")} ${expected} ${t("rcv.mismatchB")} ${received.length}. ${t("rcv.closeStops")}`
+          : t("rcv.closeBody"),
+      confirmLabel: t("rcv.closeConsignment"),
     });
     if (!r.ok) return;
     try {
       await api.post(`/api/consignments/${active.id}/close`);
-      toast(`${active.ref} closed`, "ok");
+      toast(`${active.ref} ${t("rcv.tClosed")}`, "ok");
       setActive({ ...active, status: "closed" });
       load();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Close failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("rcv.closeFailed"), "danger");
     }
   };
 
@@ -163,61 +164,61 @@ export function ReceivingScreen({ nav }: { nav: Nav }) {
     return (
       <div style={{ display: "grid", gap: 14 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <ABtn kind="ghost" size="sm" onClick={() => { setActive(null); load(); }}>← All deliveries</ABtn>
+          <ABtn kind="ghost" size="sm" onClick={() => { setActive(null); load(); }}>← {t("rcv.allDeliveries")}</ABtn>
           <h1 style={{ fontFamily: AT.body, fontSize: 20, fontWeight: 700, color: AT.ink }}>
             {active.ref} <span style={{ color: AT.inkSoft, fontWeight: 500 }}>· {active.supplier}</span>
           </h1>
-          <ABadge tone={open ? "ok" : "neutral"}>{active.status}</ABadge>
+          <ABadge tone={open ? "ok" : "neutral"}>{open ? t("rcv.stOpen") : t("rcv.stClosed")}</ABadge>
           <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
             {received.length > 0 && (
               <ABtn kind="ghost" size="sm" onClick={() => void openLabel(`/api/consignments/${active.id}/labels`, (m) => toast(m, "danger"))}>
-                Print all labels ({received.length})
+                {t("rcv.printAllLabels")} ({received.length})
               </ABtn>
             )}
             {open && can("warehouse.manage") && (
-              <ABtn kind="dark" size="sm" onClick={() => void closeConsignment()}>Close consignment</ABtn>
+              <ABtn kind="dark" size="sm" onClick={() => void closeConsignment()}>{t("rcv.closeConsignment")}</ABtn>
             )}
           </div>
         </div>
 
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-          <AStat label="Received" value={received.length} />
-          <AStat label="Expected" value={active.expectedCount || "—"} />
-          <AStat label="Market" value={active.marketCode} />
+          <AStat label={t("rcv.received")} value={received.length} />
+          <AStat label={t("rcv.expected")} value={active.expectedCount || "—"} />
+          <AStat label={t("c.market")} value={active.marketCode} />
         </div>
 
         {open && can("warehouse.manage") && (
-          <ACard title="Receive next unit">
+          <ACard title={t("rcv.receiveNextUnit")}>
             <div style={{ display: "grid", gap: 12 }}>
-              <AField label="Title">
+              <AField label={t("c.title")}>
                 <AInput
                   inputRef={titleRef}
                   value={form.title}
                   onChange={(v) => setForm({ ...form, title: v })}
-                  placeholder="Bosch cordless drill GSR 18V, boxed"
+                  placeholder={t("wh.titlePlaceholder")}
                 />
               </AField>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 160px", gap: 12 }}>
-                <AField label="Condition">
+                <AField label={t("c.condition")}>
                   <ASelect
                     value={form.condition}
                     onChange={(v) => setForm({ ...form, condition: v })}
-                    options={CONDITIONS.map((c) => ({ value: c.code, label: c.requiresNotes ? `${c.label} — see notes` : c.label }))}
+                    options={CONDITIONS.map((c) => ({ value: c.code, label: c.requiresNotes ? `${c.label} — ${t("rcv.seeNotes")}` : c.label }))}
                   />
                 </AField>
-                <AField label="Weight (g)">
+                <AField label={t("rcv.weightG")}>
                   <AInput value={form.weight} onChange={(v) => setForm({ ...form, weight: v })} placeholder="1200" />
                 </AField>
               </div>
-              <AField label="Category">
+              <AField label={t("rcv.category")}>
                 <ASelect value={form.category} onChange={(v) => setForm({ ...form, category: v })} options={CATEGORIES.map((c) => ({ value: c.code, label: c.label }))} />
               </AField>
               {conditionByCode(form.condition) && (
                 <div style={{ fontSize: 12, color: AT.inkSoft, marginTop: -6 }}>{conditionByCode(form.condition)!.description}</div>
               )}
               <AField
-                label={needsNotes ? "Condition notes (required)" : "Condition notes"}
-                hint={needsNotes ? "SEE NOTES grade — describe the specific issue (shown to bidders)." : "Optional."}
+                label={needsNotes ? t("wh.condNotesRequired") : t("wh.condNotes")}
+                hint={needsNotes ? t("rcv.condNotesHint") : t("rcv.optionalDot")}
               >
                 <textarea
                   value={form.conditionNotes}
@@ -231,19 +232,19 @@ export function ReceivingScreen({ nav }: { nav: Nav }) {
               </AField>
               <div style={{ display: "flex", gap: 8 }}>
                 <ABtn onClick={() => void receive(true)} disabled={!canReceive || busy}>
-                  <AIcon name="plus" size={14} color="#fff" /> Receive + label
+                  <AIcon name="plus" size={14} color="#fff" /> {t("rcv.receivePlusLabel")}
                 </ABtn>
-                <ABtn kind="ghost" onClick={() => void receive(false)} disabled={!canReceive || busy}>Receive only</ABtn>
+                <ABtn kind="ghost" onClick={() => void receive(false)} disabled={!canReceive || busy}>{t("rcv.receiveOnly")}</ABtn>
               </div>
             </div>
           </ACard>
         )}
 
-        <ACard title={`Received items (${received.length})`} pad={false}>
+        <ACard title={`${t("rcv.receivedItems")} (${received.length})`} pad={false}>
           {received.length === 0 ? (
-            <AEmpty text="Nothing received yet — the first unit gets the next free SKU automatically." />
+            <AEmpty text={t("rcv.noneReceived")} />
           ) : (
-            <ATable head={["SKU", "Title", "Condition", "Weight", ""]}>
+            <ATable head={["SKU", t("c.title"), t("c.condition"), t("rcv.weight"), ""]}>
               {received.map((i) => (
                 <ATr key={i.id}>
                   <ATd mono>{i.sku}</ATd>
@@ -251,7 +252,7 @@ export function ReceivingScreen({ nav }: { nav: Nav }) {
                   <ATd>{conditionByCode(i.condition)?.label ?? i.condition}</ATd>
                   <ATd right>{i.weightGrams == null ? "—" : `${i.weightGrams} g`}</ATd>
                   <ATd right>
-                    <ABtn size="sm" kind="ghost" onClick={() => void openLabel(`/api/items/${i.id}/label`, (m) => toast(m, "danger"))}>Label</ABtn>
+                    <ABtn size="sm" kind="ghost" onClick={() => void openLabel(`/api/items/${i.id}/label`, (m) => toast(m, "danger"))}>{t("rcv.label")}</ABtn>
                   </ATd>
                 </ATr>
               ))}
@@ -266,14 +267,14 @@ export function ReceivingScreen({ nav }: { nav: Nav }) {
   return (
     <div style={{ display: "grid", gap: 14 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-        <h1 style={{ fontFamily: AT.body, fontSize: 20, fontWeight: 700, color: AT.ink }}>Receiving</h1>
+        <h1 style={{ fontFamily: AT.body, fontSize: 20, fontWeight: 700, color: AT.ink }}>{t("rcv.title")}</h1>
         <div style={{ display: "flex", gap: 8 }}>
           {can("warehouse.manage") && (
-            <ABtn kind="ghost" onClick={() => void openLabel("/api/warehouse/locations/labels", (m) => toast(m, "danger"))}>Print bin labels</ABtn>
+            <ABtn kind="ghost" onClick={() => void openLabel("/api/warehouse/locations/labels", (m) => toast(m, "danger"))}>{t("rcv.printBinLabels")}</ABtn>
           )}
           {can("warehouse.manage") && (
             <ABtn onClick={() => { setCreateForm({ supplier: "", marketCode: "LV", expected: "", notes: "" }); setCreating(true); }}>
-              <AIcon name="plus" size={15} color="#fff" /> New delivery
+              <AIcon name="plus" size={15} color="#fff" /> {t("rcv.newDelivery")}
             </ABtn>
           )}
         </div>
@@ -281,9 +282,9 @@ export function ReceivingScreen({ nav }: { nav: Nav }) {
 
       <APills
         options={[
-          { id: "deliveries" as const, label: "Deliveries", count: list.length },
-          ...(canReview ? [{ id: "review" as const, label: "Grading review", count: pending.length }] : []),
-          { id: "bins" as const, label: "Bins" },
+          { id: "deliveries" as const, label: t("rcv.tabDeliveries"), count: list.length },
+          ...(canReview ? [{ id: "review" as const, label: t("rcv.tabReview"), count: pending.length }] : []),
+          { id: "bins" as const, label: t("wh.bins") },
         ]}
         value={tab}
         onChange={setTab}
@@ -296,16 +297,16 @@ export function ReceivingScreen({ nav }: { nav: Nav }) {
       ) : (
         <ACard pad={false}>
           {list.length === 0 ? (
-            <AEmpty text="No deliveries yet. Create one when a truck arrives, then receive units against it." />
+            <AEmpty text={t("rcv.noDeliveries")} />
           ) : (
-            <ATable head={["Ref", "Supplier", "Market", "Received", "Status", "Created"]}>
+            <ATable head={[t("rcv.ref"), t("rcv.supplier"), t("c.market"), t("rcv.received"), t("c.status"), t("rcv.created")]}>
               {list.map((c) => (
                 <ATr key={c.id} onClick={() => openDetail(c.id)}>
                   <ATd mono>{c.ref}</ATd>
                   <ATd><span style={{ fontWeight: 600 }}>{c.supplier}</span></ATd>
                   <ATd>{c.marketCode}</ATd>
                   <ATd right>{c.receivedCount ?? 0}{c.expectedCount ? ` / ${c.expectedCount}` : ""}</ATd>
-                  <ATd><ABadge tone={c.status === "open" ? "ok" : "neutral"}>{c.status}</ABadge></ATd>
+                  <ATd><ABadge tone={c.status === "open" ? "ok" : "neutral"}>{c.status === "open" ? t("rcv.stOpen") : t("rcv.stClosed")}</ABadge></ATd>
                   <ATd>{formatDate(c.createdAt)}</ATd>
                 </ATr>
               ))}
@@ -316,28 +317,28 @@ export function ReceivingScreen({ nav }: { nav: Nav }) {
 
       {creating && (
         <ADrawer
-          title="New delivery"
+          title={t("rcv.newDelivery")}
           onClose={() => setCreating(false)}
           footer={
             <>
-              <ABtn kind="ghost" onClick={() => setCreating(false)}>Cancel</ABtn>
-              <ABtn onClick={() => void create()} disabled={createForm.supplier.trim().length < 2}>Create</ABtn>
+              <ABtn kind="ghost" onClick={() => setCreating(false)}>{t("c.cancel")}</ABtn>
+              <ABtn onClick={() => void create()} disabled={createForm.supplier.trim().length < 2}>{t("c.create")}</ABtn>
             </>
           }
         >
           <div style={{ display: "grid", gap: 14 }}>
-            <AField label="Supplier" hint="Who the goods came from — retailer, liquidator, consignor.">
+            <AField label={t("rcv.supplier")} hint={t("rcv.supplierHint")}>
               <AInput value={createForm.supplier} onChange={(v) => setCreateForm({ ...createForm, supplier: v })} />
             </AField>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <AField label="Market">
+              <AField label={t("c.market")}>
                 <ASelect value={createForm.marketCode} onChange={(v) => setCreateForm({ ...createForm, marketCode: v })} options={markets.map((m) => ({ value: m.code, label: m.code }))} />
               </AField>
-              <AField label="Expected units" hint="From the paperwork; 0 = unknown.">
+              <AField label={t("rcv.expectedUnits")} hint={t("rcv.expectedHint")}>
                 <AInput value={createForm.expected} onChange={(v) => setCreateForm({ ...createForm, expected: v })} placeholder="0" />
               </AField>
             </div>
-            <AField label="Notes">
+            <AField label={t("c.notes")}>
               <textarea value={createForm.notes} onChange={(e) => setCreateForm({ ...createForm, notes: e.target.value })} rows={3} style={{
                 width: "100%", borderRadius: AT.radiusSm, border: `1px solid ${AT.rule}`, fontFamily: AT.body, fontSize: 13, color: AT.ink, padding: 10, resize: "vertical",
               }} />
@@ -351,7 +352,8 @@ export function ReceivingScreen({ nav }: { nav: Nav }) {
 
 // ── W2: Grading review queue ─────────────────────────────────────────────────
 
-const REJECT_REASONS = ["Photos unclear", "Wrong grade", "Notes don't match", "Re-check item", "Other…"] as const;
+const REJECT_REASONS = ["rcv.rjPhotos", "rcv.rjWrongGrade", "rcv.rjNotes", "rcv.rjRecheck", "wh.chipOther"] as const;
+type RejectReason = (typeof REJECT_REASONS)[number];
 
 const chipText = (p: { textLv: string; textRu: string; textEn: string }, lang: Lang): string =>
   lang === "lv" ? p.textLv : lang === "ru" ? p.textRu : p.textEn;
@@ -360,12 +362,12 @@ const reviewThumb = (u: string) => (u.includes("-web.webp") ? u.replace("-web.we
 
 function GradingReviewQueue({ items, reload }: { items: ReviewItem[]; reload: () => void }) {
   const toast = useToast();
-  const { lang } = useT();
+  const { t, lang } = useT();
   const [presets, setPresets] = useState<ConditionPreset[]>([]);
   const [editing, setEditing] = useState<ReviewItem | null>(null);
   const [editForm, setEditForm] = useState({ condition: "", notes: "", picked: new Set<string>() });
   const [rejecting, setRejecting] = useState<ReviewItem | null>(null);
-  const [rejectPill, setRejectPill] = useState<string | null>(null);
+  const [rejectPill, setRejectPill] = useState<RejectReason | null>(null);
   const [rejectOther, setRejectOther] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -378,10 +380,10 @@ function GradingReviewQueue({ items, reload }: { items: ReviewItem[]; reload: ()
     setBusy(true);
     try {
       await api.post(`/api/grading/${it.id}/approve`);
-      toast(`${it.sku} approved`, "ok");
+      toast(`${it.sku} ${t("rcv.tApproved")}`, "ok");
       reload();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Approve failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("rcv.approveFailed"), "danger");
     } finally {
       setBusy(false);
     }
@@ -406,17 +408,17 @@ function GradingReviewQueue({ items, reload }: { items: ReviewItem[]; reload: ()
         conditionNotes: editForm.notes,
         conditionPresetIds: editPickedIds,
       });
-      toast(`${editing.sku} approved with edits`, "ok");
+      toast(`${editing.sku} ${t("rcv.tApprovedEdits")}`, "ok");
       setEditing(null);
       reload();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Edit failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("rcv.editFailed"), "danger");
     } finally {
       setBusy(false);
     }
   };
 
-  const rejectReason = (rejectPill === "Other…" ? rejectOther.trim() : rejectPill ?? "").slice(0, 300);
+  const rejectReason = (rejectPill === "wh.chipOther" ? rejectOther.trim() : rejectPill ? t(rejectPill) : "").slice(0, 300);
   const rejectOk = rejectReason.length >= 2;
 
   const doReject = async () => {
@@ -424,13 +426,13 @@ function GradingReviewQueue({ items, reload }: { items: ReviewItem[]; reload: ()
     setBusy(true);
     try {
       await api.post(`/api/grading/${rejecting.id}/reject`, { reason: rejectReason });
-      toast(`${rejecting.sku} rejected — sent back to the grader`, "ok");
+      toast(`${rejecting.sku} ${t("rcv.tRejected")}`, "ok");
       setRejecting(null);
       setRejectPill(null);
       setRejectOther("");
       reload();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Reject failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("rcv.rejectFailed"), "danger");
     } finally {
       setBusy(false);
     }
@@ -440,7 +442,7 @@ function GradingReviewQueue({ items, reload }: { items: ReviewItem[]; reload: ()
     <div style={{ display: "grid", gap: 12 }}>
       {items.length === 0 && (
         <ACard pad={false}>
-          <AEmpty text="Nothing waiting for review. Damaged-family grades (and everything, when 'review all' is on) land here." />
+          <AEmpty text={t("rcv.reviewEmpty")} />
         </ACard>
       )}
       {items.map((it) => (
@@ -480,9 +482,9 @@ function GradingReviewQueue({ items, reload }: { items: ReviewItem[]; reload: ()
               <div style={{ fontFamily: AT.body, fontSize: 13, color: AT.inkSoft, fontStyle: "italic" }}>{it.conditionNotes}</div>
             )}
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <ABtn size="sm" onClick={() => void approve(it)} disabled={busy}>Approve</ABtn>
-              <ABtn size="sm" kind="ghost" onClick={() => openEdit(it)} disabled={busy}>Edit grading…</ABtn>
-              <ABtn size="sm" kind="danger" onClick={() => { setRejecting(it); setRejectPill(null); setRejectOther(""); }} disabled={busy}>Reject</ABtn>
+              <ABtn size="sm" onClick={() => void approve(it)} disabled={busy}>{t("rcv.approve")}</ABtn>
+              <ABtn size="sm" kind="ghost" onClick={() => openEdit(it)} disabled={busy}>{t("rcv.editGrading")}</ABtn>
+              <ABtn size="sm" kind="danger" onClick={() => { setRejecting(it); setRejectPill(null); setRejectOther(""); }} disabled={busy}>{t("rcv.reject")}</ABtn>
             </div>
           </div>
         </ACard>
@@ -490,28 +492,28 @@ function GradingReviewQueue({ items, reload }: { items: ReviewItem[]; reload: ()
 
       {editing && (
         <ADrawer
-          title={<span>Edit grading <span style={{ fontFamily: AT.mono, fontSize: 12, color: AT.inkSoft }}>{editing.sku}</span></span>}
+          title={<span>{t("rcv.editGradingTitle")} <span style={{ fontFamily: AT.mono, fontSize: 12, color: AT.inkSoft }}>{editing.sku}</span></span>}
           onClose={() => setEditing(null)}
           footer={
             <>
-              <ABtn kind="ghost" onClick={() => setEditing(null)}>Cancel</ABtn>
-              <ABtn onClick={() => void saveEdit()} disabled={!editOk || busy}>Save &amp; approve</ABtn>
+              <ABtn kind="ghost" onClick={() => setEditing(null)}>{t("c.cancel")}</ABtn>
+              <ABtn onClick={() => void saveEdit()} disabled={!editOk || busy}>{t("rcv.saveApprove")}</ABtn>
             </>
           }
         >
           <div style={{ display: "grid", gap: 14 }}>
-            <AField label="Condition">
+            <AField label={t("c.condition")}>
               <ASelect
                 value={editForm.condition}
                 onChange={(v) => setEditForm((f) => ({ ...f, condition: v }))}
                 options={[
-                  ...(conditionByCode(editForm.condition) ? [] : [{ value: editForm.condition, label: `${editForm.condition} (legacy)` }]),
-                  ...CONDITIONS.map((c) => ({ value: c.code, label: c.requiresNotes ? `${c.label} — see notes` : c.label })),
+                  ...(conditionByCode(editForm.condition) ? [] : [{ value: editForm.condition, label: `${editForm.condition} (${t("rcv.legacy")})` }]),
+                  ...CONDITIONS.map((c) => ({ value: c.code, label: c.requiresNotes ? `${c.label} — ${t("rcv.seeNotes")}` : c.label })),
                 ]}
               />
             </AField>
             {editChips.length > 0 && (
-              <AField label="Preset notes">
+              <AField label={t("wh.presetNotes")}>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                   {editChips.map((p) => {
                     const on = editForm.picked.has(p.id);
@@ -537,8 +539,8 @@ function GradingReviewQueue({ items, reload }: { items: ReviewItem[]; reload: ()
               </AField>
             )}
             <AField
-              label={conditionRequiresNotes(editForm.condition) && editPickedIds.length === 0 ? "Condition notes (required)" : "Condition notes"}
-              hint="Shown to bidders alongside the preset chips."
+              label={conditionRequiresNotes(editForm.condition) && editPickedIds.length === 0 ? t("wh.condNotesRequired") : t("wh.condNotes")}
+              hint={t("rcv.editNotesHint")}
             >
               <textarea
                 value={editForm.notes}
@@ -561,10 +563,10 @@ function GradingReviewQueue({ items, reload }: { items: ReviewItem[]; reload: ()
         >
           <div onClick={(e) => e.stopPropagation()} style={{ width: 440, maxWidth: "92vw", background: AT.panel, borderRadius: AT.radius, padding: 20, display: "grid", gap: 12 }}>
             <h2 style={{ fontFamily: AT.body, fontSize: 15.5, fontWeight: 700, color: AT.ink }}>
-              Reject {rejecting.sku}?
+              {t("rcv.reject")} {rejecting.sku}?
             </h2>
             <p style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.inkSoft, lineHeight: 1.5 }}>
-              The grader sees the reason on their warehouse home screen and re-grades the item.
+              {t("rcv.rejectBody")}
             </p>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               {REJECT_REASONS.map((r) => (
@@ -577,15 +579,15 @@ function GradingReviewQueue({ items, reload }: { items: ReviewItem[]; reload: ()
                     background: rejectPill === r ? AT.ink : AT.panel, color: rejectPill === r ? "#fff" : AT.ink,
                     border: `1px solid ${rejectPill === r ? AT.ink : AT.rule}`,
                   }}
-                >{r}</button>
+                >{t(r)}</button>
               ))}
             </div>
-            {rejectPill === "Other…" && (
-              <AInput value={rejectOther} onChange={setRejectOther} placeholder="Why is this grade going back?" autoFocus />
+            {rejectPill === "wh.chipOther" && (
+              <AInput value={rejectOther} onChange={setRejectOther} placeholder={t("rcv.rejectWhy")} autoFocus />
             )}
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-              <ABtn kind="ghost" onClick={() => setRejecting(null)}>Cancel</ABtn>
-              <ABtn kind="danger" onClick={() => void doReject()} disabled={!rejectOk || busy}>Reject grade</ABtn>
+              <ABtn kind="ghost" onClick={() => setRejecting(null)}>{t("c.cancel")}</ABtn>
+              <ABtn kind="danger" onClick={() => void doReject()} disabled={!rejectOk || busy}>{t("rcv.rejectGrade")}</ABtn>
             </div>
           </div>
         </div>
