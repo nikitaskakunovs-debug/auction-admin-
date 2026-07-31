@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useAuth } from "./auth.js";
 import { isWarehouseHost } from "./host.js";
+import { useT, type TKey } from "./i18n.js";
+import { LangSwitch } from "./LangSwitch.js";
 import { LoginScreen } from "./Login.js";
 import { SearchPalette, type SearchTarget } from "./shell/SearchPalette.js";
 import { TabBar, type Tab } from "./shell/TabBar.js";
@@ -47,7 +49,8 @@ function parseHash(): Route {
 
 interface ScreenDef {
   id: string;
-  label: string;
+  /** Translation key for the screen name (sidebar, drawer, tab titles). */
+  labelKey: TKey;
   icon: IconName;
   /** Permission required to see this screen; null = every signed-in admin. */
   permission: string | null;
@@ -55,23 +58,23 @@ interface ScreenDef {
 }
 
 const SCREENS: ScreenDef[] = [
-  { id: "dashboard", label: "Dashboard", icon: "dashboard", permission: null, render: (nav) => <DashboardScreen nav={nav} /> },
-  { id: "auctions", label: "Auctions", icon: "gavel", permission: "auctions.view", render: (nav) => nav.route.param ? <AuctionMonitorScreen nav={nav} auctionId={nav.route.param} /> : <AuctionsScreen nav={nav} /> },
-  { id: "listings", label: "Listings", icon: "tag", permission: "listings.view", render: (nav) => <ListingsScreen nav={nav} /> },
-  { id: "inventory", label: "Inventory", icon: "inventory", permission: "items.view", render: (nav) => <InventoryScreen nav={nav} /> },
-  { id: "receiving", label: "Receiving", icon: "inventory", permission: "warehouse.manage", render: (nav) => <ReceivingScreen nav={nav} /> },
-  { id: "orders", label: "Orders", icon: "orders", permission: "orders.view", render: (nav) => <OrdersScreen nav={nav} /> },
-  { id: "pickup", label: "Pickup", icon: "inventory", permission: "pickup.view", render: (nav) => <PickupScreen nav={nav} /> },
+  { id: "dashboard", labelKey: "sh.nav.dashboard", icon: "dashboard", permission: null, render: (nav) => <DashboardScreen nav={nav} /> },
+  { id: "auctions", labelKey: "sh.nav.auctions", icon: "gavel", permission: "auctions.view", render: (nav) => nav.route.param ? <AuctionMonitorScreen nav={nav} auctionId={nav.route.param} /> : <AuctionsScreen nav={nav} /> },
+  { id: "listings", labelKey: "sh.nav.listings", icon: "tag", permission: "listings.view", render: (nav) => <ListingsScreen nav={nav} /> },
+  { id: "inventory", labelKey: "sh.nav.inventory", icon: "inventory", permission: "items.view", render: (nav) => <InventoryScreen nav={nav} /> },
+  { id: "receiving", labelKey: "sh.nav.receiving", icon: "inventory", permission: "warehouse.manage", render: (nav) => <ReceivingScreen nav={nav} /> },
+  { id: "orders", labelKey: "sh.nav.orders", icon: "orders", permission: "orders.view", render: (nav) => <OrdersScreen nav={nav} /> },
+  { id: "pickup", labelKey: "sh.nav.pickup", icon: "inventory", permission: "pickup.view", render: (nav) => <PickupScreen nav={nav} /> },
   // W3 — warehouse productivity; stats.view is seeded to managers only.
-  { id: "whstats", label: "Stats", icon: "analytics", permission: "stats.view", render: (nav) => <WarehouseStatsScreen nav={nav} /> },
-  { id: "customers", label: "Bidders", icon: "users", permission: "customers.view", render: (nav) => <CustomersScreen nav={nav} /> },
-  { id: "finance", label: "Finance", icon: "finance", permission: "invoices.view", render: (nav) => <FinanceScreen nav={nav} /> },
-  { id: "content", label: "Content", icon: "list", permission: "content.view", render: (nav) => <ContentScreen nav={nav} /> },
-  { id: "settings", label: "Settings", icon: "settings", permission: "settings.view", render: (nav) => <SettingsScreen nav={nav} /> },
-  { id: "notifications", label: "Notifications", icon: "bell", permission: "audit.view", render: (nav) => <NotificationsScreen nav={nav} /> },
-  { id: "activity", label: "Activity", icon: "activity", permission: "audit.view", render: (nav) => <ActivityScreen nav={nav} /> },
+  { id: "whstats", labelKey: "sh.nav.whstats", icon: "analytics", permission: "stats.view", render: (nav) => <WarehouseStatsScreen nav={nav} /> },
+  { id: "customers", labelKey: "sh.nav.customers", icon: "users", permission: "customers.view", render: (nav) => <CustomersScreen nav={nav} /> },
+  { id: "finance", labelKey: "sh.nav.finance", icon: "finance", permission: "invoices.view", render: (nav) => <FinanceScreen nav={nav} /> },
+  { id: "content", labelKey: "sh.nav.content", icon: "list", permission: "content.view", render: (nav) => <ContentScreen nav={nav} /> },
+  { id: "settings", labelKey: "sh.nav.settings", icon: "settings", permission: "settings.view", render: (nav) => <SettingsScreen nav={nav} /> },
+  { id: "notifications", labelKey: "sh.nav.notifications", icon: "bell", permission: "audit.view", render: (nav) => <NotificationsScreen nav={nav} /> },
+  { id: "activity", labelKey: "sh.nav.activity", icon: "activity", permission: "audit.view", render: (nav) => <ActivityScreen nav={nav} /> },
   // Personal account security — available to every signed-in admin.
-  { id: "security", label: "Security", icon: "shield", permission: null, render: () => <SecurityScreen /> },
+  { id: "security", labelKey: "sh.nav.security", icon: "shield", permission: null, render: () => <SecurityScreen /> },
 ];
 
 // ── Tab/split shell state (persisted per browser, like Shhh) ─────────────────
@@ -114,6 +117,7 @@ function bootShell(): ShellState {
 }
 
 export function App() {
+  const { t } = useT();
   const { user, loading, can, logout } = useAuth();
   const [shell, setShell] = useState<ShellState>(bootShell);
   const [focused, setFocused] = useState<"a" | "b">("a");
@@ -296,7 +300,7 @@ export function App() {
             background: isFocused ? AT.accentSoft : AT.surfaceAlt,
             color: isFocused ? AT.accent : AT.inkSoft,
           }}>
-            PANE {pane.toUpperCase()}{isFocused ? " · FOCUSED" : ""}
+            {t("sh.pane")} {pane.toUpperCase()}{isFocused ? ` · ${t("sh.focused")}` : ""}
           </div>
         )}
         <div style={{ maxWidth: split ? undefined : 1280, margin: "0 auto", padding: mobile ? "14px 12px 80px" : "22px 26px 60px" }}>
@@ -329,7 +333,7 @@ export function App() {
           color: isActive ? "#fff" : AT.sideSoft,
           background: isActive ? "rgba(255,255,255,0.10)" : "transparent",
         }}>
-          {s.label}
+          {t(s.labelKey)}
           {(badges[s.id] ?? 0) > 0 && (
             <span style={{
               marginLeft: "auto", minWidth: 19, height: 19, borderRadius: 999, padding: "0 6px",
@@ -355,10 +359,10 @@ export function App() {
             color: "rgba(255,255,255,0.85)", border: "1px solid rgba(255,255,255,0.3)",
             borderRadius: 7, padding: "6px 11px",
           }}>
-            MENU
+            {t("sh.menu")}
           </button>
           <div style={{ fontSize: 15, fontWeight: 700, flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-            {activeDef.label}
+            {t(activeDef.labelKey)}
           </div>
           {(badges[activeDef.id] ?? 0) > 0 && (
             <span style={{
@@ -378,7 +382,7 @@ export function App() {
           background: AT.ink, color: "#fff", fontFamily: AT.body, fontSize: 13.5, fontWeight: 700,
           borderRadius: 999, padding: "12px 20px", boxShadow: "0 6px 20px rgba(10,10,10,0.35)",
         }}>
-          Search
+          {t("c.search")}
         </button>
 
         {/* Drawer — tap outside to close. */}
@@ -400,7 +404,7 @@ export function App() {
                   all: "unset", cursor: "pointer", margin: "6px 10px 0", padding: "12px 14px", borderRadius: 10,
                   fontSize: 14, fontWeight: 700, color: AT.sideSoft, border: `1px dashed ${AT.sideRule}`, textAlign: "center",
                 }}>
-                  Warehouse mode
+                  {t("sh.warehouseMode")}
                 </button>
               )}
               <button onClick={() => { setReporting(true); setMenuOpen(false); }} style={{
@@ -408,7 +412,7 @@ export function App() {
                 fontSize: 14, fontWeight: 700, color: AT.sideSoft, border: `1px dashed ${AT.sideRule}`, textAlign: "center",
                 position: "relative",
               }}>
-                Report a problem
+                {t("sh.reportProblem")}
                 {(badges.mybugs ?? 0) > 0 && (
                   <span style={{
                     position: "absolute", top: 8, right: 10, minWidth: 17, height: 17, borderRadius: 999,
@@ -417,13 +421,16 @@ export function App() {
                   }}>{badges.mybugs}</span>
                 )}
               </button>
+              <div style={{ padding: "0 14px 10px" }}>
+                <LangSwitch dark />
+              </div>
               <div style={{ padding: 14, borderTop: `1px solid ${AT.sideRule}`, display: "flex", alignItems: "center", gap: 10 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13.5, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{user.name}</div>
                   <div style={{ fontSize: 11, color: AT.sideSoft }}>{user.role.replace(/_/g, " ")}</div>
                 </div>
                 <button onClick={() => void logout()} style={{ all: "unset", cursor: "pointer", padding: 8, fontSize: 13, fontWeight: 700, color: AT.sideSoft }}>
-                  Sign out
+                  {t("sh.signOut")}
                 </button>
               </div>
             </div>
@@ -459,7 +466,7 @@ export function App() {
           display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 600,
           color: AT.sideSoft, background: "rgba(255,255,255,0.06)", border: `1px solid ${AT.sideRule}`,
         }}>
-          🔍 Search…
+          🔍 {t("sh.searchBtn")}
           <span style={{ marginLeft: "auto", fontFamily: AT.mono, fontSize: 9.5, border: `1px solid ${AT.sideRule}`, borderRadius: 4, padding: "1px 5px" }}>⌘K</span>
         </button>
         <nav style={{ padding: "0 10px", display: "grid", gap: 2, flex: 1, overflowY: "auto" }}>
@@ -473,7 +480,7 @@ export function App() {
                 background: isActive ? "rgba(255,255,255,0.10)" : "transparent",
               }}>
                 <AIcon name={s.icon} size={16} color={isActive ? "#fff" : "rgba(255,255,255,0.55)"} />
-                {s.label}
+                {t(s.labelKey)}
                 {(badges[s.id] ?? 0) > 0 && (
                   <span style={{
                     marginLeft: "auto", minWidth: 17, height: 17, borderRadius: 999, padding: "0 5px",
@@ -493,7 +500,7 @@ export function App() {
             all: "unset", cursor: "pointer", margin: "0 10px 8px", padding: "9px 10px", borderRadius: 8,
             fontSize: 12.5, fontWeight: 700, color: AT.sideSoft, border: `1px dashed ${AT.sideRule}`, textAlign: "center",
           }}>
-            📦 Warehouse mode
+            📦 {t("sh.warehouseMode")}
           </button>
         )}
         {/* Phase E — report a problem; dot = IT wrote back or fixed something. */}
@@ -502,7 +509,7 @@ export function App() {
           fontSize: 12.5, fontWeight: 700, color: AT.sideSoft, border: `1px dashed ${AT.sideRule}`, textAlign: "center",
           position: "relative",
         }}>
-          🐞 Report a problem
+          🐞 {t("sh.reportProblem")}
           {(badges.mybugs ?? 0) > 0 && (
             <span style={{
               position: "absolute", top: 6, right: 8, minWidth: 16, height: 16, borderRadius: 999,
@@ -511,12 +518,15 @@ export function App() {
             }}>{badges.mybugs}</span>
           )}
         </button>
+        <div style={{ padding: "0 12px 10px" }}>
+          <LangSwitch dark />
+        </div>
         <div style={{ padding: 12, borderTop: `1px solid ${AT.sideRule}`, display: "flex", alignItems: "center", gap: 9 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{user.name}</div>
             <div style={{ fontSize: 10.5, color: AT.sideSoft }}>{user.role.replace(/_/g, " ")}</div>
           </div>
-          <button title="Sign out" onClick={() => void logout()} style={{ all: "unset", cursor: "pointer", padding: 5, color: AT.sideSoft }}>
+          <button title={t("sh.signOut")} onClick={() => void logout()} style={{ all: "unset", cursor: "pointer", padding: 5, color: AT.sideSoft }}>
             <AIcon name="logout" size={16} />
           </button>
         </div>

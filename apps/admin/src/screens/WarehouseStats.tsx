@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../api.js";
 import type { Nav } from "../App.js";
 import { exportCSV } from "../exporters.js";
+import { useT, type TKey } from "../i18n.js";
 import { AT, toneColors, type Tone } from "../theme.js";
 import { AAvatar, ABtn, ACard, ADrawer, AEmpty, APills, AStat, ATable, ATd, ATr } from "../ui.js";
 
@@ -61,39 +62,40 @@ const fmtSec = (s: number | null) => (s === null ? "—" : `${Math.floor(s / 60)
 const fmtDur = (s: number) => (s === 0 ? "—" : s < 3600 ? `${Math.round(s / 60)}m` : `${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m`);
 const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString("lv", { hour: "2-digit", minute: "2-digit" });
 
-const KIND_META: Record<string, { label: string; tone: Tone }> = {
-  intake: { label: "received", tone: "accent" },
-  putaway: { label: "putaway", tone: "accent" },
-  move: { label: "moved", tone: "neutral" },
-  restock: { label: "restocked", tone: "neutral" },
-  adjust: { label: "pulled", tone: "warn" },
-  handover: { label: "handover", tone: "ok" },
-  pick: { label: "pick", tone: "ok" },
-  grade: { label: "graded", tone: "warn" },
-  ticket_done: { label: "ticket done", tone: "ok" },
-  status: { label: "status", tone: "neutral" },
+const KIND_META: Record<string, { key: TKey; tone: Tone }> = {
+  intake: { key: "ws.k.intake", tone: "accent" },
+  putaway: { key: "ws.k.putaway", tone: "accent" },
+  move: { key: "ws.k.move", tone: "neutral" },
+  restock: { key: "ws.k.restock", tone: "neutral" },
+  adjust: { key: "ws.k.adjust", tone: "warn" },
+  handover: { key: "ws.k.handover", tone: "ok" },
+  pick: { key: "ws.k.pick", tone: "ok" },
+  grade: { key: "ws.k.grade", tone: "warn" },
+  ticket_done: { key: "ws.k.ticket_done", tone: "ok" },
+  status: { key: "ws.k.status", tone: "neutral" },
 };
 
 const CHART = [
-  { key: "received" as const, label: "Received", color: AT.accent },
-  { key: "putaway" as const, label: "Putaway", color: "#8B9BFF" },
-  { key: "picks" as const, label: "Picks", color: AT.ok },
-  { key: "graded" as const, label: "Graded", color: "#C9CFF2" },
+  { key: "received" as const, labelKey: "rcv.received" as const, color: AT.accent },
+  { key: "putaway" as const, labelKey: "ws.putaway" as const, color: "#8B9BFF" },
+  { key: "picks" as const, labelKey: "ws.picks" as const, color: AT.ok },
+  { key: "graded" as const, labelKey: "ws.graded" as const, color: "#C9CFF2" },
 ];
 
 const SORTS = [
-  { id: "received", label: "Received" },
-  { id: "putaway", label: "Putaway" },
-  { id: "graded", label: "Graded" },
-  { id: "picks", label: "Picks" },
-  { id: "tickets", label: "Tickets" },
-  { id: "avgPickSec", label: "Avg pick" },
-  { id: "picksPerHour", label: "Picks/hr" },
-  { id: "breakSec", label: "Breaks" },
+  { id: "received", labelKey: "rcv.received" },
+  { id: "putaway", labelKey: "ws.putaway" },
+  { id: "graded", labelKey: "ws.graded" },
+  { id: "picks", labelKey: "ws.picks" },
+  { id: "tickets", labelKey: "ws.tickets" },
+  { id: "avgPickSec", labelKey: "ws.avgPick" },
+  { id: "picksPerHour", labelKey: "ws.picksPerHour" },
+  { id: "breakSec", labelKey: "ws.breaks" },
 ] as const;
 type SortId = (typeof SORTS)[number]["id"];
 
 export function WarehouseStatsScreen({ nav: _nav }: { nav: Nav }) {
+  const { t } = useT();
   const [period, setPeriod] = useState<Period>("7d");
   const [customFrom, setCustomFrom] = useState(daysAgo(7));
   const [customTo, setCustomTo] = useState(daysAgo(0));
@@ -143,13 +145,13 @@ export function WarehouseStatsScreen({ nav: _nav }: { nav: Nav }) {
   const delta = (cur: number, prev: number): string | undefined => {
     if (prev <= 0) return undefined;
     const pct = Math.round(((cur - prev) / prev) * 100);
-    return pct === 0 ? undefined : `${pct > 0 ? "+" : ""}${pct}% vs prev`;
+    return pct === 0 ? undefined : `${pct > 0 ? "+" : ""}${pct}% ${t("ws.vsPrev")}`;
   };
 
   const exportRows = () =>
     exportCSV(
       "warehouse-stats",
-      ["Worker", "Received", "Putaway", "Moved", "Graded", "Picks", "Tickets", "Avg pick", "Picks/hr", "Breaks"],
+      [t("ws.worker"), t("rcv.received"), t("ws.putaway"), t("ws.moved"), t("ws.graded"), t("ws.picks"), t("ws.tickets"), t("ws.avgPick"), t("ws.picksPerHour"), t("ws.breaks")],
       workers.map((w) => [
         w.name,
         String(w.received),
@@ -164,20 +166,20 @@ export function WarehouseStatsScreen({ nav: _nav }: { nav: Nav }) {
       ]),
     );
 
-  const t = data?.totals;
-  const p = data?.prev;
+  const tot = data?.totals;
+  const prevTot = data?.prev;
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <h1 style={{ fontFamily: AT.body, fontSize: 20, fontWeight: 700, color: AT.ink }}>Warehouse stats</h1>
+        <h1 style={{ fontFamily: AT.body, fontSize: 20, fontWeight: 700, color: AT.ink }}>{t("ws.title")}</h1>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <APills
             options={[
-              { id: "today" as const, label: "Today" },
-              { id: "7d" as const, label: "7 days" },
-              { id: "30d" as const, label: "30 days" },
-              { id: "custom" as const, label: "Custom" },
+              { id: "today" as const, label: t("c.today") },
+              { id: "7d" as const, label: t("ws.7d") },
+              { id: "30d" as const, label: t("ws.30d") },
+              { id: "custom" as const, label: t("ws.custom") },
             ]}
             value={period}
             onChange={setPeriod}
@@ -189,36 +191,36 @@ export function WarehouseStatsScreen({ nav: _nav }: { nav: Nav }) {
               <input type="date" value={customTo} min={customFrom} max={daysAgo(0)} onChange={(e) => setCustomTo(e.target.value)} style={dateStyle} />
             </span>
           )}
-          <ABtn kind="ghost" size="sm" onClick={exportRows} disabled={workers.length === 0}>Export CSV</ABtn>
+          <ABtn kind="ghost" size="sm" onClick={exportRows} disabled={workers.length === 0}>{t("ws.exportCsv")}</ABtn>
         </div>
       </div>
 
-      {failed && <ACard pad={false}><AEmpty text="Could not load stats — check your connection and try another period." /></ACard>}
+      {failed && <ACard pad={false}><AEmpty text={t("ws.loadFailed")} /></ACard>}
 
-      {t && p && (
+      {tot && prevTot && (
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-          <AStat label="Received" value={t.received} sub={delta(t.received, p.received)} />
-          <AStat label="Putaways" value={t.putaways} sub={delta(t.putaways, p.putaways)} />
-          <AStat label="Graded" value={t.graded} sub={delta(t.graded, p.graded)} />
-          <AStat label="Picks" value={t.picks} sub={delta(t.picks, p.picks)} />
-          <AStat label="Tickets closed" value={t.ticketsClosed} sub={delta(t.ticketsClosed, p.ticketsClosed)} />
-          <AStat label="Avg pick" value={fmtSec(t.avgPickSec)} sub={p.avgPickSec !== null && t.avgPickSec !== null ? `prev ${fmtSec(p.avgPickSec)}` : undefined} />
+          <AStat label={t("rcv.received")} value={tot.received} sub={delta(tot.received, prevTot.received)} />
+          <AStat label={t("ws.putaways")} value={tot.putaways} sub={delta(tot.putaways, prevTot.putaways)} />
+          <AStat label={t("ws.graded")} value={tot.graded} sub={delta(tot.graded, prevTot.graded)} />
+          <AStat label={t("ws.picks")} value={tot.picks} sub={delta(tot.picks, prevTot.picks)} />
+          <AStat label={t("ws.ticketsClosed")} value={tot.ticketsClosed} sub={delta(tot.ticketsClosed, prevTot.ticketsClosed)} />
+          <AStat label={t("ws.avgPick")} value={fmtSec(tot.avgPickSec)} sub={prevTot.avgPickSec !== null && tot.avgPickSec !== null ? `${t("ws.prev")} ${fmtSec(prevTot.avgPickSec)}` : undefined} />
         </div>
       )}
 
       {data && data.byDay.length > 1 && <ActivityChart byDay={data.byDay} />}
 
-      <ACard title="Per worker" pad={false} actions={
+      <ACard title={t("ws.perWorker")} pad={false} actions={
         <span style={{ fontFamily: AT.body, fontSize: 11.5, color: AT.inkSoft }}>
-          click a column to sort · click a row for the day timeline
+          {t("ws.sortHint")}
         </span>
       }>
         {workers.length === 0 ? (
-          <AEmpty text="No warehouse activity in this period. Receiving, putaways, grading, and picks all land here automatically." />
+          <AEmpty text={t("ws.empty")} />
         ) : (
           <ATable
             head={[
-              "Worker",
+              t("ws.worker"),
               ...SORTS.map((s) => (
                 <button
                   key={s.id}
@@ -228,7 +230,7 @@ export function WarehouseStatsScreen({ nav: _nav }: { nav: Nav }) {
                     color: sort === s.id ? AT.accent : undefined,
                   }}
                 >
-                  {s.label}{sort === s.id ? " ↓" : ""}
+                  {t(s.labelKey)}{sort === s.id ? " ↓" : ""}
                 </button>
               )),
             ]}
@@ -267,6 +269,7 @@ const dateStyle: React.CSSProperties = {
 // ── Per-day stacked bars (inline SVG, no chart lib) ─────────────────────────
 
 function ActivityChart({ byDay }: { byDay: StatsPayload["byDay"] }) {
+  const { t } = useT();
   const W = 700;
   const H = 132;
   const plotH = 104;
@@ -275,8 +278,8 @@ function ActivityChart({ byDay }: { byDay: StatsPayload["byDay"] }) {
   const barW = Math.min(48, slot * 0.55);
 
   return (
-    <ACard title="Activity by day">
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label="Warehouse actions per day, stacked by type">
+    <ACard title={t("ws.activityByDay")}>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label={t("ws.chartAria")}>
         <line x1="0" y1={plotH} x2={W} y2={plotH} stroke={AT.rule} />
         {byDay.map((d, i) => {
           const x = i * slot + (slot - barW) / 2;
@@ -299,7 +302,7 @@ function ActivityChart({ byDay }: { byDay: StatsPayload["byDay"] }) {
         {CHART.map((seg) => (
           <span key={seg.key} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
             <span style={{ width: 9, height: 9, borderRadius: 2, background: seg.color, display: "inline-block" }} />
-            {seg.label}
+            {t(seg.labelKey)}
           </span>
         ))}
       </div>
@@ -315,6 +318,7 @@ function TimelineDrawer({ worker, defaultDay, minDay, onClose }: {
   minDay: string;
   onClose: () => void;
 }) {
+  const { t } = useT();
   const [day, setDay] = useState(defaultDay);
   const [entries, setEntries] = useState<TimelineEntry[] | null>(null);
 
@@ -336,16 +340,16 @@ function TimelineDrawer({ worker, defaultDay, minDay, onClose }: {
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <input type="date" value={day} min={minDay} max={utcDay(new Date())} onChange={(e) => setDay(e.target.value)} style={dateStyle} />
           <span style={{ fontFamily: AT.body, fontSize: 12, color: AT.inkSoft }}>
-            {entries === null ? "Loading…" : `${entries.length} actions`}
+            {entries === null ? t("c.loading") : `${entries.length} ${t("ws.actionsWord")}`}
           </span>
         </div>
         {entries !== null && entries.length === 0 && (
-          <div style={{ fontFamily: AT.body, fontSize: 13, color: AT.inkSoft }}>No recorded actions on this day.</div>
+          <div style={{ fontFamily: AT.body, fontSize: 13, color: AT.inkSoft }}>{t("ws.noActions")}</div>
         )}
         <div style={{ display: "grid" }}>
           {(entries ?? []).map((e, i) => {
-            const meta = KIND_META[e.kind] ?? { label: e.kind, tone: "neutral" as Tone };
-            const c = toneColors[meta.tone];
+            const meta = KIND_META[e.kind];
+            const c = toneColors[meta?.tone ?? ("neutral" as Tone)];
             return (
               <div key={i} style={{
                 display: "flex", alignItems: "baseline", gap: 10, padding: "7px 0",
@@ -355,7 +359,7 @@ function TimelineDrawer({ worker, defaultDay, minDay, onClose }: {
                 <span style={{
                   background: c.bg, color: c.fg, borderRadius: 999, padding: "1px 9px",
                   fontSize: 11, fontWeight: 700, flexShrink: 0,
-                }}>{meta.label}</span>
+                }}>{meta ? t(meta.key) : e.kind}</span>
                 <span style={{ minWidth: 0 }}>
                   {e.sku && <span style={{ fontFamily: AT.mono, fontSize: 12, fontWeight: 700, marginRight: 6 }}>{e.sku}</span>}
                   {e.detail && <span style={{ color: AT.inkSoft }}>{e.detail}</span>}

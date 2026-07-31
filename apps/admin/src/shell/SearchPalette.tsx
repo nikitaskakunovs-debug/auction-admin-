@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api.js";
+import { auctionStatusLabel, itemStatusLabel, orderStatusLabel, t, useT, type TKey } from "../i18n.js";
 import { AT, toneColors } from "../theme.js";
 
 /**
@@ -36,19 +37,19 @@ function flatten(groups: Group[]): Row[] {
   for (const g of groups) {
     if (g.kind === "lots") {
       for (const r of g.results as LotHit[]) {
-        rows.push({ key: `lot-${r.id}`, group: "Lots", mono: r.sku, title: r.title, meta: r.status.replace(/_/g, " "), target: { screen: "inventory", param: r.id } });
+        rows.push({ key: `lot-${r.id}`, group: t("sh.grp.lots"), mono: r.sku, title: r.title, meta: itemStatusLabel(r.status), target: { screen: "inventory", param: r.id } });
       }
     } else if (g.kind === "auctions") {
       for (const r of g.results as AuctionHit[]) {
-        rows.push({ key: `auc-${r.id}`, group: "Auctions", mono: r.sku, title: r.title, meta: `${r.status.replace(/_/g, " ")}${r.currentPriceCents != null ? ` · ${eur(r.currentPriceCents)}` : ""}`, target: { screen: "auctions", param: r.id } });
+        rows.push({ key: `auc-${r.id}`, group: t("sh.grp.auctions"), mono: r.sku, title: r.title, meta: `${auctionStatusLabel(r.status)}${r.currentPriceCents != null ? ` · ${eur(r.currentPriceCents)}` : ""}`, target: { screen: "auctions", param: r.id } });
       }
     } else if (g.kind === "orders") {
       for (const r of g.results as OrderHit[]) {
-        rows.push({ key: `ord-${r.id}`, group: "Orders", mono: r.ref, title: r.customerAlias, meta: `${r.status.replace(/_/g, " ")} · ${eur(r.totalCents)}`, target: { screen: "orders", param: r.id } });
+        rows.push({ key: `ord-${r.id}`, group: t("sh.grp.orders"), mono: r.ref, title: r.customerAlias, meta: `${orderStatusLabel(r.status)} · ${eur(r.totalCents)}`, target: { screen: "orders", param: r.id } });
       }
     } else if (g.kind === "bidders") {
       for (const r of g.results as BidderHit[]) {
-        rows.push({ key: `cus-${r.id}`, group: "Bidders", mono: r.alias, title: r.email, meta: r.blocked ? "blocked" : r.strikes > 0 ? `${r.strikes} strikes` : "", target: { screen: "customers", param: r.id } });
+        rows.push({ key: `cus-${r.id}`, group: t("sh.grp.bidders"), mono: r.alias, title: r.email, meta: r.blocked ? t("sh.blocked") : r.strikes > 0 ? `${r.strikes} ${t("sh.strikes")}` : "", target: { screen: "customers", param: r.id } });
       }
     }
   }
@@ -56,14 +57,14 @@ function flatten(groups: Group[]): Row[] {
 }
 
 /** Screens the palette can jump to directly (filtered by nav permissions upstream). */
-const GO_TO: Array<{ label: string; screen: string }> = [
-  { label: "Dashboard", screen: "dashboard" }, { label: "Auctions", screen: "auctions" },
-  { label: "Listings", screen: "listings" }, { label: "Inventory", screen: "inventory" },
-  { label: "Receiving", screen: "receiving" }, { label: "Orders", screen: "orders" },
-  { label: "Pickup", screen: "pickup" }, { label: "Stats", screen: "whstats" },
-  { label: "Bidders", screen: "customers" },
-  { label: "Finance", screen: "finance" }, { label: "Content", screen: "content" },
-  { label: "Settings", screen: "settings" }, { label: "Activity", screen: "activity" },
+const GO_TO: Array<{ labelKey: TKey; screen: string }> = [
+  { labelKey: "sh.nav.dashboard", screen: "dashboard" }, { labelKey: "sh.nav.auctions", screen: "auctions" },
+  { labelKey: "sh.nav.listings", screen: "listings" }, { labelKey: "sh.nav.inventory", screen: "inventory" },
+  { labelKey: "sh.nav.receiving", screen: "receiving" }, { labelKey: "sh.nav.orders", screen: "orders" },
+  { labelKey: "sh.nav.pickup", screen: "pickup" }, { labelKey: "sh.nav.whstats", screen: "whstats" },
+  { labelKey: "sh.nav.customers", screen: "customers" },
+  { labelKey: "sh.nav.finance", screen: "finance" }, { labelKey: "sh.nav.content", screen: "content" },
+  { labelKey: "sh.nav.settings", screen: "settings" }, { labelKey: "sh.nav.activity", screen: "activity" },
 ];
 
 export function SearchPalette({ allowedScreens, onOpen, onClose }: {
@@ -71,6 +72,7 @@ export function SearchPalette({ allowedScreens, onOpen, onClose }: {
   onOpen: (target: SearchTarget) => void;
   onClose: () => void;
 }) {
+  const { lang } = useT(); // subscribe — rows/headers/placeholder follow the language
   const [q, setQ] = useState("");
   const [groups, setGroups] = useState<Group[]>([]);
   const [cursor, setCursor] = useState(0);
@@ -101,10 +103,11 @@ export function SearchPalette({ allowedScreens, onOpen, onClose }: {
     const hits = flatten(groups);
     const nav = GO_TO
       .filter((g) => allowedScreens.has(g.screen))
-      .filter((g) => !q.trim() || g.label.toLowerCase().includes(q.trim().toLowerCase()))
-      .map((g): Row => ({ key: `go-${g.screen}`, group: "Go to", mono: "→", title: g.label, meta: "screen", target: { screen: g.screen, param: null } }));
+      .filter((g) => !q.trim() || t(g.labelKey).toLowerCase().includes(q.trim().toLowerCase()))
+      .map((g): Row => ({ key: `go-${g.screen}`, group: t("sh.grp.goto"), mono: "→", title: t(g.labelKey), meta: t("sh.metaScreen"), target: { screen: g.screen, param: null } }));
     return [...hits, ...nav];
-  }, [groups, q, allowedScreens]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groups, q, allowedScreens, lang]);
 
   const pick = (row: Row | undefined) => {
     if (!row) return;
@@ -133,7 +136,7 @@ export function SearchPalette({ allowedScreens, onOpen, onClose }: {
             ref={inputRef}
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search lots, orders, bidders…"
+            placeholder={t("sh.searchPlaceholder")}
             style={{ flex: 1, border: "none", outline: "none", fontSize: 15, fontFamily: AT.body, color: AT.ink, background: "transparent" }}
           />
           <span style={{ fontFamily: AT.mono, fontSize: 10, background: AT.app, border: `1px solid ${AT.rule}`, borderRadius: 5, padding: "1px 6px", color: AT.inkSoft }}>esc</span>
@@ -141,7 +144,7 @@ export function SearchPalette({ allowedScreens, onOpen, onClose }: {
         <div style={{ maxHeight: "52vh", overflowY: "auto", paddingBottom: 6 }}>
           {rows.length === 0 && (
             <div style={{ padding: "18px 16px", fontSize: 13, color: AT.inkSoft }}>
-              {q.trim().length < 2 ? "Type at least 2 characters — diacritics optional (skruvgriezis finds skrūvgriezis)." : "Nothing matches."}
+              {q.trim().length < 2 ? t("sh.searchHint") : t("sh.noMatches")}
             </div>
           )}
           {rows.map((row, i) => {

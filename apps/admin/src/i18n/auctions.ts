@@ -1,0 +1,91 @@
+import type { Entry } from "./types.js";
+
+/** Filled by the Phase D translation pass — one module per screen area. */
+export const AUCTIONS = {
+  // ── List screen ────────────────────────────────────────────────────────────
+  "auc.title": { lv: "Izsoles", ru: "Аукционы", en: "Auctions" },
+  "auc.schedule": { lv: "Ieplānot izsoli", ru: "Запланировать аукцион", en: "Schedule auction" },
+  "auc.noMatch": { lv: "Šim filtram neatbilst neviena izsole.", ru: "Под этот фильтр не подходит ни один аукцион.", en: "No auctions match this filter." },
+  "auc.lot": { lv: "Lots", ru: "Лот", en: "Lot" },
+  "auc.type": { lv: "Tips", ru: "Тип", en: "Type" },
+  "auc.current": { lv: "Cena", ru: "Цена", en: "Current" },
+  "auc.bids": { lv: "Solījumi", ru: "Ставки", en: "Bids" },
+  "auc.reserve": { lv: "Rezerve", ru: "Резерв", en: "Reserve" },
+  "auc.ends": { lv: "Beigas", ru: "Окончание", en: "Ends" },
+  "auc.leader": { lv: "Līderis", ru: "Лидер", en: "Leader" },
+  "auc.reserveMet": { lv: "sasniegta", ru: "достигнут", en: "met" },
+  "auc.reserveNotMet": { lv: "nav sasniegta", ru: "не достигнут", en: "not met" },
+  "auc.reserveNone": { lv: "nav", ru: "нет", en: "none" },
+  "auc.endedLower": { lv: "beigusies", ru: "завершён", en: "ended" },
+
+  // ── Schedule drawer ────────────────────────────────────────────────────────
+  "auc.scheduleBtn": { lv: "Ieplānot", ru: "Запланировать", en: "Schedule" },
+  "auc.noEligible": {
+    lv: "Nav piemērotu sludinājumu. Sludinājumam jābūt publicētam, ar tipu “izsole”, un tā precei jābūt statusā “publicēta” (bez atvērtas izsoles). Vispirms publicējiet to sadaļā Sludinājumi.",
+    ru: "Нет подходящих объявлений. Объявление должно быть опубликовано, иметь тип «аукцион», а его товар — статус «опубликован» (без открытого аукциона). Сначала опубликуйте его в разделе «Объявления».",
+    en: "No eligible listings. A listing must be published, of type auction, and its item in the listed state (no open auction). Publish one under Listings first.",
+  },
+  "auc.listing": { lv: "Sludinājums", ru: "Объявление", en: "Listing" },
+  "auc.startsAt": { lv: "Sākums", ru: "Начало", en: "Starts at" },
+  "auc.endsAt": { lv: "Beigas", ru: "Окончание", en: "Ends at" },
+  "auc.antiSnipeHint": { lv: "Anti-snipe pagarinājumi var atlikt izsoles beigas uz vēlāku laiku.", ru: "Продления анти-снайпинга могут сдвинуть окончание на более позднее время.", en: "Anti-snipe extensions can push the close later." },
+  "auc.scheduled": { lv: "Izsole ieplānota", ru: "Аукцион запланирован", en: "Auction scheduled" },
+  "auc.scheduleFailed": { lv: "Neizdevās ieplānot", ru: "Не удалось запланировать", en: "Failed to schedule" },
+  "auc.loadListingsFailed": { lv: "Neizdevās ielādēt sludinājumus", ru: "Не удалось загрузить объявления", en: "Failed to load listings" },
+
+  // ── Monitor: header + price card ───────────────────────────────────────────
+  "auc.notFound": { lv: "Izsole nav atrasta.", ru: "Аукцион не найден.", en: "Auction not found." },
+  "auc.currentPrice": { lv: "Pašreizējā cena", ru: "Текущая цена", en: "Current price" },
+  "auc.noBidsBig": { lv: "nav solījumu", ru: "нет ставок", en: "no bids" },
+  "auc.endsIn": { lv: "Beidzas pēc", ru: "До конца", en: "Ends in" },
+  "auc.ended": { lv: "Beigusies", ru: "Завершён", en: "Ended" },
+  "auc.leading": { lv: "vada", ru: "лидирует", en: "leading" },
+  "auc.bidsWord": { lv: "solījumi", ru: "ставок", en: "bids" },
+  "auc.extensionsWord": { lv: "pagarinājumi", ru: "продлений", en: "extensions" },
+  "auc.reserveWord": { lv: "Rezerve", ru: "Резерв", en: "Reserve" },
+  "auc.hiddenFromBidders": { lv: "(solītājiem nav redzama)", ru: "(скрыт от участников)", en: "(hidden from bidders)" },
+
+  // ── Monitor: bid ledger ────────────────────────────────────────────────────
+  "auc.bidLedger": { lv: "Solījumu žurnāls", ru: "Журнал ставок", en: "Bid ledger" },
+  "auc.noBidsYet": { lv: "Vēl nav solījumu.", ru: "Ставок пока нет.", en: "No bids yet." },
+  "auc.time": { lv: "Laiks", ru: "Время", en: "Time" },
+  "auc.bidder": { lv: "Solītājs", ru: "Участник", en: "Bidder" },
+  "auc.amount": { lv: "Summa", ru: "Сумма", en: "Amount" },
+  "auc.proxy": { lv: "auto", ru: "авто", en: "proxy" },
+  "auc.outbid": { lv: "pārsolīts", ru: "перебита", en: "outbid" },
+  "auc.voidedChip": { lv: "anulēts", ru: "аннулирована", en: "voided" },
+  "auc.void": { lv: "Anulēt", ru: "Аннулировать", en: "Void" },
+  "auc.voidTitlePre": { lv: "Anulēt lietotāja", ru: "Аннулировать ставки участника", en: "Void" },
+  "auc.voidTitleSuf": { lv: " solījumus?", ru: "?", en: "'s bids?" },
+  "auc.voidBody": { lv: "Visi šī solītāja solījumi izsolē tiks anulēti, un cena tiks pārrēķināta no atlikušajiem solījumiem.", ru: "Все ставки этого участника в аукционе будут аннулированы, а цена пересчитана по оставшимся ставкам.", en: "All of this bidder's bids on the auction are voided and the price is rebuilt from the remaining bids." },
+  "auc.voidConfirm": { lv: "Anulēt solījumus", ru: "Аннулировать ставки", en: "Void bids" },
+  "auc.voidedToast": { lv: "Solījums anulēts — cena pārrēķināta", ru: "Ставка аннулирована — цена пересчитана", en: "Bid voided — price rebuilt" },
+  "auc.voidFailed": { lv: "Anulēšana neizdevās", ru: "Не удалось аннулировать", en: "Void failed" },
+
+  // ── Monitor: actions ───────────────────────────────────────────────────────
+  "auc.min": { lv: "min", ru: "мин", en: "min" },
+  "auc.extend": { lv: "Pagarināt", ru: "Продлить", en: "Extend" },
+  "auc.extendTitle1": { lv: "Pagarināt izsoli par", ru: "Продлить аукцион на", en: "Extend auction by" },
+  "auc.extendTitle2": { lv: "minūtēm?", ru: "минут?", en: "minutes?" },
+  "auc.extendBody": { lv: "Jaunais beigu laiks nekavējoties tiek paziņots visiem solītājiem.", ru: "Новое время окончания сразу передаётся всем участникам.", en: "The new end time is broadcast to all bidders immediately." },
+  "auc.extended": { lv: "Izsole pagarināta", ru: "Аукцион продлён", en: "Auction extended" },
+  "auc.extendFailed": { lv: "Pagarināšana neizdevās", ru: "Не удалось продлить", en: "Extend failed" },
+  "auc.cancelAuction": { lv: "Atcelt izsoli", ru: "Отменить аукцион", en: "Cancel auction" },
+  "auc.cancelTitle": { lv: "Atcelt šo izsoli?", ru: "Отменить этот аукцион?", en: "Cancel this auction?" },
+  "auc.cancelBody": { lv: "solījumi tiks dzēsti, un prece atgriezīsies statusā “publicēta”. To nevar atsaukt.", ru: "ставок будет удалено, а товар вернётся в статус «опубликован». Это нельзя отменить.", en: "bids are discarded and the item returns to “listed”. This cannot be undone." },
+  "auc.cancelledToast": { lv: "Izsole atcelta", ru: "Аукцион отменён", en: "Auction cancelled" },
+  "auc.cancelFailed": { lv: "Atcelšana neizdevās", ru: "Не удалось отменить", en: "Cancel failed" },
+  "auc.relistLot": { lv: "Izsolīt atkārtoti", ru: "Выставить повторно", en: "Relist lot" },
+  "auc.relistTitle": { lv: "Izsolīt šo lotu atkārtoti?", ru: "Выставить этот лот повторно?", en: "Relist this lot?" },
+  "auc.relistBody": { lv: "Jauna izsole tiks ieplānota — tā sāksies pēc 1 stundas un ilgs 3 dienas.", ru: "Будет запланирован новый аукцион: начало через 1 час, длительность 3 дня.", en: "A new auction is scheduled to start in 1 hour and run for 3 days." },
+  "auc.relist": { lv: "Izsolīt atkārtoti", ru: "Выставить", en: "Relist" },
+  "auc.relisted": { lv: "Lots izlikts atkārtoti", ru: "Лот выставлен повторно", en: "Lot relisted" },
+  "auc.relistFailed": { lv: "Neizdevās izlikt atkārtoti", ru: "Не удалось выставить повторно", en: "Relist failed" },
+  "auc.noActions": { lv: "Šim statusam nav pieejamu darbību.", ru: "Для этого статуса нет доступных действий.", en: "No actions available for this state." },
+
+  // ── Monitor: listing facts ─────────────────────────────────────────────────
+  "auc.startPrice": { lv: "Sākuma cena", ru: "Стартовая цена", en: "Start price" },
+  "auc.antiSnipe": { lv: "Anti-snipe", ru: "Анти-снайпинг", en: "Anti-snipe" },
+  "auc.marketDefault": { lv: "tirgus noklusējums", ru: "по умолчанию рынка", en: "market default" },
+  "auc.started": { lv: "Sākta", ru: "Начался", en: "Started" },
+} satisfies Record<string, Entry>;

@@ -13,6 +13,7 @@ import type { Nav } from "../App.js";
 import { useAuth } from "../auth.js";
 import { exportCSV, exportPDFPrint, exportXLS } from "../exporters.js";
 import { formatDate, formatEur } from "../format.js";
+import { itemStatusLabel, orderStatusLabel, t, useT, type TKey } from "../i18n.js";
 import { isBnpl, methodLabel, providerLabel } from "../paymentLabels.js";
 import {
   BulkBar, BulkBtn, bulkDividerStyle, checkboxStyle, dateInputStyle, ExportMenu, FilterChips,
@@ -99,6 +100,33 @@ const PAYMENT_TONE: Record<string, "ok" | "warn" | "danger" | "neutral"> = {
   expired: "neutral",
 };
 
+/** Payment-attempt status → translated label (raw value shown for unknowns). */
+const PAYMENT_LABEL_KEY: Record<string, TKey> = {
+  created: "ord.pay.created",
+  paid: "ord.pay.paid",
+  failed: "ord.pay.failed",
+  expired: "ord.pay.expired",
+};
+
+const payStatusLabel = (s: string): string => {
+  const k = PAYMENT_LABEL_KEY[s];
+  return k ? t(k) : s;
+};
+
+/** Shipment status → translated label (raw value shown for unknowns). */
+const SHIPMENT_LABEL_KEY: Record<string, TKey> = {
+  registered: "ord.ship.registered",
+  in_transit: "ord.ship.in_transit",
+  delivered: "ord.ship.delivered",
+  cancelled: "ord.ship.cancelled",
+  error: "ord.ship.error",
+};
+
+const shipStatusLabel = (s: string): string => {
+  const k = SHIPMENT_LABEL_KEY[s];
+  return k ? t(k) : s.replace("_", " ");
+};
+
 // ── Filters ──────────────────────────────────────────────────────────────────
 
 interface Filters {
@@ -121,48 +149,32 @@ const FILTERS_KEY = "ordersFilters.v1";
 const PAGE = 50;
 const EXPORT_PAGE = 200;
 
-const STATUS_PILLS = [
-  { id: "all", label: "All" },
-  { id: "awaiting_payment", label: "Awaiting payment" },
-  { id: "paid", label: "Paid" },
-  { id: "cancelled", label: "Cancelled" },
-  { id: "refunded", label: "Refunded" },
-];
+const STATUS_PILL_IDS = ["all", "awaiting_payment", "paid", "cancelled", "refunded"];
 
-const MARKETS = [
-  { value: "all", label: "All markets" },
-  { value: "LV", label: "LV" },
-  { value: "EE", label: "EE" },
-  { value: "LT", label: "LT" },
-];
+const pillLabel = (id: string): string => (id === "all" ? t("c.all") : orderStatusLabel(id));
 
-const FULFILMENTS = [
-  { value: "all", label: "All deliveries" },
-  { value: "pickup", label: "Pickup" },
-  { value: "omniva_pm", label: "Omniva" },
-  { value: "dpd_pm", label: "DPD" },
-];
-
-const FULFILMENT_LABEL: Record<string, string> = {
-  pickup: "Pickup",
-  omniva_pm: "Omniva",
-  dpd_pm: "DPD",
-};
+/** Carrier/product names (Omniva, DPD) stay untranslated; only "pickup" has words. */
+function fulfilmentLabel(f: string): string {
+  if (f === "pickup") return t("ord.pickup");
+  if (f === "omniva_pm") return "Omniva";
+  if (f === "dpd_pm") return "DPD";
+  return f;
+}
 
 /** Amount bands → min/max in cents (server-side filter). */
-const BANDS: Array<{ id: string; label: string; min?: number; max?: number }> = [
-  { id: "any", label: "Any amount" },
-  { id: "lt100", label: "Under €100", max: 10000 },
-  { id: "100-500", label: "€100 – €500", min: 10000, max: 50000 },
-  { id: "500-1000", label: "€500 – €1000", min: 50000, max: 100000 },
-  { id: "gt1000", label: "Over €1000", min: 100000 },
+const BANDS: Array<{ id: string; labelKey: TKey; min?: number; max?: number }> = [
+  { id: "any", labelKey: "ord.bandAny" },
+  { id: "lt100", labelKey: "ord.bandLt100", max: 10000 },
+  { id: "100-500", labelKey: "ord.band100_500", min: 10000, max: 50000 },
+  { id: "500-1000", labelKey: "ord.band500_1000", min: 50000, max: 100000 },
+  { id: "gt1000", labelKey: "ord.bandGt1000", min: 100000 },
 ];
 
-const SORTS = [
-  { value: "newest", label: "Newest first" },
-  { value: "oldest", label: "Oldest first" },
-  { value: "amount_desc", label: "Amount: high → low" },
-  { value: "amount_asc", label: "Amount: low → high" },
+const SORTS: Array<{ value: string; labelKey: TKey }> = [
+  { value: "newest", labelKey: "ord.sortNewest" },
+  { value: "oldest", labelKey: "ord.sortOldest" },
+  { value: "amount_desc", labelKey: "ord.sortAmountDesc" },
+  { value: "amount_asc", labelKey: "ord.sortAmountAsc" },
 ];
 
 const filterTools = makeFilterTools(DEFAULT_FILTERS);
@@ -199,10 +211,13 @@ function fmtExport(iso: string | null): string {
 
 // ── Export ───────────────────────────────────────────────────────────────────
 
-const EXPORT_HEADERS = [
-  "Order", "Created", "Market", "Bidder", "Email", "Item SKU", "Item title",
-  "Fulfilment", "Hammer €", "Premium €", "VAT €", "Shipping €", "Handling €",
-  "Total €", "Reverse charge", "Status", "Paid at",
+/** Built per export so the headers follow the current language. */
+const exportHeaders = (): string[] => [
+  t("ord.thOrder"), t("ord.created"), t("c.market"), t("ord.thBidder"), t("ord.expEmail"),
+  t("ord.expItemSku"), t("ord.expItemTitle"), t("ord.expFulfilment"),
+  `${t("ord.thHammer")} €`, `${t("ord.buyersPremium")} €`, `${t("ord.vat")} €`,
+  `${t("ord.shipping")} €`, `${t("ord.handling")} €`, `${t("c.total")} €`,
+  t("ord.expReverseCharge"), t("c.status"), t("ord.paidAt"),
 ];
 
 const money = (cents: number): string => (cents / 100).toFixed(2);
@@ -216,15 +231,15 @@ function toExportRow(o: OrderRow): string[] {
     o.customerEmail,
     o.itemSku,
     o.itemTitle,
-    FULFILMENT_LABEL[o.fulfilment] ?? o.fulfilment,
+    fulfilmentLabel(o.fulfilment),
     money(o.hammerCents),
     money(o.premiumCents),
     money(o.vatCents),
     money(o.shippingCents),
     money(o.handlingCents),
     money(o.totalCents),
-    o.reverseCharge ? "Yes" : "No",
-    ORDER_STATUS_TONE[o.status]?.label ?? o.status,
+    o.reverseCharge ? t("c.yes") : t("c.no"),
+    orderStatusLabel(o.status),
     fmtExport(o.paidAt),
   ];
 }
@@ -242,6 +257,7 @@ export function OrdersScreen({ nav }: { nav: Nav }) {
 
 function OrdersList({ nav }: { nav: Nav }) {
   const { can } = useAuth();
+  const { t } = useT();
   const toast = useToast();
   const mobile = useIsMobile();
   const confirm = useConfirm();
@@ -305,7 +321,7 @@ function OrdersList({ nav }: { nav: Nav }) {
       setTotal(r.total);
       setCounts(r.counts);
     } catch {
-      toast("Failed to load more", "danger");
+      toast(t("ord.loadMoreFailed"), "danger");
     } finally {
       setLoadingMore(false);
     }
@@ -324,25 +340,27 @@ function OrdersList({ nav }: { nav: Nav }) {
   if (filters.status !== "all") {
     chips.push({
       key: "status",
-      label: STATUS_PILLS.find((p) => p.id === filters.status)?.label ?? filters.status,
+      label: pillLabel(filters.status),
       clear: () => set({ status: "all" }),
     });
   }
-  if (filters.market !== "all") chips.push({ key: "market", label: `Market: ${filters.market}`, clear: () => set({ market: "all" }) });
+  if (filters.market !== "all") chips.push({ key: "market", label: `${t("c.market")}: ${filters.market}`, clear: () => set({ market: "all" }) });
   if (filters.fulfilment !== "all") {
     chips.push({
       key: "fulfilment",
-      label: `Delivery: ${FULFILMENT_LABEL[filters.fulfilment] ?? filters.fulfilment}`,
+      label: `${t("ord.chipDelivery")}: ${fulfilmentLabel(filters.fulfilment)}`,
       clear: () => set({ fulfilment: "all" }),
     });
   }
   if (filters.band !== "any") {
-    chips.push({ key: "band", label: BANDS.find((b) => b.id === filters.band)?.label ?? filters.band, clear: () => set({ band: "any" }) });
+    const band = BANDS.find((b) => b.id === filters.band);
+    chips.push({ key: "band", label: band ? t(band.labelKey) : filters.band, clear: () => set({ band: "any" }) });
   }
-  if (filters.from) chips.push({ key: "from", label: `From ${filters.from}`, clear: () => set({ from: "" }) });
-  if (filters.to) chips.push({ key: "to", label: `To ${filters.to}`, clear: () => set({ to: "" }) });
+  if (filters.from) chips.push({ key: "from", label: `${t("ord.chipFrom")} ${filters.from}`, clear: () => set({ from: "" }) });
+  if (filters.to) chips.push({ key: "to", label: `${t("ord.chipTo")} ${filters.to}`, clear: () => set({ to: "" }) });
   if (filters.sort !== "newest") {
-    chips.push({ key: "sort", label: SORTS.find((s) => s.value === filters.sort)?.label ?? filters.sort, clear: () => set({ sort: "newest" }) });
+    const sort = SORTS.find((s) => s.value === filters.sort);
+    chips.push({ key: "sort", label: sort ? t(sort.labelKey) : filters.sort, clear: () => set({ sort: "newest" }) });
   }
   if (filters.q.trim()) {
     chips.push({
@@ -375,16 +393,22 @@ function OrdersList({ nav }: { nav: Nav }) {
     try {
       const list = await gatherExportRows();
       if (list.length === 0) {
-        toast("Nothing to export", "warn");
+        toast(t("ord.nothingToExport"), "warn");
         return;
       }
+      const headers = exportHeaders();
       const body = list.map(toExportRow);
-      if (fmt === "csv") exportCSV("orders", EXPORT_HEADERS, body);
-      else if (fmt === "xls") exportXLS("orders", EXPORT_HEADERS, body, "Orders");
-      else exportPDFPrint("Orders export", EXPORT_HEADERS, body);
-      toast(fmt === "pdf" ? `Opening print dialog for ${list.length} orders…` : `Exported ${list.length} orders`, "ok");
+      if (fmt === "csv") exportCSV("orders", headers, body);
+      else if (fmt === "xls") exportXLS("orders", headers, body, t("ord.title"));
+      else exportPDFPrint(t("ord.exportPdfTitle"), headers, body);
+      toast(
+        fmt === "pdf"
+          ? `${t("ord.openingPrint")} (${list.length})`
+          : `${t("ord.exportDone")}: ${list.length} ${t("ord.exportNoun")}`,
+        "ok",
+      );
     } catch {
-      toast("Export failed", "danger");
+      toast(t("ord.exportFailed"), "danger");
     }
   };
 
@@ -394,12 +418,12 @@ function OrdersList({ nav }: { nav: Nav }) {
     const targets = selectedAwaiting;
     if (targets.length === 0) return;
     const r = await confirm({
-      title: `Cancel ${targets.length} unpaid order${targets.length === 1 ? "" : "s"}?`,
-      body: "Each order is cancelled, the buyer gets an unpaid-winner strike, and the items are freed for relisting.",
+      title: targets.length === 1 ? t("ord.bulkCancelTitle1") : `${t("ord.bulkCancelTitleN")} (${targets.length})?`,
+      body: t("ord.bulkCancelBody"),
       danger: true,
       typeToConfirm: "CANCEL",
       requireReason: true,
-      confirmLabel: "Cancel + strike",
+      confirmLabel: t("ord.cancelStrike"),
     });
     if (!r.ok) return;
     let ok = 0;
@@ -412,8 +436,11 @@ function OrdersList({ nav }: { nav: Nav }) {
         failed++;
       }
     }
-    toast(failed > 0 ? `${ok} cancelled · ${failed} failed` : `${ok} order${ok === 1 ? "" : "s"} cancelled, strikes added`, failed > 0 ? "warn" : "ok");
-    setRefreshTick((t) => t + 1);
+    toast(
+      failed > 0 ? `${ok} ${t("ord.okCancelled")} · ${failed} ${t("ord.errFailed")}` : `${t("ord.bulkCancelDone")} (${ok})`,
+      failed > 0 ? "warn" : "ok",
+    );
+    setRefreshTick((tick) => tick + 1);
   };
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -423,25 +450,25 @@ function OrdersList({ nav }: { nav: Nav }) {
   return (
     <div style={{ display: "grid", gap: 14 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <h1 style={{ fontFamily: AT.body, fontSize: 20, fontWeight: 700, color: AT.ink, flex: 1 }}>Orders</h1>
-        <ExportMenu count={exportCount} scope={selected.size > 0 ? "selected" : "filtered"} noun="orders" onPick={(fmt) => void runExport(fmt)} />
+        <h1 style={{ fontFamily: AT.body, fontSize: 20, fontWeight: 700, color: AT.ink, flex: 1 }}>{t("ord.title")}</h1>
+        <ExportMenu count={exportCount} scope={selected.size > 0 ? "selected" : "filtered"} noun={t("ord.exportNoun")} onPick={(fmt) => void runExport(fmt)} />
       </div>
 
       <ViewsBar {...sv.ViewsBarProps} />
 
       {/* Status pills with live server counts */}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        {STATUS_PILLS.map((p) => {
-          const active = filters.status === p.id;
+        {STATUS_PILL_IDS.map((id) => {
+          const active = filters.status === id;
           return (
-            <button key={p.id} onClick={() => set({ status: p.id })} style={{
+            <button key={id} onClick={() => set({ status: id })} style={{
               all: "unset", cursor: "pointer", padding: "6px 12px", borderRadius: 999,
               fontFamily: AT.body, fontWeight: 600, fontSize: 12.5,
               background: active ? AT.ink : AT.panel, color: active ? "#fff" : AT.ink,
               border: `1px solid ${active ? AT.ink : AT.rule}`,
             }}>
-              {p.label}
-              <span style={{ marginLeft: 6, opacity: 0.6, fontWeight: 700, fontSize: 11 }}>{counts[p.id] ?? 0}</span>
+              {pillLabel(id)}
+              <span style={{ marginLeft: 6, opacity: 0.6, fontWeight: 700, fontSize: 11 }}>{counts[id] ?? 0}</span>
             </button>
           );
         })}
@@ -449,16 +476,26 @@ function OrdersList({ nav }: { nav: Nav }) {
 
       {/* Filter bar */}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-        <SearchBox value={qInput} onChange={setQInput} placeholder="Search ref, alias, email…" />
-        <ASelect value={filters.market} onChange={(v) => set({ market: v })} options={MARKETS} />
-        <ASelect value={filters.fulfilment} onChange={(v) => set({ fulfilment: v })} options={FULFILMENTS} />
-        <ASelect value={filters.band} onChange={(v) => set({ band: v })} options={BANDS.map((b) => ({ value: b.id, label: b.label }))} />
+        <SearchBox value={qInput} onChange={setQInput} placeholder={t("ord.searchPh")} />
+        <ASelect value={filters.market} onChange={(v) => set({ market: v })} options={[
+          { value: "all", label: t("ord.allMarkets") },
+          { value: "LV", label: "LV" },
+          { value: "EE", label: "EE" },
+          { value: "LT", label: "LT" },
+        ]} />
+        <ASelect value={filters.fulfilment} onChange={(v) => set({ fulfilment: v })} options={[
+          { value: "all", label: t("ord.allDeliveries") },
+          { value: "pickup", label: t("ord.pickup") },
+          { value: "omniva_pm", label: "Omniva" },
+          { value: "dpd_pm", label: "DPD" },
+        ]} />
+        <ASelect value={filters.band} onChange={(v) => set({ band: v })} options={BANDS.map((b) => ({ value: b.id, label: t(b.labelKey) }))} />
         <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: AT.body, fontSize: 12.5, color: AT.inkSoft }}>
           <input type="date" value={filters.from} max={filters.to || undefined} onChange={(e) => set({ from: e.target.value })} style={dateInputStyle} />
           –
           <input type="date" value={filters.to} min={filters.from || undefined} onChange={(e) => set({ to: e.target.value })} style={dateInputStyle} />
         </label>
-        <ASelect value={filters.sort} onChange={(v) => set({ sort: v })} options={SORTS} />
+        <ASelect value={filters.sort} onChange={(v) => set({ sort: v })} options={SORTS.map((s) => ({ value: s.value, label: t(s.labelKey) }))} />
       </div>
 
       <FilterChips chips={chips} onClearAll={clearAll} />
@@ -466,9 +503,9 @@ function OrdersList({ nav }: { nav: Nav }) {
       {/* Table */}
       <ACard pad={false}>
         {loading && rows.length === 0 ? (
-          <AEmpty text="Loading orders…" />
+          <AEmpty text={t("ord.loadingOrders")} />
         ) : rows.length === 0 ? (
-          <AEmpty text="No orders match these filters." />
+          <AEmpty text={t("ord.emptyList")} />
         ) : mobile ? (
           // Phase B — the approved card reflow: ref + status, bidder + total.
           <div style={{ display: "grid" }}>
@@ -482,7 +519,7 @@ function OrdersList({ nav }: { nav: Nav }) {
                   <span style={{ fontFamily: AT.mono, fontSize: 10.5, color: AT.inkSoft }}>{o.itemSku}</span>
                   <span style={{ marginLeft: "auto" }}>
                     <ABadge tone={ORDER_STATUS_TONE[o.status]?.tone ?? "neutral"}>
-                      {ORDER_STATUS_TONE[o.status]?.label ?? o.status}
+                      {orderStatusLabel(o.status)}
                     </ABadge>
                   </span>
                 </div>
@@ -497,7 +534,7 @@ function OrdersList({ nav }: { nav: Nav }) {
             {rows.length < total && (
               <div style={{ padding: 12, display: "flex", justifyContent: "center" }}>
                 <ABtn kind="ghost" size="sm" disabled={loadingMore} onClick={() => void loadMore()}>
-                  {loadingMore ? "Loading…" : `Load more (${rows.length} of ${total})`}
+                  {loadingMore ? t("c.loading") : `${t("c.loadMore")} (${rows.length} ${t("c.of")} ${total})`}
                 </ABtn>
               </div>
             )}
@@ -511,9 +548,9 @@ function OrdersList({ nav }: { nav: Nav }) {
                 checked={allSelected}
                 onChange={toggleAll}
                 style={checkboxStyle}
-                aria-label="Select all visible orders"
+                aria-label={t("ord.selectAllAria")}
               />,
-              "Order", "Date", "Market", "Bidder", "Payment", "Total", "Status",
+              t("ord.thOrder"), t("c.date"), t("c.market"), t("ord.thBidder"), t("ord.thPayment"), t("c.total"), t("c.status"),
             ]}>
               {rows.map((o) => (
                 <ATr key={o.id} onClick={() => nav.go("orders", o.id)} active={selected.has(o.id)}>
@@ -524,7 +561,7 @@ function OrdersList({ nav }: { nav: Nav }) {
                       onClick={(e) => e.stopPropagation()}
                       onChange={() => toggleOne(o.id)}
                       style={checkboxStyle}
-                      aria-label={`Select ${o.ref}`}
+                      aria-label={`${t("ord.selectAria")} ${o.ref}`}
                     />
                   </ATd>
                   <ATd>
@@ -543,7 +580,7 @@ function OrdersList({ nav }: { nav: Nav }) {
                     <span style={{ fontSize: 12, color: o.paidVia ? AT.ink : AT.inkSoft }}>
                       {o.paidVia
                         ? `${providerLabel(o.paidVia.provider)} · ${methodLabel(o.paidVia.method)}`
-                        : o.status === "paid" ? "manual" : "—"}
+                        : o.status === "paid" ? t("ord.manual") : "—"}
                     </span>
                   </ATd>
                   <ATd mono right style={{ fontVariantNumeric: "tabular-nums" }}>
@@ -551,7 +588,7 @@ function OrdersList({ nav }: { nav: Nav }) {
                   </ATd>
                   <ATd>
                     <ABadge tone={ORDER_STATUS_TONE[o.status]?.tone ?? "neutral"}>
-                      {ORDER_STATUS_TONE[o.status]?.label ?? o.status}
+                      {orderStatusLabel(o.status)}
                     </ABadge>
                   </ATd>
                 </ATr>
@@ -560,7 +597,7 @@ function OrdersList({ nav }: { nav: Nav }) {
             {rows.length < total && (
               <div style={{ padding: 12, display: "flex", justifyContent: "center", borderTop: `1px solid ${AT.ruleSoft}` }}>
                 <ABtn kind="ghost" size="sm" disabled={loadingMore} onClick={() => void loadMore()}>
-                  {loadingMore ? "Loading…" : `Load more (${rows.length} of ${total})`}
+                  {loadingMore ? t("c.loading") : `${t("c.loadMore")} (${rows.length} ${t("c.of")} ${total})`}
                 </ABtn>
               </div>
             )}
@@ -570,12 +607,12 @@ function OrdersList({ nav }: { nav: Nav }) {
 
       <BulkBar count={selected.size} onClear={() => setSelected(new Set())}>
         <span style={bulkDividerStyle} />
-        <BulkBtn onClick={() => void runExport("csv")}>Export CSV</BulkBtn>
+        <BulkBtn onClick={() => void runExport("csv")}>{t("ord.exportCsv")}</BulkBtn>
         {can("orders.cancel_unpaid") && selectedAwaiting.length > 0 && (
           <>
             <span style={bulkDividerStyle} />
             <BulkBtn danger onClick={() => void bulkCancelUnpaid()}>
-              Cancel unpaid… ({selectedAwaiting.length})
+              {t("ord.cancelUnpaidBtn")} ({selectedAwaiting.length})
             </BulkBtn>
           </>
         )}
@@ -588,12 +625,12 @@ function OrdersList({ nav }: { nav: Nav }) {
 // FULL-PAGE ORDER DETAIL
 // ═════════════════════════════════════════════════════════════════════════════
 
-const SECTIONS = [
-  { id: "sec-summary", label: "Summary" },
-  { id: "sec-lots", label: "Lots" },
-  { id: "sec-pay", label: "Payment & refunds" },
-  { id: "sec-delivery", label: "Delivery" },
-  { id: "sec-invoice", label: "Invoice" },
+const SECTIONS: Array<{ id: string; labelKey: TKey }> = [
+  { id: "sec-summary", labelKey: "ord.secSummary" },
+  { id: "sec-lots", labelKey: "ord.secLots" },
+  { id: "sec-pay", labelKey: "ord.secPay" },
+  { id: "sec-delivery", labelKey: "ord.secDelivery" },
+  { id: "sec-invoice", labelKey: "ord.secInvoice" },
 ];
 
 function jumpTo(id: string): void {
@@ -602,6 +639,7 @@ function jumpTo(id: string): void {
 
 function OrderDetailPage({ id, nav }: { id: string; nav: Nav }) {
   const { can } = useAuth();
+  const { t } = useT();
   const toast = useToast();
   const confirm = useConfirm();
   const [detail, setDetail] = useState<OrderDetail | null>(null);
@@ -629,58 +667,56 @@ function OrderDetailPage({ id, nav }: { id: string; nav: Nav }) {
 
   const markPaid = async (o: Order) => {
     const r = await confirm({
-      title: `Mark ${o.ref} as paid?`,
-      body: `${formatEur(o.totalCents)} from ${o.customerAlias}. The item moves to the fulfilment queue.`,
-      confirmLabel: "Mark paid",
+      title: `${t("ord.markPaidTitlePre")} ${o.ref} ${t("ord.markPaidTitlePost")}`,
+      body: `${formatEur(o.totalCents)} ${t("ord.fromWord")} ${o.customerAlias}. ${t("ord.markPaidBody")}`,
+      confirmLabel: t("ord.markPaid"),
     });
     if (!r.ok) return;
     try {
       await api.post(`/api/orders/${o.id}/mark-paid`);
-      toast("Order marked paid", "ok");
+      toast(t("ord.markedPaid"), "ok");
       load();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("ord.failed"), "danger");
     }
   };
 
   const refund = async (o: Order, viaProvider: boolean) => {
     const cents = Math.round(parseFloat(refundAmount.replace(",", ".")) * 100);
     if (!Number.isFinite(cents) || cents <= 0) {
-      toast("Enter a valid refund amount", "danger");
+      toast(t("ord.badRefundAmount"), "danger");
       return;
     }
     const r = await confirm({
-      title: `Refund ${formatEur(cents)} on ${o.ref}?`,
-      body: viaProvider
-        ? "The money is returned to the customer through Klix and the refund is recorded."
-        : "Record-only: no money moves — use when the refund was already made in the Klix portal or in cash.",
+      title: `${t("ord.refundTitlePre")} ${formatEur(cents)} ${t("ord.refundTitleMid")} ${o.ref}?`,
+      body: viaProvider ? t("ord.refundViaBody") : t("ord.refundRecordBody"),
       requireReason: true,
-      confirmLabel: "Refund",
+      confirmLabel: t("ord.refundConfirm"),
     });
     if (!r.ok) return;
     try {
       await api.post(`/api/orders/${o.id}/refund`, { amountCents: cents, reason: r.reason, viaProvider });
-      toast(viaProvider ? "Refund sent + recorded" : "Refund recorded", "ok");
+      toast(viaProvider ? t("ord.refundSent") : t("ord.refundRecorded"), "ok");
       load();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Refund failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("ord.refundFailed"), "danger");
     }
   };
 
   const registerShipment = async (o: Order) => {
     const carrier = o.shippingTo?.provider === "dpd" ? "DPD" : "Omniva";
     const r = await confirm({
-      title: `Register ${carrier} shipment for ${o.ref}?`,
-      body: `The parcel is registered with ${carrier}, a tracking barcode is issued, and the customer gets the tracking email. Print the label right after.`,
-      confirmLabel: "Register",
+      title: `${t("ord.regShipTitlePre")} ${carrier} ${t("ord.regShipTitleMid")} ${o.ref}?`,
+      body: `${t("ord.regShipBody1")} ${carrier}, ${t("ord.regShipBody2")}`,
+      confirmLabel: t("ord.regShipConfirm"),
     });
     if (!r.ok) return;
     try {
       await api.post(`/api/orders/${o.id}/shipment`);
-      toast("Shipment registered", "ok");
+      toast(t("ord.shipRegistered"), "ok");
       load();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Registration failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("ord.regFailed"), "danger");
     }
   };
 
@@ -692,37 +728,37 @@ function OrderDetailPage({ id, nav }: { id: string; nav: Nav }) {
     try {
       await api.post(`/api/shipments/${shipmentId}/refresh`);
       load();
-      toast("Tracking refreshed", "ok");
+      toast(t("ord.trackingRefreshed"), "ok");
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Refresh failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("ord.refreshFailed"), "danger");
     }
   };
 
   const issueInvoice = async (o: Order) => {
     try {
       await api.post(`/api/orders/${o.id}/issue-invoice`);
-      toast("Invoice issued", "ok");
+      toast(t("ord.invoiceIssued"), "ok");
       load();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Issue failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("ord.issueFailed"), "danger");
     }
   };
 
   const cancelUnpaid = async (o: Order) => {
     const r = await confirm({
-      title: `Cancel ${o.ref} and strike ${o.customerAlias}?`,
-      body: "The order is cancelled, the buyer gets an unpaid-winner strike, and the item is freed for relisting.",
+      title: `${t("ord.cancelTitlePre")} ${o.ref} ${t("ord.cancelTitleMid")} ${o.customerAlias}?`,
+      body: t("ord.cancelBody"),
       danger: true,
       requireReason: true,
-      confirmLabel: "Cancel + strike",
+      confirmLabel: t("ord.cancelStrike"),
     });
     if (!r.ok) return;
     try {
       await api.post(`/api/orders/${o.id}/cancel-unpaid`, { reason: r.reason, strike: true });
-      toast("Order cancelled, strike added", "ok");
+      toast(t("ord.cancelled"), "ok");
       load();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Cancel failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("ord.cancelFailed"), "danger");
     }
   };
 
@@ -732,9 +768,9 @@ function OrderDetailPage({ id, nav }: { id: string; nav: Nav }) {
     return (
       <div style={{ display: "grid", gap: 14 }}>
         <div>
-          <ABtn kind="ghost" size="sm" onClick={() => nav.go("orders")}>← Back to orders</ABtn>
+          <ABtn kind="ghost" size="sm" onClick={() => nav.go("orders")}>{t("ord.backToOrders")}</ABtn>
         </div>
-        <ACard><AEmpty text="Order not found." /></ACard>
+        <ACard><AEmpty text={t("ord.notFound")} /></ACard>
       </div>
     );
   }
@@ -755,25 +791,25 @@ function OrderDetailPage({ id, nav }: { id: string; nav: Nav }) {
         borderBottom: `1px solid ${AT.rule}`,
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <ABtn kind="ghost" size="sm" onClick={() => nav.go("orders")}>← Orders</ABtn>
+          <ABtn kind="ghost" size="sm" onClick={() => nav.go("orders")}>{`← ${t("ord.title")}`}</ABtn>
           <h1 style={{ fontFamily: AT.mono, fontSize: 18, fontWeight: 700, color: AT.ink }}>{o?.ref ?? "…"}</h1>
           {o && (
             <ABadge tone={ORDER_STATUS_TONE[o.status]?.tone ?? "neutral"}>
-              {ORDER_STATUS_TONE[o.status]?.label ?? o.status}
+              {orderStatusLabel(o.status)}
             </ABadge>
           )}
-          {overdue && <ABadge tone="danger">Deadline passed</ABadge>}
+          {overdue && <ABadge tone="danger">{t("ord.deadlinePassed")}</ABadge>}
           <span style={{ flex: 1 }} />
           {o && o.status === "paid" && can("orders.refund") && (
             <ABtn kind="ghost" size="sm" onClick={() => jumpTo("sec-pay")}>
-              <AIcon name="refund" size={14} /> Refund…
+              <AIcon name="refund" size={14} /> {t("ord.refundDots")}
             </ABtn>
           )}
           {o && o.status === "awaiting_payment" && can("orders.cancel_unpaid") && (
-            <ABtn kind="danger" size="sm" onClick={() => void cancelUnpaid(o)}>Cancel + strike</ABtn>
+            <ABtn kind="danger" size="sm" onClick={() => void cancelUnpaid(o)}>{t("ord.cancelStrike")}</ABtn>
           )}
           {o && o.status === "awaiting_payment" && can("orders.mark_paid") && (
-            <ABtn size="sm" onClick={() => void markPaid(o)}>Mark paid</ABtn>
+            <ABtn size="sm" onClick={() => void markPaid(o)}>{t("ord.markPaid")}</ABtn>
           )}
         </div>
         <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 10, paddingBottom: 8 }}>
@@ -785,7 +821,7 @@ function OrderDetailPage({ id, nav }: { id: string; nav: Nav }) {
               onMouseEnter={(e) => { e.currentTarget.style.background = AT.surfaceAlt; e.currentTarget.style.color = AT.ink; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = AT.inkSoft; }}
             >
-              {s.label}
+              {t(s.labelKey)}
             </button>
           ))}
         </div>
@@ -793,13 +829,13 @@ function OrderDetailPage({ id, nav }: { id: string; nav: Nav }) {
 
       {!detail || !o ? (
         <div style={{ paddingTop: 18 }}>
-          <ACard><AEmpty text="Loading order…" /></ACard>
+          <ACard><AEmpty text={t("ord.loadingOrder")} /></ACard>
         </div>
       ) : (
         <div style={{ display: "grid", gap: 14, paddingTop: 18 }}>
           {/* Summary */}
           <div id="sec-summary" style={sectionAnchorStyle}>
-            <ACard title="Summary">
+            <ACard title={t("ord.secSummary")}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
                 <AAvatar name={o.customerAlias} size={34} />
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -807,32 +843,32 @@ function OrderDetailPage({ id, nav }: { id: string; nav: Nav }) {
                   <div style={{ fontFamily: AT.body, fontSize: 11.5, color: AT.inkSoft }}>{o.customerEmail}</div>
                 </div>
                 <div style={{ textAlign: "right" }}>
-                  <div style={{ fontFamily: AT.body, fontSize: 11, fontWeight: 700, color: AT.inkSoft, textTransform: "uppercase", letterSpacing: "0.06em" }}>Total due</div>
+                  <div style={{ fontFamily: AT.body, fontSize: 11, fontWeight: 700, color: AT.inkSoft, textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("ord.totalDue")}</div>
                   <div style={{ fontFamily: AT.mono, fontSize: 20, fontWeight: 700 }}>{formatEur(o.totalCents)}</div>
                 </div>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
-                <KV k="Market" v={<ABadge tone="neutral">{o.marketCode}</ABadge>} />
-                <KV k="Created" v={formatDate(o.createdAt)} />
+                <KV k={t("c.market")} v={<ABadge tone="neutral">{o.marketCode}</ABadge>} />
+                <KV k={t("ord.created")} v={formatDate(o.createdAt)} />
                 <KV
-                  k="Payment deadline"
+                  k={t("ord.paymentDeadline")}
                   v={
                     <span style={{ color: overdue ? AT.danger : AT.ink, fontWeight: overdue ? 700 : 400 }}>
                       {formatDate(o.paymentDeadlineAt)}
                     </span>
                   }
                 />
-                <KV k="Paid at" v={formatDate(o.paidAt)} />
-                <KV k="Delivery" v={FULFILMENT_LABEL[o.fulfilment] ?? o.fulfilment} />
-                {o.pickupCode && <KV k="Pickup code" v={<span style={{ fontFamily: AT.mono, fontWeight: 700 }}>{o.pickupCode}</span>} />}
+                <KV k={t("ord.paidAt")} v={formatDate(o.paidAt)} />
+                <KV k={t("ord.secDelivery")} v={fulfilmentLabel(o.fulfilment)} />
+                {o.pickupCode && <KV k={t("ord.pickupCode")} v={<span style={{ fontFamily: AT.mono, fontWeight: 700 }}>{o.pickupCode}</span>} />}
               </div>
             </ACard>
           </div>
 
           {/* Lots */}
           <div id="sec-lots" style={sectionAnchorStyle}>
-            <ACard title="Lots" pad={false}>
-              <ATable head={["SKU", "Lot", "Condition", "Location", "Hammer", "Item state"]}>
+            <ACard title={t("ord.secLots")} pad={false}>
+              <ATable head={["SKU", t("ord.thLot"), t("c.condition"), t("c.location"), t("ord.thHammer"), t("ord.thItemState")]}>
                 <ATr>
                   <ATd mono>{detail.item.sku}</ATd>
                   <ATd><span style={{ fontWeight: 600 }}>{detail.item.title}</span></ATd>
@@ -841,7 +877,7 @@ function OrderDetailPage({ id, nav }: { id: string; nav: Nav }) {
                   <ATd mono right>{formatEur(o.hammerCents)}</ATd>
                   <ATd>
                     <ABadge tone={ITEM_STATUS_TONE[detail.item.status]?.tone ?? "neutral"}>
-                      {ITEM_STATUS_TONE[detail.item.status]?.label ?? detail.item.status}
+                      {itemStatusLabel(detail.item.status)}
                     </ABadge>
                   </ATd>
                 </ATr>
@@ -852,11 +888,11 @@ function OrderDetailPage({ id, nav }: { id: string; nav: Nav }) {
           {/* Payment & refunds */}
           <div id="sec-pay" style={sectionAnchorStyle}>
             <div style={{ display: "grid", gap: 14 }}>
-              <ACard title="Payment attempts" pad={false}>
+              <ACard title={t("ord.paymentAttempts")} pad={false}>
                 {detail.payments.length === 0 ? (
-                  <AEmpty text="No online payment attempts — the order is settled manually or not yet paid." />
+                  <AEmpty text={t("ord.noPayments")} />
                 ) : (
-                  <ATable head={["When", "Provider", "Method", "Status", "Via", "Amount", ""]}>
+                  <ATable head={[t("ord.thWhen"), t("ord.thProvider"), t("ord.thMethod"), t("c.status"), t("ord.thVia"), t("ord.thAmount"), ""]}>
                     {detail.payments.map((p) => (
                       <ATr key={p.id}>
                         <ATd>{formatDate(p.createdAt)}</ATd>
@@ -866,21 +902,21 @@ function OrderDetailPage({ id, nav }: { id: string; nav: Nav }) {
                           {isBnpl(p.method) && <span style={{ marginLeft: 6 }}><ABadge tone="accent">BNPL</ABadge></span>}
                         </ATd>
                         <ATd>
-                          <ABadge tone={PAYMENT_TONE[p.status] ?? "neutral"}>{p.status}</ABadge>
+                          <ABadge tone={PAYMENT_TONE[p.status] ?? "neutral"}>{payStatusLabel(p.status)}</ABadge>
                           {p.providerStatus && p.providerStatus !== p.status && (
                             <div style={{ fontSize: 10, color: AT.inkSoft, marginTop: 2 }}>{p.providerStatus}</div>
                           )}
                         </ATd>
-                        <ATd><span style={{ fontSize: 12, color: AT.inkSoft }}>{p.channel === "email" ? "Email link" : "Web"}</span></ATd>
+                        <ATd><span style={{ fontSize: 12, color: AT.inkSoft }}>{p.channel === "email" ? t("ord.viaEmail") : t("ord.viaWeb")}</span></ATd>
                         <ATd mono right>{formatEur(p.amountCents)}</ATd>
                         <ATd>
                           {/* Everything the provider reported — terms, contract
                               ids, timestamps — nothing is hidden from the admin. */}
                           <details>
-                            <summary style={{ cursor: "pointer", fontSize: 11, color: AT.inkSoft }}>details</summary>
+                            <summary style={{ cursor: "pointer", fontSize: 11, color: AT.inkSoft }}>{t("ord.details")}</summary>
                             <div style={{ fontFamily: AT.mono, fontSize: 10.5, color: AT.inkSoft, marginTop: 4 }}>
-                              <div>attempt: {p.id}</div>
-                              <div>provider ref: {p.providerId ?? "—"}</div>
+                              <div>{t("ord.attempt")}: {p.id}</div>
+                              <div>{t("ord.providerRef")}: {p.providerId ?? "—"}</div>
                               {p.raw && (
                                 <pre style={{ margin: "4px 0 0", whiteSpace: "pre-wrap", maxWidth: 380, maxHeight: 220, overflow: "auto", background: "#F6F6F4", borderRadius: 6, padding: 6 }}>
                                   {JSON.stringify(p.raw, null, 1)}
@@ -896,8 +932,8 @@ function OrderDetailPage({ id, nav }: { id: string; nav: Nav }) {
               </ACard>
 
               {detail.refunds.length > 0 && (
-                <ACard title="Refunds" pad={false}>
-                  <ATable head={["When", "Amount", "Reason"]}>
+                <ACard title={t("ord.refunds")} pad={false}>
+                  <ATable head={[t("ord.thWhen"), t("ord.thAmount"), t("c.reason")]}>
                     {detail.refunds.map((r) => (
                       <ATr key={r.id}>
                         <ATd>{formatDate(r.createdAt)}</ATd>
@@ -913,34 +949,34 @@ function OrderDetailPage({ id, nav }: { id: string; nav: Nav }) {
                 const paidVia = detail.payments.find((p) => p.status === "paid" && p.providerId)?.provider ?? null;
                 const klixPaid = paidVia === "klix";
                 return (
-                  <ACard title="Refund">
+                  <ACard title={t("ord.refundCard")}>
                     <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
                       <div style={{ flex: 1 }}>
-                        <AField label="Amount €">
+                        <AField label={t("ord.amountEur")}>
                           <AInput value={refundAmount} onChange={setRefundAmount} />
                         </AField>
                       </div>
                       <ABtn kind="ghost" onClick={() => void refund(o, klixPaid)}>
-                        {klixPaid ? "Refund via Klix…" : "Refund…"}
+                        {klixPaid ? t("ord.refundViaKlix") : t("ord.refundDots")}
                       </ABtn>
                     </div>
                     {klixPaid ? (
                       <div style={{ fontSize: 11.5, color: AT.inkSoft, marginTop: 8 }}>
-                        Paid through Klix — the money is returned to the customer automatically.{" "}
+                        {t("ord.klixNote")}{" "}
                         <button
                           onClick={() => void refund(o, false)}
                           style={{ border: "none", background: "none", padding: 0, font: "inherit", color: AT.inkSoft, textDecoration: "underline", cursor: "pointer" }}
                         >
-                          Record only (already refunded elsewhere)
+                          {t("ord.recordOnly")}
                         </button>
                       </div>
                     ) : paidVia === "inbank" ? (
                       <div style={{ fontSize: 11.5, color: AT.inkSoft, marginTop: 8 }}>
-                        Paid through Inbank — credit/terminate the contract in the Inbank partner portal first; this button then records it.
+                        {t("ord.inbankNote")}
                       </div>
                     ) : (
                       <div style={{ fontSize: 11.5, color: AT.inkSoft, marginTop: 8 }}>
-                        Paid manually — this records the refund; return the money the way it was received.
+                        {t("ord.manualNote")}
                       </div>
                     )}
                   </ACard>
@@ -952,14 +988,14 @@ function OrderDetailPage({ id, nav }: { id: string; nav: Nav }) {
           {/* Delivery */}
           <div id="sec-delivery" style={sectionAnchorStyle}>
             <ACard
-              title="Delivery"
+              title={t("ord.secDelivery")}
               actions={
                 o.fulfilment !== "pickup" &&
                 o.status === "paid" &&
                 detail.shipments.length === 0 &&
                 can("orders.mark_paid") ? (
                   <ABtn size="sm" onClick={() => void registerShipment(o)}>
-                    Register {o.shippingTo?.provider === "dpd" ? "DPD" : "Omniva"} shipment
+                    {`${t("ord.regShipBtnPre")} ${o.shippingTo?.provider === "dpd" ? "DPD" : "Omniva"} ${t("ord.regShipBtnPost")}`.trim()}
                   </ABtn>
                 ) : undefined
               }
@@ -967,28 +1003,28 @@ function OrderDetailPage({ id, nav }: { id: string; nav: Nav }) {
               {o.fulfilment !== "pickup" && o.shippingTo ? (
                 <div style={{ display: "grid", gap: 8, fontSize: 12.5 }}>
                   <div>
-                    <ABadge tone="accent">{o.shippingTo.provider === "dpd" ? "DPD locker" : "Omniva parcel machine"}</ABadge>
+                    <ABadge tone="accent">{o.shippingTo.provider === "dpd" ? t("ord.dpdLocker") : t("ord.omnivaPm")}</ABadge>
                     <span style={{ marginLeft: 8, fontWeight: 600 }}>{o.shippingTo.name}</span>
                     <span style={{ color: AT.inkSoft }}> — {o.shippingTo.address} ({o.shippingTo.country})</span>
                   </div>
                   <div style={{ color: AT.inkSoft }}>
-                    Recipient: <strong style={{ color: AT.ink }}>{o.recipientName ?? o.customerAlias}</strong>
-                    {o.recipientPhone ? ` · ${o.recipientPhone}` : ""} · shipping {formatEur(o.shippingCents)}
+                    {t("ord.recipient")}: <strong style={{ color: AT.ink }}>{o.recipientName ?? o.customerAlias}</strong>
+                    {o.recipientPhone ? ` · ${o.recipientPhone}` : ""} · {t("ord.shippingWord")} {formatEur(o.shippingCents)}
                   </div>
                   {detail.shipments.map((s) => (
                     <div key={s.id} style={{ border: `1px solid ${AT.rule}`, borderRadius: 10, padding: "10px 12px", display: "grid", gap: 6 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                         <span style={{ fontFamily: AT.mono, fontWeight: 700 }}>{s.barcode}</span>
-                        <ABadge tone={SHIPMENT_TONE[s.status] ?? "neutral"}>{s.status.replace("_", " ")}</ABadge>
+                        <ABadge tone={SHIPMENT_TONE[s.status] ?? "neutral"}>{shipStatusLabel(s.status)}</ABadge>
                         {s.providerStatus && <span style={{ fontSize: 11, color: AT.inkSoft }}>{s.providerStatus}</span>}
                         <span style={{ flex: 1 }} />
                         <ABtn size="sm" kind="ghost" onClick={() => openLabel(s.id)}>
-                          <AIcon name="download" size={13} /> Print label
+                          <AIcon name="download" size={13} /> {t("ord.printLabel")}
                         </ABtn>
-                        <ABtn size="sm" kind="ghost" onClick={() => void refreshShipment(s.id)}>Refresh tracking</ABtn>
+                        <ABtn size="sm" kind="ghost" onClick={() => void refreshShipment(s.id)}>{t("ord.refreshTracking")}</ABtn>
                       </div>
                       {s.labelPrintedAt && (
-                        <div style={{ fontSize: 11, color: AT.inkSoft }}>Label printed {formatDate(s.labelPrintedAt)}</div>
+                        <div style={{ fontSize: 11, color: AT.inkSoft }}>{t("ord.labelPrinted")} {formatDate(s.labelPrintedAt)}</div>
                       )}
                       {s.events.length > 0 && (
                         <div style={{ display: "grid", gap: 3 }}>
@@ -1004,12 +1040,12 @@ function OrderDetailPage({ id, nav }: { id: string; nav: Nav }) {
                     </div>
                   ))}
                   {detail.shipments.length === 0 && o.status !== "paid" && (
-                    <div style={{ fontSize: 11.5, color: AT.inkSoft }}>Shipment can be registered once the order is paid.</div>
+                    <div style={{ fontSize: 11.5, color: AT.inkSoft }}>{t("ord.shipAfterPaid")}</div>
                   )}
                 </div>
               ) : (
                 <div style={{ fontSize: 12.5, color: AT.inkSoft }}>
-                  Warehouse pickup{o.pickupCode ? <> — code <strong style={{ fontFamily: AT.mono, color: AT.ink }}>{o.pickupCode}</strong></> : ""}.
+                  {t("ord.warehousePickup")}{o.pickupCode ? <> — {t("ord.codeWord")} <strong style={{ fontFamily: AT.mono, color: AT.ink }}>{o.pickupCode}</strong></> : ""}.
                 </div>
               )}
             </ACard>
@@ -1017,20 +1053,20 @@ function OrderDetailPage({ id, nav }: { id: string; nav: Nav }) {
 
           {/* Invoice */}
           <div id="sec-invoice" style={sectionAnchorStyle}>
-            <ACard title="Invoice">
+            <ACard title={t("ord.secInvoice")}>
               <div style={{ display: "grid", gap: 7, fontFamily: AT.body, fontSize: 13 }}>
-                <Line k={`Hammer price — ${detail.item.title}`} v={formatEur(o.hammerCents)} />
-                <Line k="Buyer's premium (10%)" v={formatEur(o.premiumCents)} />
-                <Line k="Net" v={formatEur(o.hammerCents + o.premiumCents)} />
-                <Line k={`VAT (${(o.vatRateBp / 100).toFixed(1).replace(/\.0$/, "")}%)`} v={formatEur(o.vatCents)} />
-                {o.shippingCents > 0 && <Line k="Shipping" v={formatEur(o.shippingCents)} />}
-                {o.handlingCents > 0 && <Line k="Packing & handling" v={formatEur(o.handlingCents)} />}
+                <Line k={`${t("ord.hammerPrice")} — ${detail.item.title}`} v={formatEur(o.hammerCents)} />
+                <Line k={`${t("ord.buyersPremium")} (10%)`} v={formatEur(o.premiumCents)} />
+                <Line k={t("ord.net")} v={formatEur(o.hammerCents + o.premiumCents)} />
+                <Line k={`${t("ord.vat")} (${(o.vatRateBp / 100).toFixed(1).replace(/\.0$/, "")}%)`} v={formatEur(o.vatCents)} />
+                {o.shippingCents > 0 && <Line k={t("ord.shipping")} v={formatEur(o.shippingCents)} />}
+                {o.handlingCents > 0 && <Line k={t("ord.handling")} v={formatEur(o.handlingCents)} />}
                 <div style={{ borderTop: `1px solid ${AT.rule}`, paddingTop: 7 }}>
-                  <Line k="Total due" v={formatEur(o.totalCents)} bold />
+                  <Line k={t("ord.totalDue")} v={formatEur(o.totalCents)} bold />
                 </div>
                 {o.reverseCharge && (
                   <div style={{ fontSize: 11.5, color: AT.inkSoft, marginTop: 3 }}>
-                    Reverse charge — VAT payable by recipient, Art. 196 Dir. 2006/112/EC.
+                    {t("ord.reverseChargeNote")}
                   </div>
                 )}
                 <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
@@ -1039,12 +1075,12 @@ function OrderDetailPage({ id, nav }: { id: string; nav: Nav }) {
                       <span style={{ fontFamily: AT.mono, fontSize: 12 }}>{detail.invoice.number}</span>
                       <ABtn size="sm" kind="ghost" onClick={() =>
                         window.open(`/api/invoices/${detail.invoice!.id}/html?token=${encodeURIComponent(api.token ?? "")}`, "_blank")
-                      }>Open invoice</ABtn>
+                      }>{t("ord.openInvoice")}</ABtn>
                     </>
                   ) : can("invoices.issue") ? (
-                    <ABtn size="sm" kind="ghost" onClick={() => void issueInvoice(o)}>Issue invoice</ABtn>
+                    <ABtn size="sm" kind="ghost" onClick={() => void issueInvoice(o)}>{t("ord.issueInvoice")}</ABtn>
                   ) : (
-                    <span style={{ fontSize: 11.5, color: AT.inkSoft }}>No invoice issued.</span>
+                    <span style={{ fontSize: 11.5, color: AT.inkSoft }}>{t("ord.noInvoice")}</span>
                   )}
                 </div>
               </div>

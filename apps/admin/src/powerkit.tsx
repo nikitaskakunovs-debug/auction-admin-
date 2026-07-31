@@ -6,6 +6,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { api, ApiError } from "./api.js";
+import { t, useT } from "./i18n.js";
 import { AT } from "./theme.js";
 import { AIcon, AInput, useConfirm, useToast, type IconName } from "./ui.js";
 
@@ -102,7 +103,11 @@ export function useSavedViews<F extends Filterish<F>>(opts: {
 }): SavedViewsApi {
   const toast = useToast();
   const confirm = useConfirm();
-  const noun = opts.noun ?? "view";
+  // The noun is a slug ("view" | "segment") — translated at call time so
+  // prompts/toasts always come out in the operator's current language.
+  const isSegment = (opts.noun ?? "view") === "segment";
+  const nounLabel = () => t(isSegment ? "pk.segment" : "pk.view");
+  const deleteLabel = () => t(isSegment ? "pk.deleteSegment" : "pk.deleteView");
   const [views, setViews] = useState<SavedView[]>([]);
   const [lastViewId, setLastViewId] = useState<string | null>(null);
 
@@ -121,27 +126,27 @@ export function useSavedViews<F extends Filterish<F>>(opts: {
   };
 
   const onSave = async () => {
-    const name = window.prompt(`Name this ${noun}:`, "");
+    const name = window.prompt(t("pk.promptName"), "");
     if (!name || !name.trim()) return;
     try {
       const r = await api.post<{ view: SavedView }>("/api/views", { screen: opts.screen, name: name.trim(), filters: opts.filters });
       setViews((vs) => [...vs, r.view]);
       setLastViewId(r.view.id);
-      toast(`${noun[0]!.toUpperCase()}${noun.slice(1)} "${r.view.name}" saved`, "ok");
+      toast(`${nounLabel()} "${r.view.name}" ${t("pk.savedWord")}`, "ok");
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : `Failed to save ${noun}`, "danger");
+      toast(err instanceof ApiError ? err.message : t("pk.saveFailed"), "danger");
     }
   };
 
   const onRename = async (v: SavedView) => {
-    const name = window.prompt(`Rename ${noun}:`, v.name);
+    const name = window.prompt(t("pk.promptRename"), v.name);
     if (!name || !name.trim() || name.trim() === v.name) return;
     try {
       const r = await api.patch<{ view: SavedView }>(`/api/views/${v.id}`, { name: name.trim() });
       setViews((vs) => vs.map((x) => (x.id === v.id ? r.view : x)));
-      toast("Renamed", "ok");
+      toast(t("pk.renamed"), "ok");
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Rename failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("pk.renameFailed"), "danger");
     }
   };
 
@@ -149,27 +154,27 @@ export function useSavedViews<F extends Filterish<F>>(opts: {
     try {
       const r = await api.patch<{ view: SavedView }>(`/api/views/${v.id}`, { filters: opts.filters });
       setViews((vs) => vs.map((x) => (x.id === v.id ? r.view : x)));
-      toast(`"${v.name}" updated to current filters`, "ok");
+      toast(`"${v.name}" ${t("pk.updatedToFilters")}`, "ok");
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Update failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("pk.updateFailed"), "danger");
     }
   };
 
   const onDelete = async (v: SavedView) => {
     const r = await confirm({
-      title: `Delete ${noun} "${v.name}"?`,
-      body: `Only the saved filter preset is removed — no records are touched.`,
+      title: `${deleteLabel()} "${v.name}"?`,
+      body: t("pk.deleteViewBody"),
       danger: true,
-      confirmLabel: `Delete ${noun}`,
+      confirmLabel: deleteLabel(),
     });
     if (!r.ok) return;
     try {
       await api.delete(`/api/views/${v.id}`);
       setViews((vs) => vs.filter((x) => x.id !== v.id));
       if (lastViewId === v.id) setLastViewId(null);
-      toast("Deleted", "ok");
+      toast(t("pk.deleted"), "ok");
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Delete failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("pk.deleteFailed"), "danger");
     }
   };
 
@@ -189,12 +194,13 @@ export function useSavedViews<F extends Filterish<F>>(opts: {
   };
 }
 
-export function ViewsBar({ views, activeView, isDefault, lastView, onApply, onSave, onRename, onUpdate, onDelete, label = "Views", saveLabel = "+ Save current as view" }: ViewsBarData & { label?: string; saveLabel?: string }) {
+export function ViewsBar({ views, activeView, isDefault, lastView, onApply, onSave, onRename, onUpdate, onDelete, label, saveLabel }: ViewsBarData & { label?: string; saveLabel?: string }) {
+  useT(); // subscribe — re-render the bar on language change
   if (views.length === 0 && isDefault) return null;
   return (
     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
       <span style={{ fontFamily: AT.body, fontSize: 10.5, fontWeight: 700, color: AT.inkSoft, textTransform: "uppercase", letterSpacing: "0.07em", marginRight: 2 }}>
-        {label}
+        {label ?? t("pk.views")}
       </span>
       {views.map((v) => {
         const active = activeView?.id === v.id;
@@ -203,18 +209,18 @@ export function ViewsBar({ views, activeView, isDefault, lastView, onApply, onSa
             <button onClick={() => onApply(v)} style={viewPillStyle(active)}>{v.name}</button>
             {active && (
               <>
-                <MiniBtn title="Rename" onClick={() => onRename(v)}>✎</MiniBtn>
-                <MiniBtn title="Delete" onClick={() => onDelete(v)}>×</MiniBtn>
+                <MiniBtn title={t("pk.rename")} onClick={() => onRename(v)}>✎</MiniBtn>
+                <MiniBtn title={t("c.delete")} onClick={() => onDelete(v)}>×</MiniBtn>
               </>
             )}
           </span>
         );
       })}
       {!isDefault && !activeView && lastView && (
-        <button onClick={() => onUpdate(lastView)} style={dashedPillStyle}>Update “{lastView.name}”</button>
+        <button onClick={() => onUpdate(lastView)} style={dashedPillStyle}>{t("pk.update")} “{lastView.name}”</button>
       )}
       {!isDefault && !activeView && (
-        <button onClick={onSave} style={dashedPillStyle}>{saveLabel}</button>
+        <button onClick={onSave} style={dashedPillStyle}>{saveLabel ?? t("pk.saveView")}</button>
       )}
     </div>
   );
@@ -229,11 +235,12 @@ export interface FilterChip {
 }
 
 export function FilterChips({ chips, onClearAll }: { chips: FilterChip[]; onClearAll: () => void }) {
+  useT(); // subscribe — chip labels come from the caller, but titles/"clear all" are ours
   if (chips.length === 0) return null;
   return (
     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
       {chips.map((c) => (
-        <button key={c.key} onClick={c.clear} title="Remove filter" style={{
+        <button key={c.key} onClick={c.clear} title={t("pk.removeFilter")} style={{
           all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6,
           padding: "4px 10px", borderRadius: 999, background: AT.accentSoft, color: AT.accent,
           fontFamily: AT.body, fontWeight: 600, fontSize: 12,
@@ -246,7 +253,7 @@ export function FilterChips({ chips, onClearAll }: { chips: FilterChip[]; onClea
         all: "unset", cursor: "pointer", padding: "4px 8px", fontFamily: AT.body,
         fontWeight: 600, fontSize: 12, color: AT.inkSoft, textDecoration: "underline",
       }}>
-        Clear all
+        {t("pk.clearAll")}
       </button>
     </div>
   );
@@ -254,13 +261,14 @@ export function FilterChips({ chips, onClearAll }: { chips: FilterChip[]; onClea
 
 // ── Search box ───────────────────────────────────────────────────────────────
 
-export function SearchBox({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
+export function SearchBox({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
+  useT(); // subscribe — default placeholder follows the language
   return (
     <div style={{ position: "relative", flex: "1 1 220px", minWidth: 200, maxWidth: 340 }}>
       <span style={{ position: "absolute", left: 10, top: 10, color: AT.inkSoft }}>
         <AIcon name="search" size={15} />
       </span>
-      <AInput value={value} onChange={onChange} placeholder={placeholder} style={{ paddingLeft: 32 }} />
+      <AInput value={value} onChange={onChange} placeholder={placeholder ?? t("pk.searchPlaceholder")} style={{ paddingLeft: 32 }} />
     </div>
   );
 }
@@ -286,6 +294,7 @@ export function useSelection<T extends { id: string }>(rows: T[]) {
 // ── Bulk bar ─────────────────────────────────────────────────────────────────
 
 export function BulkBar({ count, children, onClear }: { count: number; children: ReactNode; onClear: () => void }) {
+  useT(); // subscribe — "N selected" / "Clear" follow the language
   if (count === 0) return null;
   return (
     <div style={{
@@ -294,10 +303,10 @@ export function BulkBar({ count, children, onClear }: { count: number; children:
       display: "flex", alignItems: "center", gap: 8, boxShadow: "0 14px 40px rgba(0,0,0,0.28)",
       fontFamily: AT.body,
     }}>
-      <span style={{ fontWeight: 700, fontSize: 13, padding: "0 4px" }}>{count} selected</span>
+      <span style={{ fontWeight: 700, fontSize: 13, padding: "0 4px" }}>{count} {t("pk.selected")}</span>
       {children}
       <span style={bulkDividerStyle} />
-      <BulkBtn onClick={onClear}>Clear</BulkBtn>
+      <BulkBtn onClick={onClear}>{t("pk.clear")}</BulkBtn>
     </div>
   );
 }
@@ -319,12 +328,13 @@ export const bulkDividerStyle: CSSProperties = { width: 1, height: 18, backgroun
 
 // ── Export menu ──────────────────────────────────────────────────────────────
 
-export function ExportMenu({ count, scope, onPick, noun = "rows" }: {
+export function ExportMenu({ count, scope, onPick, noun }: {
   count: number;
   scope: "selected" | "filtered";
   onPick: (fmt: "csv" | "xls" | "pdf") => void;
   noun?: string;
 }) {
+  useT(); // subscribe — button/header labels follow the language
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -348,7 +358,7 @@ export function ExportMenu({ count, scope, onPick, noun = "rows" }: {
         fontFamily: AT.body, fontWeight: 600, fontSize: 12.5,
       }}>
         <AIcon name="download" size={15} color={AT.ink} />
-        Export <span style={{ color: AT.inkSoft, fontFamily: AT.mono, fontSize: 11 }}>{count}</span>
+        {t("c.export")} <span style={{ color: AT.inkSoft, fontFamily: AT.mono, fontSize: 11 }}>{count}</span>
         <span style={{ display: "inline-flex", transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }}>
           <AIcon name="chevDown" size={13} color={AT.inkSoft} />
         </span>
@@ -363,7 +373,9 @@ export function ExportMenu({ count, scope, onPick, noun = "rows" }: {
             padding: "7px 10px 6px", fontFamily: AT.body, fontSize: 10.5, fontWeight: 700,
             letterSpacing: "0.07em", textTransform: "uppercase", color: AT.inkSoft,
           }}>
-            {scope === "selected" ? `Download ${count} selected` : `Download ${count} ${noun}`}
+            {scope === "selected"
+              ? `${t("pk.download")} ${count} ${t("pk.scopeSelected")}`
+              : `${t("pk.download")} ${count} ${noun ?? t("pk.rows")}`}
           </div>
           {opts.map((o) => (
             <button

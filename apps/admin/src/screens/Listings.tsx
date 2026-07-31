@@ -5,6 +5,7 @@ import type { Nav } from "../App.js";
 import { useAuth } from "../auth.js";
 import { exportCSV, exportPDFPrint, exportXLS } from "../exporters.js";
 import { formatDay, formatDate, formatEur } from "../format.js";
+import { auctionStatusLabel, itemStatusLabel, listingStatusLabel, useT, type TKey } from "../i18n.js";
 import {
   BulkBar, BulkBtn, bulkDividerStyle, checkboxStyle, dateInputStyle, ExportMenu, FilterChips,
   makeFilterTools, SearchBox, useDebounced, useSavedViews, useSelection, useStoredFilters,
@@ -16,11 +17,11 @@ import {
   AStat, ATable, ATd, ATr, useConfirm, useToast,
 } from "../ui.js";
 
-const PILLS = [
-  { id: "all", label: "All" },
-  { id: "draft", label: "Draft" },
-  { id: "published", label: "Published" },
-  { id: "archived", label: "Archived" },
+const PILLS: Array<{ id: string; key: TKey }> = [
+  { id: "all", key: "c.all" },
+  { id: "draft", key: "c.lst.draft" },
+  { id: "published", key: "c.lst.published" },
+  { id: "archived", key: "c.lst.archived" },
 ];
 
 // ── A3 power filters (server-side) ───────────────────────────────────────────
@@ -61,13 +62,11 @@ function buildQuery(f: Filters, limit: number, offset: number): string {
   return p.toString();
 }
 
-const SORTS = [
-  { value: "newest", label: "Newest first" },
-  { value: "oldest", label: "Oldest first" },
-  { value: "title", label: "Title A→Z" },
+const SORTS: Array<{ value: string; key: TKey }> = [
+  { value: "newest", key: "lst.sortNewest" },
+  { value: "oldest", key: "lst.sortOldest" },
+  { value: "title", key: "lst.sortTitle" },
 ];
-
-const EXPORT_HEADERS = ["Title", "Type", "Item SKU", "Item status", "Price €", "Reserve €", "Market", "Status", "Created"];
 
 const eurToCents = (v: string): number | null => {
   const n = parseFloat(v.replace(",", "."));
@@ -102,6 +101,7 @@ const toLocalInput = (d: Date): string => {
 
 export function ListingsScreen({ nav }: { nav: Nav }) {
   const { can } = useAuth();
+  const { t } = useT();
   const toast = useToast();
   const confirm = useConfirm();
   const [listings, setListings] = useState<Listing[]>([]);
@@ -120,6 +120,7 @@ export function ListingsScreen({ nav }: { nav: Nav }) {
   const [markets, setMarkets] = useState<Market[]>([]);
   const [form, setForm] = useState<FormState>(emptyForm);
   const canPrice = can("listings.set_pricing");
+  const typeLabel = (ty: string): string => (ty === "auction" ? t("lst.typeAuction") : ty === "fixed" ? t("lst.typeFixed") : ty);
 
   // ── Ready-to-list queue (drafts that have been photographed + graded) ──────
   const [queue, setQueue] = useState<Item[] | null>(null); // null = drawer closed
@@ -191,7 +192,7 @@ export function ListingsScreen({ nav }: { nav: Nav }) {
       });
       setTotal(r.total);
     } catch {
-      toast("Failed to load more", "danger");
+      toast(t("lst.loadMoreFailed"), "danger");
     } finally {
       setLoadingMore(false);
     }
@@ -210,7 +211,7 @@ export function ListingsScreen({ nav }: { nav: Nav }) {
       setForm({ ...emptyForm, itemId: eligible[0]?.id ?? "", title: eligible[0]?.title ?? "" });
       setCreating(true);
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Failed to load items", "danger");
+      toast(err instanceof ApiError ? err.message : t("lst.loadItemsFailed"), "danger");
     }
   };
 
@@ -231,11 +232,11 @@ export function ListingsScreen({ nav }: { nav: Nav }) {
     if (form.antiSnipe) body.antiSnipeSec = Number(form.antiSnipe);
     try {
       await api.post("/api/listings", body);
-      toast("Listing created", "ok");
+      toast(t("lst.createdToast"), "ok");
       setCreating(false);
       load();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Create failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("lst.createFailed"), "danger");
     }
   };
 
@@ -291,13 +292,13 @@ export function ListingsScreen({ nav }: { nav: Nav }) {
           endsAt: new Date(sched.endsAt).toISOString(),
         });
       }
-      toast(`${queueItem.sku} published${form.type === "auction" ? " & scheduled" : ""}`, "ok");
+      toast(`${queueItem.sku} ${form.type === "auction" ? t("lst.publishedScheduledSuffix") : t("lst.publishedSuffix")}`, "ok");
       setQueue((q) => q?.filter((i) => i.id !== queueItem.id) ?? q);
       setQueueItem(null);
       load();
       void loadReady();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Listing failed — check Listings for a leftover draft", "danger");
+      toast(err instanceof ApiError ? err.message : t("lst.quickFailed"), "danger");
     }
   };
 
@@ -338,11 +339,11 @@ export function ListingsScreen({ nav }: { nav: Nav }) {
     if (form.antiSnipe !== "") body.antiSnipeSec = Number(form.antiSnipe);
     try {
       await api.patch(`/api/listings/${editing.id}`, body);
-      toast("Listing saved", "ok");
+      toast(t("lst.savedToast"), "ok");
       setEditing(null);
       load();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Save failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("lst.saveFailed"), "danger");
     }
   };
 
@@ -350,11 +351,11 @@ export function ListingsScreen({ nav }: { nav: Nav }) {
     if (!editing) return;
     try {
       await api.post(`/api/listings/${editing.id}/publish`);
-      toast("Published — item is now listed", "ok");
+      toast(t("lst.publishedItemListed"), "ok");
       setEditing(null);
       load();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Publish failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("lst.publishFailed"), "danger");
     }
   };
 
@@ -371,26 +372,32 @@ export function ListingsScreen({ nav }: { nav: Nav }) {
     setFilters({ ...DEFAULT_FILTERS });
   };
 
+  const sortChipKey = SORTS.find((s) => s.value === filters.sort)?.key;
   const chips: FilterChip[] = [];
-  if (filters.status !== "all") chips.push({ key: "status", label: PILLS.find((p) => p.id === filters.status)?.label ?? filters.status, clear: () => setF({ status: "all" }) });
-  if (filters.type !== "all") chips.push({ key: "type", label: `Type: ${filters.type}`, clear: () => setF({ type: "all" }) });
-  if (filters.market !== "all") chips.push({ key: "market", label: `Market: ${filters.market}`, clear: () => setF({ market: "all" }) });
-  if (filters.from) chips.push({ key: "from", label: `From ${filters.from}`, clear: () => setF({ from: "" }) });
-  if (filters.to) chips.push({ key: "to", label: `To ${filters.to}`, clear: () => setF({ to: "" }) });
-  if (filters.sort !== "newest") chips.push({ key: "sort", label: SORTS.find((s) => s.value === filters.sort)?.label ?? filters.sort, clear: () => setF({ sort: "newest" }) });
+  if (filters.status !== "all") chips.push({ key: "status", label: listingStatusLabel(filters.status), clear: () => setF({ status: "all" }) });
+  if (filters.type !== "all") chips.push({ key: "type", label: `${t("lst.type")}: ${typeLabel(filters.type)}`, clear: () => setF({ type: "all" }) });
+  if (filters.market !== "all") chips.push({ key: "market", label: `${t("c.market")}: ${filters.market}`, clear: () => setF({ market: "all" }) });
+  if (filters.from) chips.push({ key: "from", label: `${t("lst.chipFrom")} ${filters.from}`, clear: () => setF({ from: "" }) });
+  if (filters.to) chips.push({ key: "to", label: `${t("lst.chipTo")} ${filters.to}`, clear: () => setF({ to: "" }) });
+  if (filters.sort !== "newest") chips.push({ key: "sort", label: sortChipKey ? t(sortChipKey) : filters.sort, clear: () => setF({ sort: "newest" }) });
   if (filters.q.trim()) chips.push({ key: "q", label: `"${filters.q.trim()}"`, clear: () => { setQInput(""); setF({ q: "" }); } });
 
   // ── Export ─────────────────────────────────────────────────────────────────
 
+  const exportHeaders = (): string[] => [
+    t("c.title"), t("lst.type"), t("lst.itemSku"), t("lst.itemStatus"), t("lst.priceEur"),
+    t("lst.reserveEur"), t("c.market"), t("c.status"), t("lst.created"),
+  ];
+
   const toExportRow = (l: Listing): string[] => [
     l.title,
-    l.type,
+    typeLabel(l.type),
     l.itemSku ?? "",
-    l.itemStatus ?? "",
+    l.itemStatus ? itemStatusLabel(l.itemStatus) : "",
     l.type === "auction" ? centsToEur(l.startPriceCents) : centsToEur(l.priceCents),
     centsToEur(l.reserveCents),
     l.marketCode,
-    l.status,
+    listingStatusLabel(l.status),
     l.createdAt.slice(0, 10),
   ];
 
@@ -408,14 +415,15 @@ export function ListingsScreen({ nav }: { nav: Nav }) {
   const runExport = async (fmt: "csv" | "xls" | "pdf") => {
     try {
       const list = await gatherExportRows();
-      if (list.length === 0) return toast("Nothing to export", "warn");
+      if (list.length === 0) return toast(t("lst.nothingToExport"), "warn");
+      const headers = exportHeaders();
       const body = list.map(toExportRow);
-      if (fmt === "csv") exportCSV("listings", EXPORT_HEADERS, body);
-      else if (fmt === "xls") exportXLS("listings", EXPORT_HEADERS, body, "Listings");
-      else exportPDFPrint("Listings export", EXPORT_HEADERS, body);
-      toast(`Exported ${list.length} listings`, "ok");
+      if (fmt === "csv") exportCSV("listings", headers, body);
+      else if (fmt === "xls") exportXLS("listings", headers, body, t("lst.heading"));
+      else exportPDFPrint(t("lst.heading"), headers, body);
+      toast(`${t("lst.exportedToast")} ${list.length}`, "ok");
     } catch {
-      toast("Export failed", "danger");
+      toast(t("lst.exportFailed"), "danger");
     }
   };
 
@@ -432,31 +440,31 @@ export function ListingsScreen({ nav }: { nav: Nav }) {
             : {}),
         },
       );
-      const msg = `${r.published} published${r.scheduled > 0 ? `, ${r.scheduled} auctions scheduled` : ""}${r.failed.length > 0 ? ` · ${r.failed.length} failed` : ""}`;
+      const msg = `${r.published} ${t("lst.bulkPublished")}${r.scheduled > 0 ? `, ${r.scheduled} ${t("lst.bulkScheduled")}` : ""}${r.failed.length > 0 ? ` · ${r.failed.length} ${t("lst.bulkFailedCount")}` : ""}`;
       toast(msg, r.failed.length > 0 ? "warn" : "ok");
       setBulkPub(false);
       load();
       void loadReady();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Bulk publish failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("lst.bulkPublishFailed"), "danger");
     }
   };
 
   const bulkArchive = async () => {
     const r = await confirm({
-      title: `Archive ${selectedDrafts.length} draft listing${selectedDrafts.length === 1 ? "" : "s"}?`,
-      body: "Only drafts are archived — published listings are skipped. The items stay in stock.",
-      confirmLabel: "Archive drafts",
+      title: `${t("lst.archiveDrafts")} (${selectedDrafts.length})?`,
+      body: t("lst.archiveConfirmBody"),
+      confirmLabel: t("lst.archiveDrafts"),
     });
     if (!r.ok) return;
     try {
       const res = await api.post<{ archived: number; skipped: number }>("/api/listings/bulk/archive", {
         ids: selectedDrafts.map((l) => l.id),
       });
-      toast(`${res.archived} archived${res.skipped > 0 ? ` · ${res.skipped} skipped` : ""}`, "ok");
+      toast(`${res.archived} ${t("lst.archivedCount")}${res.skipped > 0 ? ` · ${res.skipped} ${t("lst.skippedCount")}` : ""}`, "ok");
       load();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Bulk archive failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("lst.bulkArchiveFailed"), "danger");
     }
   };
 
@@ -466,21 +474,21 @@ export function ListingsScreen({ nav }: { nav: Nav }) {
     <>
       {form.type === "auction" ? (
         <>
-          <AField label="Start price €">
+          <AField label={t("lst.startPrice")}>
             <AInput value={form.startPrice} onChange={(v) => set({ startPrice: v })} placeholder="100.00" />
           </AField>
           {canPrice && (
-            <AField label="Reserve €" hint="Hidden from bidders — “reserve not met” is all they see.">
-              <AInput value={form.reserve} onChange={(v) => set({ reserve: v })} placeholder="none" />
+            <AField label={t("lst.reserveEur")} hint={t("lst.reserveHint")}>
+              <AInput value={form.reserve} onChange={(v) => set({ reserve: v })} placeholder={t("lst.nonePlaceholder")} />
             </AField>
           )}
         </>
       ) : (
-        <AField label="Price €">
+        <AField label={t("lst.priceEur")}>
           <AInput value={form.price} onChange={(v) => set({ price: v })} placeholder="220.00" />
         </AField>
       )}
-      <AField label="Anti-snipe override (seconds)" hint="Empty = market default (60s).">
+      <AField label={t("lst.antiSnipe")} hint={t("lst.antiSnipeHint")}>
         <AInput value={form.antiSnipe} onChange={(v) => set({ antiSnipe: v })} placeholder="60" />
       </AField>
     </>
@@ -489,16 +497,16 @@ export function ListingsScreen({ nav }: { nav: Nav }) {
   return (
     <div style={{ display: "grid", gap: 14 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <h1 style={{ fontFamily: AT.body, fontSize: 20, fontWeight: 700, color: AT.ink, flex: 1 }}>Listings</h1>
-        <ExportMenu count={exportCount} scope={selected.size > 0 ? "selected" : "filtered"} noun="listings" onPick={(fmt) => void runExport(fmt)} />
+        <h1 style={{ fontFamily: AT.body, fontSize: 20, fontWeight: 700, color: AT.ink, flex: 1 }}>{t("lst.heading")}</h1>
+        <ExportMenu count={exportCount} scope={selected.size > 0 ? "selected" : "filtered"} noun={t("lst.exportNoun")} onPick={(fmt) => void runExport(fmt)} />
         {can("listings.create") && can("listings.publish") && (
           <ABtn kind={readyCount > 0 ? "dark" : "ghost"} onClick={() => void openQueue()}>
-            Ready to list{readyCount > 0 ? ` (${readyCount})` : ""}
+            {t("lst.readyToList")}{readyCount > 0 ? ` (${readyCount})` : ""}
           </ABtn>
         )}
         {can("listings.create") && (
           <ABtn onClick={() => void openCreate()}>
-            <AIcon name="plus" size={15} color="#fff" /> New listing
+            <AIcon name="plus" size={15} color="#fff" /> {t("lst.newListing")}
           </ABtn>
         )}
       </div>
@@ -506,32 +514,32 @@ export function ListingsScreen({ nav }: { nav: Nav }) {
       <ViewsBar {...sv.ViewsBarProps} />
 
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-        <AStat label="Draft" value={counts.draft ?? 0} />
-        <AStat label="Published" value={counts.published ?? 0} tone={(counts.published ?? 0) > 0 ? "ok" : undefined} />
-        <AStat label="Ready to list" value={readyCount} tone={readyCount > 0 ? "accent" : undefined} sub={noPhotoCount > 0 ? `${noPhotoCount} drafts still need photos` : undefined} />
-        <AStat label="Archived" value={counts.archived ?? 0} />
+        <AStat label={t("c.lst.draft")} value={counts.draft ?? 0} />
+        <AStat label={t("c.lst.published")} value={counts.published ?? 0} tone={(counts.published ?? 0) > 0 ? "ok" : undefined} />
+        <AStat label={t("lst.readyToList")} value={readyCount} tone={readyCount > 0 ? "accent" : undefined} sub={noPhotoCount > 0 ? `${noPhotoCount} ${t("lst.needPhotosSuffix")}` : undefined} />
+        <AStat label={t("c.lst.archived")} value={counts.archived ?? 0} />
       </div>
 
-      <APills options={PILLS.map((p) => ({ id: p.id, label: p.label, count: counts[p.id] ?? 0 }))} value={filters.status} onChange={(v) => setF({ status: v })} />
+      <APills options={PILLS.map((p) => ({ id: p.id, label: t(p.key), count: counts[p.id] ?? 0 }))} value={filters.status} onChange={(v) => setF({ status: v })} />
 
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-        <SearchBox value={qInput} onChange={setQInput} placeholder="Search title or SKU…" />
+        <SearchBox value={qInput} onChange={setQInput} placeholder={t("lst.searchPlaceholder")} />
         <ASelect
           value={filters.type}
           onChange={(v) => setF({ type: v })}
-          options={[{ value: "all", label: "All types" }, { value: "auction", label: "Auction" }, { value: "fixed", label: "Fixed price" }]}
+          options={[{ value: "all", label: t("lst.allTypes") }, { value: "auction", label: t("lst.typeAuction") }, { value: "fixed", label: t("lst.typeFixed") }]}
         />
         <ASelect
           value={filters.market}
           onChange={(v) => setF({ market: v })}
-          options={[{ value: "all", label: "All markets" }, ...markets.map((m) => ({ value: m.code, label: m.code }))]}
+          options={[{ value: "all", label: t("lst.allMarkets") }, ...markets.map((m) => ({ value: m.code, label: m.code }))]}
         />
         <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: AT.body, fontSize: 12.5, color: AT.inkSoft }}>
           <input type="date" value={filters.from} max={filters.to || undefined} onChange={(e) => setF({ from: e.target.value })} style={dateInputStyle} />
           –
           <input type="date" value={filters.to} min={filters.from || undefined} onChange={(e) => setF({ to: e.target.value })} style={dateInputStyle} />
         </label>
-        <ASelect value={filters.sort} onChange={(v) => setF({ sort: v })} options={SORTS} />
+        <ASelect value={filters.sort} onChange={(v) => setF({ sort: v })} options={SORTS.map((s) => ({ value: s.value, label: t(s.key) }))} />
       </div>
 
       <FilterChips chips={chips} onClearAll={clearAll} />

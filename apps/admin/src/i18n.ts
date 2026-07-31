@@ -1,4 +1,20 @@
 import { useSyncExternalStore } from "react";
+import { AUCTIONS } from "./i18n/auctions.js";
+import { COMMON } from "./i18n/common.js";
+import { CONTENT } from "./i18n/content.js";
+import { CUSTOMERS } from "./i18n/customers.js";
+import { DASHBOARD } from "./i18n/dashboard.js";
+import { FINANCE } from "./i18n/finance.js";
+import { INVENTORY } from "./i18n/inventory.js";
+import { LISTINGS } from "./i18n/listings.js";
+import { MISC } from "./i18n/misc.js";
+import { ORDERS } from "./i18n/orders.js";
+import { PICKUP } from "./i18n/pickup.js";
+import { POWERKIT } from "./i18n/powerkit.js";
+import { RECEIVING } from "./i18n/receiving.js";
+import { SETTINGS } from "./i18n/settings.js";
+import { SHELL } from "./i18n/shell.js";
+import { WHSTATS } from "./i18n/whstats.js";
 
 /**
  * Admin/warehouse i18n — Latvian first (the team's language), Russian and
@@ -309,14 +325,50 @@ const D = {
   "act.grade_notice_ack": { lv: "apstiprināja paziņojumu", ru: "подтвердил(а) уведомление", en: "acknowledged the notice" },
 } satisfies Record<string, Entry>;
 
-export type TKey = keyof typeof D;
+/** Phase D — every screen area contributes its own module; keys must be
+ * globally unique (each module uses its own prefix). */
+const ALL = {
+  ...D,
+  ...COMMON,
+  ...SHELL,
+  ...POWERKIT,
+  ...DASHBOARD,
+  ...AUCTIONS,
+  ...ORDERS,
+  ...INVENTORY,
+  ...LISTINGS,
+  ...RECEIVING,
+  ...PICKUP,
+  ...WHSTATS,
+  ...CUSTOMERS,
+  ...FINANCE,
+  ...CONTENT,
+  ...SETTINGS,
+  ...MISC,
+};
+
+export type TKey = keyof typeof ALL;
 
 export function t(key: TKey): string {
-  return D[key][current];
+  return ALL[key][current];
 }
+
+// ── Status-label helpers ─────────────────────────────────────────────────────
+// Statuses arrive from the server as raw strings; these translate the known
+// ones and fall back to the raw value so an unknown status is still visible.
+
+function statusLabel(prefix: string, status: string): string {
+  const entry = (ALL as Record<string, Entry>)[`${prefix}${status}`];
+  return entry ? entry[current] : status;
+}
+
+export const auctionStatusLabel = (s: string): string => statusLabel("c.ast.", s);
+export const itemStatusLabel = (s: string): string => statusLabel("c.ist.", s);
+export const orderStatusLabel = (s: string): string => statusLabel("c.ost.", s);
+export const listingStatusLabel = (s: string): string => statusLabel("c.lst.", s);
 
 /** Reactive translator — re-renders the component when the language changes. */
 export function useT(): { t: (key: TKey) => string; lang: Lang; setLang: (l: Lang) => void } {
   const lang = useLang();
-  return { t: (key) => D[key][lang], lang, setLang };
+  return { t: (key) => ALL[key][lang], lang, setLang };
 }
