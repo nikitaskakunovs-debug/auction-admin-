@@ -207,6 +207,7 @@ export const MISC = {
   // ── S1: Slack mirroring status ───────────────────────────────────────────
   "ms.slackOff": { lv: "Slack spoguļošana izslēgta.", ru: "Зеркалирование в Slack выключено.", en: "Slack mirroring is off." },
   "ms.slackOn": { lv: "Notikumi tiek sūtīti uz Slack:", ru: "События отправляются в Slack:", en: "Events are mirrored to Slack:" },
+  "ms.slackFailed": { lv: "Slack sūtīšana neizdevās —", ru: "Отправка в Slack не удалась —", en: "Slack delivery failed —" },
 
   // ── Bug-report type words (audit details) ────────────────────────────────
   "ms.bt.bug": { lv: "kļūda", ru: "ошибка", en: "bug" },

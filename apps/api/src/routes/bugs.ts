@@ -6,7 +6,7 @@ import sharp from "sharp";
 import { z } from "zod";
 import { writeAudit } from "../audit.js";
 import type { AppContext } from "../context.js";
-import { slackBugReported } from "../engine/slackNotify.js";
+import { slackBugReported, slackHealth } from "../engine/slackNotify.js";
 import { sendReportToJira, syncOneReport } from "../engine/bugSync.js";
 import { requirePermission, type PermissionService } from "../auth/rbac.js";
 
@@ -272,6 +272,7 @@ export function registerBugRoutes(app: FastifyInstance, ctx: AppContext, perms: 
             ctx.slack.channelName("warehouse"),
             ctx.slack.channelName("bugs"),
           ],
+          ...slackHealth(),
         }
       : { mode: "off" as const };
     if (!ctx.jira) return { mode: "off" as const, slack };

@@ -239,7 +239,7 @@ interface JiraStatus {
   user?: string;
   error?: string;
   /** S1 — where business events are mirrored (null/off when not configured). */
-  slack?: { mode: string; channels?: string[] };
+  slack?: { mode: string; channels?: string[]; lastOkAt?: string | null; lastError?: { at: string; reason: string } | null };
 }
 
 /** Connection-health strip: is the Jira bridge alive, and how fast is inbound sync? */
@@ -276,10 +276,11 @@ function JiraStatusCard({ status }: { status: JiraStatus }) {
 }
 
 /** S1 — one line telling operators whether events reach Slack, and where. */
-function SlackStatusCard({ slack }: { slack: { mode: string; channels?: string[] } }) {
+function SlackStatusCard({ slack }: { slack: NonNullable<JiraStatus["slack"]> }) {
   const { t } = useT();
   const off = slack.mode === "off";
-  const tone: Tone = off ? "neutral" : "ok";
+  const failed = Boolean(slack.lastError);
+  const tone: Tone = off ? "neutral" : failed ? "danger" : "ok";
   return (
     <div
       style={{
@@ -291,6 +292,11 @@ function SlackStatusCard({ slack }: { slack: { mode: string; channels?: string[]
       <span style={{ width: 8, height: 8, borderRadius: 999, background: toneColors[tone].fg, flexShrink: 0 }} />
       {off ? (
         <span style={{ color: AT.inkSoft }}>{t("ms.slackOff")}</span>
+      ) : failed ? (
+        <span style={{ color: toneColors.danger.fg }}>
+          {t("ms.slackFailed")}{" "}
+          <span style={{ fontFamily: AT.mono, fontSize: 11 }}>{slack.lastError!.reason}</span>
+        </span>
       ) : (
         <span>
           {t("ms.slackOn")}{" "}

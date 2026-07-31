@@ -11,11 +11,41 @@ import type { SlackMessage } from "./slack.js";
  * copy is Latvian — the team's language, matching the panel default.
  */
 
-/** Post without ever throwing into the caller's transaction/response path. */
+/**
+ * Post without ever throwing into the caller's transaction/response path —
+ * but never silently: a swallowed failure is invisible to operators, so the
+ * reason (Slack's own error code: channel_not_found, invalid_auth, …) is
+ * logged and kept for the Activity screen's connection card.
+ */
 function mirror(ctx: AppContext, msg: SlackMessage): void {
   if (!ctx.slack) return;
-  void ctx.slack.post(msg).catch(() => undefined);
+  void ctx.slack.post(msg).then(
+    () => recordSlackResult(null),
+    (err: unknown) => {
+      const reason = err instanceof Error ? err.message : String(err);
+      recordSlackResult(reason);
+      console.warn(`[slack] ${msg.channel} post failed: ${reason}`);
+    },
+  );
 }
+
+/** Last delivery outcome, surfaced by GET /api/bugs/jira-status. */
+let lastError: { at: string; reason: string } | null = null;
+let lastOkAt: string | null = null;
+
+function recordSlackResult(reason: string | null): void {
+  if (reason === null) {
+    lastOkAt = new Date().toISOString();
+    lastError = null;
+  } else {
+    lastError = { at: new Date().toISOString(), reason };
+  }
+}
+
+export const slackHealth = (): { lastOkAt: string | null; lastError: { at: string; reason: string } | null } => ({
+  lastOkAt,
+  lastError,
+});
 
 const adminUrl = (ctx: AppContext, hash: string): string | null => {
   const base = ctx.config.adminBaseUrl;
