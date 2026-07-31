@@ -419,8 +419,10 @@ export function registerSupplierRoutes(app: FastifyInstance, ctx: AppContext, pe
         .from(consignments)
         .where(eq(consignments.id, d.consignmentId));
       if (!consignment) return reply.code(404).send({ error: "not_found" });
+      // The delivery exists, it just has no supplier yet — that is a state the
+      // caller can fix (attach one), not a missing thing.
       if (!d.supplierId && !consignment.supplierId)
-        return reply.code(404).send({ error: "consignment_supplier_missing", consignmentId: consignment.id });
+        return reply.code(422).send({ error: "supplier_required", consignmentId: consignment.id });
     }
     const supplierId = d.supplierId ?? consignment?.supplierId ?? null;
     if (!supplierId) return reply.code(422).send({ error: "supplier_required" });
