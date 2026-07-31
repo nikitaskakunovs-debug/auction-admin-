@@ -38,6 +38,10 @@ const itemBody = z.object({
   dims: z.object({ l: z.number(), w: z.number(), h: z.number() }).nullable().optional(),
   photos: z.array(z.string()).default([]),
   marketCode: z.string().length(2),
+  /** W6: purchase cost — only finance.view may read or write it; the routes
+   * check the permission before accepting it and a global preSerialization
+   * hook strips it from responses for everyone else. */
+  costCents: z.number().int().min(0).max(100_000_000).nullable().optional(),
 });
 
 export function registerItemRoutes(app: FastifyInstance, ctx: AppContext, perms: PermissionService): void {
@@ -163,6 +167,8 @@ export function registerItemRoutes(app: FastifyInstance, ctx: AppContext, perms:
     if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: body.error.flatten() });
     if (conditionRequiresNotes(body.data.condition) && body.data.conditionNotes.trim().length < 3)
       return reply.code(400).send({ error: "condition_notes_required", detail: "This condition grade is a SEE NOTES grade — describe the issue." });
+    if (body.data.costCents !== undefined && !(await perms.has(req.admin!.role, "finance.view")))
+      return reply.code(403).send({ error: "forbidden", permission: "finance.view" });
     const [row] = await ctx.db
       .insert(items)
       .values({ ...body.data, weightGrams: body.data.weightGrams ?? null, dims: body.data.dims ?? null })
@@ -183,6 +189,8 @@ export function registerItemRoutes(app: FastifyInstance, ctx: AppContext, perms:
       (body.data.conditionPresetIds ?? []).length === 0
     )
       return reply.code(400).send({ error: "condition_notes_required", detail: "This condition grade is a SEE NOTES grade — describe the issue." });
+    if (body.data.costCents !== undefined && !(await perms.has(req.admin!.role, "finance.view")))
+      return reply.code(403).send({ error: "forbidden", permission: "finance.view" });
     const { id } = req.params as { id: string };
     // A patch that carries `condition` is a (re-)grade: it stamps the grader
     // and runs the W2 review rules. Damaged-family grades — and everything,

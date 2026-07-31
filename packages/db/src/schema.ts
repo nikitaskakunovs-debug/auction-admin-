@@ -382,6 +382,9 @@ export const consignments = pgTable(
     status: text("status").notNull().default("open"),
     /** Units the paperwork promises; 0 = unknown. */
     expectedCount: integer("expected_count").notNull().default(0),
+    /** W6 — delivery-level extra costs (transport, cleaning…), spread
+     * pro-rata across the units at report time. Null = none recorded. */
+    extraCostCents: integer("extra_cost_cents"),
     createdById: uuid("created_by_id").references(() => adminUsers.id),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     closedAt: timestamp("closed_at", { withTimezone: true }),
@@ -427,6 +430,10 @@ export const items = pgTable(
     photos: jsonb("photos").$type<string[]>().notNull().default([]),
     /** Inbound delivery this item arrived with (null for pre-receiving rows). */
     consignmentId: uuid("consignment_id").references(() => consignments.id),
+    /** W6 — what the unit cost us (purchase price). Null = unknown; old
+     * stock stays blank rather than assumed zero. Visible only to
+     * finance.view — the API strips it for everyone else. */
+    costCents: integer("cost_cents"),
     /** Warehouse lifecycle state (domain ItemStatus). */
     status: text("status").notNull().default("draft"),
     marketCode: text("market_code")
@@ -794,6 +801,55 @@ export const counters = pgTable("counters", {
   key: text("key").primaryKey(),
   value: bigint("value", { mode: "number" }).notNull().default(0),
 });
+
+// ── W5: stock-taking (inventarizācija) ──────────────────────────────────────
+
+/** One counting session. The shelf keeps working during a count — the diff
+ * uses stock_movements after startedAt to tell "legitimately left" apart
+ * from "missing". Nothing changes stock until a manager approves. */
+export const stockCounts = pgTable(
+  "stock_counts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    /** Scope: whole warehouse when both empty. */
+    zones: jsonb("zones").$type<string[]>().notNull().default([]),
+    locationIds: jsonb("location_ids").$type<string[]>().notNull().default([]),
+    /** Bins the counters marked finished — "missing" only applies to these. */
+    doneLocationIds: jsonb("done_location_ids").$type<string[]>().notNull().default([]),
+    /** open | approved | cancelled. */
+    status: text("status").notNull().default("open"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    createdById: uuid("created_by_id").references(() => adminUsers.id),
+    approvedById: uuid("approved_by_id").references(() => adminUsers.id),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+  },
+  (t) => [index("stock_counts_status_idx").on(t.status)],
+);
+
+/** One QR/SKU read during a session — who scanned what, where, when. Blind
+ * by design: the phone never shows what the bin is supposed to hold. */
+export const stockCountScans = pgTable(
+  "stock_count_scans",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    countId: uuid("count_id")
+      .notNull()
+      .references(() => stockCounts.id, { onDelete: "cascade" }),
+    /** Raw code as scanned (kept for unknown-label review). */
+    code: text("code").notNull(),
+    /** Resolved item; null = label the system doesn't know. */
+    itemId: uuid("item_id").references(() => items.id),
+    /** The bin being counted when this was scanned. */
+    locationId: uuid("location_id")
+      .notNull()
+      .references(() => warehouseLocations.id),
+    scannedById: uuid("scanned_by_id").references(() => adminUsers.id),
+    scannedByLabel: text("scanned_by_label").notNull().default(""),
+    scannedAt: timestamp("scanned_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("stock_count_scans_count_idx").on(t.countId)],
+);
 
 // ── CMS pages (Shhh editor architecture, persistence in Postgres) ───────────
 

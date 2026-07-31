@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
-import { customers, invoices, orders } from "@auction/db";
-import { viesFormatValid, viesParse, type ViesCheck } from "@auction/domain";
-import { and, desc, eq, gte, ilike, lt, or, sql } from "drizzle-orm";
+import { consignments, customers, invoices, items, orders, warehouseLocations } from "@auction/db";
+import { isDamagedFamilyCondition, viesFormatValid, viesParse, type ViesCheck } from "@auction/domain";
+import { and, desc, eq, gte, ilike, inArray, isNotNull, lt, or, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { writeAudit } from "../audit.js";
@@ -160,6 +160,171 @@ export function registerFinanceRoutes(app: FastifyInstance, ctx: AppContext, per
         reverseChargeNetCents: Number(r.reverseChargeNetCents),
         reverseChargeCount: Number(r.reverseChargeCount),
       })),
+    };
+  });
+
+  // ── W6: profit & stock valuation ──────────────────────────────────────────
+
+  /**
+   * Effective unit cost = the item's own purchase cost plus its share of the
+   * delivery's extra costs (transport/cleaning), spread pro-rata over every
+   * unit received with that consignment. An item with no recorded cost stays
+   * `null` — "no data", never assumed zero (approved design decision).
+   */
+  const extraShareMap = async (): Promise<Map<string, number>> => {
+    const rows = await ctx.db
+      .select({
+        id: consignments.id,
+        extraCostCents: consignments.extraCostCents,
+        received: sql<string>`count(${items.id})`,
+      })
+      .from(consignments)
+      .leftJoin(items, eq(items.consignmentId, consignments.id))
+      .where(isNotNull(consignments.extraCostCents))
+      .groupBy(consignments.id);
+    return new Map(
+      rows
+        .filter((r) => Number(r.received) > 0)
+        .map((r) => [r.id, Math.round((r.extraCostCents ?? 0) / Number(r.received))]),
+    );
+  };
+
+  const effectiveCost = (
+    costCents: number | null,
+    consignmentId: string | null,
+    shares: Map<string, number>,
+  ): number | null =>
+    costCents === null ? null : costCents + (consignmentId ? (shares.get(consignmentId) ?? 0) : 0);
+
+  /**
+   * Profit = hammer price − effective cost, before buyer premium and VAT
+   * (those are the buyer's side of the invoice). Basis: orders paid in the
+   * window. Every total carries a no-cost-data count so a profit figure is
+   * never quietly based on half the sales.
+   */
+  app.get("/api/reports/profit", guard("finance.view"), async (req, reply) => {
+    const q = z.object({ from: z.coerce.date(), to: z.coerce.date() }).safeParse(req.query);
+    if (!q.success) return reply.code(400).send({ error: "invalid_range", detail: "from and to (ISO dates) required" });
+    const { from, to } = q.data;
+
+    const shares = await extraShareMap();
+    const rows = await ctx.db
+      .select({
+        orderRef: orders.ref,
+        paidAt: orders.paidAt,
+        hammerCents: orders.hammerCents,
+        sku: items.sku,
+        title: items.title,
+        costCents: items.costCents,
+        consignmentId: items.consignmentId,
+      })
+      .from(orders)
+      .innerJoin(items, eq(orders.itemId, items.id))
+      .where(and(isNotNull(orders.paidAt), gte(orders.paidAt, from), lt(orders.paidAt, to)))
+      .orderBy(desc(orders.paidAt))
+      .limit(2000);
+
+    const lines = rows.map((r) => {
+      const cost = effectiveCost(r.costCents, r.consignmentId, shares);
+      return {
+        sku: r.sku,
+        title: r.title,
+        orderRef: r.orderRef,
+        paidAt: r.paidAt,
+        soldCents: r.hammerCents,
+        costCents: cost,
+        profitCents: cost === null ? null : r.hammerCents - cost,
+        marginPct: cost === null || cost === 0 ? null : Math.round(((r.hammerCents - cost) / cost) * 100),
+      };
+    });
+    const known = lines.filter((l) => l.costCents !== null);
+    const totalCost = known.reduce((n, l) => n + l.costCents!, 0);
+    const totalProfit = known.reduce((n, l) => n + l.profitCents!, 0);
+
+    // Delivery scoreboard: sold/received per consignment (all-time — a pallet
+    // pays off over months, not inside the report window).
+    const conRows = await ctx.db
+      .select({
+        id: consignments.id,
+        ref: consignments.ref,
+        supplier: consignments.supplier,
+        received: sql<string>`count(${items.id})`,
+        sold: sql<string>`count(${orders.paidAt})`,
+        profitKnown: sql<string>`coalesce(sum(case when ${orders.paidAt} is not null and ${items.costCents} is not null then ${orders.hammerCents} - ${items.costCents} else 0 end), 0)`,
+        soldKnown: sql<string>`coalesce(sum(case when ${orders.paidAt} is not null and ${items.costCents} is not null then 1 else 0 end), 0)`,
+      })
+      .from(consignments)
+      .leftJoin(items, eq(items.consignmentId, consignments.id))
+      .leftJoin(orders, and(eq(orders.itemId, items.id), isNotNull(orders.paidAt)))
+      .groupBy(consignments.id)
+      .orderBy(desc(consignments.createdAt))
+      .limit(30);
+
+    return {
+      from: from.toISOString(),
+      to: to.toISOString(),
+      summary: {
+        soldCount: lines.length,
+        revenueCents: lines.reduce((n, l) => n + l.soldCents, 0),
+        profitCents: totalProfit,
+        marginPct: totalCost > 0 ? Math.round((totalProfit / totalCost) * 100) : null,
+        noCostData: lines.length - known.length,
+      },
+      lines,
+      consignments: conRows.map((r) => {
+        const share = shares.get(r.id) ?? 0;
+        const soldKnown = Number(r.soldKnown);
+        return {
+          ref: r.ref,
+          supplier: r.supplier,
+          receivedCount: Number(r.received),
+          soldCount: Number(r.sold),
+          // The pro-rata delivery extras land on each sold unit's cost here.
+          profitCents: soldKnown > 0 ? Number(r.profitKnown) - share * soldKnown : null,
+          noCostData: Number(r.sold) - soldKnown,
+        };
+      }),
+    };
+  });
+
+  /** What the shelves are worth today, at purchase cost, in three buckets. */
+  app.get("/api/reports/stock-value", guard("finance.view"), async (_req, reply) => {
+    const IN_STOCK = ["draft", "listed", "live", "unsold"];
+    const shares = await extraShareMap();
+    const rows = await ctx.db
+      .select({
+        status: items.status,
+        condition: items.condition,
+        costCents: items.costCents,
+        consignmentId: items.consignmentId,
+        zone: warehouseLocations.zone,
+      })
+      .from(items)
+      .leftJoin(warehouseLocations, eq(items.locationId, warehouseLocations.id))
+      .where(inArray(items.status, IN_STOCK));
+
+    const empty = () => ({ units: 0, valueCents: 0, noCostData: 0 });
+    const buckets = { ready: empty(), drafts: empty(), quarantine: empty() };
+    for (const r of rows) {
+      const bucket =
+        r.zone === "QUARANTINE" || isDamagedFamilyCondition(r.condition)
+          ? buckets.quarantine
+          : r.status === "draft"
+            ? buckets.drafts
+            : buckets.ready;
+      const cost = effectiveCost(r.costCents, r.consignmentId, shares);
+      bucket.units += 1;
+      if (cost === null) bucket.noCostData += 1;
+      else bucket.valueCents += cost;
+    }
+    void reply;
+    return {
+      ...buckets,
+      total: {
+        units: rows.length,
+        valueCents: buckets.ready.valueCents + buckets.drafts.valueCents + buckets.quarantine.valueCents,
+        noCostData: buckets.ready.noCostData + buckets.drafts.noCostData + buckets.quarantine.noCostData,
+      },
     };
   });
 
