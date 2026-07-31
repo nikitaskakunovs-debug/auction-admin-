@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { consignments, customers, invoices, items, orders, refunds, warehouseLocations } from "@auction/db";
+import { consignments, customers, invoices, items, orders, refunds, supplierInvoices, supplierPayments, suppliers, warehouseLocations } from "@auction/db";
 import { isDamagedFamilyCondition, viesFormatValid, viesParse, type ViesCheck } from "@auction/domain";
 import { and, desc, eq, gte, ilike, inArray, isNotNull, lt, or, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -413,6 +413,126 @@ export function registerFinanceRoutes(app: FastifyInstance, ctx: AppContext, per
         units: rows.length,
         valueCents: buckets.ready.valueCents + buckets.drafts.valueCents + buckets.quarantine.valueCents,
         noCostData: buckets.ready.noCostData + buckets.drafts.noCostData + buckets.quarantine.noCostData,
+      },
+    };
+  });
+
+  // ── R1: payables — what we still owe our suppliers ────────────────────────
+
+  /**
+   * The mirror of the buyer-side reports: money going out rather than coming
+   * in. Everything is computed in SQL against the payments ledger, so a part
+   * payment is reflected the moment it is recorded.
+   *
+   * Cancelled invoices owe nothing and are excluded from every total.
+   */
+  app.get("/api/reports/payables", guard("finance.view"), async () => {
+    const now = ctx.now();
+    const DAY = 86_400_000;
+    const weekEnd = new Date(now.getTime() + 7 * DAY);
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    // Hand-qualified: drizzle renders sql`` column refs unqualified, so the
+    // correlated subquery's own alias would otherwise capture them.
+    const paid = sql`coalesce((select sum(sp.amount_cents) from supplier_payments sp where sp.invoice_id = supplier_invoices.id), 0)`;
+    const outstanding = sql`(supplier_invoices.amount_cents - ${paid})`;
+    const owing = inArray(supplierInvoices.status, ["unpaid", "partly_paid"]);
+    const daysLate = sql`extract(day from ${now}::timestamptz - supplier_invoices.due_date)`;
+
+    const [totalsRow] = await ctx.db
+      .select({
+        outstanding: sql<string>`coalesce(sum(${outstanding}), 0)`,
+        overdue: sql<string>`coalesce(sum(${outstanding}) filter (where supplier_invoices.due_date < ${now}), 0)`,
+        dueThisWeek: sql<string>`coalesce(sum(${outstanding}) filter (where supplier_invoices.due_date >= ${now} and supplier_invoices.due_date < ${weekEnd}), 0)`,
+        invoiceCount: sql<string>`count(*)`,
+        overdueCount: sql<string>`count(*) filter (where supplier_invoices.due_date < ${now})`,
+        current: sql<string>`coalesce(sum(${outstanding}) filter (where supplier_invoices.due_date >= ${now}), 0)`,
+        d1_30: sql<string>`coalesce(sum(${outstanding}) filter (where ${daysLate} between 0 and 30 and supplier_invoices.due_date < ${now}), 0)`,
+        d31_60: sql<string>`coalesce(sum(${outstanding}) filter (where ${daysLate} between 31 and 60), 0)`,
+        d60plus: sql<string>`coalesce(sum(${outstanding}) filter (where ${daysLate} > 60), 0)`,
+      })
+      .from(supplierInvoices)
+      .where(owing);
+
+    const [paidMonth] = await ctx.db
+      .select({ n: sql<string>`coalesce(sum(${supplierPayments.amountCents}), 0)` })
+      .from(supplierPayments)
+      .where(gte(supplierPayments.paidAt, monthStart));
+
+    const bySupplier = await ctx.db
+      .select({
+        supplierId: suppliers.id,
+        name: suppliers.name,
+        outstanding: sql<string>`coalesce(sum(${outstanding}), 0)`,
+        overdue: sql<string>`coalesce(sum(${outstanding}) filter (where supplier_invoices.due_date < ${now}), 0)`,
+        invoiceCount: sql<string>`count(*)`,
+        oldestDueDate: sql<Date | null>`min(supplier_invoices.due_date)`,
+      })
+      .from(supplierInvoices)
+      .innerJoin(suppliers, eq(supplierInvoices.supplierId, suppliers.id))
+      .where(owing)
+      .groupBy(suppliers.id)
+      .orderBy(sql`coalesce(sum(${outstanding}), 0) desc`);
+
+    // Does the bill match what the delivery's own records say it cost? A
+    // variance while units still lack a purchase price is not evidence of an
+    // error, so the count of those units travels with every row.
+    const recon = await ctx.db
+      .select({
+        consignmentId: consignments.id,
+        consignmentRef: consignments.ref,
+        supplierName: suppliers.name,
+        invoicedCents: sql<string>`sum(supplier_invoices.amount_cents)`,
+        recordedCostCents: sql<string>`coalesce((select sum(i.cost_cents) from items i where i.consignment_id = consignments.id), 0) + coalesce(consignments.extra_cost_cents, 0)`,
+        noCostDataCount: sql<string>`(select count(*) from items i where i.consignment_id = consignments.id and i.cost_cents is null)`,
+      })
+      .from(supplierInvoices)
+      .innerJoin(consignments, eq(supplierInvoices.consignmentId, consignments.id))
+      .innerJoin(suppliers, eq(supplierInvoices.supplierId, suppliers.id))
+      .where(sql`supplier_invoices.status <> 'cancelled'`)
+      .groupBy(consignments.id, suppliers.name);
+
+    const checked = recon.map((r) => ({
+      consignmentId: r.consignmentId,
+      consignmentRef: r.consignmentRef,
+      supplierName: r.supplierName,
+      invoicedCents: Number(r.invoicedCents),
+      recordedCostCents: Number(r.recordedCostCents),
+      varianceCents: Number(r.invoicedCents) - Number(r.recordedCostCents),
+      noCostDataCount: Number(r.noCostDataCount),
+    }));
+    const mismatched = checked
+      .filter((r) => r.varianceCents !== 0)
+      .sort((a, b) => Math.abs(b.varianceCents) - Math.abs(a.varianceCents))
+      .slice(0, 50);
+
+    return {
+      asOf: now.toISOString(),
+      totals: {
+        outstandingCents: Number(totalsRow!.outstanding),
+        overdueCents: Number(totalsRow!.overdue),
+        dueThisWeekCents: Number(totalsRow!.dueThisWeek),
+        paidThisMonthCents: Number(paidMonth!.n),
+        invoiceCount: Number(totalsRow!.invoiceCount),
+        overdueCount: Number(totalsRow!.overdueCount),
+      },
+      aging: {
+        current: Number(totalsRow!.current),
+        d1_30: Number(totalsRow!.d1_30),
+        d31_60: Number(totalsRow!.d31_60),
+        d60plus: Number(totalsRow!.d60plus),
+      },
+      bySupplier: bySupplier.map((s) => ({
+        supplierId: s.supplierId,
+        name: s.name,
+        outstandingCents: Number(s.outstanding),
+        overdueCents: Number(s.overdue),
+        invoiceCount: Number(s.invoiceCount),
+        oldestDueDate: s.oldestDueDate,
+      })),
+      reconciliation: {
+        checkedDeliveries: checked.length,
+        matchingDeliveries: checked.length - mismatched.length,
+        mismatched,
       },
     };
   });

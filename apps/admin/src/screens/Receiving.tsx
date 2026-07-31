@@ -1,11 +1,11 @@
 import { CATEGORIES } from "@auction/domain/categories";
 import { CONDITIONS, conditionByCode, conditionRequiresNotes } from "@auction/domain/conditions";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { api, ApiError, type ConditionPreset, type Item, type Market } from "../api.js";
 import type { Nav } from "../App.js";
 import { useAuth } from "../auth.js";
 import { exportCSV } from "../exporters.js";
-import { formatDate, formatEur } from "../format.js";
+import { formatDate, formatDay, formatEur } from "../format.js";
 import { useT, type Lang, type TKey } from "../i18n.js";
 import { openLabelWindow as openLabel } from "../labels.js";
 import { AT, type Tone } from "../theme.js";
@@ -20,6 +20,9 @@ interface Consignment {
   id: string;
   ref: string;
   supplier: string;
+  /** R1: the supplier record behind the text. Null on older deliveries the
+   * backfill could not match to a name. */
+  supplierId?: string | null;
   notes: string;
   marketCode: string;
   status: string;
@@ -29,6 +32,112 @@ interface Consignment {
   closedAt: string | null;
   /** W6: transport/cleaning for the whole delivery; null = nothing recorded. */
   extraCostCents?: number | null;
+}
+
+/** R1 supplier row. Everything below `deliveryCount` is finance.view-only and
+ * simply absent (not null) for everyone else — never assume it is there. */
+interface Supplier {
+  id: string;
+  name: string;
+  active: boolean;
+  paymentTermsDays: number;
+  deliveryCount: number;
+  regNo?: string;
+  vatNo?: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+  bankAccount?: string;
+  notes?: string;
+  outstandingCents?: number;
+  overdueCents?: number;
+}
+
+/** One bill from a supplier (finance.view only). */
+interface SupplierInvoice {
+  id: string;
+  number: string;
+  supplierId: string;
+  supplierName: string;
+  consignmentId: string | null;
+  consignmentRef: string | null;
+  invoiceDate: string;
+  dueDate: string;
+  amountCents: number;
+  paidCents: number;
+  outstandingCents: number;
+  status: string;
+  overdueDays: number;
+  note: string;
+}
+
+/** The bill against what the warehouse actually recorded for the delivery. */
+interface Reconciliation {
+  recordedCostCents: number;
+  varianceCents: number;
+  noCostDataCount: number;
+}
+
+const INVOICE_STATUS: Record<string, { key: TKey; tone: Tone }> = {
+  unpaid: { key: "rcv.sup.st.unpaid", tone: "warn" },
+  partly_paid: { key: "rcv.sup.st.partly", tone: "accent" },
+  paid: { key: "rcv.sup.st.paid", tone: "ok" },
+  cancelled: { key: "rcv.sup.st.cancelled", tone: "neutral" },
+};
+
+/** Payment terms in whole days. Blank → null ("leave as it is"), anything that
+ * is not 0–365 → "bad", so a typo is refused inline instead of being sent. */
+const parseTermsDays = (s: string): number | null | "bad" => {
+  const v = s.trim();
+  if (!v) return null;
+  if (!/^\d{1,3}$/.test(v)) return "bad";
+  const n = Number(v);
+  return n <= 365 ? n : "bad";
+};
+
+const todayISO = (): string => new Date().toISOString().slice(0, 10);
+
+/**
+ * The supplier box on the delivery forms: free typing (a new name is allowed
+ * and becomes a record) backed by a datalist of the names already on file, so
+ * "nor" offers "Nordic Trade OÜ" instead of creating a third spelling.
+ */
+function SupplierPicker({ value, onChange, options, listId, placeholder, disabled }: {
+  value: string;
+  onChange: (v: string) => void;
+  options: Supplier[];
+  listId: string;
+  placeholder?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <>
+      <input
+        list={listId}
+        value={value}
+        disabled={disabled}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)}
+        style={{
+          height: 36, borderRadius: AT.radiusSm, border: `1px solid ${AT.rule}`, background: AT.panel,
+          fontFamily: AT.body, fontSize: 13, color: AT.ink, padding: "0 11px", outline: "none", width: "100%",
+        }}
+      />
+      <datalist id={listId}>
+        {options.filter((s) => s.active).map((s) => <option key={s.id} value={s.name} />)}
+      </datalist>
+    </>
+  );
+}
+
+/** Label/value line inside the invoice card. */
+function InvLine({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
+      <span style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.inkSoft }}>{label}</span>
+      <span style={{ fontFamily: AT.body, fontSize: 13, fontWeight: 600, color: AT.ink, textAlign: "right" }}>{children}</span>
+    </div>
+  );
 }
 
 /** W6: the API sends costCents only to finance.view holders. */
@@ -82,7 +191,19 @@ export function ReceivingScreen({ nav }: { nav: Nav }) {
   const [received, setReceived] = useState<Item[]>([]);
   const [form, setForm] = useState(emptyReceive);
   const [busy, setBusy] = useState(false);
+  const [createBusy, setCreateBusy] = useState(false);
   const titleRef = useRef<HTMLInputElement | null>(null);
+
+  // R1: suppliers are records now — the same list feeds the picker, the
+  // "Piegādātāji" tab and the attach box on older deliveries.
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [attachName, setAttachName] = useState("");
+  const [attachBusy, setAttachBusy] = useState(false);
+
+  const loadSuppliers = useCallback(() => {
+    void api.get<{ suppliers: Supplier[] }>("/api/suppliers").then((r) => setSuppliers(r.suppliers)).catch(() => undefined);
+  }, []);
+  useEffect(loadSuppliers, [loadSuppliers]);
 
   // W6: delivery-level costs — finance-only, both endpoints 403 otherwise.
   const canCost = can("finance.view");
@@ -92,7 +213,7 @@ export function ReceivingScreen({ nav }: { nav: Nav }) {
 
   // W2 grading review queue — only for reviewers; badge stays live over WS.
   const canReview = can("grading.review");
-  const [tab, setTab] = useState<"deliveries" | "review" | "bins" | "counts">("deliveries");
+  const [tab, setTab] = useState<"deliveries" | "review" | "suppliers" | "bins" | "counts">("deliveries");
   const [pending, setPending] = useState<ReviewItem[]>([]);
 
   const loadReview = useCallback(() => {
@@ -129,13 +250,45 @@ export function ReceivingScreen({ nav }: { nav: Nav }) {
     setForm(emptyReceive);
     setSpreadTotal("");
     setExtraCost("");
+    setAttachName("");
     refreshDetail(id);
   };
 
-  const create = async () => {
+  /**
+   * R1 — a typed name becomes an id: an existing record wins (case-insensitive),
+   * a genuinely new name is created with the name alone. A 409 means someone
+   * else got there first, which is exactly the collision this feature exists to
+   * end — take the winner's id and say nothing. Anything else returns null and
+   * the caller falls back to sending the name, which the API still links.
+   */
+  const resolveSupplierId = async (typed: string): Promise<string | null> => {
+    const name = typed.trim();
+    if (name.length < 2) return null;
+    const hit = suppliers.find((s) => s.name.toLowerCase() === name.toLowerCase());
+    if (hit) return hit.id;
     try {
+      // Name only: terms and bank details are money data and belong to the
+      // supplier drawer, where the finance block is gated.
+      const r = await api.post<{ supplier: { id: string } }>("/api/suppliers", { name });
+      loadSuppliers();
+      return r.supplier.id;
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409 && typeof err.body.supplierId === "string") {
+        loadSuppliers();
+        return err.body.supplierId;
+      }
+      return null;
+    }
+  };
+
+  const create = async () => {
+    if (createBusy) return;
+    setCreateBusy(true);
+    try {
+      const supplierId = await resolveSupplierId(createForm.supplier);
       const r = await api.post<{ consignment: Consignment }>("/api/consignments", {
-        supplier: createForm.supplier,
+        supplier: createForm.supplier.trim(),
+        ...(supplierId ? { supplierId } : {}),
         marketCode: createForm.marketCode,
         expectedCount: createForm.expected ? Number(createForm.expected) : 0,
         notes: createForm.notes,
@@ -146,6 +299,31 @@ export function ReceivingScreen({ nav }: { nav: Nav }) {
       openDetail(r.consignment.id);
     } catch (err) {
       toast(err instanceof ApiError ? err.message : t("rcv.createFailed"), "danger");
+    } finally {
+      setCreateBusy(false);
+    }
+  };
+
+  /** Older deliveries the backfill could not match: attach one after the fact
+   * so the delivery can carry its invoice. */
+  const attachSupplier = async () => {
+    if (!active || attachBusy) return;
+    setAttachBusy(true);
+    try {
+      const supplierId = await resolveSupplierId(attachName);
+      if (!supplierId) {
+        toast(t("rcv.sup.attachFailed"), "danger");
+        return;
+      }
+      const r = await api.patch<{ consignment: Consignment }>(`/api/consignments/${active.id}/supplier`, { supplierId });
+      setActive((prev) => (prev ? { ...prev, ...r.consignment } : r.consignment));
+      setAttachName("");
+      toast(t("rcv.sup.attached"), "ok");
+      load();
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : t("rcv.sup.attachFailed"), "danger");
+    } finally {
+      setAttachBusy(false);
     }
   };
 
@@ -292,6 +470,36 @@ export function ReceivingScreen({ nav }: { nav: Nav }) {
           <AStat label={t("c.market")} value={active.marketCode} />
         </div>
 
+        {/* R1: no supplier record behind the typed name — nothing can be billed
+            against this delivery until one is picked. */}
+        {!active.supplierId && (
+          <ACard title={t("rcv.sup.noneLinked")}>
+            <div style={{ display: "grid", gap: 8 }}>
+              <div style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.inkSoft, lineHeight: 1.5 }}>
+                {can("warehouse.manage") ? t("rcv.sup.attachHint") : t("rcv.sup.attachManagerOnly")}
+              </div>
+              {can("warehouse.manage") && (
+                <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+                  <div style={{ width: 280 }}>
+                    <AField label={t("rcv.supplier")}>
+                      <SupplierPicker
+                        value={attachName}
+                        onChange={setAttachName}
+                        options={suppliers}
+                        listId="rcv-sup-attach"
+                        placeholder={t("rcv.sup.pickPh")}
+                      />
+                    </AField>
+                  </div>
+                  <ABtn onClick={() => void attachSupplier()} disabled={attachBusy || attachName.trim().length < 2}>
+                    {t("rcv.sup.attach")}
+                  </ABtn>
+                </div>
+              )}
+            </div>
+          </ACard>
+        )}
+
         {open && can("warehouse.manage") && (
           <ACard title={t("rcv.receiveNextUnit")}>
             <div style={{ display: "grid", gap: 12 }}>
@@ -359,60 +567,66 @@ export function ReceivingScreen({ nav }: { nav: Nav }) {
         )}
 
         {canCost && (
-          <ACard title={t("rcv.cost.card")}>
-            <div style={{ display: "grid", gap: 18 }}>
-              {/* Transport/cleaning for the whole pallet — pro-rata at report time. */}
-              <div style={{ display: "grid", gap: 6 }}>
-                <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
-                  <div style={{ width: 190 }}>
-                    <AField label={t("rcv.cost.extra")}>
-                      <AInput
-                        value={extraCost}
-                        onChange={setExtraCost}
-                        placeholder={t("rcv.cost.unknownPh")}
-                        style={{ borderColor: extraParsed === "bad" ? AT.danger : undefined }}
-                      />
-                    </AField>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 14, alignItems: "start" }}>
+            <ACard title={t("rcv.cost.card")}>
+              <div style={{ display: "grid", gap: 18 }}>
+                {/* Transport/cleaning for the whole pallet — pro-rata at report time. */}
+                <div style={{ display: "grid", gap: 6 }}>
+                  <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+                    <div style={{ width: 190 }}>
+                      <AField label={t("rcv.cost.extra")}>
+                        <AInput
+                          value={extraCost}
+                          onChange={setExtraCost}
+                          placeholder={t("rcv.cost.unknownPh")}
+                          style={{ borderColor: extraParsed === "bad" ? AT.danger : undefined }}
+                        />
+                      </AField>
+                    </div>
+                    <ABtn
+                      kind="ghost"
+                      onClick={() => void saveExtraCost()}
+                      disabled={costBusy || extraParsed === "bad" || !extraChanged}
+                    >{t("c.save")}</ABtn>
                   </div>
-                  <ABtn
-                    kind="ghost"
-                    onClick={() => void saveExtraCost()}
-                    disabled={costBusy || extraParsed === "bad" || !extraChanged}
-                  >{t("c.save")}</ABtn>
+                  <CostError show={extraParsed === "bad"} text={t("rcv.cost.badAmount")} />
+                  <div style={{ fontFamily: AT.body, fontSize: 11.5, color: AT.inkSoft, lineHeight: 1.5 }}>
+                    {t("rcv.cost.extraHint")}
+                  </div>
                 </div>
-                <CostError show={extraParsed === "bad"} text={t("rcv.cost.badAmount")} />
-                <div style={{ fontFamily: AT.body, fontSize: 11.5, color: AT.inkSoft, lineHeight: 1.5 }}>
-                  {t("rcv.cost.extraHint")}
-                </div>
-              </div>
 
-              {/* Pallet price → per-unit cost on every item in the delivery. */}
-              <div style={{ display: "grid", gap: 6, borderTop: `1px solid ${AT.ruleSoft}`, paddingTop: 14 }}>
-                <div style={{ fontFamily: AT.body, fontSize: 13, fontWeight: 700, color: AT.ink }}>{t("rcv.cost.spread")}</div>
-                <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
-                  <div style={{ width: 190 }}>
-                    <AField label={t("rcv.cost.spreadField")}>
-                      <AInput
-                        value={spreadTotal}
-                        onChange={setSpreadTotal}
-                        placeholder="0,00"
-                        style={{ borderColor: spreadParsed === "bad" ? AT.danger : undefined }}
-                      />
-                    </AField>
+                {/* Pallet price → per-unit cost on every item in the delivery. */}
+                <div style={{ display: "grid", gap: 6, borderTop: `1px solid ${AT.ruleSoft}`, paddingTop: 14 }}>
+                  <div style={{ fontFamily: AT.body, fontSize: 13, fontWeight: 700, color: AT.ink }}>{t("rcv.cost.spread")}</div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+                    <div style={{ width: 190 }}>
+                      <AField label={t("rcv.cost.spreadField")}>
+                        <AInput
+                          value={spreadTotal}
+                          onChange={setSpreadTotal}
+                          placeholder="0,00"
+                          style={{ borderColor: spreadParsed === "bad" ? AT.danger : undefined }}
+                        />
+                      </AField>
+                    </div>
+                    <ABtn
+                      kind="dark"
+                      onClick={() => void spreadCost()}
+                      disabled={costBusy || typeof spreadParsed !== "number" || received.length === 0}
+                    >{t("rcv.cost.spreadBtn")}</ABtn>
                   </div>
-                  <ABtn
-                    kind="dark"
-                    onClick={() => void spreadCost()}
-                    disabled={costBusy || typeof spreadParsed !== "number" || received.length === 0}
-                  >{t("rcv.cost.spreadBtn")}</ABtn>
-                </div>
-                <CostError show={spreadParsed === "bad"} text={t("rcv.cost.badAmount")} />
-                <div style={{ fontFamily: AT.body, fontSize: 11.5, color: AT.inkSoft, lineHeight: 1.5 }}>
-                  {t("rcv.cost.spreadHint").replace("{n}", String(received.length))}
+                  <CostError show={spreadParsed === "bad"} text={t("rcv.cost.badAmount")} />
+                  <div style={{ fontFamily: AT.body, fontSize: 11.5, color: AT.inkSoft, lineHeight: 1.5 }}>
+                    {t("rcv.cost.spreadHint").replace("{n}", String(received.length))}
+                  </div>
                 </div>
               </div>
-            </div>
-          </ACard>
+            </ACard>
+
+            {/* R1: the supplier's bill for this delivery, next to what we
+                recorded ourselves — the two are meant to be read together. */}
+            <SupplierInvoiceCard key={active.id} consignmentId={active.id} hasSupplier={!!active.supplierId} nav={nav} />
+          </div>
         )}
 
         <ACard title={`${t("rcv.receivedItems")} (${received.length})`} pad={false}>
@@ -464,6 +678,7 @@ export function ReceivingScreen({ nav }: { nav: Nav }) {
         options={[
           { id: "deliveries" as const, label: t("rcv.tabDeliveries"), count: list.length },
           ...(canReview ? [{ id: "review" as const, label: t("rcv.tabReview"), count: pending.length }] : []),
+          { id: "suppliers" as const, label: t("rcv.sup.tab"), count: suppliers.length },
           { id: "bins" as const, label: t("wh.bins") },
           { id: "counts" as const, label: t("rc.cnt.tab") },
         ]}
@@ -473,6 +688,8 @@ export function ReceivingScreen({ nav }: { nav: Nav }) {
 
       {canReview && tab === "review" ? (
         <GradingReviewQueue items={pending} reload={loadReview} />
+      ) : tab === "suppliers" ? (
+        <SuppliersTab list={suppliers} reload={loadSuppliers} />
       ) : tab === "bins" ? (
         <BinsBrowser nav={nav} />
       ) : tab === "counts" ? (
@@ -505,13 +722,22 @@ export function ReceivingScreen({ nav }: { nav: Nav }) {
           footer={
             <>
               <ABtn kind="ghost" onClick={() => setCreating(false)}>{t("c.cancel")}</ABtn>
-              <ABtn onClick={() => void create()} disabled={createForm.supplier.trim().length < 2}>{t("c.create")}</ABtn>
+              <ABtn onClick={() => void create()} disabled={createBusy || createForm.supplier.trim().length < 2}>{t("c.create")}</ABtn>
             </>
           }
         >
           <div style={{ display: "grid", gap: 14 }}>
-            <AField label={t("rcv.supplier")} hint={t("rcv.supplierHint")}>
-              <AInput value={createForm.supplier} onChange={(v) => setCreateForm({ ...createForm, supplier: v })} />
+            {/* R1: still free text — but every name that already exists is one
+                keystroke away, so the same supplier stops being typed three
+                different ways. */}
+            <AField label={t("rcv.supplier")} hint={t("rcv.sup.pickHint")}>
+              <SupplierPicker
+                value={createForm.supplier}
+                onChange={(v) => setCreateForm({ ...createForm, supplier: v })}
+                options={suppliers}
+                listId="rcv-sup-create"
+                placeholder={t("rcv.sup.pickPh")}
+              />
             </AField>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <AField label={t("c.market")}>
@@ -1146,5 +1372,428 @@ function StockCountsTab() {
         </ADrawer>
       )}
     </div>
+  );
+}
+
+// ── R1: suppliers ("Piegādātāji", fifth Receiving tab) ───────────────────────
+
+interface SupplierForm {
+  name: string;
+  regNo: string;
+  vatNo: string;
+  email: string;
+  phone: string;
+  address: string;
+  notes: string;
+  /** Finance-only fields — never sent by a caller without finance.view. */
+  bankAccount: string;
+  terms: string;
+  active: boolean;
+}
+
+const emptySupplierForm: SupplierForm = {
+  name: "", regNo: "", vatNo: "", email: "", phone: "", address: "", notes: "",
+  bankAccount: "", terms: "", active: true,
+};
+
+/** Text fields the API accepts from any warehouse manager. */
+type SupplierTextKey = "name" | "regNo" | "vatNo" | "email" | "phone" | "address" | "notes" | "bankAccount";
+
+function SuppliersTab({ list, reload }: { list: Supplier[]; reload: () => void }) {
+  const { can } = useAuth();
+  const { t } = useT();
+  const toast = useToast();
+  const confirm = useConfirm();
+  const canManage = can("warehouse.manage");
+  // Terms, bank details and what we owe are money data: the API strips them
+  // from the list for everyone else, so the block is not rendered at all.
+  const canMoney = can("finance.view");
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<Supplier | null>(null);
+  const [form, setForm] = useState<SupplierForm>(emptySupplierForm);
+  const [busy, setBusy] = useState(false);
+
+  const openNew = () => {
+    setEditing(null);
+    setForm(emptySupplierForm);
+    setOpen(true);
+  };
+
+  const openEdit = (s: Supplier) => {
+    setEditing(s);
+    setForm({
+      name: s.name,
+      regNo: s.regNo ?? "",
+      vatNo: s.vatNo ?? "",
+      email: s.email ?? "",
+      phone: s.phone ?? "",
+      address: s.address ?? "",
+      notes: s.notes ?? "",
+      bankAccount: s.bankAccount ?? "",
+      terms: String(s.paymentTermsDays),
+      active: s.active,
+    });
+    setOpen(true);
+  };
+
+  const days = parseTermsDays(form.terms);
+  const canSave = !busy && form.name.trim().length >= 2 && !(canMoney && days === "bad");
+
+  const save = async () => {
+    if (!canSave) return;
+    // Deactivating takes the supplier out of every picker — ask first.
+    if (editing && editing.active && !form.active) {
+      const r = await confirm({
+        title: `${t("rcv.sup.deactivate")} — ${editing.name}?`,
+        body: t("rcv.sup.deactivateBody"),
+        confirmLabel: t("rcv.sup.deactivate"),
+      });
+      if (!r.ok) return;
+    }
+
+    /**
+     * Only what actually changed goes on the wire. A manager without
+     * finance.view never received regNo/vatNo/… in the first place, so their
+     * blank (and untouched) field must not overwrite what is stored.
+     */
+    const body: Record<string, unknown> = {};
+    const put = (key: SupplierTextKey, before: string | undefined) => {
+      const v = form[key].trim();
+      if (editing ? v !== (before ?? "") : v !== "") body[key] = v;
+    };
+    put("name", editing?.name);
+    put("regNo", editing?.regNo);
+    put("vatNo", editing?.vatNo);
+    put("email", editing?.email);
+    put("phone", editing?.phone);
+    put("address", editing?.address);
+    put("notes", editing?.notes);
+    if (canMoney) {
+      put("bankAccount", editing?.bankAccount);
+      if (typeof days === "number" && (!editing || days !== editing.paymentTermsDays)) body.paymentTermsDays = days;
+    }
+    if (editing && form.active !== editing.active) body.active = form.active;
+
+    setBusy(true);
+    try {
+      if (editing) {
+        if (Object.keys(body).length === 0) {
+          setOpen(false);
+          return;
+        }
+        await api.patch(`/api/suppliers/${editing.id}`, body);
+        toast(t("rcv.sup.saved"), "ok");
+      } else {
+        await api.post("/api/suppliers", body);
+        toast(t("rcv.sup.created"), "ok");
+      }
+      setOpen(false);
+      reload();
+    } catch (err) {
+      toast(err instanceof ApiError && err.status === 409 ? t("rcv.sup.exists") : t("rcv.sup.saveFailed"), "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      {canManage && (
+        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <ABtn onClick={openNew}>
+            <AIcon name="plus" size={15} color="#fff" /> {t("rcv.sup.new")}
+          </ABtn>
+        </div>
+      )}
+
+      <ACard pad={false}>
+        {list.length === 0 ? (
+          <AEmpty text={t("rcv.sup.empty")} />
+        ) : (
+          <ATable
+            head={[
+              t("rcv.sup.nameField"),
+              t("rcv.sup.deliveries"),
+              t("rcv.sup.terms"),
+              ...(canMoney ? [t("rcv.sup.outstanding")] : []),
+              t("c.status"),
+            ]}
+          >
+            {list.map((s) => (
+              <ATr key={s.id} onClick={canManage ? () => openEdit(s) : undefined}>
+                <ATd><span style={{ fontWeight: 600 }}>{s.name}</span></ATd>
+                <ATd right>{s.deliveryCount}</ATd>
+                <ATd right>{s.paymentTermsDays} {t("rcv.sup.daysShort")}</ATd>
+                {canMoney && (
+                  <ATd right>
+                    <span style={{ fontFamily: AT.mono, fontSize: 12 }}>{formatEur(s.outstandingCents ?? 0)}</span>
+                    {(s.overdueCents ?? 0) > 0 && (
+                      <span style={{ marginLeft: 6 }}>
+                        <ABadge tone="danger">{formatEur(s.overdueCents ?? 0)} {t("rcv.sup.overdue")}</ABadge>
+                      </span>
+                    )}
+                  </ATd>
+                )}
+                <ATd>
+                  <ABadge tone={s.active ? "ok" : "neutral"}>{s.active ? t("rcv.active") : t("rcv.sup.inactive")}</ABadge>
+                </ATd>
+              </ATr>
+            ))}
+          </ATable>
+        )}
+      </ACard>
+
+      {open && (
+        <ADrawer
+          title={editing ? t("rcv.sup.editTitle") : t("rcv.sup.new")}
+          onClose={() => setOpen(false)}
+          footer={
+            <>
+              <ABtn kind="ghost" onClick={() => setOpen(false)}>{t("c.cancel")}</ABtn>
+              <ABtn onClick={() => void save()} disabled={!canSave}>{editing ? t("c.save") : t("c.create")}</ABtn>
+            </>
+          }
+        >
+          <div style={{ display: "grid", gap: 14 }}>
+            <AField label={t("rcv.sup.nameField")} hint={t("rcv.supplierHint")}>
+              <AInput value={form.name} onChange={(v) => setForm({ ...form, name: v })} />
+            </AField>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <AField label={t("rcv.sup.regNo")}>
+                <AInput value={form.regNo} onChange={(v) => setForm({ ...form, regNo: v })} />
+              </AField>
+              <AField label={t("rcv.sup.vatNo")}>
+                <AInput value={form.vatNo} onChange={(v) => setForm({ ...form, vatNo: v })} />
+              </AField>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <AField label={t("rcv.sup.email")}>
+                <AInput value={form.email} onChange={(v) => setForm({ ...form, email: v })} />
+              </AField>
+              <AField label={t("rcv.sup.phone")}>
+                <AInput value={form.phone} onChange={(v) => setForm({ ...form, phone: v })} />
+              </AField>
+            </div>
+            <AField label={t("rcv.sup.address")}>
+              <AInput value={form.address} onChange={(v) => setForm({ ...form, address: v })} />
+            </AField>
+            <AField label={t("c.notes")}>
+              <textarea
+                value={form.notes}
+                onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                rows={3}
+                style={{
+                  width: "100%", borderRadius: AT.radiusSm, border: `1px solid ${AT.rule}`, fontFamily: AT.body,
+                  fontSize: 13, color: AT.ink, padding: 10, resize: "vertical",
+                }}
+              />
+            </AField>
+            {/* Blank contact fields are ambiguous without finance.view — say so
+                rather than let someone "fix" an empty box over real data. */}
+            {!canMoney && (
+              <div style={{ fontFamily: AT.body, fontSize: 11.5, color: AT.inkSoft, lineHeight: 1.5 }}>
+                {t("rcv.sup.detailsHidden")}
+              </div>
+            )}
+            {editing && (
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: AT.body, fontSize: 13, color: AT.ink, cursor: "pointer", width: "fit-content" }}>
+                <input type="checkbox" checked={form.active} onChange={() => setForm({ ...form, active: !form.active })} />
+                {t("rcv.sup.activeLbl")}
+              </label>
+            )}
+
+            {canMoney && (
+              <div style={{ display: "grid", gap: 12, borderTop: `1px solid ${AT.ruleSoft}`, paddingTop: 14 }}>
+                <div style={{ fontFamily: AT.body, fontSize: 13, fontWeight: 700, color: AT.ink }}>{t("rcv.sup.commercial")}</div>
+                <AField label={t("rcv.sup.termsField")} hint={t("rcv.sup.termsHint")}>
+                  <AInput
+                    value={form.terms}
+                    onChange={(v) => setForm({ ...form, terms: v })}
+                    placeholder="14"
+                    style={{ borderColor: days === "bad" ? AT.danger : undefined }}
+                  />
+                  <CostError show={days === "bad"} text={t("rcv.sup.badTerms")} />
+                </AField>
+                <AField label={t("rcv.sup.bank")}>
+                  <AInput value={form.bankAccount} onChange={(v) => setForm({ ...form, bankAccount: v })} placeholder="LV00 HABA 0000 0000 0000 0" />
+                </AField>
+              </div>
+            )}
+          </div>
+        </ADrawer>
+      )}
+    </div>
+  );
+}
+
+// ── R1: the supplier's bill for one delivery (finance.view only) ─────────────
+
+function SupplierInvoiceCard({ consignmentId, hasSupplier, nav }: {
+  consignmentId: string;
+  hasSupplier: boolean;
+  nav: Nav;
+}) {
+  const { t } = useT();
+  const toast = useToast();
+  const [invoice, setInvoice] = useState<SupplierInvoice | null>(null);
+  const [recon, setRecon] = useState<Reconciliation | null>(null);
+  const [form, setForm] = useState({ number: "", date: todayISO(), amount: "", note: "" });
+  const [busy, setBusy] = useState(false);
+
+  /** Every payables row carries its consignmentId, so one list read finds this
+   * delivery's bill; the detail read adds payments and the reconciliation. */
+  const load = useCallback(() => {
+    void api
+      .get<{ invoices: SupplierInvoice[] }>("/api/supplier-invoices?status=all")
+      .then((r) => {
+        const row = r.invoices.find((i) => i.consignmentId === consignmentId);
+        if (!row) {
+          setInvoice(null);
+          setRecon(null);
+          return;
+        }
+        return api
+          .get<{ invoice: SupplierInvoice; reconciliation: Reconciliation | null }>(`/api/supplier-invoices/${row.id}`)
+          .then((d) => {
+            setInvoice(d.invoice);
+            setRecon(d.reconciliation);
+          });
+      })
+      .catch(() => undefined);
+  }, [consignmentId]);
+  useEffect(load, [load]);
+
+  const amount = eurToCents(form.amount);
+  // A bill always has an amount — blank stays "not set" and simply blocks the
+  // save instead of filing a €0 invoice.
+  const canFile = hasSupplier && !busy && form.number.trim().length > 0 && !!form.date && typeof amount === "number";
+
+  const file = async () => {
+    // The typeof repeat is what narrows `amount` — a "bad" or blank amount is
+    // never sent, and never turns into a zero.
+    if (!canFile || typeof amount !== "number") return;
+    setBusy(true);
+    try {
+      await api.post<{ invoice: SupplierInvoice }>("/api/supplier-invoices", {
+        consignmentId,
+        number: form.number.trim(),
+        invoiceDate: form.date,
+        amountCents: amount,
+        ...(form.note.trim() ? { note: form.note.trim() } : {}),
+      });
+      toast(t("rcv.sup.invSaved"), "ok");
+      setForm({ number: "", date: todayISO(), amount: "", note: "" });
+      load();
+    } catch (err) {
+      const code = err instanceof ApiError ? err.message : "";
+      toast(
+        code === "supplier_required" || code === "consignment_supplier_missing"
+          ? t("rcv.sup.invNeedSupplier")
+          : t("rcv.sup.invFailed"),
+        "danger",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (invoice) {
+    const meta = INVOICE_STATUS[invoice.status] ?? { key: "rcv.sup.st.unpaid" as TKey, tone: "neutral" as Tone };
+    const off = recon && recon.varianceCents !== 0;
+    return (
+      <ACard title={t("rcv.sup.invCard")}>
+        <div style={{ display: "grid", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontFamily: AT.mono, fontSize: 13.5, fontWeight: 800, color: AT.ink }}>{invoice.number}</span>
+            <ABadge tone={meta.tone}>{t(meta.key)}</ABadge>
+            {invoice.overdueDays > 0 && (
+              <ABadge tone="danger">{t("rcv.sup.invOverdue").replace("{n}", String(invoice.overdueDays))}</ABadge>
+            )}
+          </div>
+          <InvLine label={t("rcv.sup.invDate")}>{formatDay(invoice.invoiceDate)}</InvLine>
+          <InvLine label={t("rcv.sup.invDue")}>{formatDay(invoice.dueDate)}</InvLine>
+          <InvLine label={t("rcv.sup.invAmountLbl")}>{formatEur(invoice.amountCents)}</InvLine>
+          <InvLine label={t("rcv.sup.invPaid")}>{formatEur(invoice.paidCents)}</InvLine>
+          <InvLine label={t("rcv.sup.invOutstanding")}>{formatEur(invoice.outstandingCents)}</InvLine>
+          {invoice.note.trim().length > 0 && (
+            <div style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.inkSoft, fontStyle: "italic" }}>{invoice.note}</div>
+          )}
+
+          {/* What the supplier billed vs. what the warehouse recorded. */}
+          {recon && (
+            <div style={{
+              borderRadius: AT.radiusSm, padding: "9px 11px", lineHeight: 1.5, fontFamily: AT.body, fontSize: 12,
+              background: off ? AT.warnSoft : AT.surfaceAlt, color: off ? AT.warn : AT.inkSoft,
+            }}>
+              <div style={{ fontWeight: off ? 700 : 500 }}>
+                {t("rcv.sup.recon")
+                  .replace("{rec}", formatEur(recon.recordedCostCents))
+                  .replace("{var}", formatEur(recon.varianceCents))}
+              </div>
+              {/* A variance means little when half the units were never priced. */}
+              {recon.noCostDataCount > 0 && (
+                <div style={{ color: AT.inkSoft, marginTop: 4 }}>
+                  {t("rcv.sup.reconIncomplete").replace("{n}", String(recon.noCostDataCount))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Payment belongs to the payables ledger, not to intake. */}
+          <div style={{ fontFamily: AT.body, fontSize: 11.5, color: AT.inkSoft, lineHeight: 1.5 }}>
+            {t("rcv.sup.payHint")}{" "}
+            <button
+              onClick={() => nav.go("finance")}
+              style={{ all: "unset", cursor: "pointer", color: AT.accent, fontWeight: 600 }}
+            >{t("rcv.sup.payLink")}</button>
+          </div>
+        </div>
+      </ACard>
+    );
+  }
+
+  return (
+    <ACard title={t("rcv.sup.invCard")}>
+      <div style={{ display: "grid", gap: 12 }}>
+        {!hasSupplier && (
+          <div style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.warn, lineHeight: 1.5 }}>
+            {t("rcv.sup.invNeedSupplier")}
+          </div>
+        )}
+        {/* Nothing here can be filed until the delivery has a supplier. */}
+        <div style={{
+          display: "grid", gap: 12,
+          opacity: hasSupplier ? 1 : 0.45,
+          pointerEvents: hasSupplier ? undefined : "none",
+        }}>
+          <AField label={t("rcv.sup.invNumber")}>
+            <AInput value={form.number} onChange={(v) => setForm({ ...form, number: v })} placeholder={t("rcv.sup.invNumberPh")} />
+          </AField>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <AField label={t("rcv.sup.invDate")}>
+              <AInput type="date" value={form.date} onChange={(v) => setForm({ ...form, date: v })} />
+            </AField>
+            <AField label={t("rcv.sup.invAmount")}>
+              <AInput
+                value={form.amount}
+                onChange={(v) => setForm({ ...form, amount: v })}
+                placeholder="0,00"
+                style={{ borderColor: amount === "bad" ? AT.danger : undefined }}
+              />
+              <CostError show={amount === "bad"} text={t("rcv.cost.badAmount")} />
+            </AField>
+          </div>
+          <AField label={t("rcv.sup.invNote")}>
+            <AInput value={form.note} onChange={(v) => setForm({ ...form, note: v })} />
+          </AField>
+          <div style={{ fontFamily: AT.body, fontSize: 11.5, color: AT.inkSoft, lineHeight: 1.5 }}>
+            {t("rcv.sup.invDueHint")}
+          </div>
+          <div>
+            <ABtn onClick={() => void file()} disabled={!canFile}>{t("rcv.sup.invSave")}</ABtn>
+          </div>
+        </div>
+      </div>
+    </ACard>
   );
 }

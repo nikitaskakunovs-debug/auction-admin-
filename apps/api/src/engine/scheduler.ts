@@ -46,21 +46,32 @@ export class AuctionScheduler {
       const locked = await this.ctx.redis.set(LOCK_KEY, token, "PX", LOCK_TTL_MS, "NX");
       if (locked !== "OK") return;
       try {
-        await this.openDue();
-        await this.closeDue();
+        // Each phase is isolated: one poisoned row used to abort the whole
+        // tick, so a single stuck order silently stopped every later phase —
+        // pickup reminders, shipment tracking and, worst of all, the
+        // notification outbox — for as long as it sat there.
+        const phase = async (name: string, run: () => Promise<unknown>): Promise<void> => {
+          try {
+            await run();
+          } catch (err) {
+            console.error(`scheduler phase ${name} failed`, err);
+          }
+        };
+        await phase("openDue", () => this.openDue());
+        await phase("closeDue", () => this.closeDue());
         // Design-doc unpaid-winner flow: deadline → reminder → auto-cancel.
-        await this.remindUnpaidDue();
-        await this.cancelUnpaidDue();
+        await phase("remindUnpaidDue", () => this.remindUnpaidDue());
+        await phase("cancelUnpaidDue", () => this.cancelUnpaidDue());
         // Pickup no-show flow: reminder → cancel + restock fee + strike.
-        await remindPickupDue(this.ctx);
-        await cancelNoShowDue(this.ctx);
+        await phase("remindPickupDue", () => remindPickupDue(this.ctx));
+        await phase("cancelNoShowDue", () => cancelNoShowDue(this.ctx));
         // Carrier tracking: poll active shipments (rate-limited to every
         // 30 min via its own Redis key — the per-second tick just asks).
-        await this.pollShipments();
+        await phase("pollShipments", () => this.pollShipments());
         // Phase E: pull Jira statuses + IT comments (every 5 min).
-        await this.syncBugs();
+        await phase("syncBugs", () => this.syncBugs());
         // Drain the outbox last so this tick's enqueues go out promptly.
-        await dispatchNotifications(this.ctx);
+        await phase("dispatchNotifications", () => dispatchNotifications(this.ctx));
       } finally {
         // Release only our own lock.
         await this.ctx.redis.eval(
