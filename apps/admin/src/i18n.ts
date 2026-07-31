@@ -325,6 +325,24 @@ const D = {
   "act.grade_edited": { lv: "laboja novērtējumu", ru: "исправил(а) оценку", en: "edited the grade" },
   "act.grade_rejected": { lv: "noraidīja novērtējumu", ru: "отклонил(а) оценку", en: "rejected the grade" },
   "act.grade_notice_ack": { lv: "apstiprināja paziņojumu", ru: "подтвердил(а) уведомление", en: "acknowledged the notice" },
+
+  // ── W5/W6: stock counting (Inventarizācija) ──────────────────────────────
+  "wh.cnt.title": { lv: "Inventarizācija", ru: "Инвентаризация", en: "Stock count" },
+  "wh.cnt.pickSession": { lv: "Aktīvās inventarizācijas — izvēlieties", ru: "Активные инвентаризации — выберите", en: "Open stock counts — pick one" },
+  "wh.cnt.noneOpen": { lv: "Nav aktīvas inventarizācijas", ru: "Нет активной инвентаризации", en: "No active stock count" },
+  "wh.cnt.noneOpenHint": { lv: "Vadītājs to sāk admin panelī — atgriezieties, kad būs izsludināta.", ru: "Менеджер запускает её в админ-панели — вернитесь, когда объявят.", en: "A manager starts one from the admin panel — come back when it's announced." },
+  "wh.cnt.shelves": { lv: "plaukti", ru: "полок", en: "bins" },
+  "wh.cnt.scans": { lv: "skenējumi", ru: "сканов", en: "scans" },
+  "wh.cnt.progress": { lv: "Progress", ru: "Прогресс", en: "Progress" },
+  "wh.cnt.pickBin": { lv: "Izvēlieties plauktu, ko skaitīt", ru: "Выберите полку для подсчёта", en: "Pick a bin to count" },
+  "wh.cnt.scannedHere": { lv: "Noskenēts šajā ierīcē", ru: "Отсканировано на этом устройстве", en: "Scanned on this device" },
+  "wh.cnt.blindHint": { lv: "Skenējiet katru preci, kas atrodas šajā plauktā.", ru: "Отсканируйте каждый товар на этой полке.", en: "Scan every item that's on this shelf." },
+  "wh.cnt.otherBin": { lv: "cits plaukts", ru: "другая полка", en: "other bin" },
+  "wh.cnt.unknown": { lv: "nezināms", ru: "неизвестный", en: "unknown" },
+  "wh.cnt.binDone": { lv: "Plaukts pabeigts", ru: "Полка готова", en: "Bin done" },
+  "wh.cnt.binDoneOk": { lv: "Plaukts atzīmēts kā pabeigts", ru: "Полка отмечена как готовая", en: "Bin marked as done" },
+  "wh.cnt.closed": { lv: "Inventarizācija ir slēgta", ru: "Инвентаризация закрыта", en: "This stock count is closed" },
+  "wh.cnt.scanFailed": { lv: "Skenēšana neizdevās — mēģiniet vēlreiz", ru: "Скан не удался — попробуйте ещё раз", en: "Scan failed — try again" },
 } satisfies Record<string, Entry>;
 
 /** Phase D — every screen area contributes its own module; keys must be
