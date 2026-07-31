@@ -167,22 +167,26 @@ export function ACard({ title, actions, children, pad = true, style }: {
 }
 
 export function ATable({ head, children }: { head: ReactNode[]; children: ReactNode }) {
+  // The wrapper lets wide tables pan sideways on phones instead of squashing
+  // the layout — every screen gets a usable mobile fallback for free.
   return (
-    <table style={{ width: "100%", borderCollapse: "collapse" }}>
-      <thead>
-        <tr>
-          {head.map((h, i) => (
-            <th key={i} style={{
-              textAlign: "left", padding: "9px 12px", fontFamily: AT.body, fontSize: 11,
-              fontWeight: 700, color: AT.inkSoft, textTransform: "uppercase",
-              letterSpacing: "0.07em", borderBottom: `1px solid ${AT.rule}`, background: AT.surfaceAlt,
-              whiteSpace: "nowrap",
-            }}>{h}</th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>{children}</tbody>
-    </table>
+    <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead>
+          <tr>
+            {head.map((h, i) => (
+              <th key={i} style={{
+                textAlign: "left", padding: "9px 12px", fontFamily: AT.body, fontSize: 11,
+                fontWeight: 700, color: AT.inkSoft, textTransform: "uppercase",
+                letterSpacing: "0.07em", borderBottom: `1px solid ${AT.rule}`, background: AT.surfaceAlt,
+                whiteSpace: "nowrap",
+              }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>{children}</tbody>
+      </table>
+    </div>
   );
 }
 

@@ -24,6 +24,7 @@ import {
   AAvatar, ABadge, ABtn, ACard, AEmpty, AField, AIcon, AInput, ASelect,
   ATable, ATd, ATr, useConfirm, useToast,
 } from "../ui.js";
+import { useIsMobile } from "../useMobile.js";
 
 // ── Shared row/detail types ──────────────────────────────────────────────────
 
@@ -242,6 +243,7 @@ export function OrdersScreen({ nav }: { nav: Nav }) {
 function OrdersList({ nav }: { nav: Nav }) {
   const { can } = useAuth();
   const toast = useToast();
+  const mobile = useIsMobile();
   const confirm = useConfirm();
 
   const [filters, setFilters] = useState<Filters>(() => filterTools.loadStored(FILTERS_KEY));
@@ -467,6 +469,39 @@ function OrdersList({ nav }: { nav: Nav }) {
           <AEmpty text="Loading orders…" />
         ) : rows.length === 0 ? (
           <AEmpty text="No orders match these filters." />
+        ) : mobile ? (
+          // Phase B — the approved card reflow: ref + status, bidder + total.
+          <div style={{ display: "grid" }}>
+            {rows.map((o) => (
+              <button key={o.id} onClick={() => nav.go("orders", o.id)} style={{
+                all: "unset", cursor: "pointer", display: "grid", gap: 6,
+                padding: "13px 14px", borderBottom: `1px solid ${AT.ruleSoft}`,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontFamily: AT.mono, fontSize: 13, fontWeight: 700, color: AT.ink }}>{o.ref}</span>
+                  <span style={{ fontFamily: AT.mono, fontSize: 10.5, color: AT.inkSoft }}>{o.itemSku}</span>
+                  <span style={{ marginLeft: "auto" }}>
+                    <ABadge tone={ORDER_STATUS_TONE[o.status]?.tone ?? "neutral"}>
+                      {ORDER_STATUS_TONE[o.status]?.label ?? o.status}
+                    </ABadge>
+                  </span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                  <span style={{ color: AT.inkSoft }}>{o.customerAlias} · {o.marketCode} · {fmtShort(o.createdAt)}</span>
+                  <strong style={{ marginLeft: "auto", fontFamily: AT.mono, fontVariantNumeric: "tabular-nums", color: AT.ink }}>
+                    {formatEur(o.totalCents)}
+                  </strong>
+                </div>
+              </button>
+            ))}
+            {rows.length < total && (
+              <div style={{ padding: 12, display: "flex", justifyContent: "center" }}>
+                <ABtn kind="ghost" size="sm" disabled={loadingMore} onClick={() => void loadMore()}>
+                  {loadingMore ? "Loading…" : `Load more (${rows.length} of ${total})`}
+                </ABtn>
+              </div>
+            )}
+          </div>
         ) : (
           <>
             <ATable head={[

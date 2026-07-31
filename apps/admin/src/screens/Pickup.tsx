@@ -5,6 +5,7 @@ import { useAuth } from "../auth.js";
 import { formatDate } from "../format.js";
 import { AT } from "../theme.js";
 import { AAvatar, ABadge, ABtn, ACard, ADrawer, AEmpty, AField, AIcon, AInput, ATable, ATd, ATr, useConfirm, useToast } from "../ui.js";
+import { useIsMobile } from "../useMobile.js";
 import { useAuctionEvents } from "../useAuctionEvents.js";
 
 /**
@@ -119,6 +120,7 @@ export function PickupScreen({ nav: _nav }: { nav: Nav }) {
   const { can } = useAuth();
   const confirm = useConfirm();
   const toast = useToast();
+  const mobile = useIsMobile();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [workers, setWorkers] = useState<WorkerToday[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -260,7 +262,7 @@ export function PickupScreen({ nav: _nav }: { nav: Nav }) {
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 300px", gap: 14, alignItems: "start" }}>
+      <div style={{ display: "grid", gridTemplateColumns: mobile ? "1fr" : "minmax(0, 1fr) 300px", gap: 14, alignItems: "start" }}>
         <ACard
           title="Now picking"
           actions={
