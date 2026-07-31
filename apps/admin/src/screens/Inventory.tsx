@@ -20,6 +20,7 @@ import {
   ABadge, ABtn, ACard, ADrawer, AEmpty, AField, AIcon, AInput, APills, ASelect,
   AStat, ATable, ATd, ATr, useConfirm, useToast,
 } from "../ui.js";
+import { useIsMobile } from "../useMobile.js";
 
 const GROUPS = [
   { id: "all", label: "All", statuses: null as string[] | null },
@@ -118,6 +119,7 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
   const { t } = useT();
   const toast = useToast();
   const confirm = useConfirm();
+  const mobile = useIsMobile();
   const [items, setItems] = useState<Item[]>([]);
   const [total, setTotal] = useState(0);
   const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
@@ -473,6 +475,50 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
       <ACard pad={false}>
         {items.length === 0 ? (
           <AEmpty text="No items match these filters." />
+        ) : mobile ? (
+          // Phase B — card reflow: SKU + status, title, condition + location.
+          <div style={{ display: "grid" }}>
+            {items.map((i) => (
+              <button key={i.id} onClick={() => {
+                setEditing(i);
+                setDrawerTab("details");
+                setForm({
+                  sku: i.sku, title: i.title, description: i.description, condition: i.condition,
+                  conditionNotes: i.conditionNotes ?? "", category: i.category ?? "other",
+                  location: i.location, weight: i.weightGrams == null ? "" : String(i.weightGrams), marketCode: i.marketCode,
+                });
+              }} style={{
+                all: "unset", cursor: "pointer", display: "grid", gap: 5,
+                padding: "13px 14px", borderBottom: `1px solid ${AT.ruleSoft}`,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontFamily: AT.mono, fontSize: 12.5, fontWeight: 700, color: AT.ink }}>{i.sku}</span>
+                  {(unread.get(i.id) ?? 0) > 0 && (
+                    <span style={{
+                      display: "inline-grid", placeItems: "center", minWidth: 16, height: 16, padding: "0 4px",
+                      borderRadius: 999, background: AT.accent, color: "#fff", fontSize: 10, fontWeight: 800,
+                    }}>{unread.get(i.id)}</span>
+                  )}
+                  <span style={{ marginLeft: "auto" }}>
+                    <ABadge tone={ITEM_STATUS_TONE[i.status]?.tone ?? "neutral"}>
+                      {ITEM_STATUS_TONE[i.status]?.label ?? i.status}
+                    </ABadge>
+                  </span>
+                </div>
+                <div style={{ fontSize: 13.5, fontWeight: 600, color: AT.ink }}>{i.title}</div>
+                <div style={{ fontSize: 12, color: AT.inkSoft }}>
+                  {conditionLabel(i.condition)}{i.location ? ` · ${i.location}` : ""}
+                </div>
+              </button>
+            ))}
+            {items.length < total && (
+              <div style={{ padding: 12, display: "flex", justifyContent: "center" }}>
+                <ABtn kind="ghost" size="sm" disabled={loadingMore} onClick={() => void loadMore()}>
+                  {loadingMore ? "Loading…" : `Load more (${items.length} of ${total})`}
+                </ABtn>
+              </div>
+            )}
+          </div>
         ) : (
           <>
             <ATable head={[

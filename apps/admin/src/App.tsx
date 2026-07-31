@@ -6,6 +6,7 @@ import { SearchPalette, type SearchTarget } from "./shell/SearchPalette.js";
 import { TabBar, type Tab } from "./shell/TabBar.js";
 import { AT } from "./theme.js";
 import { AIcon, type IconName } from "./ui.js";
+import { useIsMobile } from "./useMobile.js";
 import { useBadges, WARN_BADGES } from "./useBadges.js";
 import { ReportModal } from "./ReportModal.js";
 import { DashboardScreen } from "./screens/Dashboard.js";
@@ -118,6 +119,8 @@ export function App() {
   const [focused, setFocused] = useState<"a" | "b">("a");
   const [palette, setPalette] = useState(false);
   const [reporting, setReporting] = useState(false);
+  const mobile = useIsMobile();
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const { tabs, activeId, split, splitId } = shell;
   const activeTab = tabs.find((t) => t.id === activeId) ?? tabs[0]!;
@@ -173,8 +176,16 @@ export function App() {
     }));
   }, []);
 
-  /** Open a new tab and focus it in pane A. */
+  /** Open a new tab and focus it in pane A. On phones there is no tab strip,
+   * so cross-links navigate the current view instead of stacking tabs. */
   const openTab = useCallback((screen: string, param?: string | null) => {
+    if (mobile) {
+      setShell((s) => ({
+        ...s,
+        tabs: s.tabs.map((t) => (t.id === s.activeId ? { ...t, screen, param: param ?? null } : t)),
+      }));
+      return;
+    }
     setShell((s) => {
       const tab: Tab = { id: newId(), screen, param: param ?? null };
       const idx = s.tabs.findIndex((t) => t.id === s.activeId);
@@ -182,7 +193,7 @@ export function App() {
       return { ...s, tabs: tabs2, activeId: tab.id };
     });
     setFocused("a");
-  }, []);
+  }, [mobile]);
 
   const selectTab = (id: string) =>
     setShell((s) => {
@@ -263,6 +274,7 @@ export function App() {
       openTab,
     };
     const def = allowed.find((s) => s.id === tab.screen) ?? allowed[0]!;
+    const split = shell.split && !mobile; // phones are always single-pane
     const isFocused = !split || focused === pane;
     return (
       <div
@@ -287,7 +299,7 @@ export function App() {
             PANE {pane.toUpperCase()}{isFocused ? " · FOCUSED" : ""}
           </div>
         )}
-        <div style={{ maxWidth: split ? undefined : 1280, margin: "0 auto", padding: "22px 26px 60px" }}>
+        <div style={{ maxWidth: split ? undefined : 1280, margin: "0 auto", padding: mobile ? "14px 12px 80px" : "22px 26px 60px" }}>
           {def.render(nav)}
         </div>
       </div>
@@ -304,6 +316,130 @@ export function App() {
     if (!allowedIds.has(target.screen)) return;
     openTab(target.screen, target.param);
   };
+
+  // ── Phase B: phone shell — MENU drawer, single pane, no tabs/split ─────────
+  if (mobile) {
+    const activeDef = allowed.find((s) => s.id === activeTab.screen) ?? allowed[0]!;
+    const navRow = (s: ScreenDef) => {
+      const isActive = s.id === activeTab.screen;
+      return (
+        <button key={s.id} onClick={() => { sidebarNav.go(s.id); setMenuOpen(false); }} style={{
+          all: "unset", cursor: "pointer", display: "flex", alignItems: "center",
+          padding: "13px 14px", borderRadius: 10, fontSize: 15, fontWeight: 600,
+          color: isActive ? "#fff" : AT.sideSoft,
+          background: isActive ? "rgba(255,255,255,0.10)" : "transparent",
+        }}>
+          {s.label}
+          {(badges[s.id] ?? 0) > 0 && (
+            <span style={{
+              marginLeft: "auto", minWidth: 19, height: 19, borderRadius: 999, padding: "0 6px",
+              display: "inline-grid", placeItems: "center", fontSize: 11, fontWeight: 800,
+              background: WARN_BADGES.has(s.id) ? AT.warn : AT.accent, color: "#fff",
+              fontVariantNumeric: "tabular-nums",
+            }}>
+              {badges[s.id]! > 99 ? "99+" : badges[s.id]}
+            </span>
+          )}
+        </button>
+      );
+    };
+    return (
+      <div style={{ height: "100%", display: "flex", flexDirection: "column", fontFamily: AT.body }}>
+        {/* Top bar — the design's MENU button is a text label, no icons on mobile. */}
+        <header style={{
+          display: "flex", alignItems: "center", gap: 12, padding: "10px 12px",
+          background: AT.side, color: "#fff", flexShrink: 0,
+        }}>
+          <button onClick={() => setMenuOpen(true)} style={{
+            all: "unset", cursor: "pointer", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.06em",
+            color: "rgba(255,255,255,0.85)", border: "1px solid rgba(255,255,255,0.3)",
+            borderRadius: 7, padding: "6px 11px",
+          }}>
+            MENU
+          </button>
+          <div style={{ fontSize: 15, fontWeight: 700, flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {activeDef.label}
+          </div>
+          {(badges[activeDef.id] ?? 0) > 0 && (
+            <span style={{
+              minWidth: 20, height: 20, borderRadius: 999, padding: "0 7px",
+              display: "inline-grid", placeItems: "center", fontSize: 11, fontWeight: 800,
+              background: AT.accent, color: "#fff",
+            }}>{badges[activeDef.id]}</span>
+          )}
+        </header>
+
+        {/* Single pane */}
+        <div style={{ flex: 1, minHeight: 0, display: "flex" }}>{renderPane(activeTab, "a")}</div>
+
+        {/* Floating search — the design's thumb-reach FAB row. */}
+        <button onClick={() => setPalette(true)} style={{
+          position: "fixed", right: 14, bottom: 16, zIndex: 40, cursor: "pointer", border: "none",
+          background: AT.ink, color: "#fff", fontFamily: AT.body, fontSize: 13.5, fontWeight: 700,
+          borderRadius: 999, padding: "12px 20px", boxShadow: "0 6px 20px rgba(10,10,10,0.35)",
+        }}>
+          Search
+        </button>
+
+        {/* Drawer — tap outside to close. */}
+        {menuOpen && (
+          <div onClick={() => setMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(10,10,10,0.45)" }}>
+            <div onClick={(e) => e.stopPropagation()} style={{
+              width: "min(300px, 84vw)", height: "100%", background: AT.side, color: AT.sideInk,
+              display: "flex", flexDirection: "column", animation: "drawer-in 160ms ease-out",
+            }}>
+              <div style={{ padding: "18px 16px 10px" }}>
+                <div style={{ fontSize: 15, fontWeight: 700 }}>Izsoli.lv</div>
+                <div style={{ fontSize: 11, color: AT.sideSoft }}>LV · EE · LT</div>
+              </div>
+              <nav style={{ padding: "0 10px", display: "grid", gap: 2, flex: 1, overflowY: "auto" }}>
+                {allowed.map(navRow)}
+              </nav>
+              {(can("warehouse.manage") || can("pickup.operate")) && (
+                <button onClick={() => { sidebarNav.go("wh"); setMenuOpen(false); }} style={{
+                  all: "unset", cursor: "pointer", margin: "6px 10px 0", padding: "12px 14px", borderRadius: 10,
+                  fontSize: 14, fontWeight: 700, color: AT.sideSoft, border: `1px dashed ${AT.sideRule}`, textAlign: "center",
+                }}>
+                  Warehouse mode
+                </button>
+              )}
+              <button onClick={() => { setReporting(true); setMenuOpen(false); }} style={{
+                all: "unset", cursor: "pointer", margin: "8px 10px", padding: "12px 14px", borderRadius: 10,
+                fontSize: 14, fontWeight: 700, color: AT.sideSoft, border: `1px dashed ${AT.sideRule}`, textAlign: "center",
+                position: "relative",
+              }}>
+                Report a problem
+                {(badges.mybugs ?? 0) > 0 && (
+                  <span style={{
+                    position: "absolute", top: 8, right: 10, minWidth: 17, height: 17, borderRadius: 999,
+                    background: AT.accent, color: "#fff", fontSize: 10.5, fontWeight: 800,
+                    display: "inline-grid", placeItems: "center", padding: "0 4px",
+                  }}>{badges.mybugs}</span>
+                )}
+              </button>
+              <div style={{ padding: 14, borderTop: `1px solid ${AT.sideRule}`, display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{user.name}</div>
+                  <div style={{ fontSize: 11, color: AT.sideSoft }}>{user.role.replace(/_/g, " ")}</div>
+                </div>
+                <button onClick={() => void logout()} style={{ all: "unset", cursor: "pointer", padding: 8, fontSize: 13, fontWeight: 700, color: AT.sideSoft }}>
+                  Sign out
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {palette && <SearchPalette allowedScreens={allowedIds} onOpen={onSearchOpen} onClose={() => setPalette(false)} />}
+        {reporting && (
+          <ReportModal
+            screen={activeTab.param ? `${activeTab.screen} · ${activeTab.param.slice(0, 24)}` : activeTab.screen}
+            onClose={() => setReporting(false)}
+          />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div style={{ height: "100%", display: "flex", fontFamily: AT.body }}>
