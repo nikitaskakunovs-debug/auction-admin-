@@ -8,6 +8,8 @@ export const FRONTDESK = {
   "fd.several": { lv: "Vairāki klienti — izvēlieties", ru: "Несколько клиентов — выберите", en: "Several people — pick one" },
   "fd.person": { lv: "Klients", ru: "Клиент", en: "Person" },
   "fd.noMatch": { lv: "Neviens klients neatbilst", ru: "Клиент не найден", en: "No one matches" },
+  "fd.noMatchHint": { lv: "Lete meklē klientus (solītājus) pēc vārda, segvārda, e-pasta, tālruņa, pasūtījuma numura vai saņemšanas koda. Darbinieku kontus tā nemeklē. Ja klients tikko reģistrējās, pārbaudiet, kā rakstīts viņa e-pasts vai segvārds.", ru: "Стойка ищет клиентов (участников) по имени, псевдониму, почте, телефону, номеру заказа или коду получения. Учётные записи сотрудников она не ищет. Если клиент только что зарегистрировался, проверьте написание почты или псевдонима.", en: "The desk searches clients (bidders) by name, alias, email, phone, order number or pickup code — not staff accounts. If the client just registered, check how their email or alias is spelled." },
+  "fd.openBidders": { lv: "Atvērt Solītājus", ru: "Открыть Участников", en: "Open Bidders" },
   "fd.due": { lv: "Jāsamaksā", ru: "К оплате", en: "Due" },
   "fd.collectable": { lv: "Izsniedzams tagad", ru: "Можно забрать сейчас", en: "Collectable now" },
   "fd.nothingToCollect": { lv: "Nav ko izsniegt", ru: "Нечего выдавать", en: "Nothing to collect" },

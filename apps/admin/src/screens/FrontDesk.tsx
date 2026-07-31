@@ -197,7 +197,19 @@ export function FrontDeskScreen({ nav }: { nav: Nav }) {
         </ACard>
       )}
 
-      {result && result.matches.length === 0 && <ACard><AEmpty text={t("fd.noMatch")} /></ACard>}
+      {/* "Not found" is usually "that person isn't a client" — say so, and
+          point at the two things staff actually do next. */}
+      {result && result.matches.length === 0 && (
+        <ACard>
+          <div style={{ display: "grid", gap: 10, padding: "18px 4px", justifyItems: "center", textAlign: "center" }}>
+            <div style={{ fontFamily: AT.body, fontSize: 14, fontWeight: 600, color: AT.ink }}>{t("fd.noMatch")}</div>
+            <div style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.inkSoft, maxWidth: 460 }}>{t("fd.noMatchHint")}</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center", marginTop: 4 }}>
+              <ABtn kind="ghost" size="sm" onClick={() => nav.go("customers")}>{t("fd.openBidders")}</ABtn>
+            </div>
+          </div>
+        </ACard>
+      )}
 
       {c && (
         <>
