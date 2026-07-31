@@ -256,6 +256,29 @@ export function registerItemRoutes(app: FastifyInstance, ctx: AppContext, perms:
     return { item: result.row };
   });
 
+  /**
+   * Purchase cost lives on its own route because it answers to a different
+   * permission than the rest of the item: `finance.view`, not `items.edit`.
+   * The Finance and Sales Manager roles hold the former without the latter —
+   * through the main PATCH they could see the field and never save it.
+   */
+  const costBody = z.object({ costCents: z.number().int().min(0).max(100_000_000).nullable() });
+  app.patch("/api/items/:id/cost", guard("finance.view"), async (req, reply) => {
+    const body = costBody.safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: body.error.flatten() });
+    const { id } = req.params as { id: string };
+    const [row] = await ctx.db
+      .update(items)
+      .set({ costCents: body.data.costCents, updatedAt: ctx.now() })
+      .where(eq(items.id, id))
+      .returning();
+    if (!row) return reply.code(404).send({ error: "not_found" });
+    // `costCents` as the detail key is load-bearing: the audit feed is visible
+    // with audit.view, and the response hook strips exactly the cost-named keys.
+    await writeAudit(ctx.db, actor(req), "item", "cost_set", row.sku, { costCents: body.data.costCents });
+    return { item: row };
+  });
+
   // ── Photos ─────────────────────────────────────────────────────────────────
   // Uploads are re-encoded server-side (sharp): EXIF-rotated, resized to a
   // 1600px web size + 400px thumbnail, both webp. Only the web URL is stored

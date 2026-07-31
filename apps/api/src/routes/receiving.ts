@@ -190,8 +190,11 @@ export function registerReceivingRoutes(app: FastifyInstance, ctx: AppContext, p
           .set({ costCents: share + (i < remainder ? 1 : 0), updatedAt: ctx.now() })
           .where(eq(items.id, rows[i]!.id));
       }
+      // Recorded as `costCents` deliberately: the audit feed is readable with
+      // audit.view, and the response hook strips exactly the cost-named keys —
+      // a `totalCents` key here would publish the pallet price to every role.
       await writeAudit(tx, actor(req), "item", "cost_spread", con.ref, {
-        totalCents: body.data.totalCents,
+        costCents: body.data.totalCents,
         units: rows.length,
       });
       return { units: rows.length, perUnitCents: share };
