@@ -243,14 +243,14 @@ function BugsTab({ onCount }: { onCount: (n: number) => void }) {
                 </ATd>
                 <ATd>
                   <span style={{ background: toneColors[BUG_SEV_TONE[r.severity] ?? "neutral"].bg, color: toneColors[BUG_SEV_TONE[r.severity] ?? "neutral"].fg, borderRadius: 999, padding: "1px 9px", fontSize: 11, fontWeight: 700 }}>
-                    {BUG_SEV_KEY[r.severity] ? t(BUG_SEV_KEY[r.severity]) : r.severity}
+                    {((k) => (k ? t(k) : r.severity))(BUG_SEV_KEY[r.severity])}
                   </span>
                 </ATd>
                 <ATd mono>
                   {r.jiraKey ? <span style={{ fontWeight: 700, color: AT.accent }}>{r.jiraKey}</span> : <span style={{ color: AT.inkSoft }}>—</span>}
                 </ATd>
                 <ATd>
-                  <ABadge tone={BUG_STATUS[r.status]?.tone ?? "neutral"}>{BUG_STATUS[r.status] ? t(BUG_STATUS[r.status].label) : r.status}</ABadge>
+                  <ABadge tone={BUG_STATUS[r.status]?.tone ?? "neutral"}>{((s) => (s ? t(s.label) : r.status))(BUG_STATUS[r.status])}</ABadge>
                 </ATd>
                 <ATd right>
                   {(r.commentCount ?? 0) > 0 ? `${r.commentCount}${(r.unread ?? 0) > 0 ? " ●" : ""}` : "—"}
