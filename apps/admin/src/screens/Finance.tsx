@@ -1,17 +1,20 @@
 import { useEffect, useRef, useState } from "react";
-import { api, type Invoice, type VatReport } from "../api.js";
+import { api, ApiError, type Invoice, type VatReport } from "../api.js";
 import type { Nav } from "../App.js";
 import { useAuth } from "../auth.js";
 import { exportCSV, exportPDFPrint, exportXLS } from "../exporters.js";
-import { formatDate, formatEur } from "../format.js";
+import { formatDate, formatDay, formatEur } from "../format.js";
 import { useT, type TKey } from "../i18n.js";
 import { isBnpl, methodLabel, providerLabel } from "../paymentLabels.js";
 import {
   dateInputStyle, ExportMenu, makeFilterTools, SearchBox, useDebounced, useSavedViews,
   useStoredFilters, ViewsBar,
 } from "../powerkit.js";
-import { AT } from "../theme.js";
-import { ABadge, ABtn, ACard, AEmpty, AField, AIcon, AInput, APills, AStat, ATable, ATd, ATr, useToast } from "../ui.js";
+import { AT, type Tone } from "../theme.js";
+import {
+  ABadge, ABtn, ACard, ADrawer, AEmpty, AField, AIcon, AInput, APills, ASelect, AStat,
+  ATable, ATd, ATr, useConfirm, useToast,
+} from "../ui.js";
 
 /**
  * Each tab answers to its own permission and the screen opens for anyone who
@@ -24,6 +27,9 @@ const TABS: { id: string; label: TKey; permission: string }[] = [
   { id: "vat", label: "fin.tab.vat", permission: "invoices.view" },
   // W6: profit & stock value — purchase costs are private to finance.view.
   { id: "profit", label: "fin.pf.tab", permission: "finance.view" },
+  // R1: what we owe suppliers — money going out, same permission as the money
+  // coming in on Profit.
+  { id: "payables", label: "fin.pay.tab", permission: "finance.view" },
 ];
 
 function monthStart(): string {
@@ -58,7 +64,8 @@ export function FinanceScreen({ nav: _nav }: { nav: Nav }) {
         : active === "invoices" ? <InvoicesTab />
           : active === "vat" ? <VatTab />
             : active === "profit" ? <ProfitTab />
-              : <AEmpty text={t("fin.noTabs")} />}
+              : active === "payables" ? <PayablesTab />
+                : <AEmpty text={t("fin.noTabs")} />}
     </div>
   );
 }
@@ -795,6 +802,765 @@ function ProfitTab() {
             </div>
           )}
         </ACard>
+      </div>
+    </div>
+  );
+}
+
+// ── R1: supplier invoices — what we owe (finance.view only) ──────────────────
+
+type PayStatus = "unpaid" | "overdue" | "paid" | "all";
+
+/** One bill from a supplier, with the payments ledger already folded in. */
+interface SupplierInvoice {
+  id: string;
+  number: string;
+  supplierId: string;
+  supplierName: string;
+  consignmentId: string | null;
+  consignmentRef: string | null;
+  invoiceDate: string;
+  dueDate: string;
+  amountCents: number;
+  paidCents: number;
+  /** Zero once cancelled — a cancelled bill owes nothing. */
+  outstandingCents: number;
+  status: string;
+  /** Whole days past due; 0 when settled, cancelled or still in term. */
+  overdueDays: number;
+  note: string;
+}
+
+interface SupplierPayment {
+  id: string;
+  amountCents: number;
+  paidAt: string;
+  method: string;
+  note: string;
+  actorLabel: string;
+}
+
+/**
+ * The delivery's own cost records against what the supplier billed. A variance
+ * only means something when every unit has a purchase price — `noCostDataCount`
+ * travels with it so the screen never calls an incomplete comparison an error.
+ */
+interface InvoiceRecon {
+  recordedCostCents: number;
+  varianceCents: number;
+  noCostDataCount: number;
+}
+
+interface InvoiceDetail {
+  invoice: SupplierInvoice;
+  supplier: { id: string; name: string };
+  payments: SupplierPayment[];
+  reconciliation: InvoiceRecon | null;
+}
+
+interface InvoiceListResponse {
+  invoices: SupplierInvoice[];
+  /** Covers the whole filtered set, not just the rows returned. */
+  totals: {
+    outstandingCents: number;
+    overdueCents: number;
+    dueThisWeekCents: number;
+    paidThisMonthCents: number;
+    count: number;
+  };
+}
+
+interface DeliveryMismatch {
+  consignmentId: string;
+  consignmentRef: string;
+  supplierName: string;
+  invoicedCents: number;
+  recordedCostCents: number;
+  varianceCents: number;
+  noCostDataCount: number;
+}
+
+interface PayablesReport {
+  asOf: string;
+  totals: {
+    outstandingCents: number;
+    overdueCents: number;
+    dueThisWeekCents: number;
+    paidThisMonthCents: number;
+    invoiceCount: number;
+    overdueCount: number;
+  };
+  aging: { current: number; d1_30: number; d31_60: number; d60plus: number };
+  bySupplier: Array<{
+    supplierId: string;
+    name: string;
+    outstandingCents: number;
+    overdueCents: number;
+    invoiceCount: number;
+    oldestDueDate: string | null;
+  }>;
+  reconciliation: { checkedDeliveries: number; matchingDeliveries: number; mismatched: DeliveryMismatch[] };
+}
+
+/**
+ * "125,40" / "125.4" → 12540. Anything else — blank, a minus sign, letters —
+ * is null so the caller refuses to send rather than posting a bad amount.
+ */
+const payEurToCents = (s: string): number | null => {
+  const v = s.trim().replace(/\s/g, "").replace(",", ".");
+  if (!/^\d+(\.\d{1,2})?$/.test(v)) return null;
+  const n = Math.round(Number(v) * 100);
+  return Number.isFinite(n) ? n : null;
+};
+
+const PAY_METHODS = ["bank_transfer", "cash", "card", "other"] as const;
+const PAY_METHOD_KEY: Record<string, TKey> = {
+  bank_transfer: "fin.pay.m.bank_transfer",
+  cash: "fin.pay.m.cash",
+  card: "fin.pay.m.card",
+  other: "fin.pay.m.other",
+};
+
+const PAY_STATUS_LABEL: Record<string, TKey> = {
+  unpaid: "fin.pay.st.unpaid",
+  partly_paid: "fin.pay.st.partly",
+  paid: "fin.pay.st.paid",
+  cancelled: "fin.pay.st.cancelled",
+};
+const PAY_STATUS_TONE: Record<string, Tone> = {
+  unpaid: "neutral",
+  partly_paid: "accent",
+  paid: "ok",
+  cancelled: "neutral",
+};
+
+const PAY_FILTERS: { id: PayStatus; label: TKey }[] = [
+  { id: "unpaid", label: "fin.pay.f.unpaid" },
+  { id: "overdue", label: "fin.pay.f.overdue" },
+  { id: "paid", label: "fin.pay.f.paid" },
+  { id: "all", label: "c.all" },
+];
+
+/** The API caps the list; ask for the most it will give in one go. */
+const PAY_LIMIT = 200;
+
+/** Lateness outranks the stored status — a bill 12 days past due reads as late,
+ * not as "unpaid". Cancelled bills are muted: they are history, not work. */
+function PayStatusPill({ status, overdueDays }: { status: string; overdueDays: number }) {
+  const { t } = useT();
+  if (overdueDays > 0) {
+    return <ABadge tone="danger">{t("fin.pay.st.overdue").replace("{n}", String(overdueDays))}</ABadge>;
+  }
+  const key = PAY_STATUS_LABEL[status];
+  const pill = <ABadge tone={PAY_STATUS_TONE[status] ?? "neutral"}>{key ? t(key) : status}</ABadge>;
+  return status === "cancelled" ? <span style={{ opacity: 0.55 }}>{pill}</span> : pill;
+}
+
+/** Consignment refs are mono; a bill filed against no delivery gets a dash. */
+function DeliveryRef({ refText }: { refText: string | null }) {
+  if (!refText) return <span style={{ color: AT.inkSoft }}>—</span>;
+  return <span style={{ fontFamily: AT.mono, fontSize: 12 }}>{refText}</span>;
+}
+
+/**
+ * Payables: every unsettled supplier bill, what is already late, what falls due
+ * this week, and whether the paperwork agrees with the purchase costs the
+ * warehouse recorded against the same delivery.
+ */
+function PayablesTab() {
+  const { t } = useT();
+  const toast = useToast();
+  const [status, setStatus] = useState<PayStatus>("unpaid");
+  const [report, setReport] = useState<PayablesReport | null>(null);
+  const [list, setList] = useState<InvoiceListResponse | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
+  /** Bumped after every mutation so the tiles, the list and the drawer agree. */
+  const [rev, setRev] = useState(0);
+  const seq = useRef(0);
+
+  useEffect(() => {
+    void api
+      .get<PayablesReport>("/api/reports/payables")
+      .then(setReport)
+      .catch(() => toast(t("fin.pay.loadFailed"), "danger"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rev]);
+
+  useEffect(() => {
+    const s = ++seq.current;
+    void api
+      .get<InvoiceListResponse>(`/api/supplier-invoices?status=${status}&limit=${PAY_LIMIT}`)
+      .then((r) => {
+        if (seq.current === s) setList(r);
+      })
+      .catch(() => undefined);
+  }, [status, rev]);
+
+  const rows = list?.invoices ?? [];
+  const totalCount = list?.totals.count ?? rows.length;
+  const truncated = totalCount > rows.length;
+
+  const exportHeaders = [
+    t("fin.pay.th.invoice"), t("fin.pay.th.supplier"), t("fin.pay.th.delivery"),
+    t("fin.pay.th.invoiceDate"), t("fin.pay.th.due"), `${t("fin.pay.th.amount")} €`,
+    `${t("fin.pay.dr.paid")} €`, `${t("fin.pay.th.outstanding")} €`, t("c.status"),
+    t("fin.pay.th.overdueDays"),
+  ];
+  const runExport = () => {
+    if (rows.length === 0) return toast(t("fin.nothingToExport"), "warn");
+    const statusWord = (r: SupplierInvoice): string => {
+      const key = PAY_STATUS_LABEL[r.status];
+      return key ? t(key) : r.status;
+    };
+    const body = rows.map((r) => [
+      r.number,
+      r.supplierName,
+      r.consignmentRef ?? "",
+      r.invoiceDate.slice(0, 10),
+      r.dueDate.slice(0, 10),
+      (r.amountCents / 100).toFixed(2),
+      (r.paidCents / 100).toFixed(2),
+      (r.outstandingCents / 100).toFixed(2),
+      statusWord(r),
+      r.overdueDays > 0 ? String(r.overdueDays) : "",
+    ]);
+    exportCSV(`supplier-invoices-${status}`, exportHeaders, body);
+    toast(`${t("fin.pay.exported")}: ${rows.length}`, "ok");
+  };
+
+  const totals = report?.totals;
+  return (
+    <div style={{ display: "grid", gap: 14 }}>
+      {totals && (
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <AStat
+            label={t("fin.pay.stat.outstanding")}
+            value={formatEur(totals.outstandingCents)}
+            sub={`${totals.invoiceCount} ${t("fin.pay.sub.open")}`}
+          />
+          <AStat
+            label={t("fin.pay.stat.overdue")}
+            value={formatEur(totals.overdueCents)}
+            tone={totals.overdueCents > 0 ? "danger" : undefined}
+            sub={`${totals.overdueCount} ${t("fin.pay.sub.overdue")}`}
+          />
+          <AStat
+            label={t("fin.pay.stat.week")}
+            value={formatEur(totals.dueThisWeekCents)}
+            tone={totals.dueThisWeekCents > 0 ? "warn" : undefined}
+          />
+          <AStat label={t("fin.pay.stat.paidMonth")} value={formatEur(totals.paidThisMonthCents)} />
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+        <APills
+          options={PAY_FILTERS.map((f) => ({ id: f.id, label: t(f.label) }))}
+          value={status}
+          onChange={(v) => setStatus(v)}
+        />
+        <ABtn kind="ghost" size="sm" onClick={runExport}>
+          <AIcon name="download" size={13} /> {t("fin.pf.exportCsv")}
+        </ABtn>
+        <span style={{ fontFamily: AT.body, fontSize: 11.5, color: AT.inkSoft, marginLeft: "auto" }}>
+          {t("fin.pay.basis")}
+        </span>
+      </div>
+
+      {truncated && (
+        <div style={{
+          fontFamily: AT.body, fontSize: 11.5, lineHeight: 1.45, color: AT.inkSoft,
+          background: AT.surfaceAlt, border: `1px solid ${AT.ruleSoft}`,
+          borderRadius: AT.radiusSm, padding: "9px 12px",
+        }}>
+          {t("fin.pay.truncated").replace("{n}", String(rows.length)).replace("{m}", String(totalCount))}
+        </div>
+      )}
+
+      <ACard pad={false}>
+        {rows.length === 0 ? (
+          <AEmpty text={t("fin.pay.empty")} />
+        ) : (
+          <ATable head={[
+            t("fin.pay.th.invoice"), t("fin.pay.th.supplier"), t("fin.pay.th.delivery"),
+            t("fin.pay.th.due"), t("fin.pay.th.amount"), t("fin.pay.th.outstanding"), t("c.status"),
+          ]}>
+            {rows.map((r) => (
+              <ATr key={r.id} onClick={() => setOpenId(r.id)} active={openId === r.id}>
+                <ATd mono><strong>{r.number}</strong></ATd>
+                <ATd>{r.supplierName}</ATd>
+                <ATd><DeliveryRef refText={r.consignmentRef} /></ATd>
+                <ATd>{formatDay(r.dueDate)}</ATd>
+                <ATd mono right>{formatEur(r.amountCents)}</ATd>
+                <ATd mono right>
+                  <strong>{formatEur(r.outstandingCents)}</strong>
+                </ATd>
+                <ATd><PayStatusPill status={r.status} overdueDays={r.overdueDays} /></ATd>
+              </ATr>
+            ))}
+          </ATable>
+        )}
+      </ACard>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 14, alignItems: "start" }}>
+        <ACard title={t("fin.pay.sup.title")} pad={false}>
+          {!report || report.bySupplier.length === 0 ? (
+            <AEmpty text={t("fin.pay.sup.empty")} />
+          ) : (
+            <div style={{ display: "grid" }}>
+              {report.bySupplier.map((s) => (
+                <div key={s.supplierId} style={{
+                  display: "flex", alignItems: "baseline", gap: 10, padding: "10px 16px",
+                  borderBottom: `1px solid ${AT.ruleSoft}`,
+                }}>
+                  <span style={{ fontFamily: AT.body, fontSize: 12.5, fontWeight: 600, color: AT.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {s.name}
+                  </span>
+                  {s.overdueCents > 0 && (
+                    <span style={{ fontFamily: AT.body, fontSize: 11, fontWeight: 700, color: AT.danger, whiteSpace: "nowrap" }}>
+                      {t("fin.pay.sup.overdue")} {formatEur(s.overdueCents)}
+                    </span>
+                  )}
+                  <span style={{ marginLeft: "auto", fontFamily: AT.body, fontSize: 11.5, color: AT.inkSoft, whiteSpace: "nowrap" }}>
+                    {s.invoiceCount} {t("fin.pay.sup.invoices")} · {t("fin.pay.sup.oldest")} {formatDay(s.oldestDueDate)}
+                  </span>
+                  <span style={{ fontFamily: AT.mono, fontSize: 12.5, fontWeight: 700, color: AT.ink, minWidth: 84, textAlign: "right" }}>
+                    {formatEur(s.outstandingCents)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </ACard>
+
+        <ACard title={t("fin.pay.age.title")} pad={false}>
+          {!report ? <AEmpty text={t("c.loading")} /> : <AgingRows aging={report.aging} />}
+        </ACard>
+      </div>
+
+      {report && report.reconciliation.mismatched.length > 0 && (
+        <MismatchCard recon={report.reconciliation} />
+      )}
+
+      {openId && (
+        <InvoiceDrawer
+          id={openId}
+          onClose={() => setOpenId(null)}
+          onChanged={() => setRev((n) => n + 1)}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Ageing buckets as proportional bars — plain divs, no chart library. */
+function AgingRows({ aging }: { aging: PayablesReport["aging"] }) {
+  const { t } = useT();
+  const buckets: { label: TKey; value: number; color: string }[] = [
+    { label: "fin.pay.age.current", value: aging.current, color: AT.accent },
+    { label: "fin.pay.age.d1_30", value: aging.d1_30, color: AT.warn },
+    { label: "fin.pay.age.d31_60", value: aging.d31_60, color: AT.warn },
+    { label: "fin.pay.age.d60plus", value: aging.d60plus, color: AT.danger },
+  ];
+  // Bars are relative to the biggest bucket, so a small backlog is still
+  // readable; the euro figure beside each one carries the absolute truth.
+  const max = Math.max(1, ...buckets.map((b) => Math.abs(b.value)));
+  return (
+    <div style={{ display: "grid" }}>
+      {buckets.map((b) => (
+        <div key={b.label} style={{
+          display: "grid", gridTemplateColumns: "84px 1fr 92px", gap: 12, alignItems: "center",
+          padding: "11px 16px", borderBottom: `1px solid ${AT.ruleSoft}`,
+        }}>
+          <span style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.ink }}>{t(b.label)}</span>
+          <span style={{ display: "block", height: 6, borderRadius: 3, background: AT.surfaceAlt, overflow: "hidden" }}>
+            <span style={{
+              display: "block", height: "100%",
+              width: `${Math.round((Math.abs(b.value) / max) * 100)}%`,
+              background: b.color,
+            }} />
+          </span>
+          <span style={{
+            fontFamily: AT.mono, fontSize: 12.5, textAlign: "right",
+            fontWeight: b.value > 0 ? 700 : 400, color: b.value > 0 ? AT.ink : AT.inkSoft,
+          }}>
+            {formatEur(b.value)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Deliveries where the bills and the recorded purchase costs disagree. Rows
+ * with unpriced units are shown muted — the gap is missing data, not evidence
+ * that the supplier over-billed.
+ */
+function MismatchCard({ recon }: { recon: PayablesReport["reconciliation"] }) {
+  const { t } = useT();
+  const rows = recon.mismatched.slice(0, 6);
+  return (
+    <ACard
+      title={t("fin.pay.rc.title")}
+      actions={
+        <span style={{ fontFamily: AT.body, fontSize: 11.5, color: AT.inkSoft }}>
+          {t("fin.pay.rc.summary")
+            .replace("{n}", String(recon.checkedDeliveries))
+            .replace("{m}", String(recon.matchingDeliveries))}
+        </span>
+      }
+      pad={false}
+    >
+      <div style={{ display: "grid" }}>
+        {rows.map((r) => {
+          const incomplete = r.noCostDataCount > 0;
+          // A tenth of the invoiced value out is a real problem; less is worth
+          // a look. Neither reads as an error while units are unpriced.
+          const tone = incomplete
+            ? AT.inkSoft
+            : Math.abs(r.varianceCents) > Math.abs(r.invoicedCents) * 0.1
+              ? AT.danger
+              : AT.warn;
+          return (
+            <div key={r.consignmentId} style={{ padding: "10px 16px", borderBottom: `1px solid ${AT.ruleSoft}` }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+                <span style={{ fontFamily: AT.mono, fontSize: 12, fontWeight: 700, color: AT.ink }}>{r.consignmentRef}</span>
+                <span style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.ink }}>{r.supplierName}</span>
+                <span style={{ marginLeft: "auto", fontFamily: AT.body, fontSize: 11.5, color: AT.inkSoft, whiteSpace: "nowrap" }}>
+                  {t("fin.pay.rc.invoiced")} <span style={{ fontFamily: AT.mono }}>{formatEur(r.invoicedCents)}</span>
+                  {" · "}
+                  {t("fin.pay.rc.recorded")} <span style={{ fontFamily: AT.mono }}>{formatEur(r.recordedCostCents)}</span>
+                </span>
+                <span style={{ fontFamily: AT.mono, fontSize: 12.5, fontWeight: 700, color: tone, minWidth: 90, textAlign: "right" }}>
+                  {r.varianceCents > 0 ? "+" : ""}{formatEur(r.varianceCents)}
+                </span>
+              </div>
+              {incomplete && (
+                <div style={{ fontFamily: AT.body, fontSize: 11, color: AT.inkSoft, marginTop: 3 }}>
+                  {t("fin.pay.rc.noCost").replace("{n}", String(r.noCostDataCount))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </ACard>
+  );
+}
+
+/** One labelled money figure in the drawer's summary strip. */
+function PayFigure({ label, cents, strong, tone }: { label: string; cents: number; strong?: boolean; tone?: string }) {
+  return (
+    <div style={{ display: "grid", gap: 2 }}>
+      <span style={{ fontFamily: AT.body, fontSize: 11, fontWeight: 700, color: AT.inkSoft, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+        {label}
+      </span>
+      <span style={{ fontFamily: AT.mono, fontSize: strong ? 15 : 13.5, fontWeight: strong ? 700 : 600, color: tone ?? AT.ink }}>
+        {formatEur(cents)}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * One bill in full: the delivery it belongs to, the money, whether it agrees
+ * with the recorded purchase costs, the payments already made, and the form to
+ * record another. Every mutation re-reads the bill and tells the list to
+ * refresh, so nothing on screen can drift out of date.
+ */
+function InvoiceDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void; onChanged: () => void }) {
+  const { t } = useT();
+  const toast = useToast();
+  const confirm = useConfirm();
+  const [detail, setDetail] = useState<InvoiceDetail | null>(null);
+  const [rev, setRev] = useState(0);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    void api
+      .get<InvoiceDetail>(`/api/supplier-invoices/${id}`)
+      .then((r) => {
+        if (alive) setDetail(r);
+      })
+      .catch(() => {
+        if (!alive) return;
+        toast(t("fin.pay.loadFailed"), "danger");
+        onClose();
+      });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, rev]);
+
+  const refresh = () => {
+    setRev((n) => n + 1);
+    onChanged();
+  };
+
+  const inv = detail?.invoice;
+
+  const removePayment = async (p: SupplierPayment) => {
+    if (!inv || busy) return;
+    const res = await confirm({
+      title: t("fin.pay.dr.deletePayment"),
+      body: t("fin.pay.dr.deleteBody").replace("{amount}", formatEur(p.amountCents)),
+      danger: true,
+      confirmLabel: t("c.delete"),
+    });
+    if (!res.ok) return;
+    setBusy(true);
+    try {
+      await api.delete(`/api/supplier-invoices/${inv.id}/payments/${p.id}`);
+      toast(t("fin.pay.dr.paymentDeleted"), "ok");
+      refresh();
+    } catch {
+      toast(t("fin.pay.actionFailed"), "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const cancelInvoice = async () => {
+    if (!inv || busy) return;
+    const res = await confirm({
+      title: t("fin.pay.cancel"),
+      body: t("fin.pay.cancelBody").replace("{number}", inv.number),
+      danger: true,
+      confirmLabel: t("fin.pay.cancel"),
+    });
+    if (!res.ok) return;
+    setBusy(true);
+    try {
+      await api.patch(`/api/supplier-invoices/${inv.id}`, { status: "cancelled" });
+      toast(t("fin.pay.cancelDone"), "ok");
+      refresh();
+    } catch (err) {
+      // The server refuses to cancel anything that is no longer plain unpaid —
+      // in this UI that can only mean a payment landed since the drawer opened.
+      const conflict = err instanceof ApiError && err.status === 409;
+      toast(t(conflict ? "fin.pay.cancelHasPayments" : "fin.pay.actionFailed"), "danger");
+      if (conflict) refresh();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const recon = detail?.reconciliation ?? null;
+  // An incomplete comparison is never dressed up as a variance to chase.
+  const reconSolid = recon !== null && recon.noCostDataCount === 0;
+  const reconOff = reconSolid && recon.varianceCents !== 0;
+
+  return (
+    <ADrawer
+      title={inv ? `${inv.number} — ${detail?.supplier.name ?? inv.supplierName}` : t("c.loading")}
+      onClose={onClose}
+      width={620}
+      footer={
+        inv && inv.status !== "cancelled" && (detail?.payments.length ?? 0) === 0 ? (
+          <ABtn kind="danger" disabled={busy} onClick={() => void cancelInvoice()}>{t("fin.pay.cancel")}</ABtn>
+        ) : undefined
+      }
+    >
+      {!detail || !inv ? (
+        <AEmpty text={t("c.loading")} />
+      ) : (
+        <div style={{ display: "grid", gap: 16 }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <PayStatusPill status={inv.status} overdueDays={inv.overdueDays} />
+            <span style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.inkSoft }}>
+              {t("fin.pay.th.delivery")}: <DeliveryRef refText={inv.consignmentRef} />
+            </span>
+            <span style={{ marginLeft: "auto", fontFamily: AT.body, fontSize: 12, color: AT.inkSoft }}>
+              {t("fin.pay.th.invoiceDate")} {formatDay(inv.invoiceDate)} · {t("fin.pay.th.due")} {formatDay(inv.dueDate)}
+            </span>
+          </div>
+
+          <div style={{
+            display: "flex", gap: 24, flexWrap: "wrap", padding: "12px 14px",
+            background: AT.surfaceAlt, borderRadius: AT.radiusSm,
+          }}>
+            <PayFigure label={t("fin.pay.th.amount")} cents={inv.amountCents} />
+            <PayFigure label={t("fin.pay.dr.paid")} cents={inv.paidCents} />
+            <PayFigure
+              label={t("fin.pay.th.outstanding")}
+              cents={inv.outstandingCents}
+              strong
+              tone={inv.outstandingCents > 0 ? (inv.overdueDays > 0 ? AT.danger : AT.ink) : AT.ok}
+            />
+          </div>
+
+          {inv.note && (
+            <div style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.inkSoft, lineHeight: 1.5 }}>
+              {t("c.notes")}: {inv.note}
+            </div>
+          )}
+
+          {recon && (
+            <div style={{
+              fontFamily: AT.body, fontSize: 12, lineHeight: 1.5, padding: "9px 12px",
+              borderRadius: AT.radiusSm,
+              background: reconOff ? AT.warnSoft : AT.surfaceAlt,
+              border: `1px solid ${reconOff ? AT.warnSoft : AT.ruleSoft}`,
+              color: reconOff ? AT.warn : AT.inkSoft,
+            }}>
+              {t("fin.pay.dr.recon")
+                .replace("{cost}", formatEur(recon.recordedCostCents))
+                .replace("{variance}", formatEur(recon.varianceCents))}
+              {recon.noCostDataCount > 0 && (
+                <div style={{ color: AT.inkSoft, marginTop: 3 }}>
+                  {t("fin.pay.dr.reconIncomplete").replace("{n}", String(recon.noCostDataCount))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div style={{ display: "grid", gap: 6 }}>
+            <div style={{ fontFamily: AT.body, fontSize: 12, fontWeight: 700, color: AT.ink }}>
+              {t("fin.pay.dr.payments")}
+            </div>
+            {detail.payments.length === 0 ? (
+              <div style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.inkSoft }}>{t("fin.pay.dr.noPayments")}</div>
+            ) : (
+              detail.payments.map((p) => (
+                <div key={p.id} style={{
+                  display: "flex", alignItems: "center", gap: 10, padding: "8px 10px",
+                  border: `1px solid ${AT.rule}`, borderRadius: 10,
+                }}>
+                  <span style={{ fontFamily: AT.mono, fontSize: 13, fontWeight: 700, minWidth: 86 }}>
+                    {formatEur(p.amountCents)}
+                  </span>
+                  <span style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.ink }}>
+                    {PAY_METHOD_KEY[p.method] ? t(PAY_METHOD_KEY[p.method]!) : p.method}
+                  </span>
+                  <span style={{ fontFamily: AT.body, fontSize: 12, color: AT.inkSoft }}>{formatDay(p.paidAt)}</span>
+                  <span style={{ fontFamily: AT.body, fontSize: 11.5, color: AT.inkSoft, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {p.actorLabel}{p.note ? ` · ${p.note}` : ""}
+                  </span>
+                  <button
+                    aria-label={t("fin.pay.dr.deletePayment")}
+                    title={t("fin.pay.dr.deletePayment")}
+                    disabled={busy}
+                    onClick={() => void removePayment(p)}
+                    style={{
+                      all: "unset", marginLeft: "auto", cursor: busy ? "not-allowed" : "pointer",
+                      padding: 4, color: AT.inkSoft, opacity: busy ? 0.4 : 1,
+                    }}
+                  >
+                    <AIcon name="trash" size={14} />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+
+          {inv.status !== "cancelled" && inv.outstandingCents > 0 && (
+            <PaymentForm key={inv.id} invoice={inv} onSaved={refresh} />
+          )}
+        </div>
+      )}
+    </ADrawer>
+  );
+}
+
+/**
+ * Record one payment against a bill. The amount is validated here — greater
+ * than zero and never more than what is still outstanding — so a bad value is
+ * shown inline instead of being posted and bounced by the API.
+ */
+function PaymentForm({ invoice, onSaved }: { invoice: SupplierInvoice; onSaved: () => void }) {
+  const { t } = useT();
+  const toast = useToast();
+  const [amount, setAmount] = useState("");
+  const [paidAt, setPaidAt] = useState(today());
+  const [method, setMethod] = useState<string>("bank_transfer");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const cents = payEurToCents(amount);
+  const typed = amount.trim().length > 0;
+  const error = !typed
+    ? null
+    : cents === null || cents <= 0
+      ? t("fin.pay.rec.badAmount")
+      : cents > invoice.outstandingCents
+        ? t("fin.pay.rec.tooMuch").replace("{amount}", formatEur(invoice.outstandingCents))
+        : null;
+  const ready = cents !== null && cents > 0 && cents <= invoice.outstandingCents;
+
+  const submit = async () => {
+    if (!ready || busy) return;
+    setBusy(true);
+    try {
+      await api.post(`/api/supplier-invoices/${invoice.id}/payments`, {
+        amountCents: cents,
+        // Today is the server's own "now" — only an explicit back-date travels.
+        ...(paidAt && paidAt !== today() ? { paidAt } : {}),
+        method,
+        ...(note.trim() ? { note: note.trim() } : {}),
+      });
+      setAmount("");
+      setNote("");
+      toast(t("fin.pay.rec.saved"), "ok");
+      onSaved();
+    } catch (err) {
+      const api422 = err instanceof ApiError ? err : null;
+      const code = api422 ? String(api422.body.error ?? "") : "";
+      if (code === "exceeds_outstanding") {
+        // The balance moved under us (a colleague paid part of it) — quote the
+        // server's figure, not the stale one this form was validated against.
+        const left = Number(api422?.body.outstandingCents ?? invoice.outstandingCents);
+        toast(t("fin.pay.rec.tooMuch").replace("{amount}", formatEur(left)), "danger");
+      } else {
+        toast(t(code === "invoice_cancelled" ? "fin.pay.rec.invoiceCancelled" : "fin.pay.rec.failed"), "danger");
+      }
+      // Either conflict means the bill on screen is out of date — re-read it.
+      if (code === "exceeds_outstanding" || code === "invoice_cancelled") onSaved();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ display: "grid", gap: 10, borderTop: `1px solid ${AT.rule}`, paddingTop: 14 }}>
+      <div style={{ fontFamily: AT.body, fontSize: 12, fontWeight: 700, color: AT.ink }}>
+        {t("fin.pay.rec.title")}
+      </div>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
+        <div style={{ width: 150 }}>
+          <AField
+            label={t("fin.pay.rec.amount")}
+            hint={t("fin.pay.rec.amountHint").replace("{amount}", formatEur(invoice.outstandingCents))}
+          >
+            <AInput value={amount} onChange={setAmount} placeholder="0,00" />
+          </AField>
+        </div>
+        <div style={{ width: 160 }}>
+          <AField label={t("c.date")}>
+            <AInput type="date" value={paidAt} onChange={setPaidAt} />
+          </AField>
+        </div>
+        <div style={{ paddingTop: 22 }}>
+          <ASelect
+            label={t("fin.pay.rec.method")}
+            value={method}
+            onChange={setMethod}
+            options={PAY_METHODS.map((m) => ({ value: m, label: t(PAY_METHOD_KEY[m]!) }))}
+          />
+        </div>
+      </div>
+      {error && (
+        <div style={{ fontFamily: AT.body, fontSize: 11.5, color: AT.danger }}>{error}</div>
+      )}
+      <AField label={t("fin.pay.rec.note")}>
+        <AInput value={note} onChange={setNote} placeholder={t("fin.pay.rec.notePh")} />
+      </AField>
+      <div>
+        <ABtn disabled={!ready || busy} onClick={() => void submit()}>
+          {busy ? t("c.saving") : t("fin.pay.rec.title")}
+        </ABtn>
       </div>
     </div>
   );
