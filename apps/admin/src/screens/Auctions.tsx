@@ -3,6 +3,7 @@ import { api, type Auction, type Listing, ApiError } from "../api.js";
 import type { Nav } from "../App.js";
 import { useAuth } from "../auth.js";
 import { formatDate, formatEur } from "../format.js";
+import { auctionStatusLabel, useT } from "../i18n.js";
 import { AT, AUCTION_STATUS_TONE } from "../theme.js";
 import {
   ABadge, ABtn, ACard, ADrawer, AEmpty, AField, AIcon, AInput, APills, ASelect,
@@ -11,13 +12,13 @@ import {
 import { useAuctionEvents } from "../useAuctionEvents.js";
 
 const FILTERS = [
-  { id: "all", label: "All", statuses: null as string[] | null },
-  { id: "live", label: "Live", statuses: ["live"] },
-  { id: "scheduled", label: "Scheduled", statuses: ["scheduled"] },
-  { id: "won", label: "Won", statuses: ["ended_won"] },
-  { id: "reserve", label: "Reserve not met", statuses: ["ended_reserve_not_met"] },
-  { id: "nobids", label: "No bids", statuses: ["ended_no_bids"] },
-  { id: "cancelled", label: "Cancelled", statuses: ["cancelled"] },
+  { id: "all", statuses: null as string[] | null },
+  { id: "live", statuses: ["live"] },
+  { id: "scheduled", statuses: ["scheduled"] },
+  { id: "won", statuses: ["ended_won"] },
+  { id: "reserve", statuses: ["ended_reserve_not_met"] },
+  { id: "nobids", statuses: ["ended_no_bids"] },
+  { id: "cancelled", statuses: ["cancelled"] },
 ];
 
 function toLocalInput(d: Date): string {
@@ -27,6 +28,7 @@ function toLocalInput(d: Date): string {
 
 export function AuctionsScreen({ nav }: { nav: Nav }) {
   const { can } = useAuth();
+  const { t } = useT();
   const toast = useToast();
   const now = useNowTick();
   const [auctions, setAuctions] = useState<Auction[]>([]);
@@ -51,7 +53,7 @@ export function AuctionsScreen({ nav }: { nav: Nav }) {
       setListingId(eligible[0]?.id ?? "");
       setScheduling(true);
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Failed to load listings", "danger");
+      toast(err instanceof ApiError ? err.message : t("auc.loadListingsFailed"), "danger");
     }
   };
 
@@ -62,11 +64,11 @@ export function AuctionsScreen({ nav }: { nav: Nav }) {
         startsAt: new Date(startsAt).toISOString(),
         endsAt: new Date(endsAt).toISOString(),
       });
-      toast("Auction scheduled", "ok");
+      toast(t("auc.scheduled"), "ok");
       setScheduling(false);
       load();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Failed to schedule", "danger");
+      toast(err instanceof ApiError ? err.message : t("auc.scheduleFailed"), "danger");
     }
   };
 
@@ -84,25 +86,25 @@ export function AuctionsScreen({ nav }: { nav: Nav }) {
   return (
     <div style={{ display: "grid", gap: 14 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <h1 style={{ fontFamily: AT.body, fontSize: 20, fontWeight: 700, color: AT.ink }}>Auctions</h1>
+        <h1 style={{ fontFamily: AT.body, fontSize: 20, fontWeight: 700, color: AT.ink }}>{t("auc.title")}</h1>
         {can("listings.publish") && (
           <ABtn onClick={() => void openScheduler()}>
-            <AIcon name="plus" size={15} color="#fff" /> Schedule auction
+            <AIcon name="plus" size={15} color="#fff" /> {t("auc.schedule")}
           </ABtn>
         )}
       </div>
 
       <APills
-        options={FILTERS.map((f) => ({ id: f.id, label: f.label, count: counts[f.id] ?? 0 }))}
+        options={FILTERS.map((f) => ({ id: f.id, label: f.statuses ? auctionStatusLabel(f.statuses[0]!) : t("c.all"), count: counts[f.id] ?? 0 }))}
         value={filter}
         onChange={setFilter}
       />
 
       <ACard pad={false}>
         {visible.length === 0 ? (
-          <AEmpty text="No auctions match this filter." />
+          <AEmpty text={t("auc.noMatch")} />
         ) : (
-          <ATable head={["Lot", "Type", "Current", "Bids", "Reserve", "Ends", "Leader", "Status"]}>
+          <ATable head={[t("auc.lot"), t("auc.type"), t("auc.current"), t("auc.bids"), t("auc.reserve"), t("auc.ends"), t("auc.leader"), t("c.status")]}>
             {visible.map((a) => {
               const msLeft = new Date(a.endsAt).getTime() - now;
               return (
@@ -116,25 +118,25 @@ export function AuctionsScreen({ nav }: { nav: Nav }) {
                   <ATd right>{a.bidCount}</ATd>
                   <ATd>
                     {a.reserveCents == null ? (
-                      <span style={{ color: AT.inkSoft, fontSize: 12 }}>none</span>
+                      <span style={{ color: AT.inkSoft, fontSize: 12 }}>{t("auc.reserveNone")}</span>
                     ) : a.reserveMet ? (
-                      <ABadge tone="ok">met</ABadge>
+                      <ABadge tone="ok">{t("auc.reserveMet")}</ABadge>
                     ) : (
-                      <ABadge tone="warn">not met</ABadge>
+                      <ABadge tone="warn">{t("auc.reserveNotMet")}</ABadge>
                     )}
                   </ATd>
                   <ATd>
                     <div style={{ fontSize: 12.5 }}>{formatDate(a.endsAt)}</div>
                     {a.status === "live" && (
                       <div style={{ fontFamily: AT.mono, fontSize: 11, color: msLeft < 120_000 ? AT.danger : AT.inkSoft }}>
-                        {formatCountdown(msLeft)}
+                        {msLeft <= 0 ? t("auc.endedLower") : formatCountdown(msLeft)}
                       </div>
                     )}
                   </ATd>
                   <ATd>{a.leaderAlias ?? <span style={{ color: AT.inkSoft }}>—</span>}</ATd>
                   <ATd>
                     <ABadge tone={AUCTION_STATUS_TONE[a.status]?.tone ?? "neutral"}>
-                      {AUCTION_STATUS_TONE[a.status]?.label ?? a.status}
+                      {auctionStatusLabel(a.status)}
                     </ABadge>
                   </ATd>
                 </ATr>
@@ -146,34 +148,33 @@ export function AuctionsScreen({ nav }: { nav: Nav }) {
 
       {scheduling && (
         <ADrawer
-          title="Schedule auction"
+          title={t("auc.schedule")}
           onClose={() => setScheduling(false)}
           footer={
             <>
-              <ABtn kind="ghost" onClick={() => setScheduling(false)}>Cancel</ABtn>
-              <ABtn onClick={() => void schedule()} disabled={!listingId}>Schedule</ABtn>
+              <ABtn kind="ghost" onClick={() => setScheduling(false)}>{t("c.cancel")}</ABtn>
+              <ABtn onClick={() => void schedule()} disabled={!listingId}>{t("auc.scheduleBtn")}</ABtn>
             </>
           }
         >
           <div style={{ display: "grid", gap: 14 }}>
             {listings.length === 0 ? (
               <div style={{ fontFamily: AT.body, fontSize: 13, color: AT.inkSoft, lineHeight: 1.6 }}>
-                No eligible listings. A listing must be <strong>published</strong>, of type <strong>auction</strong>, and its
-                item in the <strong>listed</strong> state (no open auction). Publish one under Listings first.
+                {t("auc.noEligible")}
               </div>
             ) : (
               <>
-                <AField label="Listing">
+                <AField label={t("auc.listing")}>
                   <ASelect
                     value={listingId}
                     onChange={setListingId}
                     options={listings.map((l) => ({ value: l.id, label: `${l.title} (${l.itemSku})` }))}
                   />
                 </AField>
-                <AField label="Starts at">
+                <AField label={t("auc.startsAt")}>
                   <AInput type="datetime-local" value={startsAt} onChange={setStartsAt} />
                 </AField>
-                <AField label="Ends at" hint="Anti-snipe extensions can push the close later.">
+                <AField label={t("auc.endsAt")} hint={t("auc.antiSnipeHint")}>
                   <AInput type="datetime-local" value={endsAt} onChange={setEndsAt} />
                 </AField>
               </>

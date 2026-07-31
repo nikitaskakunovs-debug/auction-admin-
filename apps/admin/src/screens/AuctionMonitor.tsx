@@ -3,6 +3,7 @@ import { api, ApiError, type Auction, type BidRow, type Item, type Listing } fro
 import type { Nav } from "../App.js";
 import { useAuth } from "../auth.js";
 import { formatDate, formatEur } from "../format.js";
+import { auctionStatusLabel, useT } from "../i18n.js";
 import { AT, AUCTION_STATUS_TONE } from "../theme.js";
 import {
   AAvatar, ABadge, ABtn, ACard, AEmpty, AIcon, ASelect, ATable, ATd, ATr,
@@ -21,6 +22,7 @@ const RELISTABLE = ["ended_reserve_not_met", "ended_no_bids", "cancelled"];
 
 export function AuctionMonitorScreen({ nav, auctionId }: { nav: Nav; auctionId: string }) {
   const { can } = useAuth();
+  const { t } = useT();
   const toast = useToast();
   const confirm = useConfirm();
   const now = useNowTick();
@@ -54,7 +56,7 @@ export function AuctionMonitorScreen({ nav, auctionId }: { nav: Nav; auctionId: 
     load(); // pull the fresh ledger / status
   });
 
-  if (!detail) return <AEmpty text="Auction not found." />;
+  if (!detail) return <AEmpty text={t("auc.notFound")} />;
   const { auction, listing, item, bids } = detail;
   const msLeft = new Date(auction.endsAt).getTime() - now;
   const isLive = auction.status === "live";
@@ -62,45 +64,45 @@ export function AuctionMonitorScreen({ nav, auctionId }: { nav: Nav; auctionId: 
 
   const doExtend = async () => {
     const r = await confirm({
-      title: `Extend auction by ${extendMinutes} minutes?`,
-      body: "The new end time is broadcast to all bidders immediately.",
+      title: `${t("auc.extendTitle1")} ${extendMinutes} ${t("auc.extendTitle2")}`,
+      body: t("auc.extendBody"),
       requireReason: true,
-      confirmLabel: "Extend",
+      confirmLabel: t("auc.extend"),
     });
     if (!r.ok) return;
     try {
       await api.post(`/api/auctions/${auctionId}/extend`, { minutes: Number(extendMinutes), reason: r.reason });
-      toast("Auction extended", "ok");
+      toast(t("auc.extended"), "ok");
       load();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Extend failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("auc.extendFailed"), "danger");
     }
   };
 
   const doCancel = async () => {
     const r = await confirm({
-      title: "Cancel this auction?",
-      body: `All ${auction.bidCount} bids are discarded and the item returns to “listed”. This cannot be undone.`,
+      title: t("auc.cancelTitle"),
+      body: `${auction.bidCount} ${t("auc.cancelBody")}`,
       danger: true,
       typeToConfirm: item.sku,
       requireReason: true,
-      confirmLabel: "Cancel auction",
+      confirmLabel: t("auc.cancelAuction"),
     });
     if (!r.ok) return;
     try {
       await api.post(`/api/auctions/${auctionId}/cancel`, { reason: r.reason });
-      toast("Auction cancelled", "ok");
+      toast(t("auc.cancelledToast"), "ok");
       nav.go("auctions");
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Cancel failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("auc.cancelFailed"), "danger");
     }
   };
 
   const doRelist = async () => {
     const r = await confirm({
-      title: "Relist this lot?",
-      body: "A new auction is scheduled to start in 1 hour and run for 3 days.",
-      confirmLabel: "Relist",
+      title: t("auc.relistTitle"),
+      body: t("auc.relistBody"),
+      confirmLabel: t("auc.relist"),
     });
     if (!r.ok) return;
     try {
@@ -108,35 +110,35 @@ export function AuctionMonitorScreen({ nav, auctionId }: { nav: Nav; auctionId: 
         startsAt: new Date(Date.now() + 3_600_000).toISOString(),
         endsAt: new Date(Date.now() + 73 * 3_600_000).toISOString(),
       });
-      toast("Lot relisted", "ok");
+      toast(t("auc.relisted"), "ok");
       nav.go("auctions", res.auction.id);
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Relist failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("auc.relistFailed"), "danger");
     }
   };
 
   const doVoid = async (b: BidRow) => {
     const r = await confirm({
-      title: `Void ${b.alias}'s bids?`,
-      body: "All of this bidder's bids on the auction are voided and the price is rebuilt from the remaining bids.",
+      title: `${t("auc.voidTitlePre")} ${b.alias}${t("auc.voidTitleSuf")}`,
+      body: t("auc.voidBody"),
       danger: true,
       requireReason: true,
-      confirmLabel: "Void bids",
+      confirmLabel: t("auc.voidConfirm"),
     });
     if (!r.ok) return;
     try {
       await api.post(`/api/auctions/${auctionId}/bids/${b.id}/void`, { reason: r.reason });
-      toast("Bid voided — price rebuilt", "ok");
+      toast(t("auc.voidedToast"), "ok");
       load();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Void failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("auc.voidFailed"), "danger");
     }
   };
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <ABtn kind="ghost" size="sm" onClick={() => nav.go("auctions")}>← Auctions</ABtn>
+        <ABtn kind="ghost" size="sm" onClick={() => nav.go("auctions")}>← {t("auc.title")}</ABtn>
         <div style={{ flex: 1, minWidth: 0 }}>
           <h1 style={{ fontFamily: AT.body, fontSize: 19, fontWeight: 700, color: AT.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {listing.title}
@@ -149,7 +151,7 @@ export function AuctionMonitorScreen({ nav, auctionId }: { nav: Nav; auctionId: 
             LIVE
           </span>
         )}
-        <ABadge tone={statusMeta.tone}>{statusMeta.label}</ABadge>
+        <ABadge tone={statusMeta.tone}>{auctionStatusLabel(auction.status)}</ABadge>
       </div>
 
       <div style={{ display: "flex", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
@@ -158,17 +160,17 @@ export function AuctionMonitorScreen({ nav, auctionId }: { nav: Nav; auctionId: 
           <ACard>
             <div style={{ display: "flex", gap: 26, alignItems: "flex-end", flexWrap: "wrap" }}>
               <div>
-                <div style={{ fontFamily: AT.body, fontSize: 11.5, fontWeight: 700, color: AT.inkSoft, textTransform: "uppercase", letterSpacing: "0.06em" }}>Current price</div>
+                <div style={{ fontFamily: AT.body, fontSize: 11.5, fontWeight: 700, color: AT.inkSoft, textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("auc.currentPrice")}</div>
                 <div style={{ fontFamily: AT.body, fontSize: 34, fontWeight: 700, color: AT.ink, letterSpacing: "-0.02em" }}>
-                  {auction.currentPriceCents === null ? "no bids" : formatEur(auction.currentPriceCents)}
+                  {auction.currentPriceCents === null ? t("auc.noBidsBig") : formatEur(auction.currentPriceCents)}
                 </div>
               </div>
               <div>
                 <div style={{ fontFamily: AT.body, fontSize: 11.5, fontWeight: 700, color: AT.inkSoft, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                  {isLive ? "Ends in" : "Ended"}
+                  {isLive ? t("auc.endsIn") : t("auc.ended")}
                 </div>
                 <div style={{ fontFamily: AT.mono, fontSize: 22, fontWeight: 700, color: isLive && msLeft < 120_000 ? AT.danger : AT.ink }}>
-                  {isLive ? formatCountdown(msLeft) : formatDate(auction.closedAt ?? auction.endsAt)}
+                  {isLive ? (msLeft <= 0 ? t("auc.endedLower") : formatCountdown(msLeft)) : formatDate(auction.closedAt ?? auction.endsAt)}
                 </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -177,19 +179,19 @@ export function AuctionMonitorScreen({ nav, auctionId }: { nav: Nav; auctionId: 
                     <AAvatar name={auction.leaderAlias} size={30} />
                     <div>
                       <div style={{ fontFamily: AT.body, fontSize: 13, fontWeight: 700 }}>{auction.leaderAlias}</div>
-                      <div style={{ fontFamily: AT.body, fontSize: 11, color: AT.inkSoft }}>leading</div>
+                      <div style={{ fontFamily: AT.body, fontSize: 11, color: AT.inkSoft }}>{t("auc.leading")}</div>
                     </div>
                   </>
                 ) : null}
               </div>
               <div style={{ marginLeft: "auto", textAlign: "right" }}>
-                <div style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.inkSoft }}>{auction.bidCount} bids · {auction.extensions} extensions</div>
+                <div style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.inkSoft }}>{auction.bidCount} {t("auc.bidsWord")} · {auction.extensions} {t("auc.extensionsWord")}</div>
                 {listing.reserveCents != null && (
                   <div style={{ marginTop: 6, display: "flex", gap: 7, alignItems: "center", justifyContent: "flex-end" }}>
                     <span style={{ fontFamily: AT.body, fontSize: 12, color: AT.inkSoft }}>
-                      Reserve {formatEur(listing.reserveCents)} <span style={{ fontSize: 10.5 }}>(hidden from bidders)</span>
+                      {t("auc.reserveWord")} {formatEur(listing.reserveCents)} <span style={{ fontSize: 10.5 }}>{t("auc.hiddenFromBidders")}</span>
                     </span>
-                    {auction.reserveMet ? <ABadge tone="ok">met</ABadge> : <ABadge tone="warn">not met</ABadge>}
+                    {auction.reserveMet ? <ABadge tone="ok">{t("auc.reserveMet")}</ABadge> : <ABadge tone="warn">{t("auc.reserveNotMet")}</ABadge>}
                   </div>
                 )}
               </div>

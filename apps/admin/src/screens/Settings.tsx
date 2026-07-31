@@ -4,6 +4,7 @@ import { api, ApiError, type ConditionPreset, type Market } from "../api.js";
 import type { Nav } from "../App.js";
 import { useAuth } from "../auth.js";
 import { formatDay } from "../format.js";
+import { useT, type TKey } from "../i18n.js";
 import { TAG_STYLES, TagChip, type TagDef } from "../powerkit.js";
 import { AT } from "../theme.js";
 import {
@@ -27,33 +28,34 @@ interface Role {
   permissions: string[];
 }
 
-const TABS = [
-  { id: "markets", label: "Markets" },
-  { id: "team", label: "Team" },
-  { id: "roles", label: "Roles" },
-  { id: "conditions", label: "Conditions" },
-  { id: "tags", label: "Tags" },
+const TABS: Array<{ id: string; labelKey: TKey }> = [
+  { id: "markets", labelKey: "set.tabMarkets" },
+  { id: "team", labelKey: "set.tabTeam" },
+  { id: "roles", labelKey: "set.tabRoles" },
+  { id: "conditions", labelKey: "set.tabConditions" },
+  { id: "tags", labelKey: "set.tabTags" },
 ];
 
 export function SettingsScreen({ nav: _nav }: { nav: Nav }) {
   const { can } = useAuth();
+  const { t } = useT();
   const [tab, setTab] = useState("markets");
 
   // The Conditions editor is reviewer-only; Tags need settings.edit.
-  const tabs = TABS.filter((t) =>
-    (t.id !== "conditions" || can("grading.review")) && (t.id !== "tags" || can("settings.edit")),
+  const tabs = TABS.filter((tb) =>
+    (tb.id !== "conditions" || can("grading.review")) && (tb.id !== "tags" || can("settings.edit")),
   );
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
-      <h1 style={{ fontFamily: AT.body, fontSize: 20, fontWeight: 700, color: AT.ink }}>Settings</h1>
+      <h1 style={{ fontFamily: AT.body, fontSize: 20, fontWeight: 700, color: AT.ink }}>{t("set.title")}</h1>
       <div style={{ display: "flex", gap: 2, borderBottom: `1px solid ${AT.rule}` }}>
-        {tabs.map((t) => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{
+        {tabs.map((tb) => (
+          <button key={tb.id} onClick={() => setTab(tb.id)} style={{
             all: "unset", cursor: "pointer", padding: "9px 14px", fontFamily: AT.body,
-            fontSize: 13, fontWeight: 600, color: tab === t.id ? AT.ink : AT.inkSoft,
-            borderBottom: `2px solid ${tab === t.id ? AT.accent : "transparent"}`, marginBottom: -1,
-          }}>{t.label}</button>
+            fontSize: 13, fontWeight: 600, color: tab === tb.id ? AT.ink : AT.inkSoft,
+            borderBottom: `2px solid ${tab === tb.id ? AT.accent : "transparent"}`, marginBottom: -1,
+          }}>{t(tb.labelKey)}</button>
         ))}
       </div>
       {tab === "markets" && (can("markets.view") ? <MarketsTab /> : <NoAccess />)}
@@ -158,7 +160,8 @@ function TagsTab() {
 }
 
 function NoAccess() {
-  return <div style={{ fontFamily: AT.body, fontSize: 13, color: AT.inkSoft, padding: 20 }}>Your role does not have access to this section.</div>;
+  const { t } = useT();
+  return <div style={{ fontFamily: AT.body, fontSize: 13, color: AT.inkSoft, padding: 20 }}>{t("set.noAccess")}</div>;
 }
 
 // ── Markets ──────────────────────────────────────────────────────────────────

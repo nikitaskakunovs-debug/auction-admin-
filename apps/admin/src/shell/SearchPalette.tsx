@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api.js";
+import { t, useT, type TKey } from "../i18n.js";
 import { AT, toneColors } from "../theme.js";
 
 /**
@@ -36,19 +37,19 @@ function flatten(groups: Group[]): Row[] {
   for (const g of groups) {
     if (g.kind === "lots") {
       for (const r of g.results as LotHit[]) {
-        rows.push({ key: `lot-${r.id}`, group: "Lots", mono: r.sku, title: r.title, meta: r.status.replace(/_/g, " "), target: { screen: "inventory", param: r.id } });
+        rows.push({ key: `lot-${r.id}`, group: t("sh.grp.lots"), mono: r.sku, title: r.title, meta: r.status.replace(/_/g, " "), target: { screen: "inventory", param: r.id } });
       }
     } else if (g.kind === "auctions") {
       for (const r of g.results as AuctionHit[]) {
-        rows.push({ key: `auc-${r.id}`, group: "Auctions", mono: r.sku, title: r.title, meta: `${r.status.replace(/_/g, " ")}${r.currentPriceCents != null ? ` · ${eur(r.currentPriceCents)}` : ""}`, target: { screen: "auctions", param: r.id } });
+        rows.push({ key: `auc-${r.id}`, group: t("sh.grp.auctions"), mono: r.sku, title: r.title, meta: `${r.status.replace(/_/g, " ")}${r.currentPriceCents != null ? ` · ${eur(r.currentPriceCents)}` : ""}`, target: { screen: "auctions", param: r.id } });
       }
     } else if (g.kind === "orders") {
       for (const r of g.results as OrderHit[]) {
-        rows.push({ key: `ord-${r.id}`, group: "Orders", mono: r.ref, title: r.customerAlias, meta: `${r.status.replace(/_/g, " ")} · ${eur(r.totalCents)}`, target: { screen: "orders", param: r.id } });
+        rows.push({ key: `ord-${r.id}`, group: t("sh.grp.orders"), mono: r.ref, title: r.customerAlias, meta: `${r.status.replace(/_/g, " ")} · ${eur(r.totalCents)}`, target: { screen: "orders", param: r.id } });
       }
     } else if (g.kind === "bidders") {
       for (const r of g.results as BidderHit[]) {
-        rows.push({ key: `cus-${r.id}`, group: "Bidders", mono: r.alias, title: r.email, meta: r.blocked ? "blocked" : r.strikes > 0 ? `${r.strikes} strikes` : "", target: { screen: "customers", param: r.id } });
+        rows.push({ key: `cus-${r.id}`, group: t("sh.grp.bidders"), mono: r.alias, title: r.email, meta: r.blocked ? "blocked" : r.strikes > 0 ? `${r.strikes} strikes` : "", target: { screen: "customers", param: r.id } });
       }
     }
   }

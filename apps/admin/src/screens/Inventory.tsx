@@ -7,7 +7,7 @@ import type { Nav } from "../App.js";
 import { useAuth } from "../auth.js";
 import { exportCSV, exportPDFPrint, exportXLS } from "../exporters.js";
 import { formatDate } from "../format.js";
-import { useT } from "../i18n.js";
+import { itemStatusLabel, useT, type TKey } from "../i18n.js";
 import { ActivityTimeline, CommentsThread, useCommentsLive } from "../itemPanels.js";
 import { openLabelWindow as openLabel } from "../labels.js";
 import {
@@ -22,24 +22,41 @@ import {
 } from "../ui.js";
 import { useIsMobile } from "../useMobile.js";
 
-const GROUPS = [
-  { id: "all", label: "All", statuses: null as string[] | null },
-  { id: "intake", label: "Intake", statuses: ["draft", "listed"] },
-  { id: "selling", label: "Selling", statuses: ["live", "won", "awaiting_payment"] },
-  { id: "fulfilment", label: "Fulfilment", statuses: ["paid", "picking", "packed", "shipped", "delivered"] },
-  { id: "attention", label: "Attention", statuses: ["unsold", "unpaid_cancelled", "no_pickup_cancelled"] },
-  { id: "restock", label: "Returned", statuses: ["unpaid_cancelled", "no_pickup_cancelled"] },
-  { id: "closed", label: "Closed", statuses: ["closed"] },
+const GROUPS: { id: string; label: TKey; statuses: string[] | null }[] = [
+  { id: "all", label: "c.all", statuses: null },
+  { id: "intake", label: "inv.g.intake", statuses: ["draft", "listed"] },
+  { id: "selling", label: "inv.g.selling", statuses: ["live", "won", "awaiting_payment"] },
+  { id: "fulfilment", label: "inv.g.fulfilment", statuses: ["paid", "picking", "packed", "shipped", "delivered"] },
+  { id: "attention", label: "inv.g.attention", statuses: ["unsold", "unpaid_cancelled", "no_pickup_cancelled"] },
+  { id: "restock", label: "inv.g.restock", statuses: ["unpaid_cancelled", "no_pickup_cancelled"] },
+  { id: "closed", label: "inv.g.closed", statuses: ["closed"] },
 ];
 
-const NEXT_STEP: Record<string, { to: string; label: string }> = {
-  unpaid_cancelled: { to: "draft", label: "Return to stock" },
-  no_pickup_cancelled: { to: "draft", label: "Return to stock" },
-  paid: { to: "picking", label: "Start picking" },
-  picking: { to: "packed", label: "Mark packed" },
-  packed: { to: "shipped", label: "Mark shipped" },
-  shipped: { to: "delivered", label: "Mark delivered" },
-  delivered: { to: "closed", label: "Close" },
+const NEXT_STEP: Record<string, { to: string; label: TKey }> = {
+  unpaid_cancelled: { to: "draft", label: "inv.step.returnStock" },
+  no_pickup_cancelled: { to: "draft", label: "inv.step.returnStock" },
+  paid: { to: "picking", label: "inv.step.startPicking" },
+  picking: { to: "packed", label: "inv.step.markPacked" },
+  packed: { to: "shipped", label: "inv.step.markShipped" },
+  shipped: { to: "delivered", label: "inv.step.markDelivered" },
+  delivered: { to: "closed", label: "inv.step.close" },
+};
+
+/** Visible category names — translated by code, falling back to the domain
+ * label for codes this map doesn't know yet. */
+const CATEGORY_KEY: Record<string, TKey> = {
+  electronics: "inv.cat.electronics",
+  appliances: "inv.cat.appliances",
+  furniture: "inv.cat.furniture",
+  tools: "inv.cat.tools",
+  home_garden: "inv.cat.home_garden",
+  jewellery_watches: "inv.cat.jewellery_watches",
+  art_antiques: "inv.cat.art_antiques",
+  sports_outdoors: "inv.cat.sports_outdoors",
+  kids_toys: "inv.cat.kids_toys",
+  fashion: "inv.cat.fashion",
+  food_household: "inv.cat.food_household",
+  other: "inv.cat.other",
 };
 
 /** Items graded before the 16-grade taxonomy keep their free-text value. */
@@ -105,18 +122,20 @@ function buildQuery(f: Filters, limit: number, offset: number): string {
   return p.toString();
 }
 
-const SORTS = [
-  { value: "newest", label: "Newest first" },
-  { value: "oldest", label: "Oldest first" },
-  { value: "updated", label: "Recently updated" },
-  { value: "title", label: "Title A→Z" },
+const SORTS: { value: string; label: TKey }[] = [
+  { value: "newest", label: "inv.sort.newest" },
+  { value: "oldest", label: "inv.sort.oldest" },
+  { value: "updated", label: "inv.sort.updated" },
+  { value: "title", label: "inv.sort.title" },
 ];
-
-const EXPORT_HEADERS = ["SKU", "Title", "Condition", "Category", "Bin", "Weight g", "Status", "Market", "Received", "Updated"];
 
 export function InventoryScreen({ nav }: { nav: Nav }) {
   const { can } = useAuth();
   const { t } = useT();
+  const catLabel = (code: string): string => {
+    const k = CATEGORY_KEY[code];
+    return k ? t(k) : CATEGORIES.find((c) => c.code === code)?.label ?? code;
+  };
   const toast = useToast();
   const confirm = useConfirm();
   const mobile = useIsMobile();
@@ -184,7 +203,7 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
       });
       setTotal(r.total);
     } catch {
-      toast("Failed to load more", "danger");
+      toast(t("inv.loadMoreFailed"), "danger");
     } finally {
       setLoadingMore(false);
     }
@@ -211,11 +230,11 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
     if (!editing) return;
     try {
       await api.post(`/api/items/${editing.id}/putaway`, { locationId, reason: "" });
-      toast(locationId ? "Bin assigned" : "Bin cleared", "ok");
+      toast(locationId ? t("wh.binAssigned") : t("wh.binCleared"), "ok");
       setEditing({ ...editing, locationId });
       load();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Putaway failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("wh.putawayFailed"), "danger");
     }
   };
 
@@ -231,10 +250,10 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
     try {
       const r = await api.postForm<{ item: Item }>(`/api/items/${editing.id}/photos`, fd);
       setEditing(r.item);
-      toast(files.length > 1 ? `${files.length} photos uploaded` : "Photo uploaded", "ok");
+      toast(files.length > 1 ? `${files.length} ${t("wh.photosAdded")}` : t("wh.photoAdded"), "ok");
       load();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Upload failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("wh.uploadFailed"), "danger");
     }
   };
 
@@ -245,7 +264,7 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
       setEditing(r.item);
       load();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Delete failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("inv.deleteFailed"), "danger");
     }
   };
 
@@ -256,7 +275,7 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
       setEditing(r.item);
       load();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("wh.actionFailed"), "danger");
     }
   };
 
@@ -275,46 +294,46 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
     try {
       if (editing) {
         await api.patch(`/api/items/${editing.id}`, body);
-        toast("Item saved", "ok");
+        toast(t("inv.saved"), "ok");
       } else {
         await api.post("/api/items", body);
-        toast("Item created", "ok");
+        toast(t("inv.created"), "ok");
       }
       setCreating(false);
       setEditing(null);
       load();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Save failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("wh.saveFailed"), "danger");
     }
   };
 
   const transition = async (item: Item, to: string) => {
     try {
       await api.post(`/api/items/${item.id}/transition`, { to });
-      toast(`${item.sku} → ${to.replace(/_/g, " ")}`, "ok");
+      toast(`${item.sku} → ${itemStatusLabel(to)}`, "ok");
       setEditing(null);
       load();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Transition failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("inv.transitionFailed"), "danger");
     }
   };
 
   const remove = async (item: Item) => {
     const r = await confirm({
-      title: `Delete ${item.sku}?`,
-      body: "Only draft items can be deleted. This cannot be undone.",
+      title: `${t("c.delete")} ${item.sku}?`,
+      body: t("inv.deleteBody"),
       danger: true,
       typeToConfirm: item.sku,
-      confirmLabel: "Delete",
+      confirmLabel: t("c.delete"),
     });
     if (!r.ok) return;
     try {
       await api.delete(`/api/items/${item.id}`);
-      toast("Item deleted", "ok");
+      toast(t("inv.deleted"), "ok");
       setEditing(null);
       load();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Delete failed", "danger");
+      toast(err instanceof ApiError ? err.message : t("inv.deleteFailed"), "danger");
     }
   };
 
@@ -348,25 +367,36 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
 
   const binById = useMemo(() => new Map(bins.map((b) => [b.id, b])), [bins]);
   const chips: FilterChip[] = [];
-  if (filters.group !== "all") chips.push({ key: "group", label: GROUPS.find((g) => g.id === filters.group)?.label ?? filters.group, clear: () => setF({ group: "all" }) });
-  if (filters.market !== "all") chips.push({ key: "market", label: `Market: ${filters.market}`, clear: () => setF({ market: "all" }) });
-  if (filters.category !== "all") chips.push({ key: "category", label: `Category: ${CATEGORIES.find((c) => c.code === filters.category)?.label ?? filters.category}`, clear: () => setF({ category: "all" }) });
-  if (filters.bin !== "all") chips.push({ key: "bin", label: `Bin: ${filters.bin === "none" ? "unassigned" : binById.get(filters.bin)?.label ?? "?"}`, clear: () => setF({ bin: "all" }) });
-  if (filters.from) chips.push({ key: "from", label: `From ${filters.from}`, clear: () => setF({ from: "" }) });
-  if (filters.to) chips.push({ key: "to", label: `To ${filters.to}`, clear: () => setF({ to: "" }) });
-  if (filters.sort !== "newest") chips.push({ key: "sort", label: SORTS.find((s) => s.value === filters.sort)?.label ?? filters.sort, clear: () => setF({ sort: "newest" }) });
+  if (filters.group !== "all") {
+    const g = GROUPS.find((x) => x.id === filters.group);
+    chips.push({ key: "group", label: g ? t(g.label) : filters.group, clear: () => setF({ group: "all" }) });
+  }
+  if (filters.market !== "all") chips.push({ key: "market", label: `${t("c.market")}: ${filters.market}`, clear: () => setF({ market: "all" }) });
+  if (filters.category !== "all") chips.push({ key: "category", label: `${t("inv.category")}: ${catLabel(filters.category)}`, clear: () => setF({ category: "all" }) });
+  if (filters.bin !== "all") chips.push({ key: "bin", label: `${t("wh.bin")}: ${filters.bin === "none" ? t("inv.unassigned") : binById.get(filters.bin)?.label ?? "?"}`, clear: () => setF({ bin: "all" }) });
+  if (filters.from) chips.push({ key: "from", label: `${t("inv.from")} ${filters.from}`, clear: () => setF({ from: "" }) });
+  if (filters.to) chips.push({ key: "to", label: `${t("inv.to")} ${filters.to}`, clear: () => setF({ to: "" }) });
+  if (filters.sort !== "newest") {
+    const s = SORTS.find((x) => x.value === filters.sort);
+    chips.push({ key: "sort", label: s ? t(s.label) : filters.sort, clear: () => setF({ sort: "newest" }) });
+  }
   if (filters.q.trim()) chips.push({ key: "q", label: `"${filters.q.trim()}"`, clear: () => { setQInput(""); setF({ q: "" }); } });
 
   // ── Export ─────────────────────────────────────────────────────────────────
+
+  const exportHeaders = [
+    "SKU", t("c.title"), t("c.condition"), t("inv.category"), t("wh.bin"),
+    t("inv.weightG"), t("c.status"), t("c.market"), t("inv.received"), t("inv.updated"),
+  ];
 
   const toExportRow = (i: Item): string[] => [
     i.sku,
     i.title,
     conditionLabel(i.condition),
-    i.category ?? "other",
+    catLabel(i.category ?? "other"),
     i.location || "",
     i.weightGrams == null ? "" : String(i.weightGrams),
-    ITEM_STATUS_TONE[i.status]?.label ?? i.status,
+    itemStatusLabel(i.status),
     i.marketCode,
     i.createdAt.slice(0, 10),
     i.updatedAt.slice(0, 10),
@@ -386,14 +416,14 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
   const runExport = async (fmt: "csv" | "xls" | "pdf") => {
     try {
       const list = await gatherExportRows();
-      if (list.length === 0) return toast("Nothing to export", "warn");
+      if (list.length === 0) return toast(t("inv.nothingExport"), "warn");
       const body = list.map(toExportRow);
-      if (fmt === "csv") exportCSV("inventory", EXPORT_HEADERS, body);
-      else if (fmt === "xls") exportXLS("inventory", EXPORT_HEADERS, body, "Inventory");
-      else exportPDFPrint("Inventory export", EXPORT_HEADERS, body);
-      toast(`Exported ${list.length} items`, "ok");
+      if (fmt === "csv") exportCSV("inventory", exportHeaders, body);
+      else if (fmt === "xls") exportXLS("inventory", exportHeaders, body, t("inv.title"));
+      else exportPDFPrint(t("inv.exportTitle"), exportHeaders, body);
+      toast(`${list.length} ${t("inv.exportedSuffix")}`, "ok");
     } catch {
-      toast("Export failed", "danger");
+      toast(t("inv.exportFailed"), "danger");
     }
   };
 
@@ -415,7 +445,7 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
         failed++;
       }
     }
-    toast(failed > 0 ? `${ok} moved · ${failed} failed` : `${ok} item${ok === 1 ? "" : "s"} moved`, failed > 0 ? "warn" : "ok");
+    toast(failed > 0 ? `${ok} ${t("inv.movedMany")} · ${failed} ${t("inv.failedSuffix")}` : `${ok} ${t(ok === 1 ? "inv.movedOne" : "inv.movedMany")}`, failed > 0 ? "warn" : "ok");
     setBulkBinPick(false);
     load();
   };
@@ -425,11 +455,11 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
   return (
     <div style={{ display: "grid", gap: 14 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <h1 style={{ fontFamily: AT.body, fontSize: 20, fontWeight: 700, color: AT.ink, flex: 1 }}>Inventory</h1>
-        <ExportMenu count={exportCount} scope={selected.size > 0 ? "selected" : "filtered"} noun="items" onPick={(fmt) => void runExport(fmt)} />
+        <h1 style={{ fontFamily: AT.body, fontSize: 20, fontWeight: 700, color: AT.ink, flex: 1 }}>{t("inv.title")}</h1>
+        <ExportMenu count={exportCount} scope={selected.size > 0 ? "selected" : "filtered"} noun={t("inv.itemsNoun")} onPick={(fmt) => void runExport(fmt)} />
         {can("items.create") && (
           <ABtn onClick={() => { setForm(emptyForm); setEditing(null); setDrawerTab("details"); setCreating(true); }}>
-            <AIcon name="plus" size={15} color="#fff" /> New item
+            <AIcon name="plus" size={15} color="#fff" /> {t("inv.new")}
           </ABtn>
         )}
       </div>
@@ -437,44 +467,44 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
       <ViewsBar {...sv.ViewsBarProps} />
 
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-        <AStat label="Items" value={kpis.total} />
-        <AStat label="In fulfilment" value={kpis.fulfilment} />
-        <AStat label="Awaiting payment" value={kpis.awaiting} tone={kpis.awaiting > 0 ? "warn" : undefined} />
-        <AStat label="Needs attention" value={kpis.attention} tone={kpis.attention > 0 ? "warn" : undefined} sub="unsold / cancelled" />
+        <AStat label={t("inv.stat.items")} value={kpis.total} />
+        <AStat label={t("inv.stat.fulfilment")} value={kpis.fulfilment} />
+        <AStat label={t("inv.stat.awaiting")} value={kpis.awaiting} tone={kpis.awaiting > 0 ? "warn" : undefined} />
+        <AStat label={t("inv.stat.attention")} value={kpis.attention} tone={kpis.attention > 0 ? "warn" : undefined} sub={t("inv.stat.attentionSub")} />
       </div>
 
-      <APills options={GROUPS.map((g) => ({ id: g.id, label: g.label, count: groupCounts[g.id] ?? 0 }))} value={filters.group} onChange={(v) => setF({ group: v })} />
+      <APills options={GROUPS.map((g) => ({ id: g.id, label: t(g.label), count: groupCounts[g.id] ?? 0 }))} value={filters.group} onChange={(v) => setF({ group: v })} />
 
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-        <SearchBox value={qInput} onChange={setQInput} placeholder="Search sku or title…" />
+        <SearchBox value={qInput} onChange={setQInput} placeholder={t("inv.searchPh")} />
         <ASelect
           value={filters.market}
           onChange={(v) => setF({ market: v })}
-          options={[{ value: "all", label: "All markets" }, ...markets.map((m) => ({ value: m.code, label: m.code }))]}
+          options={[{ value: "all", label: t("inv.allMarkets") }, ...markets.map((m) => ({ value: m.code, label: m.code }))]}
         />
         <ASelect
           value={filters.category}
           onChange={(v) => setF({ category: v })}
-          options={[{ value: "all", label: "All categories" }, ...CATEGORIES.map((c) => ({ value: c.code, label: c.label }))]}
+          options={[{ value: "all", label: t("inv.allCategories") }, ...CATEGORIES.map((c) => ({ value: c.code, label: catLabel(c.code) }))]}
         />
         <ASelect
           value={filters.bin}
           onChange={(v) => setF({ bin: v })}
-          options={[{ value: "all", label: "Any bin" }, { value: "none", label: "No bin" }, ...bins.map((b) => ({ value: b.id, label: b.label }))]}
+          options={[{ value: "all", label: t("inv.anyBin") }, { value: "none", label: t("inv.noBin") }, ...bins.map((b) => ({ value: b.id, label: b.label }))]}
         />
         <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: AT.body, fontSize: 12.5, color: AT.inkSoft }}>
           <input type="date" value={filters.from} max={filters.to || undefined} onChange={(e) => setF({ from: e.target.value })} style={dateInputStyle} />
           –
           <input type="date" value={filters.to} min={filters.from || undefined} onChange={(e) => setF({ to: e.target.value })} style={dateInputStyle} />
         </label>
-        <ASelect value={filters.sort} onChange={(v) => setF({ sort: v })} options={SORTS} />
+        <ASelect value={filters.sort} onChange={(v) => setF({ sort: v })} options={SORTS.map((s) => ({ value: s.value, label: t(s.label) }))} />
       </div>
 
       <FilterChips chips={chips} onClearAll={clearAll} />
 
       <ACard pad={false}>
         {items.length === 0 ? (
-          <AEmpty text="No items match these filters." />
+          <AEmpty text={t("inv.empty")} />
         ) : mobile ? (
           // Phase B — card reflow: SKU + status, title, condition + location.
           <div style={{ display: "grid" }}>
@@ -501,7 +531,7 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
                   )}
                   <span style={{ marginLeft: "auto" }}>
                     <ABadge tone={ITEM_STATUS_TONE[i.status]?.tone ?? "neutral"}>
-                      {ITEM_STATUS_TONE[i.status]?.label ?? i.status}
+                      {itemStatusLabel(i.status)}
                     </ABadge>
                   </span>
                 </div>
@@ -514,7 +544,7 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
             {items.length < total && (
               <div style={{ padding: 12, display: "flex", justifyContent: "center" }}>
                 <ABtn kind="ghost" size="sm" disabled={loadingMore} onClick={() => void loadMore()}>
-                  {loadingMore ? "Loading…" : `Load more (${items.length} of ${total})`}
+                  {loadingMore ? t("c.loading") : `${t("c.loadMore")} (${items.length} ${t("c.of")} ${total})`}
                 </ABtn>
               </div>
             )}
@@ -522,8 +552,8 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
         ) : (
           <>
             <ATable head={[
-              <input key="all" type="checkbox" checked={allSelected} onChange={toggleAll} style={checkboxStyle} aria-label="Select all visible items" />,
-              "SKU", "Title", "Condition", "Location", "Weight", "Status", "Updated",
+              <input key="all" type="checkbox" checked={allSelected} onChange={toggleAll} style={checkboxStyle} aria-label={t("inv.selectAllAria")} />,
+              "SKU", t("c.title"), t("c.condition"), t("c.location"), t("inv.weight"), t("c.status"), t("inv.updated"),
             ]}>
               {items.map((i) => (
                 <ATr key={i.id} active={selected.has(i.id)} onClick={() => {
@@ -542,7 +572,7 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
                       onClick={(e) => e.stopPropagation()}
                       onChange={() => toggleOne(i.id)}
                       style={checkboxStyle}
-                      aria-label={`Select ${i.sku}`}
+                      aria-label={`${t("inv.selectAria")} ${i.sku}`}
                     />
                   </ATd>
                   <ATd mono>
@@ -559,7 +589,7 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
                   <ATd>{conditionLabel(i.condition)}</ATd>
                   <ATd mono>{i.location || "—"}</ATd>
                   <ATd right>{i.weightGrams == null ? "—" : `${i.weightGrams} g`}</ATd>
-                  <ATd><ABadge tone={ITEM_STATUS_TONE[i.status]?.tone ?? "neutral"}>{ITEM_STATUS_TONE[i.status]?.label ?? i.status}</ABadge></ATd>
+                  <ATd><ABadge tone={ITEM_STATUS_TONE[i.status]?.tone ?? "neutral"}>{itemStatusLabel(i.status)}</ABadge></ATd>
                   <ATd>{formatDate(i.updatedAt)}</ATd>
                 </ATr>
               ))}
@@ -567,7 +597,7 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
             {items.length < total && (
               <div style={{ padding: 12, display: "flex", justifyContent: "center", borderTop: `1px solid ${AT.ruleSoft}` }}>
                 <ABtn kind="ghost" size="sm" disabled={loadingMore} onClick={() => void loadMore()}>
-                  {loadingMore ? "Loading…" : `Load more (${items.length} of ${total})`}
+                  {loadingMore ? t("c.loading") : `${t("c.loadMore")} (${items.length} ${t("c.of")} ${total})`}
                 </ABtn>
               </div>
             )}
@@ -577,10 +607,10 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
 
       <BulkBar count={selected.size} onClear={() => { setSelected(new Set()); setBulkBinPick(false); }}>
         <span style={bulkDividerStyle} />
-        <BulkBtn onClick={bulkLabels}>Print labels</BulkBtn>
-        {can("warehouse.manage") && <BulkBtn onClick={() => setBulkBinPick((v) => !v)}>Move to bin ▾</BulkBtn>}
+        <BulkBtn onClick={bulkLabels}>{t("inv.printLabels")}</BulkBtn>
+        {can("warehouse.manage") && <BulkBtn onClick={() => setBulkBinPick((v) => !v)}>{t("inv.moveToBin")} ▾</BulkBtn>}
         <span style={bulkDividerStyle} />
-        <BulkBtn onClick={() => void runExport("csv")}>Export CSV</BulkBtn>
+        <BulkBtn onClick={() => void runExport("csv")}>{t("c.export")} CSV</BulkBtn>
         {bulkBinPick && (
           <>
             <span style={bulkDividerStyle} />
@@ -589,7 +619,7 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
               defaultValue=""
               style={{ borderRadius: 7, border: "none", padding: "5px 8px", fontFamily: AT.body, fontSize: 12.5 }}
             >
-              <option value="" disabled>Pick a bin…</option>
+              <option value="" disabled>{t("inv.pickBin")}</option>
               {bins.map((b) => <option key={b.id} value={b.id}>{b.label}</option>)}
             </select>
           </>
@@ -598,16 +628,16 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
 
       {(creating || editing) && (
         <ADrawer
-          title={editing ? <span>Edit item <span style={{ fontFamily: AT.mono, fontSize: 12, color: AT.inkSoft }}>{editing.sku}</span></span> : "New item"}
+          title={editing ? <span>{t("inv.editItem")} <span style={{ fontFamily: AT.mono, fontSize: 12, color: AT.inkSoft }}>{editing.sku}</span></span> : t("inv.new")}
           onClose={() => { setCreating(false); setEditing(null); }}
           footer={
             <>
               {drawerTab === "details" && editing && editing.status === "draft" && can("items.delete") && (
-                <ABtn kind="danger" onClick={() => void remove(editing)}>Delete</ABtn>
+                <ABtn kind="danger" onClick={() => void remove(editing)}>{t("c.delete")}</ABtn>
               )}
-              <ABtn kind="ghost" onClick={() => { setCreating(false); setEditing(null); }}>Close</ABtn>
+              <ABtn kind="ghost" onClick={() => { setCreating(false); setEditing(null); }}>{t("c.close")}</ABtn>
               {drawerTab === "details" && (editing ? can("items.edit") : can("items.create")) && (
-                <ABtn onClick={() => void submit()} disabled={!form.sku || !form.title || (conditionRequiresNotes(form.condition) && form.conditionNotes.trim().length < 3)}>{editing ? "Save" : "Create"}</ABtn>
+                <ABtn onClick={() => void submit()} disabled={!form.sku || !form.title || (conditionRequiresNotes(form.condition) && form.conditionNotes.trim().length < 3)}>{editing ? t("c.save") : t("c.create")}</ABtn>
               )}
             </>
           }
@@ -616,7 +646,7 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
             {editing && (
               <div style={{ display: "flex", gap: 2, borderBottom: `1px solid ${AT.rule}` }}>
                 {([
-                  { id: "details" as DrawerTab, label: "Details", badge: 0 },
+                  { id: "details" as DrawerTab, label: t("inv.tab.details"), badge: 0 },
                   { id: "chat" as DrawerTab, label: t("wh.tab.chat"), badge: unread.get(editing.id) ?? 0 },
                   { id: "history" as DrawerTab, label: t("wh.tab.history"), badge: 0 },
                 ]).map((tb) => (
@@ -644,20 +674,20 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
             {(!editing || drawerTab === "details") && (<>
             {editing && (
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                <ABadge tone={ITEM_STATUS_TONE[editing.status]?.tone ?? "neutral"}>{ITEM_STATUS_TONE[editing.status]?.label ?? editing.status}</ABadge>
+                <ABadge tone={ITEM_STATUS_TONE[editing.status]?.tone ?? "neutral"}>{itemStatusLabel(editing.status)}</ABadge>
                 {NEXT_STEP[editing.status] && can("items.transition") && (
                   <ABtn size="sm" kind="dark" onClick={() => void transition(editing, NEXT_STEP[editing.status]!.to)}>
-                    <AIcon name="pkg" size={13} color="#fff" /> {NEXT_STEP[editing.status]!.label}
+                    <AIcon name="pkg" size={13} color="#fff" /> {t(NEXT_STEP[editing.status]!.label)}
                   </ABtn>
                 )}
                 <ABtn size="sm" kind="ghost" onClick={() => void openLabel(`/api/items/${editing.id}/label`, (m) => toast(m, "danger"))}>
-                  Print label
+                  {t("inv.printLabel")}
                 </ABtn>
               </div>
             )}
             <AField label="SKU"><AInput value={form.sku} onChange={(v) => set({ sku: v })} placeholder="LOT-0042" /></AField>
-            <AField label="Title"><AInput value={form.title} onChange={(v) => set({ title: v })} /></AField>
-            <AField label="Description">
+            <AField label={t("c.title")}><AInput value={form.title} onChange={(v) => set({ title: v })} /></AField>
+            <AField label={t("c.description")}>
               <textarea value={form.description} onChange={(e) => set({ description: e.target.value })} rows={4} style={{
                 width: "100%", borderRadius: AT.radiusSm, border: `1px solid ${AT.rule}`, fontFamily: AT.body,
                 fontSize: 13, color: AT.ink, padding: 10, resize: "vertical",

@@ -2,11 +2,13 @@ import { useEffect, useState } from "react";
 import { api, type Auction, type DashboardStats } from "../api.js";
 import type { Nav } from "../App.js";
 import { formatEur } from "../format.js";
+import { auctionStatusLabel, itemStatusLabel, useT } from "../i18n.js";
 import { AT, AUCTION_STATUS_TONE } from "../theme.js";
 import { ABadge, ACard, AEmpty, AStat, ATable, ATd, ATr, formatCountdown, useNowTick } from "../ui.js";
 import { useAuctionEvents } from "../useAuctionEvents.js";
 
 export function DashboardScreen({ nav }: { nav: Nav }) {
+  const { t } = useT();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [live, setLive] = useState<Auction[]>([]);
   const [canSeeAuctions, setCanSeeAuctions] = useState(true);
@@ -26,31 +28,31 @@ export function DashboardScreen({ nav }: { nav: Nav }) {
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
-      <h1 style={{ fontFamily: AT.body, fontSize: 20, fontWeight: 700, color: AT.ink }}>Dashboard</h1>
+      <h1 style={{ fontFamily: AT.body, fontSize: 20, fontWeight: 700, color: AT.ink }}>{t("dash.title")}</h1>
 
       {stats && (
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-          <AStat label="Live auctions" value={stats.liveAuctions} tone="ok" onClick={() => nav.go("auctions")} />
-          <AStat label="Ending soon" value={stats.endingSoon} sub="next 2 hours" tone={stats.endingSoon > 0 ? "warn" : undefined} onClick={() => nav.go("auctions")} />
-          <AStat label="Scheduled" value={stats.scheduledAuctions} onClick={() => nav.go("auctions")} />
+          <AStat label={t("dash.liveAuctions")} value={stats.liveAuctions} tone="ok" onClick={() => nav.go("auctions")} />
+          <AStat label={t("dash.endingSoon")} value={stats.endingSoon} sub={t("dash.next2h")} tone={stats.endingSoon > 0 ? "warn" : undefined} onClick={() => nav.go("auctions")} />
+          <AStat label={t("dash.scheduled")} value={stats.scheduledAuctions} onClick={() => nav.go("auctions")} />
           <AStat
-            label="Awaiting payment"
+            label={t("dash.awaitingPayment")}
             value={stats.unpaidOrders.count}
             sub={formatEur(stats.unpaidOrders.totalCents)}
             tone={stats.unpaidOrders.count > 0 ? "warn" : undefined}
             onClick={() => nav.go("orders")}
           />
-          <AStat label="GMV · 30 days" value={formatEur(stats.gmv30d.totalCents)} sub={`${stats.gmv30d.count} paid orders`} />
-          <AStat label="Bids · 24h" value={stats.bids24h} />
+          <AStat label={t("dash.gmv30d")} value={formatEur(stats.gmv30d.totalCents)} sub={`${stats.gmv30d.count} ${t("dash.paidOrders")}`} />
+          <AStat label={t("dash.bids24h")} value={stats.bids24h} />
         </div>
       )}
 
       {canSeeAuctions && (
-        <ACard title="Live now" pad={false}>
+        <ACard title={t("dash.liveNow")} pad={false}>
           {live.length === 0 ? (
-            <AEmpty text="No live auctions." />
+            <AEmpty text={t("dash.noLive")} />
           ) : (
-            <ATable head={["Lot", "Current", "Bids", "Reserve", "Ends in", "Status"]}>
+            <ATable head={[t("dash.lot"), t("dash.current"), t("dash.bids"), t("dash.reserve"), t("dash.endsIn"), t("c.status")]}>
               {live.map((a) => (
                 <ATr key={a.id} onClick={() => nav.go("auctions", a.id)}>
                   <ATd>
@@ -63,17 +65,19 @@ export function DashboardScreen({ nav }: { nav: Nav }) {
                   <ATd right>{a.bidCount}</ATd>
                   <ATd>
                     {a.reserveCents == null ? (
-                      <span style={{ color: AT.inkSoft }}>none</span>
+                      <span style={{ color: AT.inkSoft }}>{t("dash.reserveNone")}</span>
                     ) : a.reserveMet ? (
-                      <ABadge tone="ok">met</ABadge>
+                      <ABadge tone="ok">{t("dash.reserveMet")}</ABadge>
                     ) : (
-                      <ABadge tone="warn">not met</ABadge>
+                      <ABadge tone="warn">{t("dash.reserveNotMet")}</ABadge>
                     )}
                   </ATd>
-                  <ATd mono>{formatCountdown(new Date(a.endsAt).getTime() - now)}</ATd>
+                  <ATd mono>
+                    {new Date(a.endsAt).getTime() - now <= 0 ? t("dash.ended") : formatCountdown(new Date(a.endsAt).getTime() - now)}
+                  </ATd>
                   <ATd>
                     <ABadge tone={AUCTION_STATUS_TONE[a.status]?.tone ?? "neutral"}>
-                      {AUCTION_STATUS_TONE[a.status]?.label ?? a.status}
+                      {auctionStatusLabel(a.status)}
                     </ABadge>
                   </ATd>
                 </ATr>
@@ -84,11 +88,11 @@ export function DashboardScreen({ nav }: { nav: Nav }) {
       )}
 
       {stats && (
-        <ACard title="Warehouse pipeline" pad={false}>
-          <ATable head={["State", "Items"]}>
+        <ACard title={t("dash.whPipeline")} pad={false}>
+          <ATable head={[t("dash.state"), t("dash.items")]}>
             {Object.entries(stats.itemsByStatus).map(([status, n]) => (
               <ATr key={status} onClick={() => nav.go("inventory")}>
-                <ATd>{status.replace(/_/g, " ")}</ATd>
+                <ATd>{itemStatusLabel(status)}</ATd>
                 <ATd right>{n}</ATd>
               </ATr>
             ))}

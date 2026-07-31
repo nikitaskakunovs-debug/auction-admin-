@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { t, useT, type TKey } from "../i18n.js";
 import { AT } from "../theme.js";
 
 /**
@@ -14,15 +15,19 @@ export interface Tab {
   param: string | null;
 }
 
+/** Screen-name keys — mirrors the SCREENS labels in App.tsx. */
+const NAME_KEYS: Record<string, TKey> = {
+  dashboard: "sh.nav.dashboard", auctions: "sh.nav.auctions", listings: "sh.nav.listings",
+  inventory: "sh.nav.inventory", receiving: "sh.nav.receiving", orders: "sh.nav.orders",
+  pickup: "sh.nav.pickup", whstats: "sh.nav.whstats", customers: "sh.nav.customers",
+  finance: "sh.nav.finance", content: "sh.nav.content", settings: "sh.nav.settings",
+  notifications: "sh.nav.notifications", activity: "sh.nav.activity", security: "sh.nav.security",
+};
+
 /** Human tab title per screen — param-aware for record tabs. */
 export function tabTitle(tab: Tab): string {
-  const names: Record<string, string> = {
-    dashboard: "Dashboard", auctions: "Auctions", listings: "Listings", inventory: "Inventory",
-    receiving: "Receiving", orders: "Orders", pickup: "Pickup", customers: "Bidders",
-    finance: "Finance", content: "Content", settings: "Settings", notifications: "Notifications",
-    activity: "Activity", security: "Security",
-  };
-  const base = names[tab.screen] ?? tab.screen;
+  const key = NAME_KEYS[tab.screen];
+  const base = key ? t(key) : tab.screen;
   return tab.param ? `${base} · ${tab.param.slice(0, 14)}` : base;
 }
 
@@ -37,6 +42,7 @@ export function TabBar({ tabs, activeId, splitId, split, onSelect, onClose, onNe
   onReorder: (fromIdx: number, toIdx: number) => void;
   onToggleSplit: () => void;
 }) {
+  useT(); // subscribe — re-render the strip (incl. tab titles) on language change
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [overIdx, setOverIdx] = useState<number | null>(null);
 
@@ -74,13 +80,13 @@ export function TabBar({ tabs, activeId, splitId, split, onSelect, onClose, onNe
               <span
                 onClick={(e) => { e.stopPropagation(); onClose(tab.id); }}
                 style={{ color: "#9a9a97", fontWeight: 400, padding: "0 2px" }}
-                title="Close tab"
+                title={t("sh.closeTab")}
               >×</span>
             )}
           </div>
         );
       })}
-      <button onClick={onNew} title="New tab" style={{
+      <button onClick={onNew} title={t("sh.newTab")} style={{
         all: "unset", cursor: "pointer", color: AT.inkSoft, fontSize: 15, fontWeight: 700, padding: "4px 10px",
       }}>+</button>
       <button onClick={onToggleSplit} style={{
@@ -88,7 +94,7 @@ export function TabBar({ tabs, activeId, splitId, split, onSelect, onClose, onNe
         fontFamily: AT.body, fontSize: 11.5, fontWeight: 700,
         color: split ? "#fff" : AT.inkSoft, background: split ? AT.ink : "#fff",
         border: `1px solid ${split ? AT.ink : "rgba(10,10,10,0.14)"}`, borderRadius: 8, padding: "5px 11px",
-      }}>◫ Split</button>
+      }}>◫ {t("sh.split")}</button>
     </div>
   );
 }

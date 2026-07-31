@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api, ApiError } from "../api.js";
 import { useAuth } from "../auth.js";
+import { t as tNow, useT } from "../i18n.js";
 import { AT } from "../theme.js";
 import { ABtn, ABadge, ACard, AField, AInput } from "../ui.js";
 
@@ -9,10 +10,11 @@ const errorList = (e: unknown): string => {
     if (Array.isArray(e.body.detail)) return (e.body.detail as string[]).join(" ");
     if (typeof e.body.error === "string") return e.body.error.replace(/_/g, " ");
   }
-  return "Something went wrong.";
+  return tNow("c.error");
 };
 
 export function SecurityScreen() {
+  const { t } = useT();
   const { user } = useAuth();
   const [cur, setCur] = useState("");
   const [next, setNext] = useState("");
@@ -28,13 +30,13 @@ export function SecurityScreen() {
   const changePassword = async () => {
     setPwMsg(null);
     if (next !== confirm) {
-      setPwMsg({ ok: false, text: "New passwords don't match." });
+      setPwMsg({ ok: false, text: t("ms.pwMismatch") });
       return;
     }
     setPwBusy(true);
     try {
       await api.changePassword(cur, next);
-      setPwMsg({ ok: true, text: "Password changed. Other sessions were signed out." });
+      setPwMsg({ ok: true, text: t("ms.pwChanged") });
       setCur("");
       setNext("");
       setConfirm("");
@@ -62,31 +64,31 @@ export function SecurityScreen() {
   return (
     <div style={{ display: "grid", gap: 16, maxWidth: 560 }}>
       <div>
-        <h2 style={{ fontFamily: AT.body, fontSize: 18, fontWeight: 700, color: AT.ink, margin: 0 }}>Security</h2>
+        <h2 style={{ fontFamily: AT.body, fontSize: 18, fontWeight: 700, color: AT.ink, margin: 0 }}>{t("ms.secTitle")}</h2>
         <p style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.inkSoft, margin: "4px 0 0" }}>
-          Signed in as {user?.email}
+          {t("ms.signedInAs")} {user?.email}
         </p>
       </div>
 
-      <ACard title="Two-factor authentication">
+      <ACard title={t("ms.twoFactor")}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <ABadge tone={user?.totpEnabled ? "ok" : "danger"}>{user?.totpEnabled ? "Enabled" : "Not enrolled"}</ABadge>
+          <ABadge tone={user?.totpEnabled ? "ok" : "danger"}>{user?.totpEnabled ? t("ms.enabled") : t("ms.notEnrolled")}</ABadge>
           <span style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.inkSoft }}>
-            Two-factor is required for every admin. It was set up on your first sign-in.
+            {t("ms.twoFactorNote")}
           </span>
         </div>
       </ACard>
 
-      <ACard title="Change password">
+      <ACard title={t("ms.changePassword")}>
         <div style={{ display: "grid", gap: 12 }}>
-          <AField label="Current password">
-            <AInput value={cur} onChange={setCur} type="password" placeholder="Current password" />
+          <AField label={t("ms.currentPassword")}>
+            <AInput value={cur} onChange={setCur} type="password" placeholder={t("ms.currentPassword")} />
           </AField>
-          <AField label="New password" hint="At least 12 characters, with three of: lower, upper, digit, symbol.">
-            <AInput value={next} onChange={setNext} type="password" placeholder="New password" />
+          <AField label={t("ms.newPassword")} hint={t("ms.pwHint")}>
+            <AInput value={next} onChange={setNext} type="password" placeholder={t("ms.newPassword")} />
           </AField>
-          <AField label="Confirm new password">
-            <AInput value={confirm} onChange={setConfirm} type="password" placeholder="Repeat new password" />
+          <AField label={t("ms.confirmNewPassword")}>
+            <AInput value={confirm} onChange={setConfirm} type="password" placeholder={t("ms.repeatNewPassword")} />
           </AField>
           {pwMsg && (
             <div style={{ fontFamily: AT.body, fontSize: 12.5, color: pwMsg.ok ? AT.ink : AT.danger }}>{pwMsg.text}</div>
