@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { consignments, customers, invoices, items, orders, warehouseLocations } from "@auction/db";
+import { consignments, customers, invoices, items, orders, refunds, warehouseLocations } from "@auction/db";
 import { isDamagedFamilyCondition, viesFormatValid, viesParse, type ViesCheck } from "@auction/domain";
 import { and, desc, eq, gte, ilike, inArray, isNotNull, lt, or, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -209,6 +209,18 @@ export function registerFinanceRoutes(app: FastifyInstance, ctx: AppContext, per
     );
   };
 
+  /**
+   * What the hammer was actually worth after refunds. A full refund flips the
+   * order out of the sold set entirely; a PARTIAL one leaves it `paid`, so the
+   * sale has to be written down here or a goodwill discount reads as full
+   * revenue. Refunds repay premium and VAT as well, so only the hammer's share
+   * of the refund comes off the hammer.
+   */
+  const netHammer = (hammerCents: number, totalCents: number, refundedCents: number): number =>
+    refundedCents <= 0 || totalCents <= 0
+      ? hammerCents
+      : hammerCents - Math.round((refundedCents * hammerCents) / totalCents);
+
   const effectiveCost = (
     costCents: number | null,
     consignmentId: string | null,
@@ -244,6 +256,8 @@ export function registerFinanceRoutes(app: FastifyInstance, ctx: AppContext, per
         orderRef: orders.ref,
         paidAt: orders.paidAt,
         hammerCents: orders.hammerCents,
+        totalCents: orders.totalCents,
+        refundedCents: sql<string>`coalesce((select sum(r.amount_cents) from ${refunds} r where r.order_id = ${orders.id}), 0)`,
         sku: items.sku,
         title: items.title,
         costCents: items.costCents,
@@ -257,15 +271,17 @@ export function registerFinanceRoutes(app: FastifyInstance, ctx: AppContext, per
 
     const lines = rows.map((r) => {
       const cost = effectiveCost(r.costCents, r.consignmentId, shares);
+      const net = netHammer(r.hammerCents, r.totalCents, Number(r.refundedCents));
       return {
         sku: r.sku,
         title: r.title,
         orderRef: r.orderRef,
         paidAt: r.paidAt,
-        soldCents: r.hammerCents,
+        soldCents: net,
+        refundedCents: r.hammerCents - net,
         costCents: cost,
-        profitCents: cost === null ? null : r.hammerCents - cost,
-        marginPct: cost === null || cost === 0 ? null : Math.round(((r.hammerCents - cost) / cost) * 100),
+        profitCents: cost === null ? null : net - cost,
+        marginPct: cost === null || cost === 0 ? null : Math.round(((net - cost) / cost) * 100),
       };
     });
     // Totals come from the database, never from `lines`: the table is capped
@@ -274,14 +290,21 @@ export function registerFinanceRoutes(app: FastifyInstance, ctx: AppContext, per
     // effectiveCost(), written in SQL — the delivery's extra cost over the
     // number of units that delivery received.
     const extraShareSql = sql`coalesce(round(${consignments.extraCostCents}::numeric / nullif((select count(*) from ${items} u where u.consignment_id = ${consignments.id}), 0)), 0)`;
+    // Net hammer, the SQL twin of netHammer(): a partial refund leaves the
+    // order `paid`, so without this the report books a discounted sale at full
+    // price. The refund is apportioned to the hammer's share of the total,
+    // because a refund repays premium and VAT too.
+    const netHammerSql = sql`${orders.hammerCents} - coalesce(round(
+      (select sum(r.amount_cents) from ${refunds} r where r.order_id = ${orders.id})::numeric
+      * ${orders.hammerCents} / nullif(${orders.totalCents}, 0)), 0)`;
     const [agg] = await ctx.db
       .select({
         soldCount: sql<string>`count(*)`,
-        revenueCents: sql<string>`coalesce(sum(${orders.hammerCents}), 0)`,
+        revenueCents: sql<string>`coalesce(sum(${netHammerSql}), 0)`,
         // Cost and profit are summed only over rows that have a cost: a blank
         // cost is unknown, never zero, and is reported as noCostData instead.
         costCents: sql<string>`coalesce(sum(${items.costCents} + ${extraShareSql}) filter (where ${items.costCents} is not null), 0)`,
-        profitCents: sql<string>`coalesce(sum(${orders.hammerCents} - ${items.costCents} - ${extraShareSql}) filter (where ${items.costCents} is not null), 0)`,
+        profitCents: sql<string>`coalesce(sum(${netHammerSql} - ${items.costCents} - ${extraShareSql}) filter (where ${items.costCents} is not null), 0)`,
         noCostData: sql<string>`count(*) filter (where ${items.costCents} is null)`,
       })
       .from(orders)

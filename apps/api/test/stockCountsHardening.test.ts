@@ -321,6 +321,47 @@ describe("stock count + cost hardening", () => {
     void noCost;
   });
 
+  it("writes a partially refunded sale down instead of booking it in full", async () => {
+    const bidderId = await createBidder(world, "hard_partial");
+    const { itemId, auctionId } = await createLiveAuction(world, superToken, { startPriceCents: 2_000, endsInMs: 1_000 });
+    await app().inject({
+      method: "POST", url: `/api/auctions/${auctionId}/bids`, headers: auth(superToken),
+      payload: { customerId: bidderId, maxCents: 9_000 },
+    });
+    world.setNow(new Date(Date.now() + 60_000));
+    const closed = await closeAuction(world.ctx, auctionId);
+    world.setNow(null);
+    if (!closed.ok || !closed.orderRef) throw new Error("auction did not close won");
+    const [order] = await world.ctx.db.select().from(orders).where(eq(orders.ref, closed.orderRef));
+    await app().inject({
+      method: "POST", url: "/api/desk/pay", headers: auth(superToken), payload: { orderIds: [order!.id], method: "cash" },
+    });
+    await app().inject({
+      method: "PATCH", url: `/api/items/${itemId}/cost`, headers: auth(financeToken), payload: { costCents: 500 },
+    });
+
+    const url = "/api/reports/profit?from=2000-01-01&to=2100-01-01";
+    const read = async () => json<{ summary: { revenueCents: number; profitCents: number } }>(
+      await app().inject({ method: "GET", url, headers: auth(financeToken) }),
+    ).summary;
+    const before = await read();
+
+    // A goodwill discount after the fact: the buyer keeps the lot, part of the
+    // money goes back. The order stays `paid`, so nothing else marks it down.
+    const refund = await app().inject({
+      method: "POST", url: `/api/orders/${order!.id}/refund`, headers: auth(superToken),
+      payload: { amountCents: Math.round(order!.totalCents / 2), reason: "Skrāpējums, ko apraksts neminēja" },
+    });
+    expect(refund.statusCode).toBe(200);
+    const [stillPaid] = await world.ctx.db.select().from(orders).where(eq(orders.id, order!.id));
+    expect(stillPaid!.status, "a partial refund leaves the order paid — that is the trap").toBe("paid");
+
+    const after = await read();
+    // Half the order total came back, so half the hammer's share goes with it.
+    expect(after.revenueCents).toBe(before.revenueCents - 1_000);
+    expect(after.profitCents).toBe(before.profitCents - 1_000);
+  });
+
   it("counts a delivery's received units once, however many times they sold", async () => {
     const con = await app().inject({
       method: "POST", url: "/api/consignments", headers: auth(superToken),
