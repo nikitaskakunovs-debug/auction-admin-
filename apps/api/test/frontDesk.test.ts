@@ -273,7 +273,28 @@ describe("front desk (W4)", () => {
       expect(JSON.stringify(card)).not.toContain(`"${order.pickupCode}"`);
     });
 
-    it("issues four-digit codes and still accepts the six-digit ones already out there", async () => {
+    it("names the shelf the lot is actually on, not the empty legacy field", async () => {
+    const { bidderId, orderId } = await paidFor("num_bin");
+    const [order] = await world.ctx.db.select().from(orders).where(eq(orders.id, orderId));
+
+    const bin = await world.server.app.inject({
+      method: "POST", url: "/api/warehouse/locations", headers: auth(token),
+      payload: { zone: "FRONT", aisle: "A4", rack: "R2", shelf: "S1" },
+    });
+    const location = (bin.json() as { location: { id: string; label: string } }).location;
+    await world.server.app.inject({
+      method: "POST", url: `/api/items/${order!.itemId}/putaway`, headers: auth(token),
+      payload: { locationId: location.id, reason: "test shelf" },
+    });
+
+    const res = await world.server.app.inject({
+      method: "GET", url: `/api/desk/search?q=${bidderId}`, headers: auth(token),
+    });
+    const body = res.json() as { collectable?: Array<{ location: string }> };
+    expect(body.collectable?.[0]?.location, "the counter is told where to walk").toBe(location.label);
+  });
+
+  it("issues four-digit codes and still accepts the six-digit ones already out there", async () => {
       const { orderId, order } = await paidFor("num_four");
       expect(order.pickupCode, "short enough to say out loud").toMatch(/^\d{4}$/);
 
