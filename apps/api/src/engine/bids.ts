@@ -141,7 +141,7 @@ export async function placeBid(
             isNull(bids.voidedAt),
           ),
         );
-      await enqueueNotification(tx, {
+      await enqueueNotification(ctx, tx, {
         customerId: oldLeader.bidderId,
         type: "outbid",
         template: { alias: "", lotTitle: listing.title, amountCents: resolution.state.currentPriceCents ?? 0 },

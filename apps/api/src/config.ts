@@ -98,6 +98,26 @@ export interface ApiConfig {
   /** Storefront origin used for post-checkout redirects (success/failure/cancel). */
   storefrontBaseUrl: string;
   /**
+   * What the customer emails print about us: the footer block, the pickup
+   * address and hours, and the optional header illustration. Deploy settings,
+   * not code — the address changes without a release.
+   */
+  emailBrand: {
+    companyName: string;
+    legalName: string;
+    regNo: string;
+    address: string;
+    phone: string;
+    email: string;
+    siteUrl: string;
+    pickupAddress: string;
+    pickupHours: string;
+    heroUrl: string | null;
+    facebookUrl: string | null;
+    instagramUrl: string | null;
+    reviewUrl: string | null;
+  };
+  /**
    * Omniva parcel shipping (OMX API, HTTP Basic auth). "off" hides shipping
    * options entirely; "live" talks to omx.omniva.eu (point OMNIVA_API_URL at
    * test-omx.omniva.eu for the partner test environment); "simulate" is the
@@ -310,6 +330,21 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     // Post-checkout redirect target. Production compose sets https://<DOMAIN>;
     // dev falls back to the Next.js storefront.
     storefrontBaseUrl: (env.STOREFRONT_BASE_URL ?? "http://localhost:3000").replace(/\/$/, ""),
+    emailBrand: {
+      companyName: env.COMPANY_NAME ?? "Izsoli.lv",
+      legalName: env.COMPANY_LEGAL_NAME ?? "SIA Izsoli",
+      regNo: env.COMPANY_REG_NO ?? "",
+      address: env.COMPANY_ADDRESS ?? "Rīga, Latvija",
+      phone: env.COMPANY_PHONE ?? "+371 20 000 000",
+      email: env.COMPANY_EMAIL ?? "info@izsoli.lv",
+      siteUrl: (env.STOREFRONT_BASE_URL ?? "http://localhost:3000").replace(/\/$/, ""),
+      pickupAddress: env.PICKUP_ADDRESS ?? env.COMPANY_ADDRESS ?? "Rīga, Latvija",
+      pickupHours: env.PICKUP_HOURS ?? "P.–P. 10:00–19:00",
+      heroUrl: env.EMAIL_HERO_URL || null,
+      facebookUrl: env.SOCIAL_FACEBOOK_URL || null,
+      instagramUrl: env.SOCIAL_INSTAGRAM_URL || null,
+      reviewUrl: env.REVIEW_URL || null,
+    },
     omnivaMode,
     omniva:
       omnivaMode === "off"

@@ -162,7 +162,7 @@ export function registerShippingRoutes(app: FastifyInstance, ctx: AppContext, pe
         assertItemTransition(row.item.status as ItemStatus, "picking");
         assertItemTransition("picking", "packed");
         await tx.update(items).set({ status: "packed", updatedAt: ctx.now() }).where(eq(items.id, row.item.id));
-        await enqueueNotification(tx, {
+        await enqueueNotification(ctx, tx, {
           customerId: row.order.customerId,
           type: "shipped",
           template: {

@@ -63,6 +63,23 @@ services:
       # Klix payments (off until the merchant keys arrive; then KLIX_MODE=live).
       STOREFRONT_BASE_URL: https://${DOMAIN}
       ADMIN_BASE_URL: https://admin.${DOMAIN}
+      # What the customer emails print about us. Set these in deploy/.env —
+      # they appear in every message's footer, so a wrong address is visible
+      # to every buyer.
+      COMPANY_NAME: ${COMPANY_NAME:-Izsoli.lv}
+      COMPANY_LEGAL_NAME: ${COMPANY_LEGAL_NAME:-SIA Izsoli}
+      COMPANY_REG_NO: ${COMPANY_REG_NO:-}
+      COMPANY_ADDRESS: ${COMPANY_ADDRESS:-}
+      COMPANY_PHONE: ${COMPANY_PHONE:-}
+      COMPANY_EMAIL: ${COMPANY_EMAIL:-info@izsoli.lv}
+      PICKUP_ADDRESS: ${PICKUP_ADDRESS:-}
+      PICKUP_HOURS: ${PICKUP_HOURS:-}
+      # Optional: a PNG illustration for the email header, and social links.
+      # Left empty, the emails simply render without them.
+      EMAIL_HERO_URL: ${EMAIL_HERO_URL:-}
+      SOCIAL_FACEBOOK_URL: ${SOCIAL_FACEBOOK_URL:-}
+      SOCIAL_INSTAGRAM_URL: ${SOCIAL_INSTAGRAM_URL:-}
+      REVIEW_URL: ${REVIEW_URL:-}
       KLIX_MODE: ${KLIX_MODE:-off}
       KLIX_BRAND_ID: ${KLIX_BRAND_ID:-}
       KLIX_SECRET_KEY: ${KLIX_SECRET_KEY:-}

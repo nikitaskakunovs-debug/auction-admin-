@@ -1,0 +1,642 @@
+/**
+ * What each email says, in Latvian, Russian and English.
+ *
+ * One entry per notification type returns three things at once:
+ *   subject  the inbox line
+ *   text     the plain-text body — unchanged from before, still carrying the
+ *            `[type]` machine tag and the Klix placeholder
+ *   spec     the structured content the blue layout renders
+ *
+ * Text and HTML are written side by side on purpose. A customer whose client
+ * blocks HTML gets exactly the same facts, and neither version can quietly
+ * drift away from the other.
+ */
+import { formatEur } from "@auction/domain";
+import type { EmailSpec, Fact, MoneyLine } from "./emailLayout.js";
+
+export type Lang = "lv" | "ru" | "en";
+export const LANGS: Lang[] = ["lv", "ru", "en"];
+
+export type NotificationType =
+  | "outbid"
+  | "won"
+  | "purchased"
+  | "payment_reminder"
+  | "order_paid"
+  | "pickup_ready"
+  | "pickup_reminder"
+  | "no_pickup_cancelled"
+  | "unpaid_cancelled"
+  | "shipped"
+  | "refunded";
+
+export const NOTIFICATION_TYPES: NotificationType[] = [
+  "outbid", "won", "purchased", "payment_reminder", "order_paid",
+  "pickup_ready", "pickup_reminder", "no_pickup_cancelled", "unpaid_cancelled",
+  "shipped", "refunded",
+];
+
+export interface TemplateInput {
+  alias: string;
+  lotTitle: string;
+  amountCents?: number | undefined;
+  orderRef?: string | undefined;
+  totalCents?: number | undefined;
+  deadline?: Date | undefined;
+  pickupCode?: string | undefined;
+  feeCents?: number | undefined;
+  refundCents?: number | undefined;
+  payUrl?: string | null | undefined;
+  barcode?: string | undefined;
+  machineName?: string | undefined;
+  carrier?: string | undefined;
+  trackingUrl?: string | undefined;
+  /** Invoice breakdown, when the caller has it — shown under the total. */
+  hammerCents?: number | undefined;
+  premiumCents?: number | undefined;
+  vatCents?: number | undefined;
+  /** Why the money went back (refunded). */
+  reason?: string | undefined;
+}
+
+/** Links and addresses the copy needs; supplied by config, never hard-coded. */
+export interface CopyContext {
+  siteUrl: string;
+  ordersUrl: string;
+  feesUrl: string;
+  pickupPassUrl: string;
+  pickupAddress: string;
+  pickupHours: string;
+}
+
+export interface Rendered {
+  subject: string;
+  text: string;
+  spec: EmailSpec;
+}
+
+/**
+ * Money as the reader writes it: "251,56 €" in Latvian and Russian, "€251.56"
+ * in English. Same number, same rounding — `formatEur` stays the single source
+ * for that, and this only rearranges what it produced.
+ */
+function moneyIn(c: number | undefined, lang: Lang): string {
+  if (c === undefined) return "";
+  const en = formatEur(c); // €1,234.56
+  if (lang === "en") return en;
+  const negative = en.startsWith("-");
+  const digits = en.replace(/^-?€/, "");
+  const [whole = "0", frac = "00"] = digits.split(".");
+  return `${negative ? "−" : ""}${whole.replace(/,/g, " ")},${frac} €`;
+}
+
+/** dd.mm.yyyy — the form every Baltic reader parses without thinking. */
+function fmtDate(d: Date | undefined, lang: Lang): string {
+  if (!d) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const s = `${pad(d.getUTCDate())}.${pad(d.getUTCMonth() + 1)}.${d.getUTCFullYear()}`;
+  return lang === "lv" ? `${s}.` : s;
+}
+
+function fmtDateTime(d: Date | undefined, lang: Lang): string {
+  if (!d) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${fmtDate(d, lang)} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
+}
+
+/** Shared words. Keeping them in one place is what stops "Pasūtījums" and
+ * "Pasūtījuma nr." from drifting apart across eleven templates. */
+const W = {
+  hi: { lv: "Sveicināti", ru: "Здравствуйте", en: "Hello" },
+  orderNo: { lv: "Pasūtījuma numurs:", ru: "Номер заказа:", en: "Order number:" },
+  lot: { lv: "Prece:", ru: "Товар:", en: "Lot:" },
+  place: { lv: "Izsniegšanas vieta:", ru: "Место выдачи:", en: "Collection point:" },
+  status: { lv: "Statuss:", ru: "Статус:", en: "Status:" },
+  totalDue: { lv: "Kopējā summa apmaksai:", ru: "Итого к оплате:", en: "Total due:" },
+  hammer: { lv: "Āmura cena", ru: "Цена молотка", en: "Hammer price" },
+  premium: { lv: "Pircēja komisija", ru: "Комиссия покупателя", en: "Buyer's premium" },
+  vat: { lv: "PVN", ru: "НДС", en: "VAT" },
+  payBy: { lv: "Samaksāt līdz:", ru: "Оплатить до:", en: "Pay by:" },
+  methods: {
+    lv: "Banka · karte · Klix · Inbank",
+    ru: "Банк · карта · Klix · Inbank",
+    en: "Bank · card · Klix · Inbank",
+  },
+  follow: { lv: "Seko mums", ru: "Мы в соцсетях", en: "Follow us" },
+  review: { lv: "Atstāj atsauksmi", ru: "Оставить отзыв", en: "Leave a review" },
+  openOrders: { lv: "Skatīt savus pasūtījumus", ru: "Мои заказы", en: "View your orders" },
+  stAwaitingPayment: { lv: "GAIDA APMAKSU", ru: "ОЖИДАЕТ ОПЛАТЫ", en: "AWAITING PAYMENT" },
+  stPaid: { lv: "APMAKSĀTS", ru: "ОПЛАЧЕНО", en: "PAID" },
+  stReady: { lv: "GATAVS SAŅEMŠANAI", ru: "ГОТОВ К ВЫДАЧЕ", en: "READY FOR COLLECTION" },
+  stCancelled: { lv: "ATCELTS", ru: "ОТМЕНЁН", en: "CANCELLED" },
+  stShipped: { lv: "CEĻĀ", ru: "В ПУТИ", en: "ON ITS WAY" },
+  stRefunded: { lv: "ATMAKSĀTS", ru: "ВОЗВРАТ ВЫПОЛНЕН", en: "REFUNDED" },
+  where: { lv: "Kur:", ru: "Где:", en: "Where:" },
+  when: { lv: "Darba laiks:", ru: "Часы работы:", en: "Opening hours:" },
+  collectBy: { lv: "Izņemt līdz:", ru: "Забрать до:", en: "Collect by:" },
+  code: { lv: "SAŅEMŠANAS KODS", ru: "КОД ПОЛУЧЕНИЯ", en: "COLLECTION CODE" },
+  codeNote: {
+    lv: "Nosauc to pie letes vai ievadi kioskā",
+    ru: "Назовите его на стойке или введите в киоске",
+    en: "Say it at the desk or type it into the kiosk",
+  },
+  lateFee: {
+    lv: "Ja neapmaksā līdz termiņam:",
+    ru: "Если не оплатить до срока:",
+    en: "If it is not paid by the deadline:",
+  },
+  lateFeeText: {
+    lv: "pasūtījums tiek atcelts un tiek piemērota 5% uzglabāšanas maksa. Ja vajag vairāk laika — atraksti mums.",
+    ru: "заказ будет отменён, и удерживается 5% плата за хранение. Нужно больше времени — напишите нам.",
+    en: "the order is cancelled and a 5% restocking fee applies. Need more time? Write to us.",
+  },
+} as const;
+
+type Phrase = { lv: string; ru: string; en: string };
+const w = (p: Phrase, lang: Lang): string => p[lang];
+
+/** Money card lines from the invoice breakdown, when the caller has it. */
+function breakdown(i: TemplateInput, lang: Lang): MoneyLine[] | undefined {
+  if (i.hammerCents === undefined) return undefined;
+  const lines: MoneyLine[] = [{ label: w(W.hammer, lang), value: moneyIn(i.hammerCents, lang) }];
+  if (i.premiumCents !== undefined) lines.push({ label: w(W.premium, lang), value: moneyIn(i.premiumCents, lang) });
+  if (i.vatCents !== undefined) lines.push({ label: w(W.vat, lang), value: moneyIn(i.vatCents, lang) });
+  return lines;
+}
+
+function orderFacts(i: TemplateInput, lang: Lang, ctx: CopyContext, status: Phrase, tone: Fact["tone"]): Fact[] {
+  const facts: Fact[] = [];
+  if (i.orderRef) facts.push({ label: w(W.orderNo, lang), value: i.orderRef });
+  facts.push({ label: w(W.lot, lang), value: i.lotTitle });
+  facts.push({ label: w(W.place, lang), value: ctx.pickupAddress });
+  facts.push({ label: w(W.status, lang), value: w(status, lang), tone });
+  return facts;
+}
+
+const labelsFor = (lang: Lang) => ({ follow: w(W.follow, lang), review: w(W.review, lang) });
+
+/**
+ * Klix representative example placeholder — resolved at dispatch, not here,
+ * because enqueue runs inside the caller's transaction and must not make
+ * network calls. Present in the text body only; the HTML carries the same
+ * information in the payment-methods line.
+ */
+const plToken = (i: TemplateInput, lang: Lang): string =>
+  i.payUrl && i.totalCents ? `{{KLIX_PL_EXAMPLE:${i.totalCents}:${lang}}}` : "";
+
+function payLine(i: TemplateInput, lang: Lang): string {
+  if (!i.payUrl) return "";
+  const head =
+    lang === "lv"
+      ? "Apmaksāt tiešsaistē (karte, banklinks, Klix Pay Later):"
+      : lang === "ru"
+        ? "Оплатить онлайн (карта, банклинк, Klix Pay Later):"
+        : "Pay online (card, bank link, Klix Pay Later):";
+  return `\n${head}\n${i.payUrl}\n${plToken(i, lang)}`;
+}
+
+// ── The eleven messages ──────────────────────────────────────────────────────
+
+export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput, ctx: CopyContext): Rendered {
+  const hi = `${w(W.hi, lang)}, ${i.alias}!`;
+  const labels = labelsFor(lang);
+  const pay = i.payUrl ?? ctx.ordersUrl;
+
+  switch (type) {
+    // ── Someone bid over you ────────────────────────────────────────────────
+    case "outbid": {
+      const subject = {
+        lv: `Jūsu solījums pārsolīts — ${i.lotTitle}`,
+        ru: `Вашу ставку перебили — ${i.lotTitle}`,
+        en: `You have been outbid — ${i.lotTitle}`,
+      }[lang];
+      const text = {
+        lv: `Sveiki, ${i.alias}!\n\nJūsu solījums izsolē "${i.lotTitle}" ir pārsolīts. Pašreizējā cena: ${moneyIn(i.amountCents, lang)}.\nJa vēlaties turpināt, paaugstiniet savu maksimālo cenu.\n\n[outbid]`,
+        ru: `Здравствуйте, ${i.alias}!\n\nВашу ставку на "${i.lotTitle}" перебили. Текущая цена: ${moneyIn(i.amountCents, lang)}.\nЧтобы остаться в игре, поднимите свою максимальную ставку.\n\n[outbid]`,
+        en: `Hi ${i.alias},\n\nYou have been outbid on "${i.lotTitle}". Current price: ${moneyIn(i.amountCents, lang)}.\nRaise your maximum bid if you'd like to stay in.\n\n[outbid]`,
+      }[lang];
+      return {
+        subject,
+        text,
+        spec: {
+          preheader: { lv: `Pašreizējā cena ${moneyIn(i.amountCents, lang)}`, ru: `Текущая цена ${moneyIn(i.amountCents, lang)}`, en: `Current price ${moneyIn(i.amountCents, lang)}` }[lang],
+          headline: { lv: "JŪS PĀRSOLĪJA", ru: "ВАШУ СТАВКУ ПЕРЕБИЛИ", en: "YOU HAVE BEEN OUTBID" }[lang],
+          headlineTone: "warn",
+          greeting: hi,
+          intro: {
+            lv: `Kāds nosolīja vairāk par preci "${i.lotTitle}". Vēl var paspēt — paaugstini savu maksimālo cenu.`,
+            ru: `Кто-то поставил больше за "${i.lotTitle}". Ещё не поздно — поднимите максимальную ставку.`,
+            en: `Someone has bid higher on "${i.lotTitle}". There is still time — raise your maximum.`,
+          }[lang],
+          amount: {
+            label: { lv: "Pašreizējā cena:", ru: "Текущая цена:", en: "Current price:" }[lang],
+            value: moneyIn(i.amountCents, lang),
+          },
+          facts: [{ label: w(W.lot, lang), value: i.lotTitle }],
+          cta: { label: { lv: "Solīt vēlreiz", ru: "Сделать ставку", en: "Bid again" }[lang], url: ctx.siteUrl },
+          labels,
+        },
+      };
+    }
+
+    // ── You won / you bought ────────────────────────────────────────────────
+    case "won":
+    case "purchased": {
+      const isWon = type === "won";
+      const subject = isWon
+        ? { lv: `Apsveicam — jūs uzvarējāt izsolē ${i.lotTitle}`, ru: `Поздравляем — вы выиграли ${i.lotTitle}`, en: `Congratulations — you won ${i.lotTitle}` }[lang]
+        : { lv: `Pirkums apstiprināts — ${i.lotTitle}`, ru: `Покупка подтверждена — ${i.lotTitle}`, en: `Purchase confirmed — ${i.lotTitle}` }[lang];
+      const textLv = isWon
+        ? `Sveiki, ${i.alias}!\n\nJūs uzvarējāt izsolē "${i.lotTitle}". Rēķina numurs: ${i.orderRef}. Kopā apmaksai: ${moneyIn(i.totalCents, "lv")}.\nLūdzu, apmaksājiet līdz ${fmtDate(i.deadline, "lv")}.\n${payLine(i, "lv")}\n[${type}]`
+        : `Sveiki, ${i.alias}!\n\nPaldies par pirkumu "${i.lotTitle}". Rēķina numurs: ${i.orderRef}. Kopā apmaksai: ${moneyIn(i.totalCents, "lv")}.\nLūdzu, apmaksājiet līdz ${fmtDate(i.deadline, "lv")}.\n${payLine(i, "lv")}\n[${type}]`;
+      const textRu = isWon
+        ? `Здравствуйте, ${i.alias}!\n\nВы выиграли торги за "${i.lotTitle}". Номер счёта: ${i.orderRef}. Итого к оплате: ${moneyIn(i.totalCents, "ru")}.\nПожалуйста, оплатите до ${fmtDate(i.deadline, "ru")}.\n${payLine(i, "ru")}\n[${type}]`
+        : `Здравствуйте, ${i.alias}!\n\nСпасибо за покупку "${i.lotTitle}". Номер счёта: ${i.orderRef}. Итого к оплате: ${moneyIn(i.totalCents, "ru")}.\nПожалуйста, оплатите до ${fmtDate(i.deadline, "ru")}.\n${payLine(i, "ru")}\n[${type}]`;
+      const textEn = isWon
+        ? `Hi ${i.alias},\n\nYou won "${i.lotTitle}". Order ${i.orderRef}. Total due: ${moneyIn(i.totalCents, "en")}.\nPlease pay by ${fmtDate(i.deadline, "en")}.\n${payLine(i, "en")}\n[${type}]`
+        : `Hi ${i.alias},\n\nThank you for buying "${i.lotTitle}". Order ${i.orderRef}. Total due: ${moneyIn(i.totalCents, "en")}.\nPlease pay by ${fmtDate(i.deadline, "en")}.\n${payLine(i, "en")}\n[${type}]`;
+      return {
+        subject,
+        text: { lv: textLv, ru: textRu, en: textEn }[lang],
+        spec: {
+          preheader: `${w(W.totalDue, lang)} ${moneyIn(i.totalCents, lang)} · ${w(W.payBy, lang)} ${fmtDate(i.deadline, lang)}`,
+          headline: isWon
+            ? { lv: "APSVEICAM AR UZVARU!", ru: "ПОЗДРАВЛЯЕМ С ПОБЕДОЙ!", en: "CONGRATULATIONS — YOU WON!" }[lang]
+            : { lv: "PALDIES PAR PIRKUMU!", ru: "СПАСИБО ЗА ПОКУПКУ!", en: "THANK YOU FOR YOUR PURCHASE!" }[lang],
+          greeting: hi,
+          intro: isWon
+            ? {
+                lv: `Solīšana ir noslēgusies, un augstākais solījums bija jūsējais. Nosūtām rēķinu apmaksai.`,
+                ru: `Торги завершены, и высшая ставка была вашей. Отправляем счёт на оплату.`,
+                en: `Bidding has closed and the highest bid was yours. Here is the invoice.`,
+              }[lang]
+            : {
+                lv: `Prece "${i.lotTitle}" ir rezervēta jums. Atliek to apmaksāt.`,
+                ru: `Товар "${i.lotTitle}" зарезервирован за вами. Осталось оплатить.`,
+                en: `"${i.lotTitle}" is reserved for you. All that is left is payment.`,
+              }[lang],
+          amount: { label: w(W.totalDue, lang), value: moneyIn(i.totalCents, lang), lines: breakdown(i, lang) },
+          facts: orderFacts(i, lang, ctx, W.stAwaitingPayment, "accent"),
+          cta: {
+            label: { lv: `Apmaksāt ${moneyIn(i.totalCents, lang)}`, ru: `Оплатить ${moneyIn(i.totalCents, lang)}`, en: `Pay ${moneyIn(i.totalCents, lang)}` }[lang],
+            url: pay,
+          },
+          ctaNote: `${w(W.payBy, lang)} ${fmtDate(i.deadline, lang)}`,
+          ctaSubnote: w(W.methods, lang),
+          notes: [
+            { title: w(W.lateFee, lang), text: w(W.lateFeeText, lang) },
+            {
+              title: { lv: "Pēc apmaksas:", ru: "После оплаты:", en: "After payment:" }[lang],
+              text: {
+                lv: `atsūtīsim 6 ciparu saņemšanas kodu. Preci var izņemt ${ctx.pickupAddress} (${ctx.pickupHours}) vai pasūtīt piegādi uz pakomātu.`,
+                ru: `мы пришлём 6-значный код получения. Забрать можно ${ctx.pickupAddress} (${ctx.pickupHours}) или заказать доставку в посылочный автомат.`,
+                en: `we send a 6-digit collection code. Collect at ${ctx.pickupAddress} (${ctx.pickupHours}) or ask for parcel delivery.`,
+              }[lang],
+            },
+          ],
+          footNote: i.orderRef,
+          labels,
+        },
+      };
+    }
+
+    // ── Still not paid ──────────────────────────────────────────────────────
+    case "payment_reminder": {
+      return {
+        subject: { lv: `Atgādinājums par apmaksu — ${i.orderRef}`, ru: `Напоминание об оплате — ${i.orderRef}`, en: `Payment reminder — ${i.orderRef}` }[lang],
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nRēķins ${i.orderRef} (${moneyIn(i.totalCents, lang)}) vēl nav apmaksāts. Termiņš: ${fmtDateTime(i.deadline, "lv")}.\nNeapmaksāšanas gadījumā pasūtījums tiks atcelts.\n${payLine(i, "lv")}\n[payment_reminder]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nСчёт ${i.orderRef} (${moneyIn(i.totalCents, lang)}) ещё не оплачен. Срок: ${fmtDateTime(i.deadline, "ru")}.\nПри неоплате заказ будет отменён.\n${payLine(i, "ru")}\n[payment_reminder]`,
+          en: `Hi ${i.alias},\n\nOrder ${i.orderRef} (${moneyIn(i.totalCents, lang)}) is not yet paid. Deadline: ${fmtDateTime(i.deadline, "en")}.\nIf unpaid, the order will be cancelled.\n${payLine(i, "en")}\n[payment_reminder]`,
+        }[lang],
+        spec: {
+          preheader: `${moneyIn(i.totalCents, lang)} · ${w(W.payBy, lang)} ${fmtDateTime(i.deadline, lang)}`,
+          headline: { lv: "RĒĶINS VĒL NAV APMAKSĀTS", ru: "СЧЁТ ЕЩЁ НЕ ОПЛАЧЕН", en: "YOUR INVOICE IS STILL OPEN" }[lang],
+          headlineTone: "warn",
+          greeting: hi,
+          intro: {
+            lv: `Atgādinām par rēķinu ${i.orderRef}. Prece ir nolikta malā un gaida jūs.`,
+            ru: `Напоминаем о счёте ${i.orderRef}. Товар отложен и ждёт вас.`,
+            en: `A reminder about order ${i.orderRef}. The lot is set aside and waiting for you.`,
+          }[lang],
+          amount: { label: w(W.totalDue, lang), value: moneyIn(i.totalCents, lang), lines: breakdown(i, lang) },
+          facts: orderFacts(i, lang, ctx, W.stAwaitingPayment, "warn"),
+          cta: {
+            label: { lv: `Apmaksāt ${moneyIn(i.totalCents, lang)}`, ru: `Оплатить ${moneyIn(i.totalCents, lang)}`, en: `Pay ${moneyIn(i.totalCents, lang)}` }[lang],
+            url: pay,
+          },
+          ctaNote: `${w(W.payBy, lang)} ${fmtDateTime(i.deadline, lang)}`,
+          ctaSubnote: w(W.methods, lang),
+          notes: [{ title: w(W.lateFee, lang), text: w(W.lateFeeText, lang), tone: "danger" }],
+          footNote: i.orderRef,
+          labels,
+        },
+      };
+    }
+
+    // ── Money arrived ───────────────────────────────────────────────────────
+    case "order_paid": {
+      return {
+        subject: { lv: `Apmaksa saņemta — ${i.orderRef}`, ru: `Оплата получена — ${i.orderRef}`, en: `Payment received — ${i.orderRef}` }[lang],
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nMēs saņēmām apmaksu par pasūtījumu ${i.orderRef} (${moneyIn(i.totalCents, lang)}). Paldies!\n\n[order_paid]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nМы получили оплату по заказу ${i.orderRef} (${moneyIn(i.totalCents, lang)}). Спасибо!\n\n[order_paid]`,
+          en: `Hi ${i.alias},\n\nWe received payment for order ${i.orderRef} (${moneyIn(i.totalCents, lang)}). Thank you!\n\n[order_paid]`,
+        }[lang],
+        spec: {
+          preheader: { lv: `${moneyIn(i.totalCents, lang)} saņemti · paldies!`, ru: `${moneyIn(i.totalCents, lang)} получены · спасибо!`, en: `${moneyIn(i.totalCents, lang)} received · thank you!` }[lang],
+          headline: { lv: "APMAKSA SAŅEMTA", ru: "ОПЛАТА ПОЛУЧЕНА", en: "PAYMENT RECEIVED" }[lang],
+          headlineTone: "ok",
+          greeting: hi,
+          intro: {
+            lv: `Paldies! Nauda par pasūtījumu ${i.orderRef} ir saņemta. Sagatavojam preci izsniegšanai.`,
+            ru: `Спасибо! Оплата по заказу ${i.orderRef} получена. Готовим товар к выдаче.`,
+            en: `Thank you. Payment for order ${i.orderRef} has arrived. We are preparing the lot.`,
+          }[lang],
+          amount: { label: { lv: "Apmaksāts:", ru: "Оплачено:", en: "Paid:" }[lang], value: moneyIn(i.totalCents, lang) },
+          facts: orderFacts(i, lang, ctx, W.stPaid, "ok"),
+          cta: { label: w(W.openOrders, lang), url: ctx.ordersUrl },
+          notes: [
+            {
+              title: { lv: "Kas tālāk:", ru: "Что дальше:", en: "What happens next:" }[lang],
+              text: {
+                lv: "atsevišķā vēstulē atsūtīsim saņemšanas kodu, tiklīdz prece būs plauktā gatava.",
+                ru: "отдельным письмом пришлём код получения, как только товар будет готов к выдаче.",
+                en: "we will send the collection code in a separate email as soon as the lot is ready.",
+              }[lang],
+            },
+          ],
+          footNote: i.orderRef,
+          labels,
+        },
+      };
+    }
+
+    // ── Come and get it ─────────────────────────────────────────────────────
+    case "pickup_ready":
+    case "pickup_reminder": {
+      const isReminder = type === "pickup_reminder";
+      return {
+        subject: isReminder
+          ? { lv: `Atgādinājums: saņemiet pasūtījumu ${i.orderRef}`, ru: `Напоминание: заберите заказ ${i.orderRef}`, en: `Reminder: collect order ${i.orderRef}` }[lang]
+          : { lv: `Gatavs saņemšanai — ${i.orderRef}`, ru: `Готов к получению — ${i.orderRef}`, en: `Ready for pickup — ${i.orderRef}` }[lang],
+        text: {
+          lv: isReminder
+            ? `Sveiki, ${i.alias}!\n\nPasūtījums ${i.orderRef} joprojām gaida noliktavā. Saņemšanas kods: ${i.pickupCode}.\nTermiņš: ${fmtDate(i.deadline, "lv")}. Pēc termiņa pasūtījums tiek atcelts ar 5% uzglabāšanas maksu.\n\n[pickup_reminder]`
+            : `Sveiki, ${i.alias}!\n\nPasūtījums ${i.orderRef} ir gatavs saņemšanai noliktavā. Saņemšanas kods: ${i.pickupCode}.\nLūdzu, izņemiet līdz ${fmtDate(i.deadline, "lv")} — pēc termiņa pasūtījums tiek atcelts ar 5% uzglabāšanas maksu.\n\n[pickup_ready]`,
+          ru: isReminder
+            ? `Здравствуйте, ${i.alias}!\n\nЗаказ ${i.orderRef} всё ещё ждёт на складе. Код получения: ${i.pickupCode}.\nСрок: ${fmtDate(i.deadline, "ru")}. После срока заказ отменяется с удержанием 5% за хранение.\n\n[pickup_reminder]`
+            : `Здравствуйте, ${i.alias}!\n\nЗаказ ${i.orderRef} готов к получению на складе. Код получения: ${i.pickupCode}.\nЗаберите до ${fmtDate(i.deadline, "ru")} — после срока заказ отменяется с удержанием 5% за хранение.\n\n[pickup_ready]`,
+          en: isReminder
+            ? `Hi ${i.alias},\n\nOrder ${i.orderRef} is still waiting at the warehouse. Pickup code: ${i.pickupCode}.\nDeadline: ${fmtDate(i.deadline, "en")}. After the deadline the order is cancelled with a 5% restocking fee.\n\n[pickup_reminder]`
+            : `Hi ${i.alias},\n\nOrder ${i.orderRef} is ready for collection at the warehouse. Pickup code: ${i.pickupCode}.\nPlease collect by ${fmtDate(i.deadline, "en")} — after the deadline the order is cancelled with a 5% restocking fee.\n\n[pickup_ready]`,
+        }[lang],
+        spec: {
+          preheader: `${w(W.code, lang)} ${i.pickupCode ?? ""} · ${w(W.collectBy, lang)} ${fmtDate(i.deadline, lang)}`,
+          headline: isReminder
+            ? { lv: "PRECE VĒL GAIDA JŪS", ru: "ТОВАР ВСЁ ЕЩЁ ЖДЁТ", en: "YOUR LOT IS STILL WAITING" }[lang]
+            : { lv: "PRECE GAIDA JŪS!", ru: "ТОВАР ЖДЁТ ВАС!", en: "YOUR LOT IS READY!" }[lang],
+          headlineTone: isReminder ? "warn" : "ok",
+          greeting: hi,
+          intro: isReminder
+            ? {
+                lv: `Pasūtījums ${i.orderRef} joprojām stāv plauktā uz jūsu vārda. Atgādinām par termiņu.`,
+                ru: `Заказ ${i.orderRef} по-прежнему лежит на полке на ваше имя. Напоминаем о сроке.`,
+                en: `Order ${i.orderRef} is still on the shelf under your name. A reminder about the deadline.`,
+              }[lang]
+            : {
+                lv: `Apmaksa saņemta — "${i.lotTitle}" ir nolikta plauktā uz jūsu vārda.`,
+                ru: `Оплата получена — "${i.lotTitle}" отложен на ваше имя.`,
+                en: `Payment received — "${i.lotTitle}" is set aside under your name.`,
+              }[lang],
+          code: { label: w(W.code, lang), value: i.pickupCode ?? "", note: w(W.codeNote, lang) },
+          facts: [
+            ...(i.orderRef ? [{ label: w(W.orderNo, lang), value: i.orderRef }] : []),
+            { label: w(W.where, lang), value: ctx.pickupAddress },
+            { label: w(W.when, lang), value: ctx.pickupHours },
+            { label: w(W.collectBy, lang), value: fmtDate(i.deadline, lang) },
+            { label: w(W.status, lang), value: w(W.stReady, lang), tone: isReminder ? "warn" : "ok" },
+          ],
+          cta: {
+            label: { lv: "Atvērt caurlaidi telefonā", ru: "Открыть пропуск в телефоне", en: "Open your pass on your phone" }[lang],
+            url: ctx.pickupPassUrl,
+          },
+          ctaSubnote: {
+            lv: "Vai atraksti mums, ja labāk piegādi uz pakomātu.",
+            ru: "Или напишите нам, если удобнее доставка в посылочный автомат.",
+            en: "Or write to us if parcel delivery suits you better.",
+          }[lang],
+          notes: [
+            {
+              title: { lv: "Pēc termiņa:", ru: "После срока:", en: "After the deadline:" }[lang],
+              text: {
+                lv: "neizņemts pasūtījums tiek atcelts, tiek ieturēta 5% uzglabāšanas maksa, bet pārējais tiek atmaksāts.",
+                ru: "неполученный заказ отменяется, удерживается 5% за хранение, остальное возвращается.",
+                en: "an uncollected order is cancelled, a 5% restocking fee is kept and the rest is refunded.",
+              }[lang],
+            },
+          ],
+          footNote: i.orderRef,
+          labels,
+        },
+      };
+    }
+
+    // ── Cancelled: never paid ───────────────────────────────────────────────
+    case "unpaid_cancelled": {
+      return {
+        subject: { lv: `Pasūtījums atcelts (nav apmaksāts) — ${i.orderRef}`, ru: `Заказ отменён (не оплачен) — ${i.orderRef}`, en: `Order cancelled (not paid) — ${i.orderRef}` }[lang],
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nPasūtījums ${i.orderRef} netika apmaksāts līdz termiņam un ir atcelts. Saskaņā ar noteikumiem tiek piemērota 5% uzglabāšanas maksa: ${moneyIn(i.feeCents, lang)}.\nKamēr maksa nav nokārtota, solīšana un pirkšana jūsu kontā ir apturēta.\n\n[unpaid_cancelled]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nЗаказ ${i.orderRef} не был оплачен в срок и отменён. Согласно правилам удерживается 5% плата за хранение: ${moneyIn(i.feeCents, lang)}.\nПока она не погашена, ставки и покупки в вашем аккаунте приостановлены.\n\n[unpaid_cancelled]`,
+          en: `Hi ${i.alias},\n\nOrder ${i.orderRef} was not paid by the deadline and has been cancelled. Per our terms a 5% restocking fee applies: ${moneyIn(i.feeCents, lang)}.\nBidding and buying on your account are paused until the fee is settled.\n\n[unpaid_cancelled]`,
+        }[lang],
+        spec: {
+          preheader: { lv: `Uzglabāšanas maksa ${moneyIn(i.feeCents, lang)}`, ru: `Плата за хранение ${moneyIn(i.feeCents, lang)}`, en: `Restocking fee ${moneyIn(i.feeCents, lang)}` }[lang],
+          headline: { lv: "PASŪTĪJUMS ATCELTS", ru: "ЗАКАЗ ОТМЕНЁН", en: "ORDER CANCELLED" }[lang],
+          headlineTone: "danger",
+          greeting: hi,
+          intro: {
+            lv: `Rēķins ${i.orderRef} netika apmaksāts līdz termiņam, tāpēc pasūtījums ir atcelts un prece atgriezta pārdošanā.`,
+            ru: `Счёт ${i.orderRef} не был оплачен в срок, поэтому заказ отменён, а товар вернулся в продажу.`,
+            en: `Order ${i.orderRef} was not paid by the deadline, so it has been cancelled and the lot returned to sale.`,
+          }[lang],
+          amount: {
+            label: { lv: "Uzglabāšanas maksa (5%):", ru: "Плата за хранение (5%):", en: "Restocking fee (5%):" }[lang],
+            value: moneyIn(i.feeCents, lang),
+          },
+          facts: orderFacts(i, lang, ctx, W.stCancelled, "danger"),
+          cta: {
+            label: { lv: `Nokārtot ${moneyIn(i.feeCents, lang)}`, ru: `Погасить ${moneyIn(i.feeCents, lang)}`, en: `Settle ${moneyIn(i.feeCents, lang)}` }[lang],
+            url: ctx.feesUrl,
+          },
+          ctaSubnote: {
+            lv: "Kamēr maksa nav nokārtota, solīšana kontā ir apturēta.",
+            ru: "Пока плата не погашена, ставки в аккаунте приостановлены.",
+            en: "Bidding on your account is paused until the fee is settled.",
+          }[lang],
+          notes: [
+            {
+              title: { lv: "Ja notikusi kļūda:", ru: "Если это ошибка:", en: "If this is a mistake:" }[lang],
+              text: {
+                lv: "atraksti mums, un pārskatīsim — cilvēks atbildēs, ne robots.",
+                ru: "напишите нам, и мы разберёмся — ответит человек, а не робот.",
+                en: "write to us and we will look again — a person answers, not a robot.",
+              }[lang],
+            },
+          ],
+          footNote: i.orderRef,
+          labels,
+        },
+      };
+    }
+
+    // ── Cancelled: never collected ──────────────────────────────────────────
+    case "no_pickup_cancelled": {
+      return {
+        subject: { lv: `Pasūtījums atcelts (nav izņemts) — ${i.orderRef}`, ru: `Заказ отменён (не получен) — ${i.orderRef}`, en: `Order cancelled (not collected) — ${i.orderRef}` }[lang],
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nPasūtījums ${i.orderRef} netika izņemts līdz termiņam un ir atcelts. Uzglabāšanas maksa: ${moneyIn(i.feeCents, lang)}. Atmaksa: ${moneyIn(i.refundCents, lang)}.\nAtmaksa tiks veikta uz jūsu maksājuma līdzekli.\n\n[no_pickup_cancelled]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nЗаказ ${i.orderRef} не был получен в срок и отменён. Плата за хранение: ${moneyIn(i.feeCents, lang)}. Возврат: ${moneyIn(i.refundCents, lang)}.\nВозврат придёт на ваш способ оплаты.\n\n[no_pickup_cancelled]`,
+          en: `Hi ${i.alias},\n\nOrder ${i.orderRef} was not collected by the deadline and has been cancelled. Restocking fee: ${moneyIn(i.feeCents, lang)}. Refund: ${moneyIn(i.refundCents, lang)}.\nThe refund will be returned to your payment method.\n\n[no_pickup_cancelled]`,
+        }[lang],
+        spec: {
+          preheader: { lv: `Atmaksa ${moneyIn(i.refundCents, lang)}`, ru: `Возврат ${moneyIn(i.refundCents, lang)}`, en: `Refund ${moneyIn(i.refundCents, lang)}` }[lang],
+          headline: { lv: "PASŪTĪJUMS ATCELTS", ru: "ЗАКАЗ ОТМЕНЁН", en: "ORDER CANCELLED" }[lang],
+          headlineTone: "danger",
+          greeting: hi,
+          intro: {
+            lv: `Pasūtījums ${i.orderRef} netika izņemts līdz termiņam. Prece atgriezta pārdošanā, un naudu sūtām atpakaļ.`,
+            ru: `Заказ ${i.orderRef} не был получен в срок. Товар вернулся в продажу, а деньги отправляем обратно.`,
+            en: `Order ${i.orderRef} was not collected in time. The lot is back on sale and the money is on its way to you.`,
+          }[lang],
+          amount: {
+            label: { lv: "Atmaksājam:", ru: "Возвращаем:", en: "Refunding:" }[lang],
+            value: moneyIn(i.refundCents, lang),
+            lines: [
+              {
+                label: { lv: "Uzglabāšanas maksa (5%)", ru: "Плата за хранение (5%)", en: "Restocking fee (5%)" }[lang],
+                value: `− ${moneyIn(i.feeCents, lang)}`,
+              },
+            ],
+          },
+          facts: orderFacts(i, lang, ctx, W.stCancelled, "danger"),
+          cta: { label: w(W.openOrders, lang), url: ctx.ordersUrl },
+          ctaSubnote: {
+            lv: "Atmaksa nonāk atpakaļ uz to pašu maksājuma līdzekli 3–5 darba dienu laikā.",
+            ru: "Возврат придёт тем же способом оплаты в течение 3–5 рабочих дней.",
+            en: "The refund returns to the same payment method within 3–5 working days.",
+          }[lang],
+          footNote: i.orderRef,
+          labels,
+        },
+      };
+    }
+
+    // ── On its way ──────────────────────────────────────────────────────────
+    case "shipped": {
+      const carrier = i.carrier ?? "Omniva";
+      return {
+        subject: { lv: `Sūtījums ceļā — ${i.orderRef}`, ru: `Посылка в пути — ${i.orderRef}`, en: `Your parcel is on its way — ${i.orderRef}` }[lang],
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nPasūtījums ${i.orderRef} ir nodots ${carrier} un ceļā uz pakomātu "${i.machineName}".\nSūtījuma numurs: ${i.barcode}\nSekot sūtījumam: ${i.trackingUrl}\n\nKad paka būs pakomātā, ${carrier} nosūtīs SMS ar durvju kodu.\n\n[shipped]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nЗаказ ${i.orderRef} передан ${carrier} и едет в автомат "${i.machineName}".\nНомер отправления: ${i.barcode}\nОтследить: ${i.trackingUrl}\n\nКогда посылка будет на месте, ${carrier} пришлёт SMS с кодом дверцы.\n\n[shipped]`,
+          en: `Hi ${i.alias},\n\nOrder ${i.orderRef} has been handed to ${carrier} and is on its way to the "${i.machineName}" locker.\nTracking number: ${i.barcode}\nTrack it here: ${i.trackingUrl}\n\n${carrier} will text you a door code when the parcel arrives.\n\n[shipped]`,
+        }[lang],
+        spec: {
+          preheader: { lv: `${carrier} · ${i.machineName ?? ""}`, ru: `${carrier} · ${i.machineName ?? ""}`, en: `${carrier} · ${i.machineName ?? ""}` }[lang],
+          headline: { lv: "SŪTĪJUMS CEĻĀ", ru: "ПОСЫЛКА В ПУТИ", en: "YOUR PARCEL IS ON ITS WAY" }[lang],
+          headlineTone: "ok",
+          greeting: hi,
+          intro: {
+            lv: `Pasūtījums ${i.orderRef} ir nodots ${carrier}. Kad paka būs pakomātā, saņemsi SMS ar durvju kodu.`,
+            ru: `Заказ ${i.orderRef} передан ${carrier}. Когда посылка будет в автомате, придёт SMS с кодом дверцы.`,
+            en: `Order ${i.orderRef} has been handed to ${carrier}. You will get a text with the door code when it arrives.`,
+          }[lang],
+          facts: [
+            ...(i.orderRef ? [{ label: w(W.orderNo, lang), value: i.orderRef }] : []),
+            { label: w(W.lot, lang), value: i.lotTitle },
+            { label: { lv: "Pakomāts:", ru: "Автомат:", en: "Locker:" }[lang], value: i.machineName ?? "" },
+            { label: { lv: "Sūtījuma numurs:", ru: "Номер отправления:", en: "Tracking number:" }[lang], value: i.barcode ?? "" },
+            { label: w(W.status, lang), value: w(W.stShipped, lang), tone: "ok" },
+          ],
+          cta: i.trackingUrl
+            ? { label: { lv: "Sekot sūtījumam", ru: "Отследить посылку", en: "Track the parcel" }[lang], url: i.trackingUrl }
+            : undefined,
+          footNote: i.orderRef,
+          labels,
+        },
+      };
+    }
+
+    // ── Money going back ────────────────────────────────────────────────────
+    case "refunded": {
+      return {
+        subject: { lv: `Atmaksa veikta — ${i.orderRef}`, ru: `Возврат выполнен — ${i.orderRef}`, en: `Refund issued — ${i.orderRef}` }[lang],
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nPar pasūtījumu ${i.orderRef} ir veikta atmaksa: ${moneyIn(i.refundCents, lang)}.\nIemesls: ${i.reason ?? ""}\nNauda atgriezīsies uz to pašu maksājuma līdzekli 3–5 darba dienu laikā.\n\n[refunded]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nПо заказу ${i.orderRef} выполнен возврат: ${moneyIn(i.refundCents, lang)}.\nПричина: ${i.reason ?? ""}\nДеньги вернутся тем же способом оплаты в течение 3–5 рабочих дней.\n\n[refunded]`,
+          en: `Hi ${i.alias},\n\nA refund of ${moneyIn(i.refundCents, lang)} has been issued for order ${i.orderRef}.\nReason: ${i.reason ?? ""}\nThe money returns to the same payment method within 3–5 working days.\n\n[refunded]`,
+        }[lang],
+        spec: {
+          preheader: { lv: `Atmaksa ${moneyIn(i.refundCents, lang)}`, ru: `Возврат ${moneyIn(i.refundCents, lang)}`, en: `Refund ${moneyIn(i.refundCents, lang)}` }[lang],
+          headline: { lv: "ATMAKSA VEIKTA", ru: "ВОЗВРАТ ВЫПОЛНЕН", en: "REFUND ISSUED" }[lang],
+          headlineTone: "ok",
+          greeting: hi,
+          intro: {
+            lv: `Par pasūtījumu ${i.orderRef} nauda ir ceļā atpakaļ pie jums.`,
+            ru: `По заказу ${i.orderRef} деньги уже идут обратно к вам.`,
+            en: `The money for order ${i.orderRef} is on its way back to you.`,
+          }[lang],
+          amount: { label: { lv: "Atmaksāts:", ru: "Возвращено:", en: "Refunded:" }[lang], value: moneyIn(i.refundCents, lang) },
+          facts: [
+            ...(i.orderRef ? [{ label: w(W.orderNo, lang), value: i.orderRef }] : []),
+            { label: w(W.lot, lang), value: i.lotTitle },
+            ...(i.reason ? [{ label: { lv: "Iemesls:", ru: "Причина:", en: "Reason:" }[lang], value: i.reason }] : []),
+            { label: w(W.status, lang), value: w(W.stRefunded, lang), tone: "ok" as const },
+          ],
+          cta: { label: w(W.openOrders, lang), url: ctx.ordersUrl },
+          ctaSubnote: {
+            lv: "Nauda atgriežas uz to pašu maksājuma līdzekli 3–5 darba dienu laikā.",
+            ru: "Деньги вернутся тем же способом оплаты в течение 3–5 рабочих дней.",
+            en: "The money returns to the same payment method within 3–5 working days.",
+          }[lang],
+          footNote: i.orderRef,
+          labels,
+        },
+      };
+    }
+  }
+}
+
+/** Sample data for the panel's preview — plausible, obviously not a real order. */
+export function sampleInput(type: NotificationType): TemplateInput {
+  const inFiveDays = new Date(Date.now() + 5 * 86_400_000);
+  const base: TemplateInput = {
+    alias: "Elīna Priede",
+    lotTitle: "Omega Seamaster, 1970. gadi",
+    orderRef: "A-1042",
+    totalCents: 25_156,
+    hammerCents: 18_900,
+    premiumCents: 1_890,
+    vatCents: 4_366,
+    deadline: inFiveDays,
+  };
+  switch (type) {
+    case "outbid":
+      return { ...base, amountCents: 21_000, orderRef: undefined, totalCents: undefined };
+    case "pickup_ready":
+    case "pickup_reminder":
+      return { ...base, pickupCode: "418209", deadline: new Date(Date.now() + 14 * 86_400_000) };
+    case "unpaid_cancelled":
+      return { ...base, feeCents: 1_258 };
+    case "no_pickup_cancelled":
+      return { ...base, feeCents: 1_258, refundCents: 23_898 };
+    case "shipped":
+      return { ...base, carrier: "Omniva", machineName: "Rīga, Alfa pakomāts", barcode: "CC123456789LV", trackingUrl: "https://omniva.lv/track" };
+    case "refunded":
+      return { ...base, refundCents: 25_156, reason: "Prece neatbilda aprakstam" };
+    default:
+      return base;
+  }
+}

@@ -41,7 +41,7 @@ export async function remindPickupDue(ctx: AppContext): Promise<void> {
         ),
       );
     for (const o of due) {
-      await enqueueNotification(ctx.db, {
+      await enqueueNotification(ctx, ctx.db, {
         customerId: o.customerId,
         type: "pickup_reminder",
         template: {
@@ -116,7 +116,7 @@ export async function cancelNoShowDue(ctx: AppContext): Promise<void> {
         note: "auto: retained from held funds",
         now,
       });
-      await enqueueNotification(tx, {
+      await enqueueNotification(ctx, tx, {
         customerId: order.customerId,
         type: "no_pickup_cancelled",
         template: {

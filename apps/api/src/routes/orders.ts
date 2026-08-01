@@ -288,7 +288,7 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext, perms
           note: body.data.reason,
           now: ctx.now(),
         });
-        await enqueueNotification(tx, {
+        await enqueueNotification(ctx, tx, {
           customerId: order.customerId,
           type: "unpaid_cancelled",
           template: { alias: "", lotTitle: "", orderRef: order.ref, feeCents },

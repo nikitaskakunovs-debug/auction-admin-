@@ -44,14 +44,14 @@ export async function settleOrderPaid(
       .set({ status: "paid", paidAt: ctx.now(), pickupCode: forPickup ? pickupCode : null, pickupDeadlineAt })
       .where(eq(orders.id, orderId));
     await tx.update(items).set({ status: "paid", updatedAt: ctx.now() }).where(eq(items.id, item!.id));
-    await enqueueNotification(tx, {
+    await enqueueNotification(ctx, tx, {
       customerId: order.customerId,
       type: "order_paid",
       template: { alias: "", lotTitle: "", orderRef: order.ref, totalCents: order.totalCents },
     });
     if (forPickup) {
       // Pickup pass: collection code + deadline (design: 14 days, 5% fee).
-      await enqueueNotification(tx, {
+      await enqueueNotification(ctx, tx, {
         customerId: order.customerId,
         type: "pickup_ready",
         template: { alias: "", lotTitle: "", orderRef: order.ref, pickupCode, deadline: pickupDeadlineAt! },

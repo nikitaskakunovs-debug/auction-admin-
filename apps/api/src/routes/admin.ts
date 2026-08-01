@@ -8,6 +8,12 @@ import type { AppContext } from "../context.js";
 import { requirePermission, type PermissionService } from "../auth/rbac.js";
 import { revokeAllUserRefreshTokens } from "../auth/session.js";
 import { revokeAllTrustedDevices } from "../auth/trustedDevice.js";
+import {
+  NOTIFICATION_TYPES,
+  renderNotification,
+  sampleInput,
+  type NotificationType,
+} from "../engine/notifications.js";
 
 const actor = (req: { admin?: { sub: string; name: string } }) => ({
   id: req.admin?.sub ?? null,
@@ -222,5 +228,49 @@ export function registerAdminRoutes(app: FastifyInstance, ctx: AppContext, perms
       .orderBy(desc(notifications.createdAt))
       .limit(limit);
     return { notifications: rows };
+  });
+
+  /**
+   * What a given email looks like, with sample data. The panel renders this
+   * in a frame so nobody has to trigger a real auction to see the design.
+   */
+  app.get("/api/notifications/preview", guard("settings.view"), async (req, reply) => {
+    const q = z
+      .object({
+        type: z.enum(NOTIFICATION_TYPES as [NotificationType, ...NotificationType[]]),
+        lang: z.enum(["lv", "ru", "en"]).default("lv"),
+      })
+      .safeParse(req.query);
+    if (!q.success) return reply.code(400).send({ error: "invalid_query", detail: "type and lang required" });
+    const rendered = renderNotification(ctx, q.data.type, q.data.lang, sampleInput(q.data.type));
+    return { type: q.data.type, lang: q.data.lang, ...rendered };
+  });
+
+  /**
+   * Send that sample to the signed-in admin's own address — never to an
+   * address supplied in the request, which would make this a spam relay.
+   */
+  app.post("/api/notifications/preview/send", guard("settings.edit"), async (req, reply) => {
+    const body = z
+      .object({
+        type: z.enum(NOTIFICATION_TYPES as [NotificationType, ...NotificationType[]]),
+        lang: z.enum(["lv", "ru", "en"]).default("lv"),
+      })
+      .safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid_body" });
+    const to = req.admin!.email;
+    const rendered = renderNotification(ctx, body.data.type, body.data.lang, sampleInput(body.data.type));
+    try {
+      await ctx.email.send({
+        to,
+        subject: `[PARAUGS] ${rendered.subject}`,
+        text: rendered.text,
+        html: rendered.html,
+      });
+    } catch (err) {
+      return reply.code(502).send({ error: "send_failed", detail: (err as Error).message.slice(0, 200) });
+    }
+    await writeAudit(ctx.db, actor(req), "settings", "email_sample_sent", body.data.type, { lang: body.data.lang });
+    return { sent: true, to };
   });
 }
