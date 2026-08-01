@@ -3,7 +3,8 @@ import { assertItemTransition, computeNoShowSettlement, type ItemStatus } from "
 import { and, asc, desc, eq, gte, ilike, isNull, lte, or, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { slackOrderCancelled, slackRefund } from "../engine/slackNotify.js";
+import { slackOrderCancelled } from "../engine/slackNotify.js";
+import { refundOrder } from "../engine/refund.js";
 import { writeAudit } from "../audit.js";
 import type { AppContext } from "../context.js";
 import { recordFee } from "../engine/fees.js";
@@ -235,90 +236,13 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext, perms
     const { id } = req.params as { id: string };
     const body = refundSchema.safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: "amount + reason required" });
-
-    // Pre-flight the ledger rules BEFORE any provider call: money must never
-    // leave Klix for a refund our own bookkeeping would then reject.
-    {
-      const [order] = await ctx.db.select().from(orders).where(eq(orders.id, id));
-      if (!order) return reply.code(404).send({ error: "not_found" });
-      if (order.status !== "paid" && order.status !== "refunded") return reply.code(409).send({ error: "order_not_paid" });
-      const [sumRow] = await ctx.db
-        .select({ refunded: sql<string>`coalesce(sum(${refunds.amountCents}), 0)` })
-        .from(refunds)
-        .where(eq(refunds.orderId, id));
-      if (Number(sumRow!.refunded) + body.data.amountCents > order.totalCents) {
-        return reply.code(422).send({ error: "refund_exceeds_total" });
-      }
+    // The rules live in the engine because R2's counter returns refund through
+    // exactly the same path — provider quirks included.
+    const result = await refundOrder(ctx, id, { ...body.data, actor: actor(req) });
+    if (!result.ok) {
+      if (result.error === "klix_refund_failed") req.log?.error({ orderId: id }, "klix refund failed");
+      return reply.code(result.code).send(result.detail ? { error: result.error, detail: result.detail } : { error: result.error });
     }
-
-    // If this order was collected online, the money moves back through the
-    // provider too — and only what the provider confirms gets recorded. The
-    // provider call happens before the ledger write: a rejected refund
-    // (already refunded in the portal, amount over the remainder, expired)
-    // must not leave a phantom refund row. Klix exposes a refund API;
-    // Inbank credit contracts are terminated/credited in their partner
-    // portal, so Inbank-paid orders must be refunded there first and then
-    // recorded here with viaProvider=false — never silently skipped.
-    let providerMeta: Record<string, unknown> = {};
-    if (body.data.viaProvider) {
-      const [paidPayment] = await ctx.db
-        .select()
-        .from(payments)
-        .where(and(eq(payments.orderId, id), eq(payments.status, "paid")))
-        .orderBy(desc(payments.createdAt))
-        .limit(1);
-      if (paidPayment?.provider === "inbank") {
-        return reply.code(409).send({
-          error: "provider_refund_unsupported",
-          detail: "Paid via Inbank — credit the contract in the Inbank partner portal, then record with viaProvider=false",
-        });
-      }
-      if (paidPayment?.providerId) {
-        if (!ctx.klix) return reply.code(503).send({ error: "payments_unavailable", detail: "KLIX_MODE is off — refund in the Klix portal, then record with viaProvider=false" });
-        try {
-          const purchase = await ctx.klix.refundPurchase(paidPayment.providerId, body.data.amountCents);
-          await ctx.db
-            .update(payments)
-            .set({ providerStatus: purchase.status, updatedAt: ctx.now() })
-            .where(eq(payments.id, paidPayment.id));
-          providerMeta = { via: "klix", purchaseId: paidPayment.providerId };
-        } catch (err) {
-          req.log?.error({ err, orderId: id }, "klix refund failed");
-          return reply.code(502).send({ error: "klix_refund_failed", detail: err instanceof Error ? err.message : "provider error" });
-        }
-      }
-    }
-
-    const result = await ctx.db.transaction(async (tx) => {
-      const [order] = await tx.select().from(orders).where(eq(orders.id, id)).for("update");
-      if (!order) return null;
-      if (order.status !== "paid" && order.status !== "refunded") return "not_refundable" as const;
-      const [sumRow] = await tx
-        .select({ refunded: sql<string>`coalesce(sum(${refunds.amountCents}), 0)` })
-        .from(refunds)
-        .where(eq(refunds.orderId, id));
-      const already = Number(sumRow!.refunded);
-      if (already + body.data.amountCents > order.totalCents) return "over_max" as const;
-      await tx.insert(refunds).values({
-        orderId: id,
-        amountCents: body.data.amountCents,
-        reason: body.data.reason,
-        actorId: req.admin!.sub,
-      });
-      if (already + body.data.amountCents === order.totalCents) {
-        await tx.update(orders).set({ status: "refunded" }).where(eq(orders.id, id));
-      }
-      await writeAudit(tx, actor(req), "order", "refunded", order.ref, {
-        amountCents: body.data.amountCents,
-        reason: body.data.reason,
-        ...providerMeta,
-      });
-      return order;
-    });
-    if (result === null) return reply.code(404).send({ error: "not_found" });
-    if (result === "not_refundable") return reply.code(409).send({ error: "order_not_paid" });
-    if (result === "over_max") return reply.code(422).send({ error: "refund_exceeds_total" });
-    slackRefund(ctx, { orderRef: result.ref, amountCents: body.data.amountCents, reason: body.data.reason, orderId: id });
     return { ok: true };
   });
 
