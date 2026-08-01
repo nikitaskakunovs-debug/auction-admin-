@@ -13,7 +13,7 @@ import {
 } from "@auction/db";
 import {
   assertItemTransition,
-  assertTicketTransition,
+  canTransitionTicket,
   canTransitionItem,
   computePickProgress,
   dayKey,
@@ -210,7 +210,9 @@ export async function claimTicket(ctx: AppContext, ticketId: string, actor: Acto
   const result = await ctx.db.transaction(async (tx): Promise<TicketActionResult> => {
     const [ticket] = await tx.select().from(pickupTickets).where(eq(pickupTickets.id, ticketId)).for("update");
     if (!ticket) return { ok: false, error: "not_found" };
-    assertTicketTransition(ticket.status as TicketStatus, "picking");
+    // Two workers on one ticket, or a stale screen clicking twice: that is a
+    // conflict to report, not a crash. Throwing here surfaced as a 500.
+    if (!canTransitionTicket(ticket.status as TicketStatus, "picking")) return { ok: false, error: "already_claimed" };
     const lines = await tx.select().from(pickupTicketItems).where(eq(pickupTicketItems.ticketId, ticketId));
     for (const line of lines) {
       const [item] = await tx.select().from(items).where(eq(items.id, line.itemId)).for("update");
@@ -284,7 +286,7 @@ export async function markDelivering(ctx: AppContext, ticketId: string, actor: A
   const result = await ctx.db.transaction(async (tx): Promise<TicketActionResult> => {
     const [ticket] = await tx.select().from(pickupTickets).where(eq(pickupTickets.id, ticketId)).for("update");
     if (!ticket) return { ok: false, error: "not_found" };
-    assertTicketTransition(ticket.status as TicketStatus, "delivering");
+    if (!canTransitionTicket(ticket.status as TicketStatus, "delivering")) return { ok: false, error: "not_picking" };
     const lines = await tx.select().from(pickupTicketItems).where(eq(pickupTicketItems.ticketId, ticketId));
     if (lines.some((l) => !isTerminalPickLine(l.status as PickLineStatus))) return { ok: false, error: "lines_pending" };
     await tx.update(pickupTickets).set({ status: "delivering", deliveringAt: ctx.now() }).where(eq(pickupTickets.id, ticketId));
@@ -325,7 +327,7 @@ export async function completeTicket(
   const result = await ctx.db.transaction(async (tx): Promise<TicketActionResult> => {
     const [ticket] = await tx.select().from(pickupTickets).where(eq(pickupTickets.id, ticketId)).for("update");
     if (!ticket) return { ok: false, error: "not_found" };
-    assertTicketTransition(ticket.status as TicketStatus, "completed");
+    if (!canTransitionTicket(ticket.status as TicketStatus, "completed")) return { ok: false, error: "not_delivering" };
 
     const lines = await tx.select().from(pickupTicketItems).where(eq(pickupTicketItems.ticketId, ticketId));
     const lineOrders = await tx
@@ -381,7 +383,7 @@ export async function cancelTicket(ctx: AppContext, ticketId: string, reason: st
   const result = await ctx.db.transaction(async (tx): Promise<TicketActionResult> => {
     const [ticket] = await tx.select().from(pickupTickets).where(eq(pickupTickets.id, ticketId)).for("update");
     if (!ticket) return { ok: false, error: "not_found" };
-    assertTicketTransition(ticket.status as TicketStatus, "cancelled");
+    if (!canTransitionTicket(ticket.status as TicketStatus, "cancelled")) return { ok: false, error: "already_closed" };
     const lines = await tx.select().from(pickupTicketItems).where(eq(pickupTicketItems.ticketId, ticketId));
     for (const line of lines) {
       const [item] = await tx.select().from(items).where(eq(items.id, line.itemId)).for("update");

@@ -48,6 +48,16 @@ interface Ticket {
   lines: PickLine[];
 }
 
+/** Paid and still on the shelf, owner not here yet — a ticket waiting to happen. */
+interface AwaitingCustomer {
+  customerId: string;
+  alias: string;
+  email: string;
+  waitingSince: string | null;
+  units: number;
+  lines: Array<{ itemId: string; sku: string; title: string; orderRef: string; locationLabel: string | null }>;
+}
+
 interface WorkerToday {
   userId: string;
   name: string;
@@ -140,6 +150,7 @@ export function PickupScreen({ nav: _nav }: { nav: Nav }) {
   const toast = useToast();
   const mobile = useIsMobile();
   const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [awaiting, setAwaiting] = useState<AwaitingCustomer[]>([]);
   const [workers, setWorkers] = useState<WorkerToday[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
   const [checkinQuery, setCheckinQuery] = useState("");
@@ -183,6 +194,7 @@ export function PickupScreen({ nav: _nav }: { nav: Nav }) {
         knownWaiting.current = waiting;
       })
       .catch(() => undefined);
+    void api.get<{ customers: AwaitingCustomer[] }>("/api/pickup/awaiting").then((r) => setAwaiting(r.customers)).catch(() => undefined);
     void api.get<{ workers: WorkerToday[] }>("/api/warehouse/status/today").then((r) => setWorkers(r.workers)).catch(() => undefined);
   }, []);
 
@@ -241,6 +253,16 @@ export function PickupScreen({ nav: _nav }: { nav: Nav }) {
       const r = await api.post<{ ticketNumber: number; alreadyCheckedIn: boolean }>("/api/pickup/checkin", { query: checkinQuery.trim() });
       setCheckinQuery("");
       toast(r.alreadyCheckedIn ? `${t("pick.alreadyIn")} #${r.ticketNumber}` : `${t("wh.ticket")} #${r.ticketNumber} ${t("pick.tCreated")}`, "ok");
+    }, t("pick.checkedIn"));
+
+  /** The same check-in, reached from the expected-arrivals list rather than
+   * the search box: the client is standing here, so raise their ticket. */
+  const arrive = (c: AwaitingCustomer) =>
+    act(async () => {
+      const r = await api.post<{ ticketNumber: number; alreadyCheckedIn: boolean }>("/api/pickup/checkin", {
+        customerId: c.customerId,
+      });
+      toast(`${t("wh.ticket")} #${r.ticketNumber} — ${c.alias}`, "ok");
     }, t("pick.checkedIn"));
 
   const setLine = (tk: Ticket, line: PickLine, status: "picked" | "missing" | "damaged") =>
@@ -427,6 +449,52 @@ export function PickupScreen({ nav: _nav }: { nav: Nav }) {
           </div>
         </ACard>
       )}
+
+      {/* The missing half of the story: paid orders do not join the queue on
+          their own — this is who would, the moment they walk in. */}
+      <ACard
+        title={`${t("pick.awaitingTitle")} (${awaiting.length})`}
+        actions={<span style={{ fontSize: 12, color: AT.inkSoft, fontFamily: AT.body }}>{t("pick.awaitingHint")}</span>}
+        pad={false}
+      >
+        {awaiting.length === 0 ? (
+          <AEmpty text={t("pick.awaitingEmpty")} />
+        ) : (
+          <ATable head={[t("pick.client"), t("pick.awaitingUnits"), t("pick.awaitingWhat"), t("pick.awaitingSince"), ""]}>
+            {awaiting.map((c) => {
+              const days = c.waitingSince ? Math.floor((now - new Date(c.waitingSince).getTime()) / 86_400_000) : null;
+              return (
+                <ATr key={c.customerId}>
+                  <ATd>
+                    <div style={{ fontWeight: 600 }}>{c.alias}</div>
+                    <div style={{ fontSize: 12, color: AT.inkSoft }}>{c.email}</div>
+                  </ATd>
+                  <ATd mono>{c.units}</ATd>
+                  <ATd>
+                    <span style={{ fontSize: 12.5 }}>
+                      {c.lines.slice(0, 2).map((l) => l.title).join(" · ")}
+                      {c.lines.length > 2 ? ` +${c.lines.length - 2}` : ""}
+                    </span>
+                  </ATd>
+                  <ATd>
+                    {c.waitingSince ? (
+                      <span style={{ color: days !== null && days >= 14 ? AT.danger : days !== null && days >= 7 ? AT.warn : AT.inkSoft }}>
+                        {formatDate(c.waitingSince)}
+                        {days !== null ? ` · ${days} ${t("pick.awaitingDays")}` : ""}
+                      </span>
+                    ) : (
+                      "—"
+                    )}
+                  </ATd>
+                  <ATd right>
+                    {operate && <ABtn size="sm" onClick={() => void arrive(c)}>{t("pick.awaitingArrived")}</ABtn>}
+                  </ATd>
+                </ATr>
+              );
+            })}
+          </ATable>
+        )}
+      </ACard>
 
       <ACard title={`${t("pick.todaysQueue")} (${active.length})`} pad={false}>
         {active.length === 0 ? (

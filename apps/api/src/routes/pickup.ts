@@ -1,6 +1,6 @@
 import { customers, items, orders, stockMovements, warehouseLocations } from "@auction/db";
 import { locationLabel, PICK_LINE_STATUSES } from "@auction/domain";
-import { and, desc, eq, ilike, or } from "drizzle-orm";
+import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { writeAudit, type Actor } from "../audit.js";
@@ -30,6 +30,83 @@ export function registerPickupRoutes(app: FastifyInstance, ctx: AppContext, perm
 
   app.get("/api/pickup/queue", guard("pickup.view"), async () => {
     return { tickets: await ticketQueue(ctx) };
+  });
+
+  /**
+   * Paid, still on the shelf, and the client has not turned up yet.
+   *
+   * A paid order does not walk into the pickup queue by itself — nothing may
+   * be handed over before someone is standing there to take it. The queue is
+   * created by check-in (kiosk code, or this desk). This list is the other
+   * half of that sentence: everything that *would* become a ticket the moment
+   * its owner arrives, so the desk can see the day's expected work and start
+   * a ticket with one click instead of hunting for an order number.
+   *
+   * Clients with an active ticket are absent — they are already in the queue.
+   */
+  app.get("/api/pickup/awaiting", guard("pickup.view"), async () => {
+    const rows = await ctx.db
+      .select({
+        customerId: customers.id,
+        alias: customers.alias,
+        email: customers.email,
+        paidAt: orders.paidAt,
+        orderRef: orders.ref,
+        itemId: items.id,
+        sku: items.sku,
+        title: items.title,
+        legacyLocation: items.location,
+        locationLabel: warehouseLocations.label,
+      })
+      .from(orders)
+      .innerJoin(items, eq(orders.itemId, items.id))
+      .innerJoin(customers, eq(orders.customerId, customers.id))
+      .leftJoin(warehouseLocations, eq(items.locationId, warehouseLocations.id))
+      .where(
+        and(
+          eq(orders.status, "paid"),
+          // Item still ours and on a shelf: anything already picking,
+          // delivered or returned is not waiting for anybody.
+          eq(items.status, "paid"),
+          sql`not exists (
+            select 1 from pickup_tickets pt
+            where pt.customer_id = ${orders.customerId}
+              and pt.status in ('waiting', 'picking', 'delivering')
+          )`,
+        ),
+      )
+      .orderBy(orders.paidAt);
+
+    // One row per client — check-in bundles everything they have paid for
+    // into a single ticket, so the desk should see one line per person.
+    const byCustomer = new Map<string, {
+      customerId: string;
+      alias: string;
+      email: string;
+      waitingSince: string | null;
+      units: number;
+      lines: Array<{ itemId: string; sku: string; title: string; orderRef: string; locationLabel: string | null }>;
+    }>();
+    for (const r of rows) {
+      const entry = byCustomer.get(r.customerId) ?? {
+        customerId: r.customerId,
+        alias: r.alias,
+        email: r.email,
+        waitingSince: r.paidAt ? r.paidAt.toISOString() : null,
+        units: 0,
+        lines: [],
+      };
+      entry.units += 1;
+      entry.lines.push({
+        itemId: r.itemId,
+        sku: r.sku,
+        title: r.title,
+        orderRef: r.orderRef,
+        locationLabel: r.locationLabel ?? r.legacyLocation ?? null,
+      });
+      byCustomer.set(r.customerId, entry);
+    }
+    return { customers: [...byCustomer.values()] };
   });
 
   // Front-desk check-in: by customer id, or by searching a paid order ref /

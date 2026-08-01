@@ -33,6 +33,20 @@ export const PICKUP = {
   "pick.alreadyIn": { lv: "Jau reģistrēts — talons", ru: "Уже зарегистрирован — талон", en: "Already checked in — ticket" },
   "pick.tCreated": { lv: "izveidots", ru: "создан", en: "created" },
 
+  // ── Expected arrivals (paid, still on the shelf) ───────────────────────────
+  "pick.awaitingTitle": { lv: "Gaida ierašanos", ru: "Ожидают прихода", en: "Expecting to arrive" },
+  "pick.awaitingHint": {
+    lv: "Apmaksāts un noliktavā. Rindā nonāk tikai tad, kad klients ierodas.",
+    ru: "Оплачено и на складе. В очередь попадает только когда клиент придёт.",
+    en: "Paid and in the warehouse. It joins the queue only when the client arrives.",
+  },
+  "pick.awaitingEmpty": { lv: "Nav neviena apmaksāta pasūtījuma, kas gaidītu izņemšanu.", ru: "Нет оплаченных заказов, ожидающих выдачи.", en: "No paid orders are waiting to be collected." },
+  "pick.awaitingUnits": { lv: "Preces", ru: "Товары", en: "Units" },
+  "pick.awaitingWhat": { lv: "Kas jāizsniedz", ru: "Что выдать", en: "What to hand over" },
+  "pick.awaitingSince": { lv: "Apmaksāts", ru: "Оплачено", en: "Paid" },
+  "pick.awaitingDays": { lv: "d.", ru: "дн.", en: "d" },
+  "pick.awaitingArrived": { lv: "Ieradās → talons", ru: "Пришёл → талон", en: "Arrived → ticket" },
+
   // ── Queue tables ───────────────────────────────────────────────────────────
   "pick.todaysQueue": { lv: "Šodienas rinda", ru: "Очередь за сегодня", en: "Today's queue" },
   "pick.queueEmpty": { lv: "Neviens negaida. Talonus izveido gan kiosks, gan šī lete.", ru: "Никто не ждёт. Талоны создаёт и киоск, и эта стойка.", en: "No one is waiting. The kiosk and this desk both create tickets." },

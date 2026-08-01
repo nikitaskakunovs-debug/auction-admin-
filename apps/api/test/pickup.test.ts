@@ -207,6 +207,24 @@ describe("pickup flow: kiosk check-in → pick → deliver → handover", () => 
     expect(itemB2!.status).toBe("delivered");
   });
 
+  it("reports a second claim as a conflict, not a crash", async () => {
+    const buyer = await registerBidder("flow_twice");
+    const { orderId, itemId } = await paidOrder(buyer.accessToken);
+    const [order] = await world.ctx.db.select().from(orders).where(eq(orders.id, orderId));
+    await world.server.app.inject({ method: "POST", url: "/api/public/pickup/checkin", payload: { code: order!.pickupCode! } });
+    const queue = await world.server.app.inject({ method: "GET", url: "/api/pickup/queue", headers: auth(opsToken) });
+    const ticket = (queue.json() as { tickets: Array<{ id: string; status: string; lines: Array<{ itemId: string }> }> }).tickets.find(
+      (t) => t.status === "waiting" && t.lines.some((l) => l.itemId === itemId),
+    )!;
+
+    const first = await world.server.app.inject({ method: "POST", url: `/api/pickup/tickets/${ticket.id}/claim`, headers: auth(opsToken) });
+    expect(first.statusCode).toBe(200);
+    // Two workers on the same ticket, or one impatient double-click.
+    const second = await world.server.app.inject({ method: "POST", url: `/api/pickup/tickets/${ticket.id}/claim`, headers: auth(opsToken) });
+    expect(second.statusCode, "a conflict, never a 500").toBe(409);
+    expect((second.json() as { error: string }).error).toBe("already_claimed");
+  });
+
   it("cancelling a ticket rolls items back to paid so the no-show clock keeps running", async () => {
     const buyer = await registerBidder("flow_quit");
     const { itemId, orderId } = await paidOrder(buyer.accessToken);
@@ -343,5 +361,70 @@ describe("RBAC on the pickup surface", () => {
       headers: auth(supportToken),
     });
     expect(claim.statusCode).toBe(403);
+  });
+});
+
+/**
+ * The step people miss: paying does not put a lot in the pickup queue. The
+ * queue is people, and a ticket exists only once someone has arrived. This
+ * list is what stands between the two — everything paid for and still on the
+ * shelf, waiting for its owner to walk in.
+ */
+describe("expected arrivals (paid, nobody here yet)", () => {
+  it("lists a paid order until its owner checks in, then stops", async () => {
+    const buyer = await registerBidder("await_dita");
+    const a = await paidOrder(buyer.accessToken, 7_000);
+    await paidOrder(buyer.accessToken, 3_000); // same client, second lot
+
+    const awaiting = async () => {
+      const res = await world.server.app.inject({ method: "GET", url: "/api/pickup/awaiting", headers: auth(opsToken) });
+      expect(res.statusCode).toBe(200);
+      return (res.json() as {
+        customers: Array<{ customerId: string; alias: string; units: number; waitingSince: string | null; lines: Array<{ orderRef: string }> }>;
+      }).customers;
+    };
+
+    // One row per person, not per order — check-in bundles them into one ticket.
+    const before = await awaiting();
+    const mine = before.find((c) => c.customerId === buyer.bidder.id);
+    expect(mine, "a paid order with nobody at the counter").toBeTruthy();
+    expect(mine!.units).toBe(2);
+    expect(mine!.alias).toBe("await_dita");
+    expect(mine!.waitingSince, "paid at is when the wait started").toBeTruthy();
+
+    const [order] = await world.ctx.db.select().from(orders).where(eq(orders.id, a.orderId));
+    const checkin = await world.server.app.inject({
+      method: "POST", url: "/api/pickup/checkin", headers: auth(opsToken), payload: { customerId: buyer.bidder.id },
+    });
+    expect(checkin.statusCode).toBe(200);
+    expect((checkin.json() as { lineCount: number }).lineCount).toBe(2);
+
+    // Now they are in the queue, so they are no longer expected.
+    const after = await awaiting();
+    expect(after.find((c) => c.customerId === buyer.bidder.id), "already in the queue").toBeFalsy();
+
+    // And once handed over, they do not come back to either list.
+    const queue = await world.server.app.inject({ method: "GET", url: "/api/pickup/queue", headers: auth(opsToken) });
+    const ticket = (queue.json() as { tickets: Array<{ id: string; status: string; lines: Array<{ id: string; itemId: string }> }> }).tickets.find(
+      (t) => t.status === "waiting" && t.lines.some((l) => l.itemId === a.itemId),
+    )!;
+    await world.server.app.inject({ method: "POST", url: `/api/pickup/tickets/${ticket.id}/claim`, headers: auth(opsToken) });
+    for (const line of ticket.lines) {
+      await world.server.app.inject({
+        method: "POST", url: `/api/pickup/tickets/${ticket.id}/lines/${line.id}`, headers: auth(opsToken), payload: { status: "picked" },
+      });
+    }
+    await world.server.app.inject({ method: "POST", url: `/api/pickup/tickets/${ticket.id}/delivering`, headers: auth(opsToken) });
+    const done = await world.server.app.inject({
+      method: "POST", url: `/api/pickup/tickets/${ticket.id}/complete`, headers: auth(opsToken), payload: { pickupCode: order!.pickupCode! },
+    });
+    expect(done.statusCode).toBe(200);
+    expect((await awaiting()).find((c) => c.customerId === buyer.bidder.id), "handed over — gone for good").toBeFalsy();
+  });
+
+  it("is behind pickup.view like the queue itself", async () => {
+    const contentToken = await loginAs(world, "content@auction.test");
+    const res = await world.server.app.inject({ method: "GET", url: "/api/pickup/awaiting", headers: auth(contentToken) });
+    expect(res.statusCode).toBe(403);
   });
 });
