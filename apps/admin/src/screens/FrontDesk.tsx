@@ -388,7 +388,7 @@ export function FrontDeskScreen({ nav }: { nav: Nav }) {
                     #{ticket.number}
                   </span>
                 </div>
-                <div style={{ flex: 1, minWidth: 160, display: "grid", gap: 4 }}>
+                <div style={{ flex: 1, minWidth: 160, display: "grid", gap: 4, justifyItems: "start" }}>
                   <ABadge tone={ticket.status === "delivering" ? "ok" : ticket.status === "picking" ? "neutral" : "warn"}>
                     {t(ticket.status === "delivering" ? "wh.status.delivering" : ticket.status === "picking" ? "wh.status.picking" : "wh.status.waiting")}
                   </ABadge>
