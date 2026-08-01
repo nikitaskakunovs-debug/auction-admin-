@@ -50,12 +50,12 @@ async function paidOrder(buyerToken: string, priceCents = 10_000): Promise<{ ord
 }
 
 describe("pickup pass (mark-paid)", () => {
-  it("assigns a 6-digit code + 14-day deadline and emails the pass", async () => {
+  it("assigns a 4-digit code + 14-day deadline and emails the pass", async () => {
     const buyer = await registerBidder("pass_owner");
     const { orderId } = await paidOrder(buyer.accessToken);
 
     const [order] = await world.ctx.db.select().from(orders).where(eq(orders.id, orderId));
-    expect(order!.pickupCode).toMatch(/^\d{6}$/);
+    expect(order!.pickupCode).toMatch(/^\d{4}$/);
     const days = (order!.pickupDeadlineAt!.getTime() - order!.paidAt!.getTime()) / 86_400_000;
     expect(days).toBeCloseTo(14, 5);
 
@@ -126,7 +126,7 @@ describe("pickup flow: kiosk check-in → pick → deliver → handover", () => 
     const code = orderA!.pickupCode!;
 
     // A code that matches no active paid order is a 404.
-    const wrongCode = code === "000000" ? "000001" : "000000";
+    const wrongCode = code === "0000" ? "0001" : "0000";
     const bad = await world.server.app.inject({ method: "POST", url: "/api/public/pickup/checkin", payload: { code: wrongCode } });
     expect(bad.statusCode).toBe(404);
     expect((bad.json() as { error: string }).error).toBe("code_not_found");
@@ -189,7 +189,7 @@ describe("pickup flow: kiosk check-in → pick → deliver → handover", () => 
       method: "POST",
       url: `/api/pickup/tickets/${ticket.id}/complete`,
       headers: auth(opsToken),
-      payload: { pickupCode: code === "999999" ? "999998" : "999999" },
+      payload: { pickupCode: code === "9999" ? "9998" : "9999" },
     });
     expect(reject.statusCode).toBe(403);
 

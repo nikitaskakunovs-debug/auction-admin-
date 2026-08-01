@@ -7,7 +7,7 @@ import { useT } from "@/lib/i18n";
 
 /**
  * The client's pickup pass: one card per paid, uncollected order with the
- * 6-digit collection code, its QR (renders locally — nothing leaves the
+ * collection code, its QR (renders locally — nothing leaves the
  * browser), and the collection deadline. The kiosk at the warehouse accepts
  * the code typed or scanned.
  */

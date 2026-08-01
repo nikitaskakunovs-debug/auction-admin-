@@ -166,13 +166,13 @@ export function registerPickupRoutes(app: FastifyInstance, ctx: AppContext, perm
   // Either the client's code, or a written reason for handing over without it.
   const completeBody = z
     .object({
-      pickupCode: z.string().regex(/^\d{6}$/).optional(),
+      pickupCode: z.string().regex(/^\d{4,6}$/).optional(),
       overrideReason: z.string().min(3).max(300).optional(),
     })
     .refine((v) => Boolean(v.pickupCode ?? v.overrideReason), { message: "pickupCode or overrideReason required" });
   app.post("/api/pickup/tickets/:id/complete", guard("pickup.operate"), async (req, reply) => {
     const body = completeBody.safeParse(req.body);
-    if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: "6-digit pickupCode required" });
+    if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: "pickupCode (4 digits) or overrideReason required" });
     // W4 — a client who lost the code can still collect, but only with a
     // written reason recorded under the operator's name.
     const override = body.data.overrideReason && body.data.overrideReason.trim().length >= 3
@@ -289,15 +289,19 @@ export function registerPickupRoutes(app: FastifyInstance, ctx: AppContext, perm
 
   // ── Public: kiosk check-in + waiting-room boards ──────────────────────────
 
-  // The 6-digit pickup code is the credential; a strict per-route rate limit
+  // The pickup code is the credential; a strict per-route rate limit
   // keeps brute force far below the 1-in-a-million guess odds.
-  const kioskBody = z.object({ code: z.string().regex(/^\d{6}$/) });
+  // Four digits are short enough to say out loud and short enough to guess, so
+  // the door is what stops guessing: a hard per-IP cap on kiosk attempts.
+  const kioskBody = z.object({ code: z.string().regex(/^\d{4,6}$/) });
   app.post(
     "/api/public/pickup/checkin",
-    { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } },
+    // A person at the kiosk types their own code once, maybe twice. Ten a
+    // minute leaves them room and leaves a guesser none worth having.
+    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
     async (req, reply) => {
       const body = kioskBody.safeParse(req.body);
-      if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: "6-digit code required" });
+      if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: "4-digit code required" });
       const result = await checkInByCode(ctx, body.data.code, "kiosk");
       if (!result.ok) {
         return reply.code(result.error === "code_not_found" ? 404 : 409).send({ error: result.error });

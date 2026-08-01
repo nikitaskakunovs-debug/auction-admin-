@@ -20,6 +20,20 @@ export const FRONTDESK = {
   "fd.takePayment": { lv: "Pieņemt maksājumu", ru: "Принять оплату", en: "Take payment" },
   "fd.openProfile": { lv: "Klienta kartīte", ru: "Карточка клиента", en: "Client profile" },
   "fd.receipt": { lv: "Kvīts", ru: "Квитанция", en: "Receipt" },
+
+  // ── The client's queue number and their collection code ────────────────────
+  "fd.ticketWord": { lv: "TALONS", ru: "ТАЛОН", en: "TICKET" },
+  "fd.inQueueSince": { lv: "Rindā kopš", ru: "В очереди с", en: "In the queue since" },
+  "fd.openQueue": { lv: "Atvērt rindu", ru: "Открыть очередь", en: "Open the queue" },
+  "fd.code": { lv: "Kods", ru: "Код", en: "Code" },
+  "fd.reveal": { lv: "Parādīt", ru: "Показать", en: "Show" },
+  "fd.revealTitle": { lv: "Parādīt saņemšanas kodu", ru: "Показать код получения", en: "Show the collection code" },
+  "fd.revealBody": {
+    lv: "Kods pierāda, ka pie letes stāv īstais cilvēks. Katra parādīšana tiek ierakstīta žurnālā — kurš, kuram pasūtījumam un kāpēc. Ieraksti iemeslu, piem. «klients pazaudējis e-pastu».",
+    ru: "Код подтверждает, что у стойки стоит именно покупатель. Каждый показ записывается в журнал — кто, по какому заказу и почему. Укажите причину, напр. «клиент потерял письмо».",
+    en: "The code is what proves the person at the counter is the buyer. Every reveal is written to the audit trail — who, which order, and why. Give a reason, e.g. “client lost the email”.",
+  },
+  "fd.revealBtn": { lv: "Parādīt kodu", ru: "Показать код", en: "Show the code" },
   "fd.ticket": { lv: "Talons", ru: "Талон", en: "Ticket" },
   "fd.alreadyIn": { lv: "jau reģistrēts", ru: "уже зарегистрирован", en: "already checked in" },
   "fd.payTitle": { lv: "Pieņemt maksājumu", ru: "Принять оплату", en: "Take payment" },

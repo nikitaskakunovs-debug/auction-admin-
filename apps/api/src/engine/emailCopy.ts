@@ -28,12 +28,13 @@ export type NotificationType =
   | "no_pickup_cancelled"
   | "unpaid_cancelled"
   | "shipped"
-  | "refunded";
+  | "refunded"
+  | "checked_in";
 
 export const NOTIFICATION_TYPES: NotificationType[] = [
   "outbid", "won", "purchased", "payment_reminder", "order_paid",
   "pickup_ready", "pickup_reminder", "no_pickup_cancelled", "unpaid_cancelled",
-  "shipped", "refunded",
+  "shipped", "refunded", "checked_in",
 ];
 
 export interface TemplateInput {
@@ -57,6 +58,10 @@ export interface TemplateInput {
   vatCents?: number | undefined;
   /** Why the money went back (refunded). */
   reason?: string | undefined;
+  /** Queue number handed out at check-in. */
+  ticketNumber?: number | undefined;
+  /** How many items that ticket bundles. */
+  lineCount?: number | undefined;
 }
 
 /** Links and addresses the copy needs; supplied by config, never hard-coded. */
@@ -288,9 +293,9 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
             {
               title: { lv: "Pēc apmaksas:", ru: "После оплаты:", en: "After payment:" }[lang],
               text: {
-                lv: `atsūtīsim 6 ciparu saņemšanas kodu. Preci var izņemt ${ctx.pickupAddress} (${ctx.pickupHours}) vai pasūtīt piegādi uz pakomātu.`,
-                ru: `мы пришлём 6-значный код получения. Забрать можно ${ctx.pickupAddress} (${ctx.pickupHours}) или заказать доставку в посылочный автомат.`,
-                en: `we send a 6-digit collection code. Collect at ${ctx.pickupAddress} (${ctx.pickupHours}) or ask for parcel delivery.`,
+                lv: `atsūtīsim saņemšanas kodu. Preci var izņemt ${ctx.pickupAddress} (${ctx.pickupHours}) vai pasūtīt piegādi uz pakomātu.`,
+                ru: `мы пришлём код получения. Забрать можно ${ctx.pickupAddress} (${ctx.pickupHours}) или заказать доставку в посылочный автомат.`,
+                en: `we send a collection code. Collect at ${ctx.pickupAddress} (${ctx.pickupHours}) or ask for parcel delivery.`,
               }[lang],
             },
           ],
@@ -569,6 +574,55 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
       };
     }
 
+    // ── Standing at the counter, waiting to be called ───────────────────────
+    case "checked_in": {
+      const n = String(i.ticketNumber ?? "");
+      const units = i.lineCount ?? 0;
+      return {
+        subject: { lv: `Jūsu numurs ir ${n}`, ru: `Ваш номер — ${n}`, en: `Your number is ${n}` }[lang],
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nJūs esat reģistrēts. Jūsu numurs ir ${n}.\nSekojiet tam uz ekrāna zālē — kad blakus numuram parādās "IZSNIEDZ", nāciet pie letes.\nSagatavojam ${units} preci(-es).\n\n[checked_in]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nВы зарегистрированы. Ваш номер — ${n}.\nСледите за ним на экране в зале — когда рядом появится "ВЫДАЁМ", подходите к стойке.\nГотовим ${units} товар(-ов).\n\n[checked_in]`,
+          en: `Hi ${i.alias},\n\nYou are checked in. Your number is ${n}.\nWatch for it on the screen — when it says "COLLECTING", come to the counter.\nWe are preparing ${units} item(s).\n\n[checked_in]`,
+        }[lang],
+        spec: {
+          preheader: { lv: `Numurs ${n} · sekojiet ekrānam`, ru: `Номер ${n} · следите за экраном`, en: `Number ${n} · watch the screen` }[lang],
+          headline: { lv: "JŪS ESAT RINDĀ", ru: "ВЫ В ОЧЕРЕДИ", en: "YOU ARE IN THE QUEUE" }[lang],
+          headlineTone: "accent",
+          greeting: hi,
+          intro: {
+            lv: `Reģistrācija veiksmīga. Zemāk ir jūsu numurs — tas pats, kas parādīsies uz ekrāna zālē.`,
+            ru: `Регистрация выполнена. Ниже ваш номер — тот самый, что появится на экране в зале.`,
+            en: `You are checked in. Below is your number — the same one that appears on the screen.`,
+          }[lang],
+          code: {
+            label: { lv: "JŪSU NUMURS", ru: "ВАШ НОМЕР", en: "YOUR NUMBER" }[lang],
+            value: n,
+            note: {
+              lv: "Kad blakus parādās «IZSNIEDZ» — nāciet pie letes",
+              ru: "Когда рядом появится «ВЫДАЁМ» — подходите к стойке",
+              en: "When it says “COLLECTING”, come to the counter",
+            }[lang],
+          },
+          facts: [
+            { label: { lv: "Sagatavojam:", ru: "Готовим:", en: "Preparing:" }[lang], value: String(units) },
+            { label: w(W.where, lang), value: ctx.pickupAddress },
+          ],
+          notes: [
+            {
+              title: { lv: "Ja jāaiziet:", ru: "Если нужно уйти:", en: "If you have to leave:" }[lang],
+              text: {
+                lv: "pasakiet darbiniekam — prece paliek plauktā uz jūsu vārda, un varēsiet atnākt citu dienu.",
+                ru: "скажите сотруднику — товар останется на полке на ваше имя, придёте в другой день.",
+                en: "tell a member of staff — the lot stays on the shelf under your name for another day.",
+              }[lang],
+            },
+          ],
+          labels,
+        },
+      };
+    }
+
     // ── Money going back ────────────────────────────────────────────────────
     case "refunded": {
       return {
@@ -636,6 +690,8 @@ export function sampleInput(type: NotificationType): TemplateInput {
       return { ...base, carrier: "Omniva", machineName: "Rīga, Alfa pakomāts", barcode: "CC123456789LV", trackingUrl: "https://omniva.lv/track" };
     case "refunded":
       return { ...base, refundCents: 25_156, reason: "Prece neatbilda aprakstam" };
+    case "checked_in":
+      return { ...base, ticketNumber: 119, lineCount: 2 };
     default:
       return base;
   }

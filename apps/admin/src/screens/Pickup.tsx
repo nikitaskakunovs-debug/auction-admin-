@@ -30,6 +30,8 @@ interface PickLine {
   shelf: string | null;
   locationLabel: string | null;
   orderRef: string;
+  /** Last two digits — enough to check what the client just said. */
+  pickupCodeMasked?: string | null;
 }
 
 interface Ticket {
@@ -558,7 +560,7 @@ export function PickupScreen({ nav: _nav }: { nav: Nav }) {
                     <div style={{ width: 140 }}>
                       <AInput value={handoverCode} onChange={setHandoverCode} placeholder={t("pick.clientCode")} />
                     </div>
-                    <ABtn disabled={!/^\d{6}$/.test(handoverCode.trim())} onClick={() => void complete(open)}>{t("pick.verifyHandOver")}</ABtn>
+                    <ABtn disabled={!/^\d{4,6}$/.test(handoverCode.trim())} onClick={() => void complete(open)}>{t("pick.verifyHandOver")}</ABtn>
                   </>
                 )}
                 <span style={{ flex: 1 }} />
@@ -593,6 +595,9 @@ export function PickupScreen({ nav: _nav }: { nav: Nav }) {
                     <span style={{ flex: 1, fontSize: 13 }}>
                       <span style={{ fontFamily: AT.mono, color: AT.inkSoft }}>{l.sku}</span> {l.title}
                       <span style={{ color: AT.inkSoft }}> · {l.orderRef}</span>
+                      {l.pickupCodeMasked && (
+                        <span style={{ color: AT.inkSoft, fontFamily: AT.mono }}> · {t("fd.code")} {l.pickupCodeMasked}</span>
+                      )}
                     </span>
                     {operate && open.status === "picking" && l.status === "pending" && (
                       <span style={{ display: "inline-flex", gap: 6 }}>
