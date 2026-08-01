@@ -2,7 +2,7 @@
  * Demo scenarios — a working day's worth of realistic situations, created by
  * driving the real API exactly as the panel and the storefront do.
  *
- *   docker compose -f docker-compose.prod.yml exec api node dist/demo/scenarios.js
+ *   docker compose -f docker-compose.prod.yml exec api node apps/api/dist/demo/scenarios.js
  *
  * Nothing here writes to the database behind the application's back except to
  * age history (a lot bought "three weeks ago" has to actually be three weeks
@@ -11,7 +11,7 @@
  * path works, and every notification it would send in real life is sent.
  *
  * Every row it creates is recorded under an `app_settings` key so
- * `dist/demo/cleanup.js` can remove precisely this run and nothing else.
+ * `apps/api/dist/demo/cleanup.js` can remove precisely this run and nothing else.
  */
 import { adminUsers, appSettings, auctions, customers, items, orders, pickupTickets, stockMovements } from "@auction/db";
 import { createDb } from "@auction/db";
@@ -509,7 +509,7 @@ async function main(): Promise<void> {
   log("  · Pieņemšana → Novērtējumu pārbaude: bojāts velosipēds");
   log("  · Finanses → Piegādātāju rēķini: viens kavēts rēķins");
   log("");
-  log("Notīrīt visu šo: node dist/demo/cleanup.js");
+  log("Notīrīt visu šo: node apps/api/dist/demo/cleanup.js");
 }
 
 main()
@@ -519,7 +519,7 @@ main()
   })
   .catch(async (err) => {
     console.error("demo scenarios failed:", err instanceof Error ? err.message : err);
-    console.error("partial data may exist — run: node dist/demo/cleanup.js");
+    console.error("partial data may exist — run: node apps/api/dist/demo/cleanup.js");
     await db
       .insert(appSettings)
       .values({ key: RUN_KEY, value: created as unknown as Record<string, unknown> })
