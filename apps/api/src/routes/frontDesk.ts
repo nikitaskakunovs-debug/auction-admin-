@@ -1,4 +1,4 @@
-import { customerFees, customers, invoices, items, orders, pickupTickets } from "@auction/db";
+import { customerFees, customers, invoices, items, orders, pickupTickets, warehouseLocations } from "@auction/db";
 import { and, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -103,9 +103,21 @@ export function registerFrontDeskRoutes(app: FastifyInstance, ctx: AppContext, p
   /** Everything the counter needs about one person, in one payload. */
   async function payloadFor(customer: typeof customers.$inferSelect) {
     const rows = await ctx.db
-      .select({ order: orders, itemTitle: items.title, itemSku: items.sku, itemStatus: items.status, location: items.location })
+      .select({
+        order: orders,
+        itemTitle: items.title,
+        itemSku: items.sku,
+        itemStatus: items.status,
+        // The real bin, with the free-text column as the fallback for stock
+        // that predates the bin system. Reading only the old column showed
+        // "—" for everything on a shelf, which is the one fact the person
+        // fetching it needs.
+        binLabel: warehouseLocations.label,
+        location: items.location,
+      })
       .from(orders)
       .innerJoin(items, eq(orders.itemId, items.id))
+      .leftJoin(warehouseLocations, eq(items.locationId, warehouseLocations.id))
       .where(and(eq(orders.customerId, customer.id), inArray(orders.status, ["paid", "awaiting_payment"])))
       .orderBy(desc(orders.createdAt))
       .limit(50);
@@ -125,7 +137,7 @@ export function registerFrontDeskRoutes(app: FastifyInstance, ctx: AppContext, p
       pickupDeadlineAt: r.order.pickupDeadlineAt,
       itemTitle: r.itemTitle,
       itemSku: r.itemSku,
-      location: r.location,
+      location: r.binLabel ?? r.location ?? "",
       // Masked, always. The code is what proves the person at the counter is
       // the buyer; a desk that can read every code at a glance is a desk
       // where that proof means nothing. The last two digits are enough to
