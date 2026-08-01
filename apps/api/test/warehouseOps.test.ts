@@ -468,14 +468,17 @@ describe("check-in publishes an admin event", () => {
         .from(pickupTickets)
         .where(and(eq(pickupTickets.number, ticketNumber), eq(pickupTickets.status, "waiting")));
 
-      // Pub/sub delivery is async — poll briefly.
-      const deadline = Date.now() + 2_000;
+      // Pub/sub delivery is async — poll until it lands. Two seconds was
+      // enough on an idle machine and not on a loaded one; the failure then
+      // surfaced as a TypeError on the line below rather than as "the event
+      // never arrived", which is a slow way to learn what broke.
+      const deadline = Date.now() + 10_000;
       while (Date.now() < deadline && !events.some((e) => e.type === "pickup_checkin")) {
         await new Promise((r) => setTimeout(r, 25));
       }
-      const ev = events.find((e) => e.type === "pickup_checkin")!;
-      expect(ev).toBeDefined();
-      expect(ev.data).toMatchObject({ ticketId: ticket!.id, number: ticketNumber });
+      const ev = events.find((e) => e.type === "pickup_checkin");
+      expect(ev, `no pickup_checkin event arrived; saw: ${events.map((e) => e.type).join(", ") || "nothing"}`).toBeDefined();
+      expect(ev!.data).toMatchObject({ ticketId: ticket!.id, number: ticketNumber });
     } finally {
       await sub.quit().catch(() => undefined);
     }
