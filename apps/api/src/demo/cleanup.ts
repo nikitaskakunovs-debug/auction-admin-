@@ -1,8 +1,8 @@
 /**
  * Remove what the demo scenarios created — and only that.
  *
- *   docker compose -f docker-compose.prod.yml exec api node dist/demo/cleanup.js
- *   docker compose -f docker-compose.prod.yml exec api node dist/demo/cleanup.js --dry-run
+ *   docker compose -f docker-compose.prod.yml exec api node apps/api/dist/demo/cleanup.js
+ *   docker compose -f docker-compose.prod.yml exec api node apps/api/dist/demo/cleanup.js --dry-run
  *
  * Each run of `scenarios.js` records the ids it created under an
  * `app_settings` key. This reads those keys and deletes in foreign-key order.
