@@ -1,10 +1,11 @@
-import { customerFees, customers, invoices, items, orders } from "@auction/db";
+import { customerFees, customers, invoices, items, orders, pickupTickets } from "@auction/db";
 import { and, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { writeAudit } from "../audit.js";
 import type { AppContext } from "../context.js";
 import { requirePermission, type PermissionService } from "../auth/rbac.js";
+import { dayKey } from "@auction/domain";
 import { settleOrderPaid } from "../engine/settlement.js";
 
 /**
@@ -42,17 +43,33 @@ export function registerFrontDeskRoutes(app: FastifyInstance, ctx: AppContext, p
       return { matches: [] as unknown[] };
     }
 
-    // An order ref, a pickup code or the phone given for a parcel identifies
-    // the person just as well as a name — the counter types whatever the
-    // client happens to have. (Phone lives on the order, not the account.)
+    // A bare number is what the client actually says out loud. It can be
+    // today's queue number off the TV ("119") or their collection code
+    // ("4821"); the desk should not have to know which. Ticket first — the
+    // number on the wall is the one people read aloud.
     const digits = q.replace(/[\s()-]/g, "");
+    const bare = q.replace(/^#/, "").trim();
+    if (/^\d{1,4}$/.test(bare)) {
+      const [byTicket] = await ctx.db
+        .select({ customerId: pickupTickets.customerId })
+        .from(pickupTickets)
+        .where(and(eq(pickupTickets.dayKey, dayKey(ctx.now())), eq(pickupTickets.number, Number(bare))))
+        .limit(1);
+      if (byTicket) {
+        const [c] = await ctx.db.select().from(customers).where(eq(customers.id, byTicket.customerId)).limit(1);
+        if (c) return await payloadFor(c);
+      }
+    }
+
     const [byOrder] = await ctx.db
       .select({ customerId: orders.customerId })
       .from(orders)
+      .innerJoin(items, eq(orders.itemId, items.id))
       .where(
         or(
           ilike(orders.ref, q),
           eq(orders.pickupCode, q),
+          ilike(items.sku, q),
           ...(digits.length >= 5 ? [ilike(orders.recipientPhone, `%${digits}%`)] : []),
         ),
       )
@@ -109,10 +126,34 @@ export function registerFrontDeskRoutes(app: FastifyInstance, ctx: AppContext, p
       itemTitle: r.itemTitle,
       itemSku: r.itemSku,
       location: r.location,
+      // Masked, always. The code is what proves the person at the counter is
+      // the buyer; a desk that can read every code at a glance is a desk
+      // where that proof means nothing. The last two digits are enough to
+      // check what the client just said, and the reveal below is audited.
+      pickupCodeMasked: r.order.pickupCode ? `••${r.order.pickupCode.slice(-2)}` : null,
     });
+
+    // The active ticket, if this person is already standing in the room. The
+    // desk needs the number they were given as much as the client does.
+    const [ticket] = await ctx.db
+      .select({
+        id: pickupTickets.id,
+        number: pickupTickets.number,
+        status: pickupTickets.status,
+        checkedInAt: pickupTickets.checkedInAt,
+      })
+      .from(pickupTickets)
+      .where(
+        and(
+          eq(pickupTickets.customerId, customer.id),
+          inArray(pickupTickets.status, ["waiting", "picking", "delivering"]),
+        ),
+      )
+      .limit(1);
 
     return {
       matches: [{ id: customer.id, alias: customer.alias, name: customer.name, email: customer.email, blocked: customer.blocked }],
+      ticket: ticket ?? null,
       customer: {
         id: customer.id,
         alias: customer.alias,
@@ -133,6 +174,34 @@ export function registerFrontDeskRoutes(app: FastifyInstance, ctx: AppContext, p
         fees.reduce((n, f) => n + f.amountCents, 0),
     };
   }
+
+  /**
+   * Show one order's collection code, and write down who looked.
+   *
+   * A client who has lost the email is the ordinary case, and making the desk
+   * fall back to an override for it was friction with no safety in it. So the
+   * code can be read — but never silently: every reveal names the person who
+   * asked, the order, and the reason, in the same audit trail as everything
+   * else. That is the difference between helping a customer and helping
+   * yourself.
+   */
+  const revealBody = z.object({ reason: z.string().trim().min(3).max(200) });
+  app.post("/api/desk/orders/:id/reveal-code", desk("pickup.operate"), async (req, reply) => {
+    const body = revealBody.safeParse(req.body ?? {});
+    if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: "a reason is required" });
+    const { id } = req.params as { id: string };
+    const [order] = await ctx.db
+      .select({ ref: orders.ref, code: orders.pickupCode, status: orders.status })
+      .from(orders)
+      .where(eq(orders.id, id))
+      .limit(1);
+    if (!order) return reply.code(404).send({ error: "not_found" });
+    if (!order.code || order.status !== "paid") return reply.code(409).send({ error: "no_active_code" });
+    // The code itself never enters the audit detail — the point of the record
+    // is who looked, not a second copy of the secret.
+    await writeAudit(ctx.db, actor(req), "order", "pickup_code_revealed", order.ref, { reason: body.data.reason });
+    return { pickupCode: order.code };
+  });
 
   // ── Take money at the counter ──────────────────────────────────────────────
 

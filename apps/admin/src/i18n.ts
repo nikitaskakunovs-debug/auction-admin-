@@ -232,7 +232,7 @@ const D = {
   "wh.damaged": { lv: "Bojāts", ru: "Повреждён", en: "Damaged" },
   "wh.toCounter": { lv: "🚚 Uz leti (izsniegšana)", ru: "🚚 К стойке (выдача)", en: "🚚 To counter (delivering)" },
   "wh.onBoard": { lv: "Uz IZSNIEGŠANAS tablo — nesiet uz leti", ru: "На табло ВЫДАЧИ — несите к стойке", en: "On the NOW DELIVERING board — bring it to the counter" },
-  "wh.pickupCode": { lv: "Klienta 6 ciparu saņemšanas kods", ru: "6-значный код клиента", en: "Client's 6-digit pickup code" },
+  "wh.pickupCode": { lv: "Klienta saņemšanas kods", ru: "Код получения клиента", en: "Client's pickup code" },
   "wh.completeHandover": { lv: "Pabeigt izsniegšanu", ru: "Завершить выдачу", en: "Complete handover" },
   "wh.handedOver": { lv: "Izsniegts ✓", ru: "Выдано ✓", en: "Handed over ✓" },
   "wh.actionFailed": { lv: "Darbība neizdevās", ru: "Действие не удалось", en: "Action failed" },

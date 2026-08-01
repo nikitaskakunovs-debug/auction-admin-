@@ -29,6 +29,8 @@ interface DeskOrder {
   itemTitle: string;
   itemSku: string;
   location: string;
+  /** Last two digits only — the full code is behind an audited reveal. */
+  pickupCodeMasked?: string | null;
 }
 
 interface DeskFee {
@@ -47,8 +49,17 @@ interface DeskMatch {
   blocked: boolean;
 }
 
+/** The client's live queue ticket, when they are already in the room. */
+interface DeskTicket {
+  id: string;
+  number: number;
+  status: string;
+  checkedInAt: string;
+}
+
 interface DeskResult {
   matches: DeskMatch[];
+  ticket?: DeskTicket | null;
   customer?: {
     id: string;
     alias: string;
@@ -158,6 +169,7 @@ export function FrontDeskScreen({ nav }: { nav: Nav }) {
   const { t } = useT();
   const { can } = useAuth();
   const toast = useToast();
+  const confirm = useConfirm();
   const mobile = useIsMobile();
   const [query, setQuery] = useState("");
   const [result, setResult] = useState<DeskResult | null>(null);
@@ -274,6 +286,27 @@ export function FrontDeskScreen({ nav }: { nav: Nav }) {
 
   const c = result?.customer;
   const collectable = result?.collectable ?? [];
+  const ticket = result?.ticket ?? null;
+
+  /** Show one order's collection code. Every reveal is written to the audit
+   * trail with the reason, so helping a client is easy and quiet misuse is
+   * not possible. */
+  const [revealed, setRevealed] = useState<Record<string, string>>({});
+  const revealCode = async (orderId: string) => {
+    const res = await confirm({
+      title: t("fd.revealTitle"),
+      body: t("fd.revealBody"),
+      requireReason: true,
+      confirmLabel: t("fd.revealBtn"),
+    });
+    if (!res.ok) return;
+    try {
+      const r = await api.post<{ pickupCode: string }>(`/api/desk/orders/${orderId}/reveal-code`, { reason: res.reason });
+      setRevealed((m) => ({ ...m, [orderId]: r.pickupCode }));
+    } catch (err) {
+      toast((err as Error).message || t("wh.actionFailed"), "danger");
+    }
+  };
   const awaiting = result?.awaitingPayment ?? [];
   const fees = result?.fees ?? [];
 
@@ -339,6 +372,35 @@ export function FrontDeskScreen({ nav }: { nav: Nav }) {
 
       {c && (
         <>
+          {/* The number the client was given, in the size they said it out
+              loud. Anyone walking up says "I am 119" — this is the answer. */}
+          {ticket && (
+            <ACard>
+              <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+                <div style={{
+                  minWidth: 96, padding: "10px 18px", borderRadius: 12, background: AT.accentSoft,
+                  display: "grid", justifyItems: "center",
+                }}>
+                  <span style={{ fontSize: 11, letterSpacing: ".12em", color: AT.accent, fontFamily: AT.body, fontWeight: 700 }}>
+                    {t("fd.ticketWord")}
+                  </span>
+                  <span style={{ fontFamily: AT.mono, fontSize: 34, fontWeight: 800, color: AT.accent, lineHeight: 1.1 }}>
+                    #{ticket.number}
+                  </span>
+                </div>
+                <div style={{ flex: 1, minWidth: 160, display: "grid", gap: 4 }}>
+                  <ABadge tone={ticket.status === "delivering" ? "ok" : ticket.status === "picking" ? "neutral" : "warn"}>
+                    {t(ticket.status === "delivering" ? "wh.status.delivering" : ticket.status === "picking" ? "wh.status.picking" : "wh.status.waiting")}
+                  </ABadge>
+                  <span style={{ fontSize: 12.5, color: AT.inkSoft, fontFamily: AT.body }}>
+                    {t("fd.inQueueSince")} {formatDate(ticket.checkedInAt)}
+                  </span>
+                </div>
+                <ABtn kind="ghost" size="sm" onClick={() => nav.go("pickup")}>{t("fd.openQueue")}</ABtn>
+              </div>
+            </ACard>
+          )}
+
           <ACard>
             <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
               <AAvatar name={c.alias} size={40} />
@@ -364,7 +426,7 @@ export function FrontDeskScreen({ nav }: { nav: Nav }) {
             {collectable.length === 0 ? (
               <AEmpty text={t("fd.nothingToCollect")} />
             ) : (
-              <ATable head={[t("ord.thOrder"), t("c.title"), t("c.location"), ""]}>
+              <ATable head={[t("ord.thOrder"), t("c.title"), t("c.location"), t("fd.code"), ""]}>
                 {collectable.map((o) => (
                   <ATr key={o.id}>
                     <ATd mono>{o.ref}</ATd>
@@ -373,6 +435,20 @@ export function FrontDeskScreen({ nav }: { nav: Nav }) {
                       <div style={{ fontFamily: AT.mono, fontSize: 11, color: AT.inkSoft }}>{o.itemSku}</div>
                     </ATd>
                     <ATd mono>{o.location || "—"}</ATd>
+                    <ATd>
+                      {revealed[o.id] ? (
+                        <span style={{ fontFamily: AT.mono, fontWeight: 800, fontSize: 15, color: AT.ink, letterSpacing: ".08em" }}>
+                          {revealed[o.id]}
+                        </span>
+                      ) : o.pickupCodeMasked ? (
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+                          <span style={{ fontFamily: AT.mono, color: AT.inkSoft }}>{o.pickupCodeMasked}</span>
+                          <ABtn kind="ghost" size="sm" onClick={() => void revealCode(o.id)}>{t("fd.reveal")}</ABtn>
+                        </span>
+                      ) : (
+                        "—"
+                      )}
+                    </ATd>
                     <ATd right>
                       <ABtn kind="ghost" size="sm" onClick={() => receipt(o.id)}>{t("fd.receipt")}</ABtn>
                     </ATd>

@@ -5,7 +5,7 @@ import { PUBLIC_API_URL } from "@/lib/config";
 
 /**
  * Warehouse check-in kiosk (a wall-mounted tablet). The client types their
- * 6-digit pickup code on the keypad — or scans the QR from their pass with a
+ * pickup code on the keypad — or scans the QR from their pass with a
  * USB scanner, which emulates a keyboard into the same buffer. On success the
  * screen shows the big ticket number that the waiting-room boards track.
  *
@@ -100,7 +100,7 @@ export default function KioskPage() {
             <div>
               <div style={{ fontSize: 20, fontWeight: 700 }}>Check in / Reģistrēties</div>
               <div style={{ fontSize: 13.5, color: "rgba(255,255,255,0.6)", marginTop: 6 }}>
-                Enter or scan your 6-digit pickup code
+                Enter or scan your pickup code
               </div>
             </div>
             <div

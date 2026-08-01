@@ -29,6 +29,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { writeAudit, SYSTEM_ACTOR, type Actor } from "../audit.js";
 import { BOARD_CHANNEL, publishAdminEvent, type AppContext } from "../context.js";
+import { enqueueNotification } from "./notifications.js";
 import { slackCheckIn, slackHandover } from "./slackNotify.js";
 
 /**
@@ -42,10 +43,20 @@ const AVG_PICK_KEY = "pickup:avg_sec_per_line";
 
 // ── Pickup codes ─────────────────────────────────────────────────────────────
 
-/** 6-digit collection credential; regenerated on the rare active collision. */
+/**
+ * 4-digit collection credential; regenerated on the rare active collision.
+ *
+ * Four digits, not six, because a person reads it aloud at a counter — and
+ * uniqueness only has to hold among orders that are paid and uncollected,
+ * which is a handful, not the whole history. Codes already issued at six
+ * digits keep working: lookup is by exact match, so nothing to migrate.
+ *
+ * Guessing is blunted at the door rather than by length: the kiosk endpoint
+ * is rate-limited, and a wrong code at handover is refused and audited.
+ */
 export async function generatePickupCode(db: Db): Promise<string> {
-  for (let attempt = 0; attempt < 10; attempt++) {
-    const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
+  for (let attempt = 0; attempt < 25; attempt++) {
+    const code = String(randomInt(0, 10_000)).padStart(4, "0");
     const [clash] = await db
       .select({ id: orders.id })
       .from(orders)
@@ -116,7 +127,7 @@ export type CheckInResult =
   | { ok: true; ticketId: string; number: number; alreadyCheckedIn: boolean; lineCount: number }
   | { ok: false; error: "code_not_found" | "nothing_to_collect" };
 
-/** Kiosk path: the 6-digit code on the client's pickup pass is the credential. */
+/** Kiosk path: the code on the client's pickup pass is the credential. */
 export async function checkInByCode(ctx: AppContext, code: string, via: "kiosk" | "desk", actor?: Actor): Promise<CheckInResult> {
   const [order] = await ctx.db
     .select({ customerId: orders.customerId })
@@ -177,6 +188,14 @@ export async function checkInCustomer(ctx: AppContext, customerId: string, via: 
       ticketId: ticket!.id,
       via,
       orders: collectable.length,
+    });
+    // The number is the only thing the client needs while they wait, and up
+    // to now it lived on a TV screen and nowhere else. Send it to them.
+    await enqueueNotification(ctx, tx, {
+      customerId,
+      type: "checked_in",
+      template: { alias: "", lotTitle: "", ticketNumber: number, lineCount: collectable.length },
+      dedupeKey: `checked_in:${ticket!.id}`,
     });
     return { ok: true as const, ticketId: ticket!.id, number, alreadyCheckedIn: false, lineCount: collectable.length, slackVia: via, slackAlias: customerAlias };
   });
@@ -311,7 +330,7 @@ export async function markDelivering(ctx: AppContext, ticketId: string, actor: A
 }
 
 /**
- * Counter handover. The client proves ownership with the 6-digit pickup code
+ * Counter handover. The client proves ownership with the pickup code
  * from their pass (any order on the ticket matches). Picked items are handed
  * over → `delivered`; missing/damaged lines stay flagged for support.
  */
@@ -440,6 +459,10 @@ export async function ticketQueue(ctx: AppContext): Promise<unknown[]> {
         shelf: warehouseLocations.shelf,
         locationLabel: warehouseLocations.label,
         orderRef: orders.ref,
+        // Masked here too: the worker checks what the client says against the
+        // last two digits; the full code is behind the desk's audited reveal.
+        pickupCodeMasked: sql<string | null>`case when ${orders.pickupCode} is null then null
+          else '••' || right(${orders.pickupCode}, 2) end`,
       })
       .from(pickupTicketItems)
       .innerJoin(items, eq(pickupTicketItems.itemId, items.id))

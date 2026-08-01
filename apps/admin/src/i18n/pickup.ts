@@ -27,7 +27,7 @@ export const PICKUP = {
 
   // ── Front-desk check-in ────────────────────────────────────────────────────
   "pick.checkinTitle": { lv: "Reģistrācija pie letes", ru: "Регистрация на стойке", en: "Front-desk check-in" },
-  "pick.checkinPh": { lv: "Pasūtījuma nr. (A-1042), 6 ciparu kods vai e-pasts…", ru: "Номер заказа (A-1042), 6-значный код или почта…", en: "Order ref (A-1042), 6-digit pickup code, or email…" },
+  "pick.checkinPh": { lv: "Talona nr. (119), pasūtījums (A-1042), kods, e-pasts vai SKU…", ru: "Талон (119), заказ (A-1042), код, почта или SKU…", en: "Ticket (119), order (A-1042), code, email or SKU…" },
   "pick.checkinBtn": { lv: "Reģistrēt", ru: "Зарегистрировать", en: "Check in" },
   "pick.checkedIn": { lv: "Reģistrēts", ru: "Зарегистрирован", en: "Checked in" },
   "pick.alreadyIn": { lv: "Jau reģistrēts — talons", ru: "Уже зарегистрирован — талон", en: "Already checked in — ticket" },

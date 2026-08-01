@@ -1,7 +1,8 @@
-import { customerFees, orders } from "@auction/db";
-import { eq } from "drizzle-orm";
+import { auditLog, customerFees, orders } from "@auction/db";
+import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { closeAuction } from "../src/engine/close.js";
+import { dispatchNotifications } from "../src/engine/notifications.js";
 import { auth, createBidder, createLiveAuction, createWorld, loginAs, type TestWorld } from "./helpers.js";
 
 /**
@@ -214,5 +215,117 @@ describe("front desk (W4)", () => {
       payload: {},
     });
     expect(res.statusCode).toBe(400);
+  });
+
+  /** Win, pay at the counter, and read the order back — the state every one
+   * of these checks starts from. */
+  async function paidFor(alias: string) {
+    const { bidderId, ref } = await winFor(alias, 4_000);
+    const [before] = await world.ctx.db.select().from(orders).where(eq(orders.ref, ref));
+    const paid = await world.server.app.inject({
+      method: "POST", url: "/api/desk/pay", headers: auth(token),
+      payload: { orderIds: [before!.id], method: "cash" },
+    });
+    expect(paid.statusCode).toBe(200);
+    const [order] = await world.ctx.db.select().from(orders).where(eq(orders.id, before!.id));
+    return { bidderId, orderId: order!.id, order: order! };
+  }
+
+  /**
+   * N — one box, one card. The person at the counter says a number; the desk
+   * should not have to know whether that was a queue ticket, an order, or a
+   * collection code. And the code itself is readable, but never quietly.
+   */
+  describe("one lookup for every number a client says", () => {
+    it("finds the client by today's ticket number, and shows the ticket on the card", async () => {
+      const { bidderId, orderId, order } = await paidFor("num_talons");
+
+      const checkin = await world.server.app.inject({
+        method: "POST", url: "/api/pickup/checkin", headers: auth(token),
+        payload: { customerId: bidderId },
+      });
+      expect(checkin.statusCode).toBe(200);
+      const number = (checkin.json() as { number: number }).number;
+
+      for (const typed of [String(number), `#${number}`]) {
+        const res = await world.server.app.inject({
+          method: "GET", url: `/api/desk/search?q=${encodeURIComponent(typed)}`, headers: auth(token),
+        });
+        expect(res.statusCode, typed).toBe(200);
+        const body = res.json() as {
+          customer?: { id: string };
+          ticket?: { number: number; status: string } | null;
+          collectable?: Array<{ pickupCodeMasked: string | null }>;
+        };
+        expect(body.customer?.id, `typing ${typed}`).toBe(bidderId);
+        expect(body.ticket?.number).toBe(number);
+        expect(body.ticket?.status).toBe("waiting");
+      }
+
+      // The code travels masked — enough to check what was said, not enough to
+      // hand the goods to yourself.
+      const byCode = await world.server.app.inject({
+        method: "GET", url: `/api/desk/search?q=${order.pickupCode}`, headers: auth(token),
+      });
+      const card = byCode.json() as { collectable?: Array<{ pickupCodeMasked: string | null }> };
+      const masked = card.collectable?.[0]?.pickupCodeMasked;
+      expect(masked).toBe(`••${order.pickupCode!.slice(-2)}`);
+      expect(JSON.stringify(card)).not.toContain(`"${order.pickupCode}"`);
+    });
+
+    it("issues four-digit codes and still accepts the six-digit ones already out there", async () => {
+      const { orderId, order } = await paidFor("num_four");
+      expect(order.pickupCode, "short enough to say out loud").toMatch(/^\d{4}$/);
+
+      // A code minted before the change is six digits; the kiosk must not
+      // suddenly reject a customer holding one.
+      await world.ctx.db.update(orders).set({ pickupCode: "654321" }).where(eq(orders.id, orderId));
+      const kiosk = await world.server.app.inject({
+        method: "POST", url: "/api/public/pickup/checkin", payload: { code: "654321" },
+      });
+      expect(kiosk.statusCode).toBe(200);
+    });
+
+    it("reveals a code only with a reason, and writes down who looked", async () => {
+      const { orderId, order } = await paidFor("num_reveal");
+
+      const noReason = await world.server.app.inject({
+        method: "POST", url: `/api/desk/orders/${orderId}/reveal-code`, headers: auth(token), payload: {},
+      });
+      expect(noReason.statusCode, "a reason is the whole point").toBe(400);
+
+      const ok = await world.server.app.inject({
+        method: "POST", url: `/api/desk/orders/${orderId}/reveal-code`, headers: auth(token),
+        payload: { reason: "klients pazaudējis e-pastu" },
+      });
+      expect(ok.statusCode).toBe(200);
+      expect((ok.json() as { pickupCode: string }).pickupCode).toBe(order.pickupCode);
+
+      const [entry] = await world.ctx.db
+        .select()
+        .from(auditLog)
+        .where(and(eq(auditLog.type, "order"), eq(auditLog.action, "pickup_code_revealed"), eq(auditLog.target, order.ref)));
+      expect(entry, "the reveal is in the audit trail").toBeTruthy();
+      expect(JSON.stringify(entry!.detail), "the record names the reason, not the secret").not.toContain(order.pickupCode!);
+    });
+
+    it("tells the client their queue number the moment they check in", async () => {
+      const { bidderId } = await paidFor("num_email");
+      world.email.sent.length = 0;
+
+      const checkin = await world.server.app.inject({
+        method: "POST", url: "/api/pickup/checkin", headers: auth(token),
+        payload: { customerId: bidderId },
+      });
+      const number = (checkin.json() as { number: number }).number;
+      await dispatchNotifications(world.ctx);
+
+      // Earlier checks in this file also queued arrivals, so match on the
+      // number this test was given rather than on the first one out.
+      const mail = world.email.sent.find((m) => m.text.includes("[checked_in]") && m.subject.includes(String(number)));
+      expect(mail, "the number reached the person waiting for it").toBeTruthy();
+      expect(mail!.subject).toContain(String(number));
+      expect(mail!.html!).toContain(String(number));
+    });
   });
 });

@@ -145,7 +145,7 @@ describe("callback settlement (GET-verify trust model)", () => {
 
     const [order] = await world.ctx.db.select().from(orders).where(eq(orders.id, orderId));
     expect(order!.status).toBe("paid");
-    expect(order!.pickupCode).toMatch(/^\d{6}$/);
+    expect(order!.pickupCode).toMatch(/^\d{4}$/);
     expect(order!.pickupDeadlineAt).not.toBeNull();
     const [pAfter] = await paymentRow(orderId);
     expect(pAfter!.status).toBe("paid");
@@ -218,7 +218,7 @@ describe("storefront poll fallback", () => {
 
     const [order] = await world.ctx.db.select().from(orders).where(eq(orders.id, orderId));
     expect(order!.status).toBe("paid");
-    expect(order!.pickupCode).toMatch(/^\d{6}$/);
+    expect(order!.pickupCode).toMatch(/^\d{4}$/);
   });
 
   it("poll is owner-only", async () => {
@@ -470,7 +470,7 @@ describe("Inbank BNPL (e-POS sessions)", () => {
     expect(cb.statusCode).toBe(200);
     [order] = await world.ctx.db.select().from(orders).where(eq(orders.id, orderId));
     expect(order!.status).toBe("paid");
-    expect(order!.pickupCode).toMatch(/^\d{6}$/);
+    expect(order!.pickupCode).toMatch(/^\d{4}$/);
     const [pAfter] = await paymentRow(orderId);
     expect(pAfter!.status).toBe("paid");
     expect(pAfter!.providerStatus).toBe("completed");
