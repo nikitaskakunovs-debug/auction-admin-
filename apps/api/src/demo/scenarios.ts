@@ -31,6 +31,8 @@ const [INBOX_USER, INBOX_HOST] = INBOX.split("@");
 const mailFor = (slug: string) => `${INBOX_USER}+demo_${slug}@${INBOX_HOST}`;
 
 const RUN_KEY = `demo_run:${new Date().toISOString().replace(/[:.]/g, "-")}`;
+/** Short, human-readable stamp for anything that has to differ between runs. */
+const RUN_TAG = new Date().toISOString().slice(5, 16).replace(/[-T:]/g, "");
 const created = {
   customerIds: [] as string[],
   itemIds: [] as string[],
@@ -108,6 +110,14 @@ async function buyer(slug: string, name: string): Promise<{ id: string; token: s
   const [row] = await db.select({ id: customers.id }).from(customers).where(eq(customers.email, body.email));
   if (!row) throw new Error(`buyer ${body.email} neither registered nor found`);
   created.customerIds.push(row.id);
+  // An earlier run may have left this demo buyer owing a no-payment fee (that
+  // is scenario 3's whole point), and an outstanding fee correctly blocks
+  // bidding. Clear it through the same route a manager would use, so the
+  // second run starts from the same place as the first.
+  const detail = await admin<{ fees: Array<{ id: string; status: string }> }>("GET", `/api/customers/${row.id}`);
+  for (const fee of detail.fees.filter((f) => f.status === "outstanding")) {
+    await admin("POST", `/api/customers/${row.id}/fees/${fee.id}/waive`, { note: "Demo — atkārtota scenāriju palaišana" }, [200, 409]);
+  }
   return { id: row.id, token, alias, name };
 }
 
@@ -204,7 +214,9 @@ async function backdate(itemId: string, days: number): Promise<void> {
     await db
       .update(pickupTickets)
       .set({ completedAt: when })
-      .where(and(eq(pickupTickets.customerId, order.customerId), eq(pickupTickets.status, "done")));
+      // "completed" is the ticket's terminal status — the earlier "done" here
+      // matched nothing, so a collected lot's handover date never aged.
+      .where(and(eq(pickupTickets.customerId, order.customerId), eq(pickupTickets.status, "completed")));
   }
 }
 
@@ -383,16 +395,86 @@ async function main(): Promise<void> {
     log("8 · Andris — divas preces vienā maksājumā, abas izņemtas");
   }
 
-  // 9 ── waiting at the counter right now, so the queue screen has a queue.
+  // 9 ── the whole pickup queue, one client per stage.
+  //
+  // The point of this block is to make the paid → handed-over journey visible
+  // on one screen. Paying does not put a lot in the pickup queue: the queue is
+  // people, not orders, and a ticket is only raised when someone arrives.
+  // So the block builds one buyer at each step of that journey.
   {
-    const liga = await buyer("liga", "Līga Kalniņa");
-    const l = await lot("Kafijas automāts DeLonghi", { category: "home_garden", startCents: 4_000, costCents: 1_500, binId: bin.id });
-    await call("POST", `/api/public/auctions/${l.auctionId}/bids`, { token: liga.token, body: { maxCents: 6_500 } });
-    await endNow(l.auctionId);
-    const order = await wonOrder(l.itemId);
-    await admin("POST", "/api/desk/pay", { orderIds: [order.id], method: "cash" });
+    /** Buy a lot and pay for it at the counter — the common prefix of all four. */
+    const paidFor = async (
+      slug: string,
+      name: string,
+      lots: Array<{ title: string; category: string; startCents: number; costCents: number }>,
+    ) => {
+      const person = await buyer(slug, name);
+      const orderIds: string[] = [];
+      for (const spec of lots) {
+        const l = await lot(spec.title, { ...spec, binId: bin.id });
+        await call("POST", `/api/public/auctions/${l.auctionId}/bids`, {
+          token: person.token,
+          body: { maxCents: Math.round(spec.startCents * 1.6) },
+        });
+        await endNow(l.auctionId);
+        const order = await wonOrder(l.itemId);
+        orderIds.push(order.id);
+      }
+      await admin("POST", "/api/desk/pay", { orderIds, method: "cash" });
+      return person;
+    };
+
+    // 9a — paid days ago and never came for it. Nothing is in the queue: the
+    // panel shows it under "Gaida ierašanos", waiting for a person.
+    const normunds = await paidFor("normunds", "Normunds Siliņš", [
+      { title: "Ledusskapis Electrolux", category: "appliances", startCents: 9_000, costCents: 4_000 },
+    ]);
+    await db
+      .update(orders)
+      .set({ paidAt: new Date(Date.now() - 11 * DAY) })
+      .where(and(eq(orders.customerId, normunds.id), eq(orders.status, "paid")));
+    log("9a · Normunds — samaksājis pirms 11 dienām, VĒL NAV IERADIES (gaida ierašanos)");
+
+    // 9b — standing at the counter, ticket raised, nobody has claimed it yet.
+    const liga = await paidFor("liga", "Līga Kalniņa", [
+      { title: "Kafijas automāts DeLonghi", category: "home_garden", startCents: 4_000, costCents: 1_500 },
+    ]);
     await admin("POST", "/api/pickup/checkin", { customerId: liga.id });
-    log("9 · Līga — samaksājusi, GAIDA PIE LETES (izsniegšanas rinda)");
+    log("9b · Līga — ieradusies, talons GAIDA (neviens vēl nav pārņēmis)");
+
+    // 9c — a worker has the ticket and is halfway down the pick list; the TV
+    // board shows the progress bar moving.
+    const gatis = await paidFor("gatis", "Gatis Ozoliņš", [
+      { title: "Skrūvgriežu komplekts, 42 gab.", category: "tools", startCents: 1_900, costCents: 800 },
+      { title: "Trokšņa slāpējošas austiņas Sony", category: "electronics", startCents: 6_500, costCents: 3_100 },
+    ]);
+    const gatisTicket = await admin<{ ticketId: string }>("POST", "/api/pickup/checkin", { customerId: gatis.id });
+    // 409 = a previous run already has this ticket in hand; that is the state
+    // this scenario wanted anyway.
+    await admin("POST", `/api/pickup/tickets/${gatisTicket.ticketId}/claim`, undefined, [200, 409]);
+    {
+      const queue = await admin<{ tickets: Array<{ id: string; lines: Array<{ id: string; status: string }> }> }>("GET", "/api/pickup/queue");
+      const line = queue.tickets.find((t) => t.id === gatisTicket.ticketId)?.lines.find((l) => l.status === "pending");
+      if (line) await admin("POST", `/api/pickup/tickets/${gatisTicket.ticketId}/lines/${line.id}`, { status: "picked" });
+    }
+    log("9c · Gatis — talons PĀRŅEMTS, 1 no 2 pozīcijām salikta");
+
+    // 9d — everything picked, waiting at the handover point: this is the row
+    // the TV board shows in large type under "IZSNIEDZ".
+    const zane = await paidFor("zane", "Zane Bērziņa", [
+      { title: "Rokas mikseris Bosch", category: "appliances", startCents: 2_400, costCents: 900 },
+    ]);
+    const zaneTicket = await admin<{ ticketId: string }>("POST", "/api/pickup/checkin", { customerId: zane.id });
+    await admin("POST", `/api/pickup/tickets/${zaneTicket.ticketId}/claim`, undefined, [200, 409]);
+    {
+      const queue = await admin<{ tickets: Array<{ id: string; lines: Array<{ id: string; status: string }> }> }>("GET", "/api/pickup/queue");
+      const lines = queue.tickets.find((t) => t.id === zaneTicket.ticketId)?.lines ?? [];
+      for (const line of lines.filter((l) => l.status === "pending")) {
+        await admin("POST", `/api/pickup/tickets/${zaneTicket.ticketId}/lines/${line.id}`, { status: "picked" });
+      }
+    }
+    await admin("POST", `/api/pickup/tickets/${zaneTicket.ticketId}/delivering`, undefined, [200, 409]);
+    log("9d · Zane — viss salikts, IZSNIEDZ (redzama uz TV tablo)");
   }
 
   // 10 ── an unsold lot, relisted: gives sell-through something to chew on.
@@ -414,13 +496,16 @@ async function main(): Promise<void> {
 
   // A delivery with real costs, a supplier, and a bill that is partly paid.
   {
-    const { supplier } = await admin<{ supplier: { id: string; name: string } }>("POST", "/api/suppliers", {
-      name: "DEMO — Nordic Trade OÜ",
-      regNo: "12345678",
-      email: "sales@nordictrade.example",
-      paymentTermsDays: 30,
-      bankAccount: "EE382200221020145685",
-    });
+    // Re-running is normal: a supplier who already exists is reused, exactly
+    // as the bin and the buyers are.
+    const SUPPLIER_NAME = "DEMO — Nordic Trade OÜ";
+    const made = await admin<{ supplier?: { id: string }; supplierId?: string }>(
+      "POST",
+      "/api/suppliers",
+      { name: SUPPLIER_NAME, regNo: "12345678", email: "sales@nordictrade.example", paymentTermsDays: 30, bankAccount: "EE382200221020145685" },
+      [200, 409],
+    );
+    const supplier = { id: made.supplier?.id ?? made.supplierId!, name: SUPPLIER_NAME };
     created.supplierIds.push(supplier.id);
     const { consignment } = await admin<{ consignment: { id: string; ref: string } }>("POST", "/api/consignments", {
       supplier: supplier.name,
@@ -438,7 +523,9 @@ async function main(): Promise<void> {
     await admin("PATCH", `/api/consignments/${consignment.id}/costs`, { extraCostCents: 3_600 });
     const inv = await admin<{ invoice: { id: string } }>("POST", "/api/supplier-invoices", {
       consignmentId: consignment.id,
-      number: "NT-2026-118",
+      // Run-scoped, so a second run reads as a second bill rather than a
+      // duplicate of the first — supplier numbers are theirs, not ours.
+      number: `NT-2026-118-${RUN_TAG}`,
       invoiceDate: new Date(Date.now() - 20 * DAY).toISOString(),
       amountCents: 47_000,
       note: "Demo rēķins",
@@ -447,7 +534,7 @@ async function main(): Promise<void> {
     // A second bill, overdue, so the payables screen has something red.
     await admin("POST", "/api/supplier-invoices", {
       supplierId: supplier.id,
-      number: "NT-2026-092",
+      number: `NT-2026-092-${RUN_TAG}`,
       invoiceDate: new Date(Date.now() - 60 * DAY).toISOString(),
       dueDate: new Date(Date.now() - 18 * DAY).toISOString(),
       amountCents: 12_600,
@@ -503,7 +590,9 @@ async function main(): Promise<void> {
   log(`run key: ${RUN_KEY}`);
   log("");
   log("Gaida tavu rīcību:");
-  log("  · Lete → izsniegšanas rinda: Līga gaida savu preci");
+  log("  · Izsniegšana → Gaida ierašanos: Normunds (samaksājis, nav atnācis) — spied «Ieradās → talons»");
+  log("  · Izsniegšana → rinda: Līga gaida, Gatis tiek komplektēts, Zanei jāizsniedz");
+  log("  · TV tablo (#/board): Gatis un Zane redzami tieši tagad");
   log("  · Lete → meklē demo_ilze: atgriešana pēc termiņa, jāpieņem lēmums");
   log("  · Pieņemšana → Inventarizācija: neatbilstības, jāapstiprina");
   log("  · Pieņemšana → Novērtējumu pārbaude: bojāts velosipēds");
