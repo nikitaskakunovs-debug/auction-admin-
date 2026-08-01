@@ -1,4 +1,4 @@
-import { items, orders, payments, returnCases, stockMovements } from "@auction/db";
+import { items, orders, payments, pickupTickets, returnCases, stockMovements } from "@auction/db";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { closeAuction } from "../src/engine/close.js";
@@ -89,23 +89,41 @@ describe("returns at the counter (R2)", () => {
 
   it("bends the 14-day window only when someone says why", async () => {
     const lot = await collectedLot("ret_late");
-    // Three weeks on: the door does not disappear, it asks a question.
-    world.setNow(new Date(Date.now() + 21 * 86_400_000));
+    // Age the handover rather than the clock: winding ctx.now() forward three
+    // weeks would expire the test's own access token and prove nothing about
+    // the window. This is also what really happened — they collected it then.
+    const threeWeeksAgo = new Date(Date.now() - 21 * 86_400_000);
+    await world.ctx.db
+      .update(stockMovements)
+      .set({ createdAt: threeWeeksAgo })
+      .where(and(eq(stockMovements.itemId, lot.itemId), eq(stockMovements.type, "handover")));
+    await world.ctx.db.update(orders).set({ paidAt: threeWeeksAgo }).where(eq(orders.id, lot.orderId));
+    await world.ctx.db
+      .update(pickupTickets)
+      .set({ completedAt: threeWeeksAgo })
+      .where(eq(pickupTickets.customerId, lot.bidderId));
+
+    const listed = await app().inject({
+      method: "GET", url: `/api/desk/returnable?customerId=${lot.bidderId}`, headers: auth(opsToken),
+    });
+    const line = json<{ lines: Array<{ orderId: string; daysLeft: number; withinWindow: boolean }> }>(listed)
+      .lines.find((l) => l.orderId === lot.orderId);
+    expect(line!.withinWindow, "collected three weeks ago").toBe(false);
+    expect(line!.daysLeft).toBeLessThan(0);
 
     const bare = await openCase({ orderId: lot.orderId, itemId: lot.itemId, reason: "changed_mind" });
-    expect(bare.statusCode).toBe(422);
+    expect(bare.statusCode, bare.body).toBe(422);
     expect(json<{ error: string }>(bare).error).toBe("override_reason_required");
 
     const withReason = await openCase({
       orderId: lot.orderId, itemId: lot.itemId, reason: "changed_mind",
       overrideReason: "Pastāvīgs klients, pieņemam izņēmuma kārtā",
     });
-    expect(withReason.statusCode).toBe(200);
+    expect(withReason.statusCode, withReason.body).toBe(200);
     const c = json<{ case: { withinWindow: boolean; overrideReason: string; ref: string } }>(withReason).case;
     expect(c.withinWindow).toBe(false);
     expect(c.overrideReason).toContain("Pastāvīgs");
     expect(c.ref).toMatch(/^RET-/);
-    world.setNow(null);
   });
 
   it("refunds, moves the item and closes the case in one decision", async () => {
@@ -239,7 +257,8 @@ describe("returns at the counter (R2)", () => {
       world.setNow(new Date(Date.now() + 60_000));
       const closed = await closeAuction(world.ctx, auctionId);
       world.setNow(null);
-      const [order] = await world.ctx.db.select().from(orders).where(eq(orders.ref, closed.orderRef!));
+      if (!closed.ok || !closed.orderRef) throw new Error("auction did not close won");
+      const [order] = await world.ctx.db.select().from(orders).where(eq(orders.ref, closed.orderRef));
       await app().inject({
         method: "POST", url: "/api/desk/pay", headers: auth(superToken),
         payload: { orderIds: [order!.id], method: "cash" },
