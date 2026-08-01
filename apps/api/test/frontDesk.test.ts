@@ -190,6 +190,22 @@ describe("front desk (W4)", () => {
     expect(String(override!.detail?.reason)).toContain("pasi");
   });
 
+  it("pins a person by id, so picking one of several matches actually opens them", async () => {
+    const { bidderId } = await winFor("desk_by_id", 4_500);
+    // The screen passes the customer's id — when several people match a name,
+    // and again when it re-reads someone after an action.
+    const res = await world.server.app.inject({
+      method: "GET",
+      url: `/api/desk/search?q=${bidderId}`,
+      headers: auth(token),
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { customer?: { id: string; alias: string }; matches: unknown[] };
+    expect(body.customer, "an id resolves to that person, not to nobody").toBeTruthy();
+    expect(body.customer!.id).toBe(bidderId);
+    expect(body.customer!.alias).toBe("desk_by_id");
+  });
+
   it("refuses a handover with neither code nor reason", async () => {
     const res = await world.server.app.inject({
       method: "POST",

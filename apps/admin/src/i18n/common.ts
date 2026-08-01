@@ -30,6 +30,7 @@ export const COMMON = {
   "c.ist.unsold": { lv: "Nepārdota", ru: "Не продан", en: "Unsold" },
   "c.ist.unpaid_cancelled": { lv: "Atcelta (neapmaksāta)", ru: "Отменён (не оплачен)", en: "Unpaid · cancelled" },
   "c.ist.no_pickup_cancelled": { lv: "Atcelta (neizņemta)", ru: "Отменён (не забран)", en: "No pickup · cancelled" },
+  "c.ist.returned": { lv: "Atgriezta", ru: "Возвращён", en: "Returned" },
 
   // ── Order statuses ─────────────────────────────────────────────────────────
   "c.ost.awaiting_payment": { lv: "Gaida apmaksu", ru: "Ждёт оплаты", en: "Awaiting payment" },

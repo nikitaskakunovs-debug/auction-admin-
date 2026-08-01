@@ -31,6 +31,17 @@ export function registerFrontDeskRoutes(app: FastifyInstance, ctx: AppContext, p
     if (q.length < 2) return reply.code(400).send({ error: "query_too_short" });
     const like = `%${q}%`;
 
+    // A customer id resolves to that customer directly. The screen pins a
+    // person this way — picking one out of several matches, and re-reading
+    // them after an action — and without this those paths searched for a uuid
+    // by name and came back "nobody matches".
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (UUID_RE.test(q)) {
+      const [byId] = await ctx.db.select().from(customers).where(eq(customers.id, q.toLowerCase())).limit(1);
+      if (byId) return await payloadFor(byId);
+      return { matches: [] as unknown[] };
+    }
+
     // An order ref, a pickup code or the phone given for a parcel identifies
     // the person just as well as a name — the counter types whatever the
     // client happens to have. (Phone lives on the order, not the account.)
@@ -69,7 +80,11 @@ export function registerFrontDeskRoutes(app: FastifyInstance, ctx: AppContext, p
       };
     }
 
-    const customer = matches[0]!;
+    return await payloadFor(matches[0]!);
+  });
+
+  /** Everything the counter needs about one person, in one payload. */
+  async function payloadFor(customer: typeof customers.$inferSelect) {
     const rows = await ctx.db
       .select({ order: orders, itemTitle: items.title, itemSku: items.sku, itemStatus: items.status, location: items.location })
       .from(orders)
@@ -117,7 +132,7 @@ export function registerFrontDeskRoutes(app: FastifyInstance, ctx: AppContext, p
         rows.filter((r) => r.order.status === "awaiting_payment").reduce((n, r) => n + r.order.totalCents, 0) +
         fees.reduce((n, f) => n + f.amountCents, 0),
     };
-  });
+  }
 
   // ── Take money at the counter ──────────────────────────────────────────────
 

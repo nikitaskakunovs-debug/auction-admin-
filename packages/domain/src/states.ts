@@ -43,6 +43,8 @@ export const ITEM_STATUSES = [
   "unsold",
   "unpaid_cancelled",
   "no_pickup_cancelled",
+  /** R2 — came back from a buyer after handover, awaiting re-grading. */
+  "returned",
 ] as const;
 export type ItemStatus = (typeof ITEM_STATUSES)[number];
 
@@ -66,11 +68,16 @@ const ITEM_TRANSITIONS: Record<ItemStatus, readonly ItemStatus[]> = {
   picking: ["packed", "delivered", "paid"],
   packed: ["shipped"],
   shipped: ["delivered"],
-  delivered: ["closed"],
-  closed: [],
+  // R2: a sold lot can come back. Handover used to be the end of the line,
+  // which left an accepted return with nowhere to put the goods.
+  delivered: ["closed", "returned"],
+  closed: ["returned"],
   unsold: ["listed", "draft"], // relist or pull back
   unpaid_cancelled: ["listed", "draft"], // relist (with strike issued) or pull back
   no_pickup_cancelled: ["listed", "draft"], // manual restock review, then relist
+  // A returned lot is re-graded before it goes anywhere: back to draft for a
+  // fresh look, or closed when it is written off rather than resold.
+  returned: ["draft", "listed", "closed"],
 };
 
 // ── Shared helpers ───────────────────────────────────────────────────────────

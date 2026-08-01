@@ -1121,6 +1121,59 @@ export const supplierPayments = pgTable(
   (t) => [index("supplier_payments_invoice_idx").on(t.invoiceId)],
 );
 
+/**
+ * R2 — a buyer brought something back. Refunds already existed as a money
+ * ledger; this is the case around one: why it came back, who decided what,
+ * where the goods went, and whether it was inside the 14-day window.
+ *
+ * The money still moves through `refunds` — this table never duplicates it.
+ */
+export const returnCases = pgTable(
+  "return_cases",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Human ref (RET-0042) from the counters row lock. */
+    ref: text("ref").notNull(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id),
+    /** Snapshot: the order ref survives even if the order is ever reshaped. */
+    orderRef: text("order_ref").notNull(),
+    itemId: uuid("item_id").references(() => items.id, { onDelete: "set null" }),
+    customerId: uuid("customer_id").references(() => customers.id),
+    customerAlias: text("customer_alias").notNull().default(""),
+    /** not_as_described | damaged | changed_mind | other */
+    reason: text("reason").notNull(),
+    note: text("note").notNull().default(""),
+    photos: jsonb("photos").$type<string[]>().notNull().default([]),
+    /** open | resolved */
+    status: text("status").notNull().default("open"),
+    /** refund_full | refund_partial | rejected — set when resolved. */
+    decision: text("decision"),
+    refundCents: integer("refund_cents").notNull().default(0),
+    /** quarantine | stock | write_off | kept_by_buyer */
+    destination: text("destination"),
+    /** How the money went back: cash, card_terminal, klix, inbank_portal, none. */
+    refundMethod: text("refund_method"),
+    /** False when opened after the 14-day claims window; the reason is then
+     * required and audited — staff may still accommodate a good customer. */
+    withinWindow: boolean("within_window").notNull().default(true),
+    overrideReason: text("override_reason").notNull().default(""),
+    openedById: uuid("opened_by_id").references(() => adminUsers.id),
+    openedByLabel: text("opened_by_label").notNull(),
+    resolvedById: uuid("resolved_by_id").references(() => adminUsers.id),
+    resolvedByLabel: text("resolved_by_label"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("return_cases_ref_idx").on(t.ref),
+    index("return_cases_status_idx").on(t.status, t.createdAt),
+    index("return_cases_customer_idx").on(t.customerId),
+    index("return_cases_order_idx").on(t.orderId),
+  ],
+);
+
 export const auditLog = pgTable(
   "audit_log",
   {
