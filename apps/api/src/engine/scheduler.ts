@@ -156,7 +156,7 @@ export class AuctionScheduler {
         ),
       );
     for (const o of due) {
-      await enqueueNotification(this.ctx.db, {
+      await enqueueNotification(this.ctx, this.ctx.db, {
         customerId: o.customerId,
         type: "payment_reminder",
         template: {
@@ -211,7 +211,7 @@ export class AuctionScheduler {
           note: "auto: payment deadline passed",
           now,
         });
-        await enqueueNotification(tx, {
+        await enqueueNotification(this.ctx, tx, {
           customerId: order.customerId,
           type: "unpaid_cancelled",
           template: { alias: "", lotTitle: "", orderRef: order.ref, feeCents },

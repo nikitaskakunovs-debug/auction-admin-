@@ -99,6 +99,11 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
     password: z.string().min(8),
     name: z.string().max(120).optional(),
     country: z.enum(["LV", "EE", "LT"]).optional(),
+    /** The storefront's active language — the one we write emails in. Latvia
+     * runs a Latvian and a Russian site, and country alone cannot tell them
+     * apart. Estonian and Lithuanian visitors get English until that copy
+     * exists. */
+    lang: z.enum(["lv", "ru", "en", "et", "lt"]).optional(),
   });
 
   app.post("/api/public/auth/register", async (req, reply) => {
@@ -111,6 +116,7 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
         alias: body.data.alias,
         name: body.data.name ?? null,
         country: body.data.country ?? null,
+        lang: body.data.lang === "lv" || body.data.lang === "ru" ? body.data.lang : body.data.lang ? "en" : null,
         marketCode: body.data.country ?? null,
         passwordHash: await hashPassword(body.data.password),
       })

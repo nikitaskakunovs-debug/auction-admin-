@@ -113,7 +113,7 @@ export async function buyNow(
     assertItemTransition("won", "awaiting_payment");
     await tx.update(items).set({ status: "awaiting_payment", updatedAt: now }).where(eq(items.id, item.id));
 
-    await enqueueNotification(tx, {
+    await enqueueNotification(ctx, tx, {
       customerId: buyer.id,
       type: "purchased",
       template: {
@@ -121,6 +121,9 @@ export async function buyNow(
         lotTitle: listing.title,
         orderRef: ref,
         totalCents: inv.totalCents,
+        hammerCents: inv.hammerCents,
+        premiumCents: inv.premiumCents,
+        vatCents: inv.vatCents,
         deadline: paymentDeadlineAt,
         payUrl: buildPayUrl(ctx, ref, paymentDeadlineAt),
       },

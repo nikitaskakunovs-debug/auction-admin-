@@ -116,7 +116,7 @@ export async function closeAuction(
 
       // Winner gets a "you won" email with the order ref + payment deadline
       // (and, when Klix is on, a one-click pay link straight to checkout).
-      await enqueueNotification(tx, {
+      await enqueueNotification(ctx, tx, {
         customerId: winner!.id,
         type: "won",
         template: {
@@ -124,6 +124,9 @@ export async function closeAuction(
           lotTitle: listing!.title,
           orderRef: ref,
           totalCents: inv.totalCents,
+          hammerCents: inv.hammerCents,
+          premiumCents: inv.premiumCents,
+          vatCents: inv.vatCents,
           deadline: paymentDeadlineAt,
           payUrl: buildPayUrl(ctx, ref, paymentDeadlineAt),
         },

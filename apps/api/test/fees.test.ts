@@ -95,7 +95,7 @@ describe("unpaid-winner restock fee (auto-cancel)", () => {
       .from(notifications)
       .where(and(eq(notifications.customerId, buyer.bidder.id), eq(notifications.type, "unpaid_cancelled")));
     expect(mails).toHaveLength(1);
-    expect(mails[0]!.body).toContain("6.66");
+    expect(mails[0]!.body, "the fee, written the way a Latvian reads it").toContain("6,66 €");
 
     // The account sees the debt…
     const myFees = await world.server.app.inject({ method: "GET", url: "/api/public/me/fees", headers: auth(buyer.accessToken) });

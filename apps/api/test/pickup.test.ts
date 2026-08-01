@@ -298,8 +298,8 @@ describe("no-show engine: reminders, 5% restock fee, strike, restock queue", () 
         .from(notifications)
         .where(and(eq(notifications.customerId, buyer.bidder.id), eq(notifications.type, "no_pickup_cancelled")));
       expect(mails).toHaveLength(1);
-      expect(mails[0]!.body).toContain("6.66"); // fee
-      expect(mails[0]!.body).toContain("126.44"); // refund
+      expect(mails[0]!.body, "fee, in Latvian money format").toContain("6,66 €");
+      expect(mails[0]!.body).toContain("126,44 €"); // refund
 
       // Running again changes nothing (order no longer 'paid').
       await cancelNoShowDue(world.ctx);

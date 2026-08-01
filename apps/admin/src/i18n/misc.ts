@@ -20,6 +20,27 @@ export const MISC = {
   "ms.sentAt": { lv: "Nosūtīts", ru: "Отправлено", en: "Sent" },
   "ms.noNotifs": { lv: "Nav atbilstošu paziņojumu.", ru: "Нет подходящих уведомлений.", en: "No notifications match." },
 
+  // ── Email design preview ───────────────────────────────────────────────────
+  "ms.previewTitle": { lv: "Kā izskatās vēstule klientam", ru: "Как выглядит письмо клиенту", en: "What the customer receives" },
+  "ms.previewNote": {
+    lv: "Paraugs ar izdomātiem datiem. Īstajā vēstulē ir klienta vārds, viņa prece un summa.",
+    ru: "Образец с вымышленными данными. В настоящем письме — имя клиента, его товар и сумма.",
+    en: "A sample with made-up data. The real email carries the customer's name, lot and amount.",
+  },
+  "ms.previewFailed": { lv: "Neizdevās ielādēt paraugu.", ru: "Не удалось загрузить образец.", en: "Could not load the sample." },
+  "ms.showText": { lv: "Rādīt teksta versiju", ru: "Показать текстовую версию", en: "Show the text version" },
+  "ms.showHtml": { lv: "Rādīt noformējumu", ru: "Показать оформление", en: "Show the designed version" },
+  "ms.sendSample": { lv: "Nosūtīt sev paraugu", ru: "Отправить образец себе", en: "Send myself a sample" },
+  "ms.sampleSent": { lv: "Paraugs nosūtīts uz", ru: "Образец отправлен на", en: "Sample sent to" },
+  "ms.sampleFailed": { lv: "Neizdevās nosūtīt paraugu.", ru: "Не удалось отправить образец.", en: "Could not send the sample." },
+  "ms.nt.purchased": { lv: "Pirkums", ru: "Покупка", en: "Purchase" },
+  "ms.nt.pickup_ready": { lv: "Gatavs saņemšanai", ru: "Готов к выдаче", en: "Ready for pickup" },
+  "ms.nt.pickup_reminder": { lv: "Saņemšanas atgādinājums", ru: "Напоминание о выдаче", en: "Pickup reminder" },
+  "ms.nt.shipped": { lv: "Sūtījums ceļā", ru: "Посылка в пути", en: "Shipped" },
+  "ms.nt.unpaid_cancelled": { lv: "Atcelts — nav apmaksāts", ru: "Отменён — не оплачен", en: "Cancelled — not paid" },
+  "ms.nt.no_pickup_cancelled": { lv: "Atcelts — nav izņemts", ru: "Отменён — не получен", en: "Cancelled — not collected" },
+  "ms.nt.refunded": { lv: "Atmaksa", ru: "Возврат", en: "Refund" },
+
   // ── Activity: audit log ────────────────────────────────────────────────────
   "ms.actTitle": { lv: "Aktivitāte", ru: "Активность", en: "Activity" },
   "ms.auditLog": { lv: "Audita žurnāls", ru: "Журнал действий", en: "Audit log" },

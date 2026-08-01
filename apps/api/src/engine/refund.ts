@@ -1,7 +1,8 @@
-import { orders, payments, refunds } from "@auction/db";
+import { items, orders, payments, refunds } from "@auction/db";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { writeAudit } from "../audit.js";
 import type { AppContext } from "../context.js";
+import { enqueueNotification } from "./notifications.js";
 import { slackRefund } from "./slackNotify.js";
 
 /**
@@ -113,6 +114,21 @@ export async function refundOrder(ctx: AppContext, orderId: string, input: Refun
       amountCents: input.amountCents,
       reason: input.reason,
       ...providerMeta,
+    });
+    // Tell the customer their money is on the way back. Inside the same
+    // transaction as the ledger row: an email about a refund that did not
+    // happen is worse than no email.
+    const [lot] = await tx.select({ title: items.title }).from(items).where(eq(items.id, order.itemId));
+    await enqueueNotification(ctx, tx, {
+      customerId: order.customerId,
+      type: "refunded",
+      template: {
+        alias: "",
+        lotTitle: lot?.title ?? "",
+        orderRef: order.ref,
+        refundCents: input.amountCents,
+        reason: input.reason,
+      },
     });
     return { order, fullyRefunded };
   });

@@ -9,6 +9,9 @@ export interface EmailMessage {
   to: string;
   subject: string;
   text: string;
+  /** Designed body. Always sent alongside `text`, never instead of it — a
+   * client that refuses HTML still gets every fact. */
+  html?: string;
 }
 
 export interface EmailAdapter {
@@ -18,7 +21,7 @@ export interface EmailAdapter {
 /** Logs each message; used in dev/staging where no provider is wired yet. */
 export class ConsoleEmailAdapter implements EmailAdapter {
   async send(msg: EmailMessage): Promise<void> {
-    console.log(`[email] → ${msg.to} · ${msg.subject}`);
+    console.log(`[email] → ${msg.to} · ${msg.subject}${msg.html ? " · html" : ""}`);
   }
 }
 
@@ -75,7 +78,13 @@ export class SmtpEmailAdapter implements EmailAdapter {
 
   async send(msg: EmailMessage): Promise<void> {
     const t = await this.transport();
-    await t.sendMail({ from: this.cfg.from, to: msg.to, subject: msg.subject, text: msg.text });
+    await t.sendMail({
+      from: this.cfg.from,
+      to: msg.to,
+      subject: msg.subject,
+      text: msg.text,
+      ...(msg.html ? { html: msg.html } : {}),
+    });
   }
 }
 

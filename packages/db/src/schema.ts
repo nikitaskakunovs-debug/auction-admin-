@@ -296,6 +296,11 @@ export const customers = pgTable(
     /** Full name — erasable for GDPR while orders keep their snapshots. */
     name: text("name"),
     country: text("country"),
+    /** Preferred email language (lv | ru | en), captured from the storefront
+     * the customer registered on. Null falls back to the country: Latvia is
+     * written to in Latvian, everyone else in English. Latvia has a large
+     * Russian-speaking population, and country alone cannot tell us. */
+    lang: text("lang"),
     marketCode: text("market_code").references(() => markets.code),
     company: text("company"),
     vatNo: text("vat_no"),
@@ -980,6 +985,9 @@ export const notifications = pgTable(
     lang: text("lang").notNull().default("en"),
     subject: text("subject").notNull(),
     body: text("body").notNull(),
+    /** Designed body, rendered at enqueue. Null for rows written before
+     * HTML emails existed — those still send as plain text. */
+    html: text("html"),
     /** Optional idempotency key — a partial unique index rejects duplicates. */
     dedupeKey: text("dedupe_key"),
     status: text("status").notNull().default("pending"), // pending | sent | failed
