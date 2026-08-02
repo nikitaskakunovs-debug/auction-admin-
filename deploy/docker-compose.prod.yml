@@ -81,6 +81,8 @@ services:
       SOCIAL_INSTAGRAM_URL: ${SOCIAL_INSTAGRAM_URL:-}
       REVIEW_URL: ${REVIEW_URL:-}
       KLIX_MODE: ${KLIX_MODE:-off}
+      # Point at Klix's test portal while trialling; unset uses production.
+      KLIX_API_URL: ${KLIX_API_URL:-}
       KLIX_BRAND_ID: ${KLIX_BRAND_ID:-}
       KLIX_SECRET_KEY: ${KLIX_SECRET_KEY:-}
       KLIX_METHODS: ${KLIX_METHODS:-}

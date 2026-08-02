@@ -242,7 +242,12 @@ export function registerAdminRoutes(app: FastifyInstance, ctx: AppContext, perms
       })
       .safeParse(req.query);
     if (!q.success) return reply.code(400).send({ error: "invalid_query", detail: "type and lang required" });
-    const rendered = renderNotification(ctx, q.data.type, q.data.lang, sampleInput(q.data.type));
+    const rendered = renderNotification(ctx, q.data.type, q.data.lang, sampleInput(q.data.type, {
+      // The sample carries a pay link only where this deployment could
+      // really send one — a preview that shows a checkout button we cannot
+      // produce is a preview of somebody else's site.
+      online: ctx.klix !== null || ctx.inbank !== null,
+    }));
     return { type: q.data.type, lang: q.data.lang, ...rendered };
   });
 
@@ -259,7 +264,9 @@ export function registerAdminRoutes(app: FastifyInstance, ctx: AppContext, perms
       .safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: "invalid_body" });
     const to = req.admin!.email;
-    const rendered = renderNotification(ctx, body.data.type, body.data.lang, sampleInput(body.data.type));
+    const rendered = renderNotification(ctx, body.data.type, body.data.lang, sampleInput(body.data.type, {
+      online: ctx.klix !== null || ctx.inbank !== null,
+    }));
     try {
       await ctx.email.send({
         to,

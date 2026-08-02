@@ -72,6 +72,10 @@ export interface CopyContext {
   pickupPassUrl: string;
   pickupAddress: string;
   pickupHours: string;
+  /** Which online providers are switched on. The methods line under the
+   * button names these and nothing else — an email must not offer a way to
+   * pay that the site cannot take. */
+  online: { klix: boolean; inbank: boolean };
 }
 
 export interface Rendered {
@@ -122,10 +126,10 @@ const W = {
   premium: { lv: "Pircēja komisija", ru: "Комиссия покупателя", en: "Buyer's premium" },
   vat: { lv: "PVN", ru: "НДС", en: "VAT" },
   payBy: { lv: "Samaksāt līdz:", ru: "Оплатить до:", en: "Pay by:" },
-  methods: {
-    lv: "Banka · karte · Klix · Inbank",
-    ru: "Банк · карта · Klix · Inbank",
-    en: "Bank · card · Klix · Inbank",
+  atCounter: {
+    lv: "Apmaksa pie letes — skaidrā naudā vai ar karti",
+    ru: "Оплата на стойке — наличными или картой",
+    en: "Pay at the counter — cash or card",
   },
   follow: { lv: "Seko mums", ru: "Мы в соцсетях", en: "Follow us" },
   review: { lv: "Atstāj atsauksmi", ru: "Оставить отзыв", en: "Leave a review" },
@@ -180,6 +184,39 @@ function orderFacts(i: TemplateInput, lang: Lang, ctx: CopyContext, status: Phra
 
 const labelsFor = (lang: Lang) => ({ follow: w(W.follow, lang), review: w(W.review, lang) });
 
+
+/**
+ * The button on a payment-due email. With an online provider on, it is the
+ * one-click checkout. With none, it must not say "Pay €X" and then land on a
+ * list — it opens the order and the counter takes the money.
+ */
+function payCta(i: TemplateInput, lang: Lang, ctx: CopyContext): { label: string; url: string } {
+  if (i.payUrl) {
+    return {
+      label: { lv: `Apmaksāt ${moneyIn(i.totalCents, lang)}`, ru: `Оплатить ${moneyIn(i.totalCents, lang)}`, en: `Pay ${moneyIn(i.totalCents, lang)}` }[lang],
+      url: i.payUrl,
+    };
+  }
+  return {
+    label: { lv: "Skatīt pasūtījumu", ru: "Открыть заказ", en: "View the order" }[lang],
+    url: ctx.ordersUrl,
+  };
+}
+
+/** What the line under the button may honestly promise. */
+function methodsLine(lang: Lang, ctx: CopyContext): string {
+  const parts: string[] = [];
+  if (ctx.online.klix) {
+    parts.push({ lv: "banka", ru: "банк", en: "bank" }[lang]);
+    parts.push({ lv: "karte", ru: "карта", en: "card" }[lang]);
+    parts.push("Klix");
+  }
+  if (ctx.online.inbank) parts.push("Inbank");
+  if (parts.length === 0) return w(W.atCounter, lang);
+  return parts.join(" · ");
+}
+
+
 /**
  * Klix representative example placeholder — resolved at dispatch, not here,
  * because enqueue runs inside the caller's transaction and must not make
@@ -205,7 +242,6 @@ function payLine(i: TemplateInput, lang: Lang): string {
 export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput, ctx: CopyContext): Rendered {
   const hi = `${w(W.hi, lang)}, ${i.alias}!`;
   const labels = labelsFor(lang);
-  const pay = i.payUrl ?? ctx.ordersUrl;
 
   switch (type) {
     // ── Someone bid over you ────────────────────────────────────────────────
@@ -282,12 +318,9 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
               }[lang],
           amount: { label: w(W.totalDue, lang), value: moneyIn(i.totalCents, lang), lines: breakdown(i, lang) },
           facts: orderFacts(i, lang, ctx, W.stAwaitingPayment, "accent"),
-          cta: {
-            label: { lv: `Apmaksāt ${moneyIn(i.totalCents, lang)}`, ru: `Оплатить ${moneyIn(i.totalCents, lang)}`, en: `Pay ${moneyIn(i.totalCents, lang)}` }[lang],
-            url: pay,
-          },
+          cta: payCta(i, lang, ctx),
           ctaNote: `${w(W.payBy, lang)} ${fmtDate(i.deadline, lang)}`,
-          ctaSubnote: w(W.methods, lang),
+          ctaSubnote: methodsLine(lang, ctx),
           notes: [
             { title: w(W.lateFee, lang), text: w(W.lateFeeText, lang) },
             {
@@ -326,12 +359,9 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
           }[lang],
           amount: { label: w(W.totalDue, lang), value: moneyIn(i.totalCents, lang), lines: breakdown(i, lang) },
           facts: orderFacts(i, lang, ctx, W.stAwaitingPayment, "warn"),
-          cta: {
-            label: { lv: `Apmaksāt ${moneyIn(i.totalCents, lang)}`, ru: `Оплатить ${moneyIn(i.totalCents, lang)}`, en: `Pay ${moneyIn(i.totalCents, lang)}` }[lang],
-            url: pay,
-          },
+          cta: payCta(i, lang, ctx),
           ctaNote: `${w(W.payBy, lang)} ${fmtDateTime(i.deadline, lang)}`,
-          ctaSubnote: w(W.methods, lang),
+          ctaSubnote: methodsLine(lang, ctx),
           notes: [{ title: w(W.lateFee, lang), text: w(W.lateFeeText, lang), tone: "danger" }],
           footNote: i.orderRef,
           labels,
@@ -664,9 +694,12 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
 }
 
 /** Sample data for the panel's preview — plausible, obviously not a real order. */
-export function sampleInput(type: NotificationType): TemplateInput {
+export function sampleInput(type: NotificationType, opts: { online?: boolean } = {}): TemplateInput {
   const inFiveDays = new Date(Date.now() + 5 * 86_400_000);
   const base: TemplateInput = {
+    // A sample checkout link, but only when this deployment has a provider
+    // that could mint a real one.
+    payUrl: opts.online ? "https://izsoli.lv/api/public/pay/A-1042?t=sample" : null,
     alias: "Elīna Priede",
     lotTitle: "Omega Seamaster, 1970. gadi",
     orderRef: "A-1042",
