@@ -51,11 +51,30 @@ describe("designed emails", () => {
   });
 
   it("puts the money and the deadline in both bodies, not just the pretty one", () => {
-    const r = renderNotification(world.ctx, "won", "lv", sampleInput("won"));
+    const r = renderNotification(world.ctx, "won", "lv", sampleInput("won", { online: true }));
     expect(r.text).toContain("251,56"); // total, plain text
     expect(r.html).toContain("251,56"); // total, designed
     expect(r.html).toContain("A-1042"); // order ref
     expect(r.html).toContain("Apmaksāt"); // the button
+  });
+
+  it("only offers ways to pay that the site can actually take", () => {
+    // Providers off — as production has been all along. The button must not
+    // promise a checkout that cannot be produced.
+    const dark = { ...world.ctx, klix: null, inbank: null } as typeof world.ctx;
+    const off = renderNotification(dark, "won", "lv", { ...sampleInput("won"), payUrl: null });
+    expect(off.html, "no Klix named while Klix is off").not.toContain("Klix");
+    expect(off.html).toContain("Apmaksa pie letes");
+    expect(off.html, "the button says what it actually does").toContain("Skatīt pasūtījumu");
+    expect(off.html).not.toContain("Apmaksāt 251,56");
+
+    // With a provider on and a live link, the button is the checkout itself.
+    const on = renderNotification(world.ctx, "won", "lv", {
+      ...sampleInput("won", { online: true }),
+    });
+    expect(on.html).toContain("Apmaksāt 251,56");
+    expect(on.html).toContain("Klix");
+    expect(on.html).toContain("/api/public/pay/A-1042");
   });
 
   it("carries the collection code in the pickup emails", () => {

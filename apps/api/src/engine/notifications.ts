@@ -44,6 +44,9 @@ export function copyContext(ctx: AppContext): CopyContext {
     pickupPassUrl: `${site}/me/pickup`,
     pickupAddress: b.pickupAddress,
     pickupHours: b.pickupHours,
+    // Read from the live context, not from config alone: a provider that
+    // failed to construct is off no matter what the env says.
+    online: { klix: ctx.klix !== null, inbank: ctx.inbank !== null },
   };
 }
 
