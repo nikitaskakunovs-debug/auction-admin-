@@ -157,3 +157,26 @@ describe("dispatch reliability", () => {
     expect(rows.length).toBe(0);
   });
 });
+
+/**
+ * The smoke check reads a heartbeat to tell a stopped clock from a quiet day.
+ * If the tick ever stops writing it, the check would report "healthy" while
+ * auctions silently failed to close — so the beat is pinned here.
+ */
+describe("scheduler heartbeat", () => {
+  it("stamps a fresh beat on every completed tick", async () => {
+    await world.ctx.redis.del("scheduler:beat");
+    await world.ctx.redis.del("scheduler:lock");
+    expect(await world.ctx.redis.get("scheduler:beat")).toBeNull();
+
+    await scheduler.tick();
+
+    const beat = await world.ctx.redis.get("scheduler:beat");
+    expect(beat, "a tick that ran must leave a beat").toBeTruthy();
+    const ageMs = Date.now() - new Date(beat!).getTime();
+    expect(ageMs).toBeLessThan(60_000);
+    // It expires on its own, so a dead scheduler stops looking alive.
+    const ttl = await world.ctx.redis.pttl("scheduler:beat");
+    expect(ttl).toBeGreaterThan(0);
+  });
+});

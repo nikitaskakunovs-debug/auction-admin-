@@ -16,6 +16,9 @@ export interface EmailMessage {
 
 export interface EmailAdapter {
   send(msg: EmailMessage): Promise<void>;
+  /** Prove the transport works without sending a message. Absent on adapters
+   * that have nothing to connect to. */
+  verify?(): Promise<void>;
 }
 
 /** Logs each message; used in dev/staging where no provider is wired yet. */
@@ -74,6 +77,11 @@ export class SmtpEmailAdapter implements EmailAdapter {
       });
     }
     return this.transporter;
+  }
+
+  async verify(): Promise<void> {
+    const t = await this.transport();
+    await t.verify();
   }
 
   async send(msg: EmailMessage): Promise<void> {

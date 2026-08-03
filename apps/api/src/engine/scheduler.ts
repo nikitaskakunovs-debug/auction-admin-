@@ -57,6 +57,10 @@ export class AuctionScheduler {
             console.error(`scheduler phase ${name} failed`, err);
           }
         };
+        // A heartbeat the smoke check can read: "the clock is alive, and it
+        // last completed a pass N seconds ago". Cheap, and the only way to
+        // tell a stopped scheduler from a quiet day.
+        await this.ctx.redis.set("scheduler:beat", this.ctx.now().toISOString(), "PX", 120_000);
         await phase("openDue", () => this.openDue());
         await phase("closeDue", () => this.closeDue());
         // Design-doc unpaid-winner flow: deadline → reminder → auto-cancel.
