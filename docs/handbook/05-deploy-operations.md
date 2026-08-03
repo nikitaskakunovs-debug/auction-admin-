@@ -50,8 +50,30 @@ first-admin 2FA enrollment, then delete `INITIAL_ADMIN_PASSWORD`).
 ```bash
 cd /opt/auction && git pull \
   && cd deploy && docker compose -f docker-compose.prod.yml up -d --build \
-  && docker compose -f docker-compose.prod.yml exec api node packages/db/dist/migrate.js
+  && docker compose -f docker-compose.prod.yml exec api node packages/db/dist/migrate.js \
+  && docker compose -f docker-compose.prod.yml exec api node apps/api/dist/smoke.js
 ```
+
+## Smoke check
+
+`apps/api/src/smoke.ts` → `apps/api/dist/smoke.js`. Read-only: it connects,
+fetches and counts, and writes nothing, so it is safe against production at
+any hour. Exits non-zero on the first required failure, which is why it sits
+at the end of the update chain above with `&&`.
+
+What it asserts, in order: the database answers; **every migration in this
+build has been applied** (a deploy that skipped the migrate step is otherwise
+invisible until something 500s); Redis answers; the scheduler's heartbeat
+(`scheduler:beat`, written each tick) is under a minute old; the API is
+healthy from inside the container *and* through Caddy over TLS; the public
+board returns a payload; the admin SPA serves HTML that actually references
+its JS bundle (an empty `index.html` looks "up" and is useless); the
+storefront responds; SMTP accepts a connection (`verify()`, nothing sent);
+and the notification outbox has nothing failed or pending beyond 15 minutes.
+
+It then prints, without judgement, which integrations are on (Klix, Inbank,
+Omniva, Slack) and whether the company details that appear in every customer
+email are filled in.
 
 ## Backups
 
