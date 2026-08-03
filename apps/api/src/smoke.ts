@@ -78,6 +78,33 @@ async function get(url: string, timeoutMs = 8_000): Promise<Response> {
   }
 }
 
+
+/**
+ * Fetch a URL that sits behind Caddy, giving the upstream a moment to finish
+ * booting. Only the "not ready yet" statuses are retried: a 404 or a 403 is
+ * an answer, and waiting thirty seconds to repeat it helps nobody.
+ */
+const NOT_READY = new Set([502, 503, 504]);
+
+async function settle(url: string, waitMs = 45_000): Promise<Response> {
+  const deadline = Date.now() + waitMs;
+  let last = "";
+  for (;;) {
+    try {
+      const res = await get(url, 5_000);
+      if (res.ok) return res;
+      last = `${url} atbild ar ${res.status}`;
+      if (!NOT_READY.has(res.status)) throw new Error(last);
+    } catch (err) {
+      last = err instanceof Error ? err.message : String(err);
+      // A refused connection during a deploy is "not up yet", not "broken".
+      if (!/atteikts|neatbild|502|503|504/.test(last)) throw err;
+    }
+    if (Date.now() >= deadline) throw new Error(`${last} (gaidīts ${waitMs / 1000} s)`);
+    await new Promise((r) => setTimeout(r, 2_000));
+  }
+}
+
 async function main(): Promise<void> {
   const started = Date.now();
   console.log("── izsoli.lv · pēc-deploy pārbaude ─────────────────────────");
@@ -107,9 +134,44 @@ async function main(): Promise<void> {
     return "atbild";
   });
 
+  // ── The API itself, from inside and from the outside ──────────────────────
+  //
+  // `docker compose up -d` returns when the container has *started*, not when
+  // the process inside is listening — so a check run straight after a deploy
+  // meets an API that is still opening its database pool. Waiting is the
+  // difference between a useful alarm and a false one; a minute is long
+  // enough for a boot and short enough that a real outage still fails.
+  await check("API (konteinerā)", "required", async () => {
+    const deadline = Date.now() + 60_000;
+    let last = "";
+    for (let attempt = 1; ; attempt++) {
+      try {
+        const res = await get(`http://127.0.0.1:${cfg.port}/api/health`, 5_000);
+        if (res.ok) {
+          const body = (await res.json()) as { ok?: boolean };
+          if (body.ok) return attempt === 1 ? "vesels" : `vesels (pēc ${attempt} mēģinājumiem)`;
+          last = "health atbild, bet ne ar ok:true";
+        } else {
+          last = `atbild ar ${res.status}`;
+        }
+      } catch (err) {
+        last = err instanceof Error ? err.message : String(err);
+      }
+      if (Date.now() >= deadline) throw new Error(`${last} (gaidīts 60 s)`);
+      if (attempt === 1) console.log("  … gaida, līdz API pieceļas");
+      await new Promise((r) => setTimeout(r, 2_000));
+    }
+  });
+
   await check("Plānotājs (izsoļu pulkstenis)", cfg.schedulerEnabled ? "required" : "advisory", async () => {
     if (!cfg.schedulerEnabled) return "izslēgts konfigurācijā (SCHEDULER_ENABLED)";
-    const beat = await redis.get("scheduler:beat");
+    let beat = await redis.get("scheduler:beat");
+    // The first beat lands one tick after boot; on a fresh deploy the API can
+    // be answering a moment before the clock has swung once.
+    for (let i = 0; !beat && i < 5; i++) {
+      await new Promise((r) => setTimeout(r, 2_000));
+      beat = await redis.get("scheduler:beat");
+    }
     if (!beat) {
       throw new Error("nav pulsa pēdējo 2 minūšu laikā — izsoles var nenoslēgties un e-pasti neaiziet");
     }
@@ -118,18 +180,10 @@ async function main(): Promise<void> {
     return `dzīvs, pēdējais aplis pirms ${ageSec} s`;
   });
 
-  // ── The API itself, from inside and from the outside ──────────────────────
-  await check("API (konteinerā)", "required", async () => {
-    const res = await get(`http://127.0.0.1:${cfg.port}/api/health`);
-    if (!res.ok) throw new Error(`atbild ar ${res.status}`);
-    const body = (await res.json()) as { ok?: boolean };
-    if (!body.ok) throw new Error("health atbild, bet ne ar ok:true");
-    return "vesels";
-  });
-
   await check("API (publiski, caur Caddy/TLS)", "required", async () => {
-    const res = await get(`${cfg.publicBaseUrl}/api/health`);
-    if (!res.ok) throw new Error(`${cfg.publicBaseUrl} atbild ar ${res.status}`);
+    // 502 here means Caddy is up but its upstream is not answering yet —
+    // the same post-deploy race, one layer out.
+    await settle(`${cfg.publicBaseUrl}/api/health`);
     return `${cfg.publicBaseUrl} — sertifikāts un starpniekserveris kārtībā`;
   });
 
@@ -152,8 +206,7 @@ async function main(): Promise<void> {
   });
 
   await check("Veikals (storefront)", "required", async () => {
-    const res = await get(cfg.storefrontBaseUrl);
-    if (!res.ok) throw new Error(`${cfg.storefrontBaseUrl} atbild ar ${res.status}`);
+    await settle(cfg.storefrontBaseUrl);
     return `${cfg.storefrontBaseUrl} ielādējas`;
   });
 
