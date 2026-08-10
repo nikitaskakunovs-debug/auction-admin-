@@ -11,9 +11,9 @@
   "devDependencies": {
     "@auction/db": "workspace:*",
     "@auction/domain": "workspace:*",
-    "@playwright/test": "^1.49.1",
+    "@playwright/test": "^1.62.1",
     "@types/node": "^22.10.7",
-    "tsx": "^4.19.2",
+    "tsx": "^4.23.9",
     "typescript": "^5.7.3"
   }
 }
