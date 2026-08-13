@@ -17,6 +17,11 @@ export function Results({ auctions }: { auctions: PublicAuction[] }) {
 
   const cats = Array.from(new Set(auctions.map((a) => a.category)));
   const sold = (a: PublicAuction) => a.status === "ended_won";
+  // Движок различает три причины закрытия — показываем их, а не одно слово.
+  const unsoldLabel = (st: string) =>
+    st === "ended_reserve_not_met" ? "Rezerve nav sasniegta"
+      : st === "ended_no_bids" ? "Bez solījumiem"
+        : st === "cancelled" ? "Atcelts" : "Nepārdots";
 
   const rows = auctions.filter((a) => {
     if (cat !== "all" && a.category !== cat) return false;
@@ -97,7 +102,7 @@ export function Results({ auctions }: { auctions: PublicAuction[] }) {
                 <td>
                   {sold(a)
                     ? <b className="tnum">{formatEur(a.currentPriceCents ?? 0)}</b>
-                    : <span className="tag">Nepārdots</span>}
+                    : <span className="tag">{unsoldLabel(a.status)}</span>}
                 </td>
                 <td className="tnum" suppressHydrationWarning>
                   {new Date(a.endsAt).toLocaleDateString("lv-LV")}
