@@ -26,6 +26,8 @@ const CAT_ICON: Record<string, string> = {
   food_household: "box", other: "art",
 };
 
+const HOLD_MS = 6000;
+
 export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
   const { t } = useT();
   const now = useNow();
@@ -35,9 +37,25 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
   const [notice, setNotice] = useState<{ text: string; tone: "win" | "out" } | null>(null);
   const [reminded, setReminded] = useState<string[]>([]);
   const [viewers, setViewers] = useState(0);
+  // Список лотов зала обновляем сами: когда лот уходит с молотка,
+  // в зал могут добавиться новые.
+  const [live, setLive] = useState<PublicAuction[]>(auctions);
 
-  const queue = auctions
-    .filter((a) => a.status === "live")
+  useEffect(() => { setLive(auctions); }, [auctions]);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      void publicApi.get<{ auctions: PublicAuction[] }>("/api/public/auctions?limit=24")
+        .then((r) => setLive(r.auctions))
+        .catch(() => { /* сеть моргнула — покажем прежний зал */ });
+    }, 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Закрытый лот держим на сцене ещё шесть секунд — чтобы «Pārdots»
+  // успели увидеть, — и только потом зал переходит к следующему.
+  const queue = live
+    .filter((a) => a.status === "live" && new Date(a.endsAt).getTime() > now - HOLD_MS)
     .sort((a, b) => new Date(a.endsAt).getTime() - new Date(b.endsAt).getTime());
   const stage = queue[0] ?? null;
   const next = queue.slice(1, 6);
@@ -206,17 +224,21 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
             {notice && <p className={`bb-status ${notice.tone}`}>{notice.text}</p>}
 
             <div className="stage-acts">
-              {signedIn ? (
+              {left <= 0 ? (
+                <p className="bb-ended">Āmurs nokritis — pārejam pie nākamā lota…</p>
+              ) : signedIn ? (
                 <button className="btn btn-primary btn-lg" type="button" disabled={busy} onClick={() => void bid()}>
                   Solīt · <span className="tnum">{formatEur(ask)}</span>
                 </button>
               ) : (
                 <Link className="btn btn-primary btn-lg" href="/login">{t("a.signinToBid")}</Link>
               )}
-              <button className="btn btn-outline btn-lg" type="button"
-                      onClick={() => say("Lots izlaists — pāriesim pie nākamā")}>
-                Izlaist lotu
-              </button>
+              {left > 0 && (
+                <button className="btn btn-outline btn-lg" type="button"
+                        onClick={() => say("Lots izlaists — pāriesim pie nākamā")}>
+                  Izlaist lotu
+                </button>
+              )}
             </div>
 
             <p className="fine">
