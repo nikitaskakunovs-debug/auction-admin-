@@ -109,6 +109,9 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
     return () => { closed = true; ws?.close(); };
   }, [stage?.id]);
 
+  // Хук должен вызываться до раннего возврата, иначе порядок хуков плывёт.
+  useStickyBar(!!stage && new Date(stage.endsAt).getTime() - now > 0);
+
   if (!stage) {
     return (
       <section className="wrap" style={{ paddingTop: 24 }}>
@@ -158,8 +161,6 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
     } finally { setBusy(false); }
   };
 
-
-  useStickyBar(left > 0);
   return (
     <section className="wrap" style={{ paddingTop: 24 }}>
       <nav className="crumbs" aria-label="Navigācijas ceļš">

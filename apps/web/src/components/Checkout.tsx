@@ -107,6 +107,12 @@ export function Checkout({ orderRef }: { orderRef: string }) {
     return () => io.disconnect();
   }, [order, submitted]);
 
+  const paid = order
+    ? order.status === "paid" || order.status === "collected" || order.status === "shipped"
+    : false;
+  // Хук должен вызываться до любых ранних возвратов, иначе порядок хуков плывёт.
+  useStickyBar(!!order && !paid && !submitted && !payVisible);
+
   if (signedIn === false) {
     return (
       <section className="wrap" style={{ paddingTop: 24 }}>
@@ -132,15 +138,12 @@ export function Checkout({ orderRef }: { orderRef: string }) {
     );
   }
 
-  const paid = order.status === "paid" || order.status === "collected" || order.status === "shipped";
   // Итог пересчитываем сразу при выборе способа: цену берём из тарифов,
   // а не ждём сохранения на сервере — как в макете.
   const chosen = options.find((o) => o.method === method);
   const shipCost = chosen ? chosen.priceCents + chosen.handlingCents : order.shippingCents + order.handlingCents;
   const total = order.hammerCents + order.premiumCents + order.vatCents + shipCost;
 
-
-  useStickyBar(!paid && !submitted && !payVisible);
   return (
     <section className="wrap" style={{ paddingTop: 24 }}>
       <nav className="crumbs" aria-label="Navigācijas ceļš">

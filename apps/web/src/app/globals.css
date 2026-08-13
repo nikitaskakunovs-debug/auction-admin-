@@ -42,6 +42,8 @@ svg{display:block}
 input{font:inherit}
 ::selection{background:var(--accent);color:var(--on-accent)}
 :focus-visible{outline:3px solid var(--text);outline-offset:2px;border-radius:8px}
+/* У поля в пилюле фокус показывает сама пилюля — двойная рамка не нужна. */
+.search input:focus-visible{outline:none}
 .wrap{max-width:var(--maxw);margin-inline:auto;padding-inline:var(--gutter)}
 h1,h2,h3,h4{margin:0;font-weight:700;letter-spacing:-.03em;line-height:1.1}
 h1{font-size:clamp(36px,5vw,68px);letter-spacing:-.042em;font-weight:800}
@@ -1132,8 +1134,16 @@ body{padding-top:var(--chrome-h,232px)}
 .opt span{flex:1;min-width:0}
 .opt b{display:block;font-size:15px}
 .opt small{color:var(--text-2);font-weight:600;font-size:13px}
-.opt-p{flex:none;font-weight:800;font-size:15px}
+.opt span.opt-p{flex:none;font-weight:800;font-size:15px}
 .opt svg{flex:none;stroke:var(--text-3);fill:none;stroke-width:1.8}
+/* На телефоне цена уезжает на свою строку, иначе название и адрес
+   зажимаются в узкую колонку и ломаются по слогам. */
+@media(max-width:560px){
+  .opt{flex-wrap:wrap;row-gap:4px}
+  .opt span:not(.opt-p){flex:1 1 0;min-width:0}
+  .opt span.opt-p{flex:0 0 100%;margin-left:36px;font-size:14px;color:var(--text-2)}
+  .opt:has(input:checked) span.opt-p{color:var(--text)}
+}
 .fields{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 @media(max-width:640px){.fields{grid-template-columns:1fr}}
 .fields label{display:grid;gap:6px;font-size:13px;font-weight:700;color:var(--text-3)}

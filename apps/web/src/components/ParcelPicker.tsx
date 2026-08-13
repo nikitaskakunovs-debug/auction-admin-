@@ -38,7 +38,11 @@ export function ParcelPicker({
     if (!open) return;
     restore.current = document.activeElement as HTMLElement;
     document.body.classList.add("no-scroll");
-    card.current?.querySelector<HTMLElement>("input")?.focus();
+    // На телефоне не открываем клавиатуру сразу — она закрыла бы список
+    // пакоматов. Там сначала показываем города, поиск по тапу.
+    if (matchMedia("(pointer:fine)").matches) {
+      card.current?.querySelector<HTMLElement>("input")?.focus();
+    }
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
     document.addEventListener("keydown", onKey);
     return () => {
