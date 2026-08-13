@@ -62,6 +62,7 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
   const [sort, setSort] = useState("ending");
   const [q] = useState(qs.get("q") ?? "");
   const [open, setOpen] = useState<string | null>(null);
+  const [sheet, setSheet] = useState(false);
   const bar = useRef<HTMLDivElement>(null);
   const colls = useRail<HTMLDivElement>();
   const [now, setNow] = useState(() => Date.now());
@@ -73,6 +74,17 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
     const id = setInterval(() => setNow(Date.now()), 5000);
     return () => clearInterval(id);
   }, [timeMatters]);
+
+  useEffect(() => {
+    if (!sheet) return;
+    document.body.classList.add("no-scroll");
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setSheet(false); };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.body.classList.remove("no-scroll");
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [sheet]);
 
   useEffect(() => {
     if (!open) return;
@@ -188,8 +200,8 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
       </div>
 
       <div className="fbar" role="group" aria-label="Filtri" ref={bar}>
-        <button className="fchip fchip-dark" type="button" onClick={clearAll}
-                title="Atiestatīt visus filtrus">
+        <button className="fchip fchip-dark" type="button" aria-haspopup="dialog" aria-expanded={sheet}
+                onClick={() => setSheet(true)}>
           <Icon name="sliders" size={16} />Visi filtri
           {active.length > 0 && <span className="n">{active.length}</span>}
         </button>
@@ -306,6 +318,123 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
             </button>
           ))}
           <button className="clear-all" type="button" onClick={clearAll}>Notīrīt visu</button>
+        </div>
+      )}
+
+      {sheet && (
+        <div className="modal sheet" role="dialog" aria-modal="true" aria-labelledby="fsheet-t">
+          <div className="modal-bd" onClick={() => setSheet(false)} />
+          <div className="modal-card sheet-card">
+            <div className="modal-head">
+              <div>
+                <span className="kicker">{rows.length} loti</span>
+                <h3 id="fsheet-t">Visi filtri</h3>
+              </div>
+              <button className="modal-x" type="button" aria-label="Aizvērt"
+                      onClick={() => setSheet(false)}><Icon name="x" /></button>
+            </div>
+
+            <div className="sheet-body">
+              <section>
+                <h4>Kolekcija</h4>
+                <div className="sheet-chips">
+                  {COLLS.map(([id, label]) => (
+                    <button key={id} className={`chip${coll === id ? " chip-dark" : ""}`} type="button"
+                            aria-pressed={coll === id} onClick={() => setColl(id)}>{label}</button>
+                  ))}
+                </div>
+              </section>
+
+              <section>
+                <h4>Kategorija</h4>
+                <div className="sheet-chips">
+                  <button className={`chip${cat === "all" ? " chip-dark" : ""}`} type="button"
+                          aria-pressed={cat === "all"} onClick={() => setCat("all")}>Visas</button>
+                  {CATEGORY_CODES.map((c) => (
+                    <button key={c} className={`chip${cat === c ? " chip-dark" : ""}`} type="button"
+                            aria-pressed={cat === c} onClick={() => setCat(c)}>
+                      {t(`cat.${c}`)} <span className="c">{auctions.filter((a) => a.category === c).length}</span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              <section>
+                <h4>Beidzas</h4>
+                <div className="sheet-chips">
+                  {WHENS.map(([id, label]) => (
+                    <button key={id} className={`chip${when === id ? " chip-dark" : ""}`} type="button"
+                            aria-pressed={when === id} onClick={() => setWhen(id)}>{label}</button>
+                  ))}
+                </div>
+              </section>
+
+              <section>
+                <h4>Stāvoklis</h4>
+                <div className="sheet-chips">
+                  {CONDITION_CODES.map((g) => (
+                    <button key={g} className={`chip${grades.includes(g) ? " chip-dark" : ""}`} type="button"
+                            aria-pressed={grades.includes(g)}
+                            onClick={() => setGrades((x) => x.includes(g) ? x.filter((y) => y !== g) : [...x, g])}>
+                      {t(`cond.${g}`)}
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              <section>
+                <h4>Cena</h4>
+                <div className="rng" style={{ padding: 0 }}>
+                  <p className="row">
+                    <span>{formatEur(min)}</span>
+                    <span>{max === PRICE_MAX ? "Jebkura" : formatEur(max)}</span>
+                  </p>
+                  <label className="sr" htmlFor="s-pmin">Cena no</label>
+                  <input id="s-pmin" type="range" min={0} max={PRICE_MAX} step={PRICE_STEP} value={min}
+                         onChange={(e) => {
+                           const v = +e.target.value; setMin(v);
+                           if (v > max - PRICE_GAP) setMax(Math.min(PRICE_MAX, v + PRICE_GAP));
+                         }} />
+                  <label className="sr" htmlFor="s-pmax">Cena līdz</label>
+                  <input id="s-pmax" type="range" min={PRICE_STEP} max={PRICE_MAX} step={PRICE_STEP} value={max}
+                         onChange={(e) => {
+                           const v = +e.target.value; setMax(v);
+                           if (v < min + PRICE_GAP) setMin(Math.max(0, v - PRICE_GAP));
+                         }} />
+                </div>
+              </section>
+
+              <section>
+                <h4>Rādīt tikai</h4>
+                <div className="sheet-chips">
+                  {QUICK.map(([id, label]) => (
+                    <button key={id} className={`chip${quick.includes(id) ? " chip-dark" : ""}`} type="button"
+                            aria-pressed={quick.includes(id)}
+                            onClick={() => setQuick((x) => x.includes(id) ? x.filter((y) => y !== id) : [...x, id])}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              <section>
+                <h4>Kārtot</h4>
+                <div className="sheet-chips">
+                  {SORTS.map(([id, label]) => (
+                    <button key={id} className={`chip${sort === id ? " chip-dark" : ""}`} type="button"
+                            aria-pressed={sort === id} onClick={() => setSort(id)}>{label}</button>
+                  ))}
+                </div>
+              </section>
+            </div>
+
+            <div className="sheet-foot">
+              <button className="btn btn-outline" type="button" onClick={clearAll}>Atiestatīt</button>
+              <button className="btn btn-primary" type="button" onClick={() => setSheet(false)}>
+                Rādīt {rows.length} lotus
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

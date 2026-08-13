@@ -65,6 +65,7 @@ export function LotPage({
   const shots = a.photos.length ? a.photos : new Array<string | null>(FALLBACK_FRAMES).fill(null);
   const [frame, setFrame] = useState(0);
   const [zoom, setZoom] = useState(false);
+  const [box, setBox] = useState(false);
   const [lens, setLens] = useState<{ x: number; y: number; bx: number; by: number } | null>(null);
   const gal = useRef<HTMLDivElement>(null);
   const goto = (i: number) => setFrame(((i % shots.length) + shots.length) % shots.length);
@@ -78,6 +79,13 @@ export function LotPage({
   const [alerted, setAlerted] = useState(false);
 
   useEffect(() => { setAmount((v) => (v < minNext ? minNext : v)); }, [minNext]);
+
+  // Полноэкранная галерея и модалки блокируют прокрутку страницы под ними.
+  useEffect(() => {
+    if (!box && !confirm && !proxyInfo) return;
+    document.body.classList.add("no-scroll");
+    return () => document.body.classList.remove("no-scroll");
+  }, [box, confirm, proxyInfo]);
 
   useEffect(() => {
     setWatched(watchStore.has(a.id));
@@ -191,7 +199,8 @@ export function LotPage({
             }}
           >
             {shots.map((p, i) => (
-              <span key={i} className={`lframe frame-${i + 1}${i === frame ? " on" : ""}`}>
+              <span key={i} className={`lframe frame-${i + 1}${i === frame ? " on" : ""}`}
+                    onClick={() => { if (!zoom) setBox(true); }}>
                 {p ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={photoWeb(p)} alt={i === 0 ? a.title : ""} loading={i === 0 ? "eager" : "lazy"} />
@@ -203,6 +212,10 @@ export function LotPage({
             <button className="lnav n" type="button" aria-label="Nākamais foto"
                     onClick={() => goto(frame + 1)}><Icon name="arrow" /></button>
             <span className="lcount">{frame + 1} / {shots.length}</span>
+            <button className="lfull" type="button" aria-haspopup="dialog"
+                    aria-label="Atvērt visā ekrānā" onClick={() => setBox(true)}>
+              <Icon name="plus" size={16} />Visā ekrānā
+            </button>
             <button className="lzoom" type="button" aria-pressed={zoom}
                     onClick={() => { setZoom((v) => !v); setLens(null); }}>
               <Icon name="search" size={16} />{zoom ? "Tuvinājums ieslēgts" : "Tuvinājums"}
@@ -545,6 +558,48 @@ export function LotPage({
             {related.slice(0, 4).map((r) => <LotCard key={r.id} lot={r as CardLot} />)}
           </div>
         </section>
+      )}
+
+      {/* ═══ ГАЛЕРЕЯ ВО ВЕСЬ ЭКРАН ═══ */}
+      {box && (
+        <div className="lightbox" role="dialog" aria-modal="true" aria-label={`Foto: ${a.title}`}
+             onKeyDown={(e) => {
+               if (e.key === "ArrowLeft") goto(frame - 1);
+               if (e.key === "ArrowRight") goto(frame + 1);
+               if (e.key === "Escape") setBox(false);
+             }}
+             tabIndex={-1}
+             ref={(n) => n?.focus()}>
+          <div className="lb-bd" onClick={() => setBox(false)} />
+          <button className="lb-x" type="button" aria-label="Aizvērt" onClick={() => setBox(false)}>
+            <Icon name="x" />
+          </button>
+          <div className="lb-stage">
+            {shots[frame] ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={photoWeb(shots[frame]!)} alt={a.title} />
+            ) : <Icon name="art" className="pic" />}
+          </div>
+          <button className="lb-nav p" type="button" aria-label="Iepriekšējais foto"
+                  onClick={() => goto(frame - 1)}><Icon name="arrow" /></button>
+          <button className="lb-nav n" type="button" aria-label="Nākamais foto"
+                  onClick={() => goto(frame + 1)}><Icon name="arrow" /></button>
+          <div className="lb-bar">
+            <span className="lb-count tnum">{frame + 1} / {shots.length}</span>
+            <div className="lb-thumbs">
+              {shots.map((p, i) => (
+                <button key={i} className={`lb-thumb${i === frame ? " on" : ""}`} type="button"
+                        aria-label={`Foto ${i + 1}`} aria-current={i === frame ? "true" : undefined}
+                        onClick={() => goto(i)}>
+                  {p ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={photoThumb(p)} alt="" loading="lazy" />
+                  ) : <Icon name="art" />}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ═══ МОДАЛКА: ПОДТВЕРЖДЕНИЕ СТАВКИ ═══ */}

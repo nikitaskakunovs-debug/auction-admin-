@@ -5,6 +5,7 @@ import { useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { AuthCard } from "@/components/authUi";
+import { SocialAuth } from "@/components/SocialAuth";
 import Link from "next/link";
 
 export default function RegisterPage() {
@@ -46,6 +47,7 @@ export default function RegisterPage() {
         {error && <div className="auth-err">{error}</div>}
         <button className="btn btn-primary btn-lg btn-block" type="submit" disabled={busy || !email || !alias || password.length < 8}>{t("auth.register")}</button>
       </form>
+      <SocialAuth />
       <p className="auth-alt">
         {t("auth.haveAccount")} <Link href="/login">{t("auth.signin")}</Link>
       </p>

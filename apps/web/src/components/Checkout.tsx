@@ -4,9 +4,10 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
 import { useT } from "@/lib/i18n";
-import { formatEur, type MyOrder, type ParcelLocation, type ShippingOption } from "@/lib/types";
+import { formatEur, type MyOrder, type ShippingOption } from "@/lib/types";
 import { Icon } from "./Icon";
 import { KlixPayLater } from "./KlixPayLater";
+import { ParcelPicker } from "./ParcelPicker";
 import { say } from "./Toast";
 
 /** Страница оплаты утверждённого макета: доставка, способ оплаты, получатель
@@ -22,9 +23,9 @@ export function Checkout({ orderRef }: { orderRef: string }) {
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const [order, setOrder] = useState<MyOrder | null>(null);
   const [options, setOptions] = useState<ShippingOption[]>([]);
-  const [locations, setLocations] = useState<ParcelLocation[]>([]);
   const [method, setMethod] = useState("pickup");
   const [machineId, setMachineId] = useState("");
+  const [machineName, setMachineName] = useState("");
   const [pay, setPay] = useState("klix");
   const [phone, setPhone] = useState("");
   const [terms, setTerms] = useState(false);
@@ -63,12 +64,6 @@ export function Checkout({ orderRef }: { orderRef: string }) {
 
   const provider = method === "dpd_pm" ? "dpd" : method === "omniva_pm" ? "omniva" : null;
 
-  useEffect(() => {
-    if (!provider) return;
-    void publicApi.get<{ locations: ParcelLocation[] }>(`/api/public/shipping/locations?country=LV&provider=${provider}`)
-      .then((r) => setLocations(r.locations))
-      .catch(() => setLocations([]));
-  }, [provider]);
 
   const saveDelivery = async (next: string, machine: string) => {
     setBusy(true); setError(null);
@@ -131,7 +126,6 @@ export function Checkout({ orderRef }: { orderRef: string }) {
   const chosen = options.find((o) => o.method === method);
   const shipCost = chosen ? chosen.priceCents + chosen.handlingCents : order.shippingCents + order.handlingCents;
   const total = order.hammerCents + order.premiumCents + order.vatCents + shipCost;
-  const shown = locations;
 
   return (
     <section className="wrap" style={{ paddingTop: 24 }}>
@@ -213,14 +207,11 @@ export function Checkout({ orderRef }: { orderRef: string }) {
                   <input type="tel" name="tel" autoComplete="tel"
                          value={phone} onChange={(e) => setPhone(e.target.value)} /></label>
                 {provider && (
-                  <label>Pakomāts
-                    <select value={machineId} onChange={(e) => setMachineId(e.target.value)}>
-                      <option value="">—</option>
-                      {shown.slice(0, 200).map((l) => (
-                        <option key={l.id} value={l.id}>{l.city} — {l.name}</option>
-                      ))}
-                    </select>
-                  </label>
+                  <div style={{ gridColumn: "1 / -1" }}>
+                    <span className="sr" id="parcel-lab">Pakomāts</span>
+                    <ParcelPicker provider={provider} valueId={machineId}
+                                  onPick={(l) => { setMachineId(l.id); setMachineName(`${l.city} — ${l.name}`); }} />
+                  </div>
                 )}
               </div>
             </fieldset>
@@ -253,6 +244,9 @@ export function Checkout({ orderRef }: { orderRef: string }) {
                 <tr><th scope="row">PVN</th><td className="tnum">{formatEur(order.vatCents)}</td></tr>
                 <tr><th scope="row">Piegāde</th>
                   <td className="tnum">{shipCost === 0 ? "Bez maksas" : formatEur(shipCost)}</td></tr>
+                {machineName && (
+                  <tr><th scope="row">Pakomāts</th><td>{machineName}</td></tr>
+                )}
                 <tr className="tot"><th scope="row">Kopā</th><td className="tnum">{formatEur(total)}</td></tr>
               </tbody></table>
 

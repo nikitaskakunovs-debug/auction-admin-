@@ -6,6 +6,7 @@ import { publicApi } from "@/lib/api";
 import { useT, type Lang } from "@/lib/i18n";
 import { alertStore, useRail, useReveal } from "@/lib/ui";
 import { watchStore } from "@/lib/watch";
+import { CatalogMenu } from "./CatalogMenu";
 import { Icon } from "./Icon";
 
 /** Категории макета. Коды — из движка (CATEGORY_CODES), первые три пункта
@@ -21,7 +22,6 @@ const RAIL: Array<{ label: string; icon: string; href: string; live?: boolean }>
   { label: "Māksla", icon: "art", href: "/katalogs?category=art_antiques" },
   { label: "Mājai", icon: "home", href: "/katalogs?category=home_garden" },
   { label: "Instrumenti", icon: "tools", href: "/katalogs?category=tools" },
-  { label: "Visas", icon: "plus", href: "/katalogs" },
 ];
 
 const LANG_NAME: Record<string, string> = {
@@ -37,6 +37,7 @@ export function Chrome() {
   const [compact, setCompact] = useState(false);
   const [langOpen, setLangOpen] = useState(false);
   const [alerts, setAlerts] = useState(0);
+  const [menu, setMenu] = useState(false);
   const rail = useRail<HTMLDivElement>();
 
   useReveal();
@@ -131,7 +132,10 @@ export function Chrome() {
             <span className="logo-mark" aria-hidden="true">I</span>Izsoli.lv
           </Link>
 
-          <Link className="cat-btn" href="/katalogs"><Icon name="menu" size={18} /><span>Katalogs</span></Link>
+          <button className="cat-btn" type="button" aria-expanded={menu} aria-haspopup="dialog"
+                  onClick={() => setMenu((v) => !v)}>
+            <Icon name={menu ? "x" : "menu"} size={18} /><span>Katalogs</span>
+          </button>
 
           <form className="search" role="search" action="/meklet" method="get">
             <Icon name="search" size={20} />
@@ -183,9 +187,18 @@ export function Chrome() {
                 <span>{c.label}</span>
               </Link>
             ))}
+            {/* «Visas» открывает разворот каталога — на телефоне это
+                единственный вход в него, кнопка «Katalogs» там скрыта. */}
+            <button className="cat" type="button" aria-haspopup="dialog" aria-expanded={menu}
+                    onClick={() => setMenu((v) => !v)}>
+              <span className="ic"><Icon name="plus" /></span>
+              <span>Visas</span>
+            </button>
           </div>
         </div>
       </nav>
+
+      <CatalogMenu open={menu} onClose={() => setMenu(false)} />
     </div>
   );
 }

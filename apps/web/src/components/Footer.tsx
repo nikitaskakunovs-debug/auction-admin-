@@ -1,14 +1,31 @@
 "use client";
 
 import Link from "next/link";
-import { useT } from "@/lib/i18n";
+import { useEffect, useState } from "react";
+import { useT, type Lang } from "@/lib/i18n";
 import { pickLocalized, type Localized } from "./CmsBlocks";
 import { Icon } from "./Icon";
 
 /** Подвал утверждённого макета: тёмный, четыре колонки, соцсети, юр. текст.
  *  Колонка «Uzņēmums» подмешивает страницы из CMS, если они есть. */
 export function Footer({ pages }: { pages: Array<{ slug: string; title: Localized }> }) {
-  const { lang } = useT();
+  const { lang, setLang, available } = useT();
+  const [region, setRegion] = useState(false);
+
+  useEffect(() => {
+    if (!region) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setRegion(false); };
+    document.addEventListener("keydown", onKey);
+    document.body.classList.add("no-scroll");
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.classList.remove("no-scroll");
+    };
+  }, [region]);
+
+  const LANG_NAME: Record<string, string> = {
+    lv: "Latviešu", ru: "Русский", en: "English", et: "Eesti", lt: "Lietuvių",
+  };
 
   const cols: Array<[string, Array<[string, string]>]> = [
     ["Izsoles", [
@@ -71,7 +88,10 @@ export function Footer({ pages }: { pages: Array<{ slug: string; title: Localize
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.6 7.2a2.5 2.5 0 0 0-1.8-1.8C18.2 5 12 5 12 5s-6.2 0-7.8.4A2.5 2.5 0 0 0 2.4 7.2 26 26 0 0 0 2 12c0 1.6.1 3.2.4 4.8a2.5 2.5 0 0 0 1.8 1.8C5.8 19 12 19 12 19s6.2 0 7.8-.4a2.5 2.5 0 0 0 1.8-1.8c.3-1.6.4-3.2.4-4.8s-.1-3.2-.4-4.8zM10 15V9l5.2 3L10 15z" /></svg>
           </a>
         </div>
-        <Link className="f-pill" href="/katalogs"><Icon name="globe" size={16} />Latvija · Latviešu · EUR €</Link>
+        <button className="f-pill" type="button" aria-haspopup="dialog" aria-expanded={region}
+                onClick={() => setRegion(true)}>
+          <Icon name="globe" size={16} />Latvija · {LANG_NAME[lang] ?? lang.toUpperCase()} · EUR €
+        </button>
       </div>
 
       <p className="f-legal">
@@ -91,6 +111,36 @@ export function Footer({ pages }: { pages: Array<{ slug: string; title: Localize
       </nav>
 
       <p className="f-bottom"><span>© 2026 Izsoli.lv SIA</span><span>Veidots Rīgā</span></p>
+
+      {/* Язык и регион — на телефоне это единственный вход: утилити-полоса
+          с переключателем там скрыта. */}
+      {region && (
+        <div className="modal sheet" role="dialog" aria-modal="true" aria-labelledby="reg-t">
+          <div className="modal-bd" onClick={() => setRegion(false)} />
+          <div className="modal-card">
+            <div className="modal-head">
+              <div>
+                <span className="kicker">Latvija · EUR €</span>
+                <h3 id="reg-t">Valoda</h3>
+              </div>
+              <button className="modal-x" type="button" aria-label="Aizvērt"
+                      onClick={() => setRegion(false)}><Icon name="x" /></button>
+            </div>
+            <div className="sheet-chips">
+              {available.map((l: Lang) => (
+                <button key={l} className={`chip${lang === l ? " chip-dark" : ""}`} type="button"
+                        aria-pressed={lang === l}
+                        onClick={() => { setLang(l); setRegion(false); }}>
+                  {LANG_NAME[l] ?? l.toUpperCase()}
+                </button>
+              ))}
+            </div>
+            <p className="note" style={{ marginTop: 16 }}>
+              Piegādājam Latvijā. Visas cenas ir eiro un ar PVN.
+            </p>
+          </div>
+        </div>
+      )}
     </div></footer>
   );
 }
