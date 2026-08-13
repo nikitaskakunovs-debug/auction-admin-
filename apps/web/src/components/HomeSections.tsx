@@ -10,33 +10,47 @@ import { photoThumb } from "@/lib/photos";
 import { formatEur, type FixedListing, type PublicAuction } from "@/lib/types";
 import { AuctionCard } from "./AuctionCard";
 
-const grid: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))",
-  gap: 14,
-};
-
+/** Карточка лота с фиксированной ценой. Комиссии покупателя здесь нет —
+ *  движок начисляет её только на аукционные лоты. */
 function FixedCard({ listing }: { listing: FixedListing }) {
   const { t } = useT();
   return (
-    <Link
-      href={`/listing/${listing.id}`}
-      style={{
-        display: "block", textDecoration: "none", color: "#0A0A0A", background: "#fff",
-        border: "1px solid rgba(10,10,10,0.10)", borderRadius: 14, padding: 18,
-      }}
-    >
-      {listing.photos[0] && (
-        <div style={{ margin: "-18px -18px 12px", background: "#F2F1EE", borderRadius: "13px 13px 0 0", overflow: "hidden" }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={photoThumb(listing.photos[0])} alt="" style={{ width: "100%", height: 150, objectFit: "cover", display: "block" }} />
+    <Link className="lot" href={`/listing/${listing.id}`}>
+      <div className="lot-art">
+        {listing.photos[0] ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={photoThumb(listing.photos[0])} alt="" loading="lazy" />
+        ) : (
+          <span className="ph" aria-hidden="true">
+            <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="5" width="18" height="14" rx="2" />
+              <circle cx="9" cy="10" r="1.6" />
+              <path d="M21 16l-5-5-7 7" />
+            </svg>
+          </span>
+        )}
+        <div className="lot-tags">
+          <span className="tag tag-accent">{t("home.buyNow")}</span>
         </div>
-      )}
-      <span style={{ fontSize: 11, fontWeight: 700, color: "#2D4BFF", textTransform: "uppercase" }}>{t("home.buyNow")}</span>
-      <h3 style={{ margin: "8px 0 0", fontSize: 15.5, fontWeight: 700, lineHeight: 1.35, minHeight: 42 }}>{listing.title}</h3>
-      <div style={{ fontSize: 11.5, color: "#6B6B68", margin: "4px 0 12px" }}>{listing.sku} · {conditionLabel(listing.condition, t)}</div>
-      <div style={{ fontSize: 10.5, fontWeight: 700, color: "#6B6B68", textTransform: "uppercase", letterSpacing: "0.05em" }}>{t("buy.price")}</div>
-      <div style={{ fontSize: 21, fontWeight: 700, letterSpacing: "-0.02em" }}>{formatEur(listing.priceCents)}</div>
+      </div>
+      <div className="lot-body">
+        <p className="lot-top"><span>{listing.sku}</span></p>
+        <h3>{listing.title}</h3>
+        <span className="cond">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M12 3l7 3v6c0 4.4-3 7.7-7 9-4-1.3-7-4.6-7-9V6z" />
+          </svg>
+          {conditionLabel(listing.condition, t)}
+        </span>
+        <div className="price-row">
+          <div>
+            <p className="price-lab">{t("buy.price")}</p>
+            <p className="price tnum">{formatEur(listing.priceCents)}</p>
+          </div>
+        </div>
+      </div>
     </Link>
   );
 }
@@ -98,66 +112,92 @@ export function HomeSections({ auctions: initialAuctions, listings: initialListi
   const filtering = query.trim().length >= 2 || category !== "";
   const empty = auctions.length === 0 && listings.length === 0;
 
-  const chip = (active: boolean): React.CSSProperties => ({
-    all: "unset", cursor: "pointer", padding: "7px 13px", borderRadius: 99, fontSize: 12.5, fontWeight: 700,
-    whiteSpace: "nowrap",
-    background: active ? "#0A0A0A" : "#fff", color: active ? "#fff" : "#454542",
-    border: active ? "1px solid #0A0A0A" : "1px solid rgba(10,10,10,0.14)",
-  });
-
   const moreBtn = (onClick: () => void) => (
-    <div style={{ display: "flex", justifyContent: "center", marginTop: 14 }}>
-      <button onClick={onClick} disabled={busy} style={{
-        all: "unset", cursor: busy ? "wait" : "pointer", padding: "11px 26px", borderRadius: 10,
-        border: "1.5px solid rgba(10,10,10,0.18)", fontSize: 13.5, fontWeight: 700, background: "#fff", opacity: busy ? 0.6 : 1,
-      }}>{t("catalog.loadMore")}</button>
+    <div style={{ display: "flex", justifyContent: "center", marginTop: 24 }}>
+      <button className="btn btn-outline btn-lg" onClick={onClick} disabled={busy}>
+        {t("catalog.loadMore")}
+      </button>
     </div>
   );
 
   return (
-    <div style={{ display: "grid", gap: 26 }}>
-      <div style={{ display: "grid", gap: 10 }}>
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={t("catalog.search")}
-          style={{
-            boxSizing: "border-box", width: "100%", maxWidth: 480, height: 44, borderRadius: 12,
-            border: "1.5px solid rgba(10,10,10,0.14)", padding: "0 16px", fontSize: 14.5, outline: "none", background: "#fff",
-          }}
-        />
-        <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
-          <button style={chip(category === "")} onClick={() => setCategory("")}>{t("catalog.all")}</button>
+    <>
+      {/* ГЕРОЙ: заголовок и поиск, ничего лишнего */}
+      <section className="hero">
+        <h1>
+          Sāc ar €1.<br />
+          <span className="hero-hl">Beidz ar to, ko meklē.</span>
+        </h1>
+        <form className="hero-search" role="search" onSubmit={(e) => e.preventDefault()}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               strokeWidth="1.9" strokeLinecap="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="7" /><path d="M20 20l-3.6-3.6" />
+          </svg>
+          <label className="sr" htmlFor="home-q">{t("catalog.search")}</label>
+          <input
+            id="home-q"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={t("catalog.search")}
+          />
+        </form>
+
+        <div className="chips" role="group" aria-label={t("catalog.all")}>
+          <button
+            className={`chip${category === "" ? " on" : ""}`}
+            aria-pressed={category === ""}
+            onClick={() => setCategory("")}
+          >{t("catalog.all")}</button>
           {CATEGORY_CODES.map((c) => (
-            <button key={c} style={chip(category === c)} onClick={() => setCategory(category === c ? "" : c)}>{t(`cat.${c}`)}</button>
+            <button
+              key={c}
+              className={`chip${category === c ? " on" : ""}`}
+              aria-pressed={category === c}
+              onClick={() => setCategory(category === c ? "" : c)}
+            >{t(`cat.${c}`)}</button>
           ))}
         </div>
-      </div>
+      </section>
 
-      {empty && filtering && <p style={{ color: "#6B6B68", fontSize: 14 }}>{t("catalog.noResults")}</p>}
+      {empty && filtering && (
+        <div className="empty">
+          <h3>{t("catalog.noResults")}</h3>
+          <button className="btn btn-primary" onClick={() => { setQuery(""); setCategory(""); }}>
+            {t("catalog.all")}
+          </button>
+        </div>
+      )}
 
-      <section>
-        <h1 style={{ fontSize: 22, fontWeight: 700, margin: "0 0 14px", letterSpacing: "-0.02em" }}>{t("home.live")}</h1>
+      <section className="section" style={{ paddingTop: 0 }} aria-live="polite">
+        <div className="sec-head">
+          <h2>{t("home.live")}</h2>
+          {live.length > 0 && <span className="note">{live.length}</span>}
+        </div>
         {live.length === 0 ? (
-          <p style={{ color: "#6B6B68", fontSize: 14 }}>{filtering ? t("catalog.noResults") : t("home.empty")}</p>
+          <div className="empty">
+            <p>{filtering ? t("catalog.noResults") : t("home.empty")}</p>
+          </div>
         ) : (
-          <div style={grid}>{live.map((a) => <AuctionCard key={a.id} auction={a} />)}</div>
+          <div className="grid-lots">{live.map((a) => <AuctionCard key={a.id} auction={a} />)}</div>
         )}
       </section>
+
       {upcoming.length > 0 && (
-        <section>
-          <h2 style={{ fontSize: 18, fontWeight: 700, margin: "0 0 14px", letterSpacing: "-0.02em" }}>{t("home.upcoming")}</h2>
-          <div style={grid}>{upcoming.map((a) => <AuctionCard key={a.id} auction={a} />)}</div>
+        <section className="section" style={{ paddingTop: 0 }}>
+          <div className="sec-head"><h2>{t("home.upcoming")}</h2></div>
+          <div className="grid-lots">{upcoming.map((a) => <AuctionCard key={a.id} auction={a} />)}</div>
         </section>
       )}
+
       {hasMoreA && moreBtn(() => void refetch(true))}
+
       {listings.length > 0 && (
-        <section>
-          <h2 style={{ fontSize: 18, fontWeight: 700, margin: "0 0 14px", letterSpacing: "-0.02em" }}>{t("home.buyNow")}</h2>
-          <div style={grid}>{listings.map((l) => <FixedCard key={l.id} listing={l} />)}</div>
+        <section className="section" style={{ paddingTop: 0 }}>
+          <div className="sec-head"><h2>{t("home.buyNow")}</h2></div>
+          <div className="grid-lots">{listings.map((l) => <FixedCard key={l.id} listing={l} />)}</div>
           {hasMoreL && moreBtn(() => void refetch(true))}
         </section>
       )}
-    </div>
+    </>
   );
 }

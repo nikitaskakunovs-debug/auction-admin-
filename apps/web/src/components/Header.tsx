@@ -53,7 +53,7 @@ export function Header() {
           <span>Rīga, LV</span>
           <nav aria-label={t("nav.auctions")} style={{ display: "flex", gap: 24 }}>
             <Link href="/">{t("nav.auctions")}</Link>
-            <Link href="/conditions">{t("nav.conditions") ?? "Stāvokļa skala"}</Link>
+            <Link href="/conditions">{t("nav.conditions")}</Link>
           </nav>
           <span>EUR €</span>
         </div>
@@ -72,7 +72,7 @@ export function Header() {
               <circle cx="11" cy="11" r="7" /><path d="M20 20l-3.6-3.6" />
             </svg>
             <label className="sr" htmlFor="q">{t("nav.auctions")}</label>
-            <input id="q" name="q" type="search" placeholder={t("nav.searchPh") ?? "Meklēt lotus…"} />
+            <input id="q" name="q" type="search" placeholder={t("nav.searchPh")} />
           </form>
 
           <div className="head-act">

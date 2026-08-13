@@ -181,3 +181,34 @@ p{margin:0}
 .empty{border:1px dashed var(--border);border-radius:var(--r-lg);
   padding:clamp(32px,5vw,64px);text-align:center;display:grid;justify-items:center;gap:12px}
 .empty p{color:var(--text-2);max-width:46ch}
+
+/* ── ГЕРОЙ ГЛАВНОЙ ── */
+.hero{padding-block:clamp(28px,4vw,56px) clamp(24px,3vw,40px);display:grid;gap:20px;
+  justify-items:center;text-align:center}
+.hero h1{max-width:16ch}
+.hero-hl{background-image:linear-gradient(var(--accent),var(--accent));background-repeat:no-repeat;
+  background-position:0 78%;background-size:100% .26em;padding-inline:.08em}
+.hero-search{display:flex;align-items:center;gap:12px;width:min(640px,100%);
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--r-pill);
+  padding:0 24px;min-height:64px;box-shadow:var(--shadow-2)}
+.hero-search:focus-within{border-color:var(--text)}
+.hero-search input{flex:1;min-width:0;align-self:stretch;min-height:44px;border:0;outline:0;
+  background:none;font-size:17px;font-weight:600;color:var(--text)}
+.hero-search svg{stroke:var(--text-3);fill:none;flex:none}
+.chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+.chip{display:inline-flex;align-items:center;min-height:44px;padding:8px 16px;
+  border-radius:var(--r-pill);background:var(--surface);border:1px solid var(--border);
+  font-size:14px;font-weight:600;color:var(--text);white-space:nowrap;
+  transition:border-color var(--fast) var(--ease),background var(--fast) var(--ease)}
+.chip:hover{border-color:var(--text)}
+.chip.on{background:var(--brand);color:var(--on-brand);border-color:var(--brand)}
+.sec-head{display:flex;align-items:baseline;justify-content:space-between;gap:16px;
+  flex-wrap:wrap;margin-bottom:var(--s5)}
+/* на узком экране 13 категорий занимали пол-экрана — уводим в горизонтальную ленту */
+@media(max-width:700px){
+  .chips{flex-wrap:nowrap;overflow-x:auto;justify-content:flex-start;
+    scrollbar-width:none;margin-inline:calc(var(--gutter) * -1);
+    padding-inline:var(--gutter);scroll-snap-type:x proximity;contain:layout}
+  .chips::-webkit-scrollbar{display:none}
+  .chip{flex:0 0 auto;scroll-snap-align:start}
+}

@@ -19,6 +19,8 @@ const STRINGS: Record<string, Record<Lang, string>> = {
   "nav.signin": { lv: "Ienākt", ru: "Войти", en: "Sign in", et: "Logi sisse", lt: "Prisijungti" },
   "nav.signout": { lv: "Iziet", ru: "Выйти", en: "Sign out", et: "Logi välja", lt: "Atsijungti" },
   "nav.register": { lv: "Reģistrēties", ru: "Регистрация", en: "Register", et: "Registreeru", lt: "Registruotis" },
+  "nav.searchPh": { lv: "Meklēt lotus…", ru: "Искать лоты…", en: "Search lots…", et: "Otsi partiisid…", lt: "Ieškoti lotų…" },
+  "nav.conditions": { lv: "Stāvokļa skala", ru: "Шкала состояния", en: "Condition scale", et: "Seisukorra skaala", lt: "Būklės skalė" },
   "home.live": { lv: "Notiek tagad", ru: "Идут сейчас", en: "Live now", et: "Praegu käib", lt: "Vyksta dabar" },
   "home.upcoming": { lv: "Drīzumā", ru: "Скоро", en: "Upcoming", et: "Tulekul", lt: "Netrukus" },
   "home.buyNow": { lv: "Pērc uzreiz", ru: "Купить сейчас", en: "Buy now", et: "Osta kohe", lt: "Pirkti dabar" },
