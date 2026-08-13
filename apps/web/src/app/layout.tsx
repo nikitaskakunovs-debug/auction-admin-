@@ -79,9 +79,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       <body>
         <a className="skip" href="#main">Pāriet uz galveno saturu</a>
         <I18nProvider initialLang={country.defaultLang} available={country.languages}>
-          <Chrome />
+          <Chrome country={country.code} />
           <main id="main">{children}</main>
-          <Footer pages={footerPages} />
+          <Footer pages={footerPages} country={country.code} />
           <Dock />
           <Modals />
           <CookieBanner />

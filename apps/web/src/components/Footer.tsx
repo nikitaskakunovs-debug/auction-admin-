@@ -2,14 +2,16 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { useT, type Lang } from "@/lib/i18n";
+import { useT } from "@/lib/i18n";
+import type { Country } from "@/lib/country";
 import { pickLocalized, type Localized } from "./CmsBlocks";
 import { Icon } from "./Icon";
+import { COUNTRY_LABEL, LANG_NAME, RegionMenu } from "./RegionMenu";
 
 /** Подвал утверждённого макета: тёмный, четыре колонки, соцсети, юр. текст.
  *  Колонка «Uzņēmums» подмешивает страницы из CMS, если они есть. */
-export function Footer({ pages }: { pages: Array<{ slug: string; title: Localized }> }) {
-  const { lang, setLang, available } = useT();
+export function Footer({ pages, country = "LV" }: { pages: Array<{ slug: string; title: Localized }>; country?: Country }) {
+  const { lang } = useT();
   const [region, setRegion] = useState(false);
 
   useEffect(() => {
@@ -23,9 +25,6 @@ export function Footer({ pages }: { pages: Array<{ slug: string; title: Localize
     };
   }, [region]);
 
-  const LANG_NAME: Record<string, string> = {
-    lv: "Latviešu", ru: "Русский", en: "English", et: "Eesti", lt: "Lietuvių",
-  };
 
   const cols: Array<[string, Array<[string, string]>]> = [
     ["Izsoles", [
@@ -90,7 +89,7 @@ export function Footer({ pages }: { pages: Array<{ slug: string; title: Localize
         </div>
         <button className="f-pill" type="button" aria-haspopup="dialog" aria-expanded={region}
                 onClick={() => setRegion(true)}>
-          <Icon name="globe" size={16} />Latvija · {LANG_NAME[lang] ?? lang.toUpperCase()} · EUR €
+          <Icon name="globe" size={16} />{COUNTRY_LABEL[country].name} · {LANG_NAME[lang] ?? lang.toUpperCase()} · EUR €
         </button>
       </div>
 
@@ -112,35 +111,8 @@ export function Footer({ pages }: { pages: Array<{ slug: string; title: Localize
 
       <p className="f-bottom"><span>© 2026 Izsoli.lv SIA</span><span>Veidots Rīgā</span></p>
 
-      {/* Язык и регион — на телефоне это единственный вход: утилити-полоса
-          с переключателем там скрыта. */}
-      {region && (
-        <div className="modal sheet" role="dialog" aria-modal="true" aria-labelledby="reg-t">
-          <div className="modal-bd" onClick={() => setRegion(false)} />
-          <div className="modal-card">
-            <div className="modal-head">
-              <div>
-                <span className="kicker">Latvija · EUR €</span>
-                <h3 id="reg-t">Valoda</h3>
-              </div>
-              <button className="modal-x" type="button" aria-label="Aizvērt"
-                      onClick={() => setRegion(false)}><Icon name="x" /></button>
-            </div>
-            <div className="sheet-chips">
-              {available.map((l: Lang) => (
-                <button key={l} className={`chip${lang === l ? " chip-dark" : ""}`} type="button"
-                        aria-pressed={lang === l}
-                        onClick={() => { setLang(l); setRegion(false); }}>
-                  {LANG_NAME[l] ?? l.toUpperCase()}
-                </button>
-              ))}
-            </div>
-            <p className="note" style={{ marginTop: 16 }}>
-              Piegādājam Latvijā. Visas cenas ir eiro un ar PVN.
-            </p>
-          </div>
-        </div>
-      )}
+      <RegionMenu open={region} onClose={() => setRegion(false)} country={country} />
+
     </div></footer>
   );
 }

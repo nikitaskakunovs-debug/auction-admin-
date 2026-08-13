@@ -3,10 +3,13 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { publicApi } from "@/lib/api";
-import { useT, type Lang } from "@/lib/i18n";
+import { useT } from "@/lib/i18n";
+import type { Country } from "@/lib/country";
 import { alertStore, useRail, useReveal } from "@/lib/ui";
 import { watchStore } from "@/lib/watch";
 import { CatalogMenu } from "./CatalogMenu";
+import { COUNTRY_LABEL, LANG_NAME, RegionMenu } from "./RegionMenu";
+import { SearchOverlay } from "./SearchOverlay";
 import { Icon } from "./Icon";
 
 /** Категории макета. Коды — из движка (CATEGORY_CODES), первые три пункта
@@ -24,18 +27,15 @@ const RAIL: Array<{ label: string; icon: string; href: string; live?: boolean }>
   { label: "Instrumenti", icon: "tools", href: "/katalogs?category=tools" },
 ];
 
-const LANG_NAME: Record<string, string> = {
-  lv: "Latviešu", ru: "Русский", en: "English", et: "Eesti", lt: "Lietuvių",
-};
-
 /** Верхняя панель макета: утилити-полоса, шапка и лента категорий.
  *  Панель зафиксирована; при скролле вниз утилити и категории сворачиваются. */
-export function Chrome() {
-  const { lang, setLang, available, t } = useT();
+export function Chrome({ country = "LV" }: { country?: Country }) {
+  const { lang, t } = useT();
   const [signedIn, setSignedIn] = useState(false);
   const [watched, setWatched] = useState(0);
   const [compact, setCompact] = useState(false);
-  const [langOpen, setLangOpen] = useState(false);
+  const [region, setRegion] = useState(false);
+  const [search, setSearch] = useState(false);
   const [alerts, setAlerts] = useState(0);
   const [menu, setMenu] = useState(false);
   const rail = useRail<HTMLDivElement>();
@@ -61,12 +61,6 @@ export function Chrome() {
     return alertStore.subscribe(sync);
   }, []);
 
-  useEffect(() => {
-    if (!langOpen) return;
-    const close = () => setLangOpen(false);
-    document.addEventListener("click", close);
-    return () => document.removeEventListener("click", close);
-  }, [langOpen]);
 
   useEffect(() => {
     const el = document.querySelector<HTMLElement>("[data-chrome]");
@@ -98,30 +92,23 @@ export function Chrome() {
     <div className={`topchrome${compact ? " is-compact" : ""}`} data-chrome>
       <div className="util">
         <div className="wrap">
-          <span className="util-l"><Icon name="pin" size={16} />Rīga, LV</span>
+          <span className="util-l">
+            <button type="button" aria-haspopup="dialog" aria-expanded={region}
+                    onClick={() => setRegion(true)}>
+              <Icon name="pin" size={16} />{COUNTRY_LABEL[country].city}, {country}
+            </button>
+          </span>
           <nav className="util-c" aria-label="Ātrās saites">
             <Link href="/tiesraide"><i className="pulse" aria-hidden="true" />Tiešraidē</Link>
             <Link href="/katalogs">Visas kategorijas</Link>
             <Link href="/rezultati">Izsoļu rezultāti</Link>
           </nav>
           <div className="util-r">
-            <span style={{ position: "relative" }}>
-              <button type="button" aria-expanded={langOpen} aria-haspopup="listbox"
-                      onClick={(e) => { e.stopPropagation(); setLangOpen((v) => !v); }}>
-                <Icon name="globe" size={16} />{LANG_NAME[lang] ?? lang.toUpperCase()}
-              </button>
-              {langOpen && (
-                <div className="pop right" role="listbox" style={{ top: "100%", marginTop: 6 }}>
-                  {available.map((l: Lang) => (
-                    <button key={l} type="button" role="option" aria-selected={lang === l}
-                            onClick={() => { setLang(l); setLangOpen(false); }}>
-                      <span className="nm">{LANG_NAME[l] ?? l.toUpperCase()}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </span>
-            <Link href="/buj">EUR €</Link>
+            <button type="button" aria-haspopup="dialog" aria-expanded={region}
+                    onClick={() => setRegion(true)}>
+              <Icon name="globe" size={16} />{LANG_NAME[lang] ?? lang.toUpperCase()}
+            </button>
+            <button type="button" aria-haspopup="dialog" onClick={() => setRegion(true)}>EUR €</button>
           </div>
         </div>
       </div>
@@ -137,14 +124,14 @@ export function Chrome() {
             <Icon name={menu ? "x" : "menu"} size={18} /><span>Katalogs</span>
           </button>
 
-          <form className="search" role="search" action="/meklet" method="get">
+          <button className="search" type="button" aria-haspopup="dialog" aria-expanded={search}
+                  onClick={() => setSearch(true)}>
             <Icon name="search" size={20} />
-            <label className="sr" htmlFor="q">Meklēt lotus</label>
-            <input id="q" name="q" type="search" placeholder="Meklēt lotus…" autoComplete="off" />
-          </form>
+            <span className="ph">Meklēt lotus…</span>
+          </button>
 
           <div className="head-act">
-            <Link className="icon-link" href="/velmes">
+            <Link className="icon-link" href="/account?tab=alerts">
               <Icon name="bell" size={22} />Brīdinājumi
               {alerts > 0 && (
                 <>
@@ -199,6 +186,8 @@ export function Chrome() {
       </nav>
 
       <CatalogMenu open={menu} onClose={() => setMenu(false)} />
+      <RegionMenu open={region} onClose={() => setRegion(false)} country={country} />
+      <SearchOverlay open={search} onClose={() => setSearch(false)} />
     </div>
   );
 }
