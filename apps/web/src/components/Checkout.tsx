@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { formatEur, type MyOrder, type ShippingOption } from "@/lib/types";
@@ -32,6 +32,8 @@ export function Checkout({ orderRef }: { orderRef: string }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const [payVisible, setPayVisible] = useState(true);
+  const payBox = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -94,6 +96,15 @@ export function Checkout({ orderRef }: { orderRef: string }) {
         ? t("acc.payUnavailable") : t("acc.payFailed"));
     }
   };
+
+  // Липкая кнопка оплаты на телефоне — пока сводка не на экране.
+  useEffect(() => {
+    const el = payBox.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(([e]) => setPayVisible(!!e?.isIntersecting), { threshold: 0.2 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [order, submitted]);
 
   if (signedIn === false) {
     return (
@@ -232,7 +243,7 @@ export function Checkout({ orderRef }: { orderRef: string }) {
           </div>
 
           <aside className="pay-side">
-            <div className="card-b">
+            <div className="card-b" ref={payBox}>
               <h2>Pasūtījums</h2>
               <div className="pay-lot">
                 <span className="ic" aria-hidden="true"><Icon name="box" /></span>
@@ -269,6 +280,24 @@ export function Checkout({ orderRef }: { orderRef: string }) {
             </div>
           </aside>
         </form>
+      )}
+
+      {!paid && !submitted && !payVisible && (
+        <div className="bidbar">
+          <div className="t">
+            <span className="lab">Kopā ar piegādi</span>
+            <b className="tnum">{formatEur(total)}</b>
+          </div>
+          <button className="btn btn-primary" type="button" disabled={busy}
+                  onClick={() => {
+                    if (!terms) { say("Lūdzu, apstiprini noteikumus"); payBox.current?.scrollIntoView({ behavior: "smooth", block: "center" }); return; }
+                    if (provider && !machineId) { say("Izvēlies pakomātu"); return; }
+                    say("Apstrādājam maksājumu…");
+                    void saveDelivery(method, machineId).then(() => startPayment());
+                  }}>
+            Maksāt
+          </button>
+        </div>
       )}
     </section>
   );

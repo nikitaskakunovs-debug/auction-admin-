@@ -150,7 +150,7 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
           <h1 data-hero>Izsole tiešraidē</h1>
           <p className="cnt">
             <span className="tag tag-live"><Icon name="bolt" size={12} />Tiešraidē</span>
-            {" "}{queue.length} loti · solīšana pret zāli · <b>{viewers}</b> skatās
+            {" "}{queue.length} loti · solīšana pret zāli · <b suppressHydrationWarning>{viewers}</b> skatās
           </p>
         </div>
         <Link className="link" href="/katalogs">Visi loti <Icon name="arrow" size={16} /></Link>
@@ -180,7 +180,7 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
             <h2>{stage.title}</h2>
             <div className="grades">
               <span className="grade"><Icon name="shield" />{conditionLabel(stage.condition, t)}</span>
-              <span className="grade"><Icon name="timer" />{formatLeft(left)}</span>
+              <span className="grade" suppressHydrationWarning><Icon name="timer" />{formatLeft(left)}</span>
             </div>
 
             <div className="stage-price">
@@ -268,6 +268,22 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
           </div>
         </aside>
       </div>
+
+      {left > 0 && (
+        <div className="bidbar">
+          <div className="t">
+            <span className="lab" suppressHydrationWarning>{formatLeft(left)}{iLead ? " · tu vadi" : ""}</span>
+            <b className="tnum">{formatEur(price)}</b>
+          </div>
+          {signedIn ? (
+            <button className="btn btn-primary" type="button" disabled={busy} onClick={() => void bid()}>
+              Solīt · <span className="tnum">{formatEur(ask)}</span>
+            </button>
+          ) : (
+            <Link className="btn btn-primary" href="/login?next=/tiesraide">{t("a.signinToBid")}</Link>
+          )}
+        </div>
+      )}
     </section>
   );
 }

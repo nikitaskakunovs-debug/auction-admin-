@@ -149,14 +149,16 @@ export function Chrome({ country = "LV" }: { country?: Country }) {
                 </>
               )}
             </Link>
+            {/* На телефоне видна только primary-кнопка, поэтому главным
+                действием стоит вход и кабинет, а не выход. */}
             {signedIn ? (
               <>
-                <Link className="btn btn-outline btn-sm" href="/account">{t("nav.account")}</Link>
-                <button className="btn btn-primary btn-sm" onClick={() => publicApi.logout()}>{t("nav.signout")}</button>
+                <button className="btn btn-outline btn-sm" onClick={() => publicApi.logout()}>{t("nav.signout")}</button>
+                <Link className="btn btn-primary btn-sm" href="/account">{t("nav.account")}</Link>
               </>
             ) : (
               <>
-                <Link className="btn btn-outline btn-sm" href="/login">{t("nav.signin")}</Link>
+                <Link className="btn btn-outline btn-sm keep" href="/login">{t("nav.signin")}</Link>
                 <Link className="btn btn-primary btn-sm" href="/register">{t("nav.register")}</Link>
               </>
             )}

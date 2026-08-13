@@ -66,6 +66,8 @@ export function LotPage({
   const [frame, setFrame] = useState(0);
   const [zoom, setZoom] = useState(false);
   const [box, setBox] = useState(false);
+  const [bidVisible, setBidVisible] = useState(true);
+  const bidBox = useRef<HTMLDivElement>(null);
   const [lens, setLens] = useState<{ x: number; y: number; bx: number; by: number } | null>(null);
   const gal = useRef<HTMLDivElement>(null);
   const goto = (i: number) => setFrame(((i % shots.length) + shots.length) % shots.length);
@@ -91,6 +93,15 @@ export function LotPage({
     setWatched(watchStore.has(a.id));
     return watchStore.subscribe(() => setWatched(watchStore.has(a.id)));
   }, [a.id]);
+
+  // Липкая полоса ставки на телефоне: показываем, когда сам блок уехал за экран.
+  useEffect(() => {
+    const el = bidBox.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(([e]) => setBidVisible(!!e?.isIntersecting), { threshold: 0.15 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
 
   const reload = useCallback(async () => {
     try {
@@ -378,7 +389,7 @@ export function LotPage({
             ><Icon name="share" /></button>
           </div>
 
-          <div className="bidbox" data-bidbox>
+          <div className="bidbox" data-bidbox ref={bidBox}>
             <div className={`bb-top${live && left > 0 && left < 60_000 ? " crit" : ""}`}>
               <span className="lab">{settled || over ? "Izsole beigusies" : live ? "Noslēdzas pēc" : "Sākas"}</span>
               <b className="tnum" suppressHydrationWarning>
@@ -560,6 +571,26 @@ export function LotPage({
             {related.slice(0, 4).map((r) => <LotCard key={r.id} lot={r as CardLot} />)}
           </div>
         </section>
+      )}
+
+      {/* ═══ ЛИПКАЯ СТАВКА НА ТЕЛЕФОНЕ ═══ */}
+      {live && !over && !bidVisible && (
+        <div className="bidbar">
+          <div className="t">
+            <span className="lab" suppressHydrationWarning>
+              {formatLeft(left)}{iLead ? " · tu vadi" : ""}
+            </span>
+            <b className="tnum">{formatEur(price)}</b>
+          </div>
+          {signedIn ? (
+            <button className="btn btn-primary" type="button" aria-haspopup="dialog"
+                    onClick={() => { setAmount((v) => (v < minNext ? minNext : v)); setConfirm(true); }}>
+              Solīt · <span className="tnum">{formatEur(minNext)}</span>
+            </button>
+          ) : (
+            <Link className="btn btn-primary" href={`/login?next=/auction/${a.id}`}>{t("a.signinToBid")}</Link>
+          )}
+        </div>
       )}
 
       {/* ═══ ГАЛЕРЕЯ ВО ВЕСЬ ЭКРАН ═══ */}

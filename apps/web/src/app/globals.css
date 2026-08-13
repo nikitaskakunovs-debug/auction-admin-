@@ -115,7 +115,8 @@ button.search .ph{flex:1;min-width:0;font-size:16px;white-space:nowrap;overflow:
   border-radius:var(--r-pill);background:var(--live);color:var(--on-live);font-size:12px;font-weight:800;
   display:grid;place-items:center;line-height:1}
 @media(max-width:1160px){.cat-btn span{display:none}.cat-btn{padding:12px 16px}}
-@media(max-width:900px){.icon-link,.head .btn-outline{display:none}}
+@media(max-width:900px){.icon-link,.head .btn-outline{display:none}
+  .head .btn-outline.keep{display:inline-flex}}
 @media(max-width:600px){
   .cat-btn{display:none}
   .head .wrap{flex-wrap:wrap;row-gap:8px}
@@ -870,7 +871,8 @@ body{padding-top:var(--chrome-h,232px)}
 
 .lot-page{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:clamp(24px,3vw,44px);
   align-items:start;margin-top:var(--s4)}
-@media(max-width:1000px){.lot-page{grid-template-columns:1fr}}
+@media(max-width:1000px){.lot-page{grid-template-columns:minmax(0,1fr)}}
+.lot-page>*{min-width:0}
 /* галерея */
 .lgal{position:relative;aspect-ratio:4/3;border-radius:var(--r-lg);overflow:hidden;
   border:1px solid var(--border);background:var(--surface-2)}
@@ -911,7 +913,7 @@ body{padding-top:var(--chrome-h,232px)}
 .lthumb svg{width:34%;height:34%;stroke:var(--text);fill:none;stroke-width:1.6;opacity:.2}
 .lthumb.on{outline:3px solid var(--accent);outline-offset:-3px}
 /* факты */
-.facts{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--border);
+.facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border:1px solid var(--border);
   border-radius:var(--r-md);margin-top:var(--s5);overflow:hidden}
 .facts>div{padding:14px 16px}
 .facts>div+div{border-left:1px solid var(--border)}
@@ -1076,8 +1078,8 @@ body{padding-top:var(--chrome-h,232px)}
 @media(max-width:980px){.room-side{position:static}}
 .queue{border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden}
 .queue h2{font-size:17px;padding:14px 18px;border-bottom:1px solid var(--border)}
-.queue ol{list-style:none;margin:0;padding:8px;display:grid;gap:4px;counter-reset:q}
-.queue li{display:flex;align-items:center;gap:12px;padding:8px 10px;border-radius:var(--r-sm)}
+.queue ol{list-style:none;margin:0;padding:8px;display:grid;grid-template-columns:minmax(0,1fr);gap:4px;counter-reset:q}
+.queue li{display:flex;align-items:center;gap:12px;padding:8px 10px;border-radius:var(--r-sm);min-width:0}
 .queue li:hover{background:var(--surface-2)}
 .q-ic{width:40px;height:40px;border-radius:var(--r-sm);background:var(--surface-2);display:grid;
   place-items:center;flex:none}
@@ -1442,3 +1444,59 @@ footer .f-pill{border:0;font:inherit;cursor:pointer}
 .region-row>svg{flex:none;stroke:var(--text-3);fill:none;stroke-width:2.2}
 .region-row.on>svg{stroke:var(--brand)}
 .util-l button{background:none;border:0;font:inherit;cursor:pointer;color:inherit}
+
+/* ═══ Липкая полоса действия на телефоне ═══
+   80% трафика — телефон, поэтому главное действие экрана (ставка, оплата)
+   всегда в зоне большого пальца, над доком. */
+.bidbar{display:none}
+@media(max-width:900px){
+  .bidbar{display:flex;align-items:center;gap:12px;position:fixed;z-index:95;
+    left:8px;right:8px;bottom:calc(var(--dock-h) + 24px + env(safe-area-inset-bottom));
+    padding:10px 10px 10px 16px;border-radius:var(--r-pill);
+    background:color-mix(in srgb,var(--surface) 92%,transparent);
+    -webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);
+    border:1px solid var(--border);box-shadow:var(--shadow-3);
+    animation:bidbar-in .28s cubic-bezier(.16,1,.3,1)}
+  .bidbar .t{flex:1;min-width:0}
+  .bidbar .lab{display:block;font-size:12px;font-weight:700;color:var(--text-3);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bidbar b{display:block;font-size:20px;letter-spacing:-.02em;line-height:1.2}
+  .bidbar .btn{flex:none;min-height:48px;padding:0 20px}
+  body.no-scroll .bidbar{display:none}
+}
+@keyframes bidbar-in{from{translate:0 120%;opacity:0}to{translate:0 0;opacity:1}}
+@media(prefers-reduced-motion:reduce){.bidbar{animation:none}}
+
+/* ═══ Мобильные переполнения ═══
+   Грид- и флекс-элементы по умолчанию не сжимаются уже своего min-content,
+   поэтому на 390 px колонки распирало шире экрана. Разрешаем сжиматься. */
+.acct{grid-template-columns:minmax(0,1fr)}
+.acct>*,.card-b,.stats>*,.orders>li,.feed>li,.room>*,.room-side>*,.pay-main>*,.pay-side>*{min-width:0}
+.stat .k{white-space:normal}
+.stat b{overflow-wrap:anywhere}
+.o-title{min-width:0;overflow-wrap:anywhere}
+.o-ref{overflow-wrap:anywhere}
+.feed .nm{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.lthumbs{overflow-x:auto;scrollbar-width:none}
+.lthumbs::-webkit-scrollbar{display:none}
+.specs{table-layout:fixed;width:100%}
+.specs th,.specs td{overflow-wrap:anywhere}
+.rslt{table-layout:fixed}
+.rslt-lot b,.rslt-lot small{overflow-wrap:anywhere}
+.prose,.prose *{overflow-wrap:anywhere}
+.facts>div{min-width:0}
+.facts b{overflow-wrap:anywhere}
+@media(max-width:560px){
+  .facts{grid-template-columns:1fr}
+  .facts>div+div{border-left:0;border-top:1px solid var(--border)}
+  .o-top{gap:8px}
+  .o-title{flex:1 1 100%}
+}
+
+@media(max-width:520px){
+  /* На узком экране «Ienākt» — текстовая ссылка, чтобы шапка осталась
+     в две строки: логотип с кнопками и поиск. */
+  .head .btn-outline.keep{border-color:transparent;background:none;padding:0 8px}
+  .head .btn-sm{padding:0 14px;font-size:14px}
+}
+@media(max-width:400px){.logo{font-size:20px}.logo-mark{width:32px;height:32px}}
