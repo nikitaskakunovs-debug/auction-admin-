@@ -98,8 +98,11 @@ export interface ParcelLocation {
   address: string;
 }
 
+/** Латвийский формат: 1 234,56 € — узкий неразрывный пробел между тысячами
+ *  и обычный неразрывный перед знаком валюты, чтобы «€» не отрывался. */
 export function formatEur(cents: number): string {
-  const sign = cents < 0 ? "-" : "";
+  const sign = cents < 0 ? "\u2212" : "";
   const abs = Math.abs(cents);
-  return `${sign}€${Math.floor(abs / 100).toLocaleString("en-US")}.${(abs % 100).toString().padStart(2, "0")}`;
+  const whole = Math.floor(abs / 100).toLocaleString("lv-LV").replace(/\s/g, "\u202f");
+  return `${sign}${whole},${(abs % 100).toString().padStart(2, "0")}\u00a0€`;
 }

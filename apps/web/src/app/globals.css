@@ -127,9 +127,12 @@ p{margin:0}
              border-color var(--fast) var(--ease)}
 .lot:hover{translate:0 -4px;box-shadow:var(--shadow-2);border-color:transparent}
 .lot-art{position:relative;aspect-ratio:4/3;background:var(--surface-2);overflow:hidden}
-.lot-art img{width:100%;height:100%;object-fit:cover;display:block}
-.lot-art .ph{width:100%;height:100%;display:grid;place-items:center;color:var(--text-3)}
-.lot-tags{position:absolute;top:12px;left:12px;display:flex;gap:8px;flex-wrap:wrap;max-width:66%}
+.lot-frame{position:absolute;inset:0;opacity:0;transition:opacity .14s linear}
+.lot-frame.on{opacity:1}
+.lot-frame img{width:100%;height:100%;object-fit:cover;display:block}
+.lot-frame .ph{width:100%;height:100%;display:grid;place-items:center;color:var(--text-3)}
+.lot-tags{position:absolute;top:12px;left:12px;display:flex;gap:8px;flex-wrap:wrap;
+  max-width:60%;z-index:2}
 .tag{font-size:12px;font-weight:700;padding:6px 12px;border-radius:var(--r-pill);
   background:var(--surface);color:var(--text);box-shadow:var(--shadow-1);
   border:1px solid var(--border);display:inline-flex;align-items:center;gap:6px}
@@ -138,12 +141,37 @@ p{margin:0}
 .tag i{width:7px;height:7px;border-radius:50%;background:currentColor;animation:pulse 1.6s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 @media(prefers-reduced-motion:reduce){.tag i{animation:none}}
+/* кнопки поверх фото */
+.lot-acts{position:absolute;top:12px;right:12px;display:grid;gap:8px;z-index:3}
+.lot-acts button{position:relative;width:40px;height:40px;border-radius:50%;
+  background:color-mix(in srgb,var(--surface) 88%,transparent);border:1px solid var(--border);
+  display:grid;place-items:center;backdrop-filter:blur(6px)}
+.lot-acts button::after{content:"";position:absolute;inset:-2px}
+.lot-acts svg{width:18px;height:18px;stroke:var(--text);fill:none;stroke-width:1.9;
+  stroke-linecap:round;stroke-linejoin:round}
+.lot-acts button:hover{background:var(--accent)}
+.lot-acts button:hover svg{stroke:var(--on-accent)}
+.lot-acts button[aria-pressed="true"]{background:var(--accent)}
+.lot-acts button[aria-pressed="true"] svg{stroke:var(--on-accent);fill:var(--on-accent)}
+/* точки-полоски листания */
+.lot-dots{position:absolute;right:12px;bottom:12px;left:auto;width:min(48%,132px);
+  display:flex;gap:4px;z-index:3;opacity:0;transition:opacity .16s linear}
+.lot:hover .lot-dots,.lot:focus-within .lot-dots{opacity:1}
+.lot-dot{position:relative;flex:1 1 0;max-width:46px;height:4px;border-radius:4px;
+  background:color-mix(in srgb,var(--text) 26%,transparent);transition:background .14s linear}
+.lot-dot::after{content:"";position:absolute;inset:-20px -3px}
+.lot-dot[aria-current="true"]{background:var(--text)}
+@media(max-width:700px){.lot-dots{opacity:1}}
+.lot-toast{position:absolute;left:50%;bottom:14px;translate:-50% 0;z-index:4;
+  background:var(--brand);color:var(--on-brand);border-radius:var(--r-pill);
+  padding:6px 14px;font-size:13px;font-weight:700}
 .lot-body{padding:16px;display:flex;flex-direction:column;gap:10px;flex:1}
 .lot-top{display:flex;align-items:center;justify-content:space-between;gap:12px;
   font-size:13px;font-weight:600;color:var(--text-3)}
 .lot-top time{font-weight:700;color:var(--text-2)}
 .lot-top time.soon{color:var(--live)}
 .lot h3{font-size:16px;line-height:1.3;font-weight:700}
+.lot h3 a{display:block;min-height:24px}
 .lot .cond{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600;
   color:var(--text);background:var(--surface-2);border-radius:var(--r-pill);
   padding:5px 12px;align-self:flex-start}
