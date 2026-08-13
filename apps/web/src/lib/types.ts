@@ -43,6 +43,9 @@ export interface Bidder {
   id: string;
   email: string;
   alias: string;
+  /** Подтверждён ли адрес. Пока движок поля не отдаёт, считаем неподтверждённым
+   *  только при явном false — иначе баннер висел бы у всех. */
+  emailVerified?: boolean;
 }
 
 export interface FixedListing {

@@ -142,7 +142,9 @@ export function LotPage({
       if (r.extended) say(t("a.extended"));
       await reload();
     } catch (err) {
-      if (err instanceof PublicApiError && typeof err.body.minAcceptableCents === "number") {
+      if (err instanceof PublicApiError && err.body.code === "EMAIL_NOT_VERIFIED") {
+        setNotice({ text: "Vispirms apstiprini e-pastu — saite nosūtīta uz tavu adresi", tone: "out" });
+      } else if (err instanceof PublicApiError && typeof err.body.minAcceptableCents === "number") {
         setNotice({ text: `${t("a.minBid")}: ${formatEur(err.body.minAcceptableCents)}`, tone: "out" });
       } else if (err instanceof PublicApiError && err.body.code === "FEES_OUTSTANDING") {
         setNotice({ text: t("fees.blockedShort"), tone: "out" });
@@ -264,7 +266,7 @@ export function LotPage({
                 <p>
                   {t(`cond.${a.condition}.d`)}
                   {rep.gradeCode && (
-                    <button className="info-btn" type="button"
+                    <button className="info-btn" type="button" aria-haspopup="dialog"
                             aria-label={`Stāvokļa skala — šis lots ${rep.gradeCode}`}
                             onClick={() => openScale(rep.gradeCode!)}>i</button>
                   )}
@@ -371,7 +373,7 @@ export function LotPage({
             <button type="button" aria-pressed={alerted} aria-label="Brīdināt par līdzīgiem lotiem"
                     onClick={() => { setAlerted((v) => !v); say(alerted ? "Brīdinājums atcelts" : "Brīdināsim par līdzīgiem lotiem"); }}
             ><Icon name="bell" /></button>
-            <button type="button" aria-label="Dalīties ar lotu"
+            <button type="button" aria-haspopup="dialog" aria-label="Dalīties ar lotu"
                     onClick={() => openShare({ id: a.id, sku: a.sku, title: a.title })}
             ><Icon name="share" /></button>
           </div>
@@ -437,7 +439,7 @@ export function LotPage({
                     <input type="checkbox" checked={proxy} onChange={(e) => setProxy(e.target.checked)} />
                     <span>
                       Iestatīt kā maksimālo solījumu — solīsim tavā vietā līdz šai summai
-                      <button className="info-btn" type="button" aria-label="Kas ir maksimālais solījums"
+                      <button className="info-btn" type="button" aria-haspopup="dialog" aria-label="Kas ir maksimālais solījums"
                               onClick={(e) => { e.preventDefault(); setProxyInfo(true); }}>i</button>
                     </span>
                   </label>

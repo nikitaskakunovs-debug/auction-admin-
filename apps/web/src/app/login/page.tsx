@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { publicApi } from "@/lib/api";
 import { useT } from "@/lib/i18n";
@@ -11,6 +11,7 @@ import Link from "next/link";
 export default function LoginPage() {
   const { t } = useT();
   const router = useRouter();
+  const next = useSearchParams().get("next") ?? "/";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -22,7 +23,7 @@ export default function LoginPage() {
     setError(null);
     try {
       await publicApi.login(email.trim().toLowerCase(), password);
-      router.push("/");
+      router.push(next);
     } catch {
       setError(t("auth.failed"));
     } finally {
@@ -38,7 +39,7 @@ export default function LoginPage() {
         {error && <div className="auth-err">{error}</div>}
         <button className="btn btn-primary btn-lg btn-block" type="submit" disabled={busy || !email || !password}>{t("auth.signin")}</button>
       </form>
-      <SocialAuth />
+      <SocialAuth next={next} />
       <p className="auth-alt">
         {t("auth.noAccount")} <Link href="/register">{t("nav.register")}</Link>
         {" · "}

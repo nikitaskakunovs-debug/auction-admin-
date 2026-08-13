@@ -129,7 +129,9 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
       say(r.youLead ? t("a.youLead") : t("a.outbid"));
       await load(stage.id);
     } catch (err) {
-      if (err instanceof PublicApiError && typeof err.body.minAcceptableCents === "number") {
+      if (err instanceof PublicApiError && err.body.code === "EMAIL_NOT_VERIFIED") {
+        setNotice({ text: "Vispirms apstiprini e-pastu — saite nosūtīta uz tavu adresi", tone: "out" });
+      } else if (err instanceof PublicApiError && typeof err.body.minAcceptableCents === "number") {
         setNotice({ text: `${t("a.minBid")}: ${formatEur(err.body.minAcceptableCents)}`, tone: "out" });
       } else {
         setNotice({ text: err instanceof Error ? err.message : "error", tone: "out" });

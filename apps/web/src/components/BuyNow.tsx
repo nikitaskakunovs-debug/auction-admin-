@@ -23,6 +23,7 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
   const [error, setError] = useState<string | null>(null);
   const [soldOut, setSoldOut] = useState(!!listing.soldOut);
   const [frame, setFrame] = useState(0);
+  const [confirm, setConfirm] = useState(false);
 
   useEffect(() => {
     setSignedIn(publicApi.hasSession);
@@ -35,6 +36,7 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
     setBusy(true); setError(null);
     try {
       await publicApi.post(`/api/public/listings/${listing.id}/buy`);
+      setConfirm(false);
       say(t("buy.now"));
       router.push("/account");
     } catch (err) {
@@ -42,6 +44,8 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
         setSoldOut(true); setError(t("buy.soldOut"));
       } else if (err instanceof PublicApiError && err.body.code === "BIDDER_BLOCKED") {
         setError(t("buy.blocked"));
+      } else if (err instanceof PublicApiError && err.body.code === "EMAIL_NOT_VERIFIED") {
+        setError("Vispirms apstiprini e-pastu — saite nosūtīta uz tavu adresi");
       } else if (err instanceof PublicApiError && err.body.code === "FEES_OUTSTANDING") {
         setError(t("fees.blockedShort"));
       } else {
@@ -117,7 +121,7 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
           <h1 data-hero>{listing.title}</h1>
 
           <div className="lacts">
-            <button type="button" aria-label="Dalīties"
+            <button type="button" aria-haspopup="dialog" aria-label="Dalīties"
                     onClick={() => openShare({ id: listing.id, sku: listing.sku, title: listing.title })}
             ><Icon name="share" /></button>
           </div>
@@ -137,7 +141,7 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
               <p className="bb-status warn">{t("buy.soldOut")}</p>
             ) : signedIn ? (
               <button className="btn btn-primary btn-lg btn-block" type="button" disabled={busy}
-                      onClick={() => void buy()}>{t("buy.now")}</button>
+                      aria-haspopup="dialog" onClick={() => setConfirm(true)}>{t("buy.now")}</button>
             ) : (
               <Link className="btn btn-primary btn-lg btn-block" href="/login">{t("buy.signin")}</Link>
             )}
@@ -152,6 +156,49 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
           </div>
         </div>
       </div>
+
+      {/* ═══ МОДАЛКА: ПОДТВЕРЖДЕНИЕ ПОКУПКИ ═══ */}
+      {confirm && (
+        <div className="modal" role="dialog" aria-modal="true" aria-labelledby="m-buy-t">
+          <div className="modal-bd" onClick={() => setConfirm(false)} />
+          <div className="modal-card">
+            <div className="modal-head">
+              <div>
+                <span className="kicker">Apstiprini pirkumu · {listing.sku}</span>
+                <h3 id="m-buy-t">{listing.title}</h3>
+              </div>
+              <button className="modal-x" type="button" aria-label="Aizvērt"
+                      onClick={() => setConfirm(false)}><Icon name="x" /></button>
+            </div>
+            <div className="sum">
+              <p className="sum-lab">Cena</p>
+              <p className="sum-amt tnum">{formatEur(listing.priceCents)}</p>
+              <p className="note">{t("buy.vatNote")}</p>
+            </div>
+            <table className="fees"><tbody>
+              <tr><th scope="row">Prece</th><td className="tnum">{formatEur(listing.priceCents)}</td></tr>
+              {listing.estimatedTotalCents ? (
+                <>
+                  <tr><th scope="row">PVN</th>
+                    <td className="tnum">{formatEur(listing.estimatedTotalCents - listing.priceCents)}</td></tr>
+                  <tr className="tot"><th scope="row">Kopā</th>
+                    <td className="tnum">{formatEur(listing.estimatedTotalCents)}</td></tr>
+                </>
+              ) : null}
+            </tbody></table>
+            {error && <p className="bb-status out">{error}</p>}
+            <button className="btn btn-primary btn-block" type="button" disabled={busy}
+                    onClick={() => void buy()}>
+              {busy ? "Noformējam…" : "Pirkt un pāriet uz apmaksu"}
+            </button>
+            <button className="btn btn-outline btn-block" type="button" style={{ marginTop: 8 }}
+                    onClick={() => setConfirm(false)}>Atcelt</button>
+            <p className="note" style={{ textAlign: "center", marginTop: 12 }}>
+              Fiksētas cenas pirkumam pircēja komisija netiek piemērota
+            </p>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

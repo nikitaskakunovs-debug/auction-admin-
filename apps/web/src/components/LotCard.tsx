@@ -103,7 +103,9 @@ export function LotCard({ lot }: { lot: CardLot }) {
       say(r.youLead ? `Tavs solījums pieņemts · ${formatEur(r.currentPriceCents)}` : t("a.outbid"));
       if (r.extended) say(t("a.extended"));
     } catch (err) {
-      if (err instanceof PublicApiError && typeof err.body.minAcceptableCents === "number") {
+      if (err instanceof PublicApiError && err.body.code === "EMAIL_NOT_VERIFIED") {
+        say("Vispirms apstiprini e-pastu — saite nosūtīta uz tavu adresi");
+      } else if (err instanceof PublicApiError && typeof err.body.minAcceptableCents === "number") {
         say(`${t("a.minBid")}: ${formatEur(err.body.minAcceptableCents)}`);
       } else {
         say(err instanceof Error ? err.message : "error");
@@ -194,7 +196,7 @@ export function LotCard({ lot }: { lot: CardLot }) {
                     stop(e); alertStore.toggle(lot.id);
                     say(alertStore.has(lot.id) ? "Brīdināsim par jauniem līdzīgiem lotiem" : "Brīdinājums atcelts");
                   }}><Icon name="bell" /></button>
-          <button type="button" aria-label={`Dalīties ar lotu: ${lot.title}`}
+          <button type="button" aria-haspopup="dialog" aria-label={`Dalīties ar lotu: ${lot.title}`}
                   onClick={(e) => { stop(e); openShare({ id: lot.id, sku: lot.sku, title: lot.title, icon }); }}
           ><Icon name="share" /></button>
         </div>
@@ -213,7 +215,7 @@ export function LotCard({ lot }: { lot: CardLot }) {
           <span className="id">
             {lot.sku}{lot.gradeCode ? ` · ${lot.gradeCode}` : ""}
             {lot.gradeCode && (
-              <button className="info-btn" type="button"
+              <button className="info-btn" type="button" aria-haspopup="dialog"
                       aria-label={`Stāvokļa skala — šis lots ${lot.gradeCode}`}
                       onClick={(e) => { stop(e); openScale(lot.gradeCode!); }}>i</button>
             )}

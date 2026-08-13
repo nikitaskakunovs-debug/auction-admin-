@@ -11,6 +11,7 @@ import { TrackingLine } from "@/components/DeliveryPicker";
 import { FeesNotice } from "@/components/FeesNotice";
 import { KlixPayLater } from "@/components/KlixPayLater";
 import { PickupPass } from "@/components/PickupPass";
+import { VerifyNotice } from "@/components/VerifyNotice";
 import { Icon } from "@/components/Icon";
 import { LotCard, type CardLot } from "@/components/LotCard";
 import { alertStore } from "@/lib/ui";
@@ -46,7 +47,7 @@ export default function AccountPage() {
   const [watchIds, setWatchIds] = useState<string[]>([]);
   const [alertIds, setAlertIds] = useState<string[]>([]);
   const [catalog, setCatalog] = useState<PublicAuction[]>([]);
-  const [me, setMe] = useState<{ email: string; alias: string } | null>(null);
+  const [me, setMe] = useState<{ email: string; alias: string; emailVerified?: boolean } | null>(null);
 
   const loadOrders = useCallback(() => {
     void publicApi.get<{ orders: MyOrder[] }>("/api/public/me/orders").then((r) => setOrders(r.orders)).catch(() => undefined);
@@ -61,7 +62,7 @@ export default function AccountPage() {
     void publicApi.get<{ bidder: { blocked: boolean } }>("/api/public/auth/me").then((r) => setSuspended(r.bidder.blocked)).catch(() => undefined);
     void publicApi.get<{ bids: MyBidAuction[] }>("/api/public/me/bids").then((r) => setBids(r.bids)).catch(() => undefined);
     loadOrders();
-    void publicApi.get<{ bidder: { email: string; alias: string } }>("/api/public/auth/me")
+    void publicApi.get<{ bidder: { email: string; alias: string; emailVerified?: boolean } }>("/api/public/auth/me")
       .then((r) => setMe(r.bidder)).catch(() => undefined);
   }, [loadOrders]);
 
@@ -261,6 +262,14 @@ export default function AccountPage() {
         </button>
       </div>
 
+      {me?.emailVerified === false && (
+        <div className="verify-banner">
+          <span className="grow">E-pasts vēl nav apstiprināts — solīšana būs pieejama pēc apstiprināšanas.</span>
+          <Link className="btn btn-dark btn-sm" href={`/verify-email?email=${encodeURIComponent(me.email)}`}>
+            Apstiprināt e-pastu
+          </Link>
+        </div>
+      )}
       {suspended && <p className="bb-status out">{t("acc.suspended")}</p>}
       {payBanner && <p className={`bb-status ${bannerTone(payBanner)}`}>{bannerText[payBanner]}</p>}
       <FeesNotice />
@@ -365,9 +374,20 @@ export default function AccountPage() {
             <h2>Profils</h2>
             <div className="facts">
               <div><span>Segvārds</span><b>{me?.alias ?? "—"}</b></div>
-              <div><span>E-pasts</span><b>{me?.email ?? "—"}</b></div>
+              <div>
+                <span>E-pasts</span>
+                <b>
+                  {me?.email ?? "—"}
+                  {me?.emailVerified === false
+                    ? <span className="tag tag-live" style={{ marginLeft: 8 }}>Nav apstiprināts</span>
+                    : me?.emailVerified ? <span className="tag" style={{ marginLeft: 8 }}>Apstiprināts</span> : null}
+                </b>
+              </div>
               <div><span>Statuss</span><b>{suspended ? "Ierobežots" : "Aktīvs"}</b></div>
             </div>
+            {me?.emailVerified === false && (
+              <div style={{ marginTop: 16 }}><VerifyNotice email={me.email} compact /></div>
+            )}
             <p className="note" style={{ marginTop: 16 }}>
               Publiskajā solījumu plūsmā redzams tikai segvārds. Vārds, e-pasts un tālrunis citiem nav redzami.
             </p>

@@ -1,22 +1,22 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { AuthCard } from "@/components/authUi";
 import { SocialAuth } from "@/components/SocialAuth";
+import { VerifyNotice } from "@/components/VerifyNotice";
 import Link from "next/link";
 
 export default function RegisterPage() {
   const { t } = useT();
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [alias, setAlias] = useState("");
   const [password, setPassword] = useState("");
   const [country, setCountry] = useState("LV");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -24,7 +24,7 @@ export default function RegisterPage() {
     setError(null);
     try {
       await publicApi.register({ email: email.trim().toLowerCase(), alias: alias.trim(), password, country });
-      router.push("/");
+      setDone(true);
     } catch (err) {
       if (err instanceof PublicApiError && err.body.error === "email_exists") setError("Email already registered.");
       else setError("Registration failed — alias 3-24 chars (letters/digits/_.-), password min 8.");
@@ -32,6 +32,8 @@ export default function RegisterPage() {
       setBusy(false);
     }
   };
+
+  if (done) return <VerifyNotice email={email.trim().toLowerCase()} />;
 
   return (
     <AuthCard title={t("auth.register")}>
