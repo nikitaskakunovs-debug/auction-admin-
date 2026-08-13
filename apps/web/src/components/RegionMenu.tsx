@@ -64,7 +64,10 @@ export function RegionMenu({
                   <span className="ic" aria-hidden="true"><Icon name="pin" /></span>
                   <span className="t">
                     <b>{COUNTRY_LABEL[c].name}</b>
-                    <small>{COUNTRY_LABEL[c].city} · {COUNTRY_LABEL[c].domain}</small>
+                    <small>
+                      {COUNTRY_LABEL[c].city} · {COUNTRY_LABEL[c].domain} ·{" "}
+                      {COUNTRIES[c].languages.map((l) => LANG_NAME[l] ?? l).join(" · ")}
+                    </small>
                   </span>
                   {on ? <Icon name="check" size={18} /> : <Icon name="arrow" size={18} />}
                 </a>
