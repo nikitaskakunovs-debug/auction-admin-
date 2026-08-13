@@ -65,8 +65,8 @@ p{margin:0}
   white-space:nowrap;transition:background var(--fast) var(--ease),color var(--fast) var(--ease),
   transform var(--fast) var(--ease)}
 .btn:active{transform:scale(.975)}
-.btn[aria-disabled="true"]{background:var(--surface-3);color:var(--text-3);cursor:not-allowed;
-  transform:none;pointer-events:none}
+.btn[aria-disabled="true"],.btn:disabled{background:var(--surface-3);color:var(--text-3);cursor:not-allowed;
+  transform:none;pointer-events:none;box-shadow:none}
 .btn-primary{background:var(--accent);color:var(--on-accent)}
 .btn-primary:hover{background:var(--accent-hover)}
 .btn-dark{background:var(--brand);color:var(--on-brand)}

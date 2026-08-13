@@ -40,7 +40,15 @@ export default function RegisterPage() {
       <form onSubmit={submit} className="fields">
         <input type="email" placeholder={t("auth.email")} value={email} onChange={(e) => setEmail(e.target.value)} autoFocus />
         <input placeholder={t("auth.alias")} value={alias} onChange={(e) => setAlias(e.target.value)} />
-        <input type="password" placeholder={t("auth.password")} value={password} onChange={(e) => setPassword(e.target.value)} />
+        <input type="password" placeholder={t("auth.password")} value={password} onChange={(e) => setPassword(e.target.value)}
+               aria-describedby="pw-hint" minLength={8} />
+        {/* Кнопка неактивна, пока пароль короткий, — требование должно быть
+            видно сразу, иначе кнопка выглядит сломанной. */}
+        <p className="note" id="pw-hint">
+          {password.length > 0 && password.length < 8
+            ? `Vēl ${8 - password.length} rakstzīmes — parolē vajag vismaz 8`
+            : "Parolē vismaz 8 rakstzīmes"}
+        </p>
         <select value={country} onChange={(e) => setCountry(e.target.value)}>
           <option value="LV">Latvija</option>
           <option value="EE">Eesti</option>
