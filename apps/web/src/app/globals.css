@@ -939,7 +939,7 @@ body{padding-top:var(--chrome-h,232px)}
   border-radius:var(--r-md);margin-top:var(--s5);overflow:hidden}
 .facts>div{padding:14px 16px}
 .facts>div+div{border-left:1px solid var(--border)}
-.facts span{display:block;font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3)}
+.facts>div>span{display:block;font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3)}
 .facts b{font-size:16px;font-weight:700}
 /* отчёт */
 .report{margin-top:var(--s6);display:grid;gap:var(--s4)}
@@ -1261,6 +1261,16 @@ body{padding-top:var(--chrome-h,232px)}
 .acct-tab .n{min-width:22px;height:22px;padding:0 6px;border-radius:999px;background:var(--surface-3);
   color:var(--text);font-size:12px;display:grid;place-items:center}
 .acct-tab.on .n{background:color-mix(in srgb,var(--on-brand) 22%,transparent);color:var(--on-brand)}
+/* На телефоне разделов больше, чем влезает в строку: подрезаем правый край
+   градиентом, чтобы полоса читалась как прокручиваемая, и делаем пилюли
+   компактнее — так в кадр попадают три раздела вместо двух. */
+@media(max-width:760px){
+  .acct-nav{-webkit-mask-image:linear-gradient(90deg,#000 88%,transparent);
+    mask-image:linear-gradient(90deg,#000 88%,transparent);
+    scroll-snap-type:x proximity;padding-right:24px}
+  .acct-tab{padding:0 14px;font-size:14px;gap:6px;scroll-snap-align:start}
+  .acct-tab .n{min-width:20px;height:20px;font-size:12px}
+}
 .stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
 @media(max-width:720px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .stat{border:1px solid var(--border);border-radius:var(--r-md);padding:16px 18px;background:var(--surface)}

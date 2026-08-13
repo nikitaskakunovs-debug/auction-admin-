@@ -88,6 +88,14 @@ export default function AccountPage() {
     if (q && TABS.some(([id]) => id === q)) setTab(q);
   }, []);
 
+  // На телефоне полоса разделов прокручивается: активный раздел
+  // подводим в кадр, иначе не видно, где ты находишься.
+  const navRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = navRef.current?.querySelector<HTMLElement>(".acct-tab.on");
+    el?.scrollIntoView({ block: "nearest", inline: "center" });
+  }, [tab]);
+
   const goTab = (id: Tab) => {
     setTab(id);
     const url = id === "overview" ? "/account" : `/account?tab=${id}`;
@@ -274,7 +282,7 @@ export default function AccountPage() {
       {payBanner && <p className={`bb-status ${bannerTone(payBanner)}`}>{bannerText[payBanner]}</p>}
       <FeesNotice />
 
-      <nav className="acct-nav" aria-label="Konta sadaļas">
+      <nav className="acct-nav" aria-label="Konta sadaļas" ref={navRef}>
         {TABS.map(([id, label, icon]) => (
           <button key={id} type="button" className={`acct-tab${tab === id ? " on" : ""}`}
                   aria-current={tab === id ? "page" : undefined} onClick={() => goTab(id)}>
