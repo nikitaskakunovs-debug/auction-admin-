@@ -7,8 +7,12 @@ import { resolveCountry, SITE_ORIGINS } from "@/lib/country";
 import { alternatesFor } from "@/lib/seo";
 import { I18nProvider } from "@/lib/i18n";
 import type { Localized } from "@/components/CmsBlocks";
+import { Chrome } from "@/components/Chrome";
+import { CookieBanner } from "@/components/CookieBanner";
+import { Dock } from "@/components/Dock";
 import { Footer } from "@/components/Footer";
-import { Header } from "@/components/Header";
+import { Modals } from "@/components/Modals";
+import { Toast } from "@/components/Toast";
 import "./globals.css";
 
 // Шрифт лежит в репозитории и не тянется из сети ни в рантайме, ни на сборке:
@@ -62,9 +66,13 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       <body>
         <a className="skip" href="#main">Pāriet uz galveno saturu</a>
         <I18nProvider initialLang={country.defaultLang} available={country.languages}>
-          <Header />
-          <main id="main" className="wrap" style={{ paddingBottom: 80 }}>{children}</main>
+          <Chrome />
+          <main id="main">{children}</main>
           <Footer pages={footerPages} />
+          <Dock />
+          <Modals />
+          <CookieBanner />
+          <Toast />
         </I18nProvider>
       </body>
     </html>
