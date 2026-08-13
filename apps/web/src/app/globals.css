@@ -587,6 +587,9 @@ footer li a:hover{opacity:1;text-decoration:underline}
   .topchrome.is-compact .search{order:2;flex:1 1 auto;flex-basis:auto;min-height:42px;padding:0 16px}
   .topchrome.is-compact .head-act{order:3;margin-left:0}
   .topchrome.is-compact .head-act .btn-sm{min-height:42px}
+  /* В одну строку помещаются поиск и одна кнопка. Вторая («Ienākt»)
+     уходит: вход есть в доке и на экране регистрации. */
+  .topchrome.is-compact .head .btn-outline.keep{display:none}
 }
 @media(prefers-reduced-motion:reduce){.head .wrap,.logo{transition:none}}
 /* отступ под фиксированную панель: JS ставит точное значение, значения ниже — запас без JS */
