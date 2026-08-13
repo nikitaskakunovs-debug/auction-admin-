@@ -8,6 +8,7 @@ import { conditionLabel } from "@/lib/conditions";
 import { increment, marketFees } from "@/lib/fees";
 import { useT } from "@/lib/i18n";
 import { photoWeb } from "@/lib/photos";
+import { useStickyBar } from "@/lib/ui";
 import { formatEur, type AuctionDetail, type PublicAuction } from "@/lib/types";
 import { Icon } from "./Icon";
 import { useNow, formatLeft } from "./Countdown";
@@ -139,6 +140,8 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
     } finally { setBusy(false); }
   };
 
+
+  useStickyBar(left > 0);
   return (
     <section className="wrap" style={{ paddingTop: 24 }}>
       <nav className="crumbs" aria-label="Navigācijas ceļš">

@@ -9,6 +9,7 @@ import { computeInvoice, increment, marketFees } from "@/lib/fees";
 import { useT } from "@/lib/i18n";
 import { photoWeb, photoThumb } from "@/lib/photos";
 import { formatEur, type AuctionDetail, type PublicAuction } from "@/lib/types";
+import { useStickyBar } from "@/lib/ui";
 import { watchStore } from "@/lib/watch";
 import { KlixPayLater } from "./KlixPayLater";
 import { Icon } from "./Icon";
@@ -175,6 +176,8 @@ export function LotPage({
 
   const quick = [minNext, price + inc * 2, price + inc * 5];
 
+
+  useStickyBar(live && !over && !bidVisible);
   return (
     <section className="wrap" style={{ paddingTop: 24 }}>
       <nav className="crumbs" aria-label="Navigācijas ceļš">

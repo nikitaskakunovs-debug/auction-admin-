@@ -101,3 +101,14 @@ export function useReveal() {
     return () => { io.disconnect(); mo.disconnect(); };
   }, []);
 }
+
+/** Пока на экране висит липкая панель действия, странице нужен запас снизу,
+ *  иначе последний блок уезжает под неё. Класс на <body> — потому что
+ *  padding-bottom задан там же. */
+export function useStickyBar(active: boolean) {
+  useEffect(() => {
+    if (!active) return;
+    document.body.classList.add("has-bidbar");
+    return () => { document.body.classList.remove("has-bidbar"); };
+  }, [active]);
+}

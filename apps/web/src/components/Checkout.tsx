@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
 import { useT } from "@/lib/i18n";
+import { useStickyBar } from "@/lib/ui";
 import { formatEur, type MyOrder, type ShippingOption } from "@/lib/types";
 import { Icon } from "./Icon";
 import { KlixPayLater } from "./KlixPayLater";
@@ -138,6 +139,8 @@ export function Checkout({ orderRef }: { orderRef: string }) {
   const shipCost = chosen ? chosen.priceCents + chosen.handlingCents : order.shippingCents + order.handlingCents;
   const total = order.hammerCents + order.premiumCents + order.vatCents + shipCost;
 
+
+  useStickyBar(!paid && !submitted && !payVisible);
   return (
     <section className="wrap" style={{ paddingTop: 24 }}>
       <nav className="crumbs" aria-label="Navigācijas ceļš">
