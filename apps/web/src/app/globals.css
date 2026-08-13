@@ -29,7 +29,7 @@
 *,*::before,*::after{box-sizing:border-box}
 html{overflow-x:hidden;overflow-x:clip;scroll-behavior:smooth}
 body{margin:0;background:var(--surface);color:var(--text);font-family:var(--f);font-size:16px;
-  line-height:1.5;-webkit-font-smoothing:antialiased;overflow-x:hidden;
+  line-height:1.5;-webkit-font-smoothing:antialiased;overflow-x:clip;
   padding-bottom:calc(var(--dock-h) + 24px + env(safe-area-inset-bottom))}
 body.no-scroll{overflow:hidden}
 a{color:inherit;text-decoration:none}
@@ -806,6 +806,25 @@ body{padding-top:var(--chrome-h,232px)}
   background:var(--accent);color:var(--on-accent);font-size:12px;font-weight:800}
 .fbar .sortwrap{margin-left:auto}
 @media(max-width:700px){.fbar .sortwrap{margin-left:0;width:100%}}
+
+/* ═══ Фильтры каталога на телефоне ═══
+   Семь чипов в 390 px рассыпаются в пять рядов и выдавливают выдачу за экран.
+   Ниже 760 px показываем две кнопки — «Filtri» и «Kārtot», — а все группы
+   живут в шторке; панель липкая, чтобы фильтр был под рукой при прокрутке. */
+.fbar-mob{display:none}
+@media(max-width:760px){
+  .fbar{display:none}
+  .fbar-mob{display:flex;gap:8px;align-items:center;position:sticky;
+    top:var(--chrome-c,80px);z-index:40;padding:10px 0 12px;margin-bottom:var(--s4);
+    background:var(--surface);box-shadow:0 10px 14px -10px rgba(10,30,10,.28)}
+  .fbar-mob .fchip{flex:1 1 auto;min-height:48px;justify-content:center}
+  .fbar-mob .fchip-dark{flex:0 0 auto}
+  .fbar-mob .val{max-width:12ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .active-f{margin-bottom:var(--s4)}
+  /* Подсказка, что ряд коллекций можно листать вбок. */
+  .hrail{-webkit-mask-image:linear-gradient(90deg,#000 88%,transparent);
+    mask-image:linear-gradient(90deg,#000 88%,transparent)}
+}
 .pop{position:absolute;top:calc(100% + 8px);left:0;z-index:60;min-width:260px;max-height:340px;overflow:auto;
   background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);
   box-shadow:var(--shadow-3);padding:8px}

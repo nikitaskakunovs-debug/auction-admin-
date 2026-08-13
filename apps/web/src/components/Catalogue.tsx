@@ -199,6 +199,21 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
         ))}
       </div>
 
+      {/* На телефоне семь чипов не помещаются и рассыпаются в пять рядов —
+          там показываем две кнопки, а сами фильтры живут в шторке. */}
+      <div className="fbar-mob">
+        <button className="fchip fchip-dark" type="button" aria-haspopup="dialog"
+                onClick={() => setSheet(true)}>
+          <Icon name="sliders" size={16} />Filtri
+          {active.length > 0 && <span className="n">{active.length}</span>}
+        </button>
+        <button className={`fchip${chipOn.sort ? " on" : ""}`} type="button" aria-haspopup="dialog"
+                onClick={() => setSheet(true)}>
+          Kārtot <span className="val">{SORTS.find(([c]) => c === sort)![1]}</span>
+          <Icon name="chev" className="chev" size={14} />
+        </button>
+      </div>
+
       <div className="fbar" role="group" aria-label="Filtri" ref={bar}>
         <button className="fchip fchip-dark" type="button" aria-haspopup="dialog" aria-expanded={sheet}
                 onClick={() => setSheet(true)}>
@@ -336,6 +351,16 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
 
             <div className="sheet-body">
               <section>
+                <h4>Kārtot</h4>
+                <div className="sheet-chips">
+                  {SORTS.map(([id, label]) => (
+                    <button key={id} className={`chip${sort === id ? " chip-dark" : ""}`} type="button"
+                            aria-pressed={sort === id} onClick={() => setSort(id)}>{label}</button>
+                  ))}
+                </div>
+              </section>
+
+              <section>
                 <h4>Kolekcija</h4>
                 <div className="sheet-chips">
                   {COLLS.map(([id, label]) => (
@@ -417,15 +442,6 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
                 </div>
               </section>
 
-              <section>
-                <h4>Kārtot</h4>
-                <div className="sheet-chips">
-                  {SORTS.map(([id, label]) => (
-                    <button key={id} className={`chip${sort === id ? " chip-dark" : ""}`} type="button"
-                            aria-pressed={sort === id} onClick={() => setSort(id)}>{label}</button>
-                  ))}
-                </div>
-              </section>
             </div>
 
             <div className="sheet-foot">
