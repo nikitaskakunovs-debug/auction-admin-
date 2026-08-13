@@ -21,7 +21,7 @@ type Slide = {
 
 const SLIDES: Slide[] = [
   {
-    theme: "banner-green", href: "/katalogs?status=live",
+    theme: "banner-green", href: "/tiesraide",
     count: "Sākas pēc 4 h 12 min",
     kicker: "Piektdienas izsole", title: "Friday Signature Sale",
     text: "Pulksteņi, kameras un dizaina objekti no vienas īpašnieka kolekcijas. 180 loti, bez rezerves cenas.",
@@ -39,14 +39,14 @@ const SLIDES: Slide[] = [
     decos: [{ width: 380, height: 380, right: -90, bottom: -160 }],
   },
   {
-    theme: "banner-yellow", href: "/p/pardod-ar-mums",
+    theme: "banner-yellow", href: "/pardod",
     kicker: "Pārdod ar mums", title: "Novērtējums 24 h laikā",
     text: "Atsūti foto — pasakām reālo tirgus cenu un paņemam lotu izsolei.",
     cta: "Uzzināt vairāk",
     decos: [{ width: 320, height: 320, left: -80, bottom: -140 }],
   },
   {
-    theme: "banner-dark", href: "/p/pass",
+    theme: "banner-dark", href: "/pass",
     kicker: "Izsoli Pass", title: "Piegāde bez maksas visu gadu",
     text: "99 € gadā: pircēja komisija 15% 20% vietā un piegāde bez maksas.",
     cta: "Apskatīt Izsoli Pass",

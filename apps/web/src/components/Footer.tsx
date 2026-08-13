@@ -12,29 +12,29 @@ export function Footer({ pages }: { pages: Array<{ slug: string; title: Localize
 
   const cols: Array<[string, Array<[string, string]>]> = [
     ["Izsoles", [
-      ["Tiešraidē", "/katalogs?status=live"],
+      ["Tiešraidē", "/tiesraide"],
       ["Drīz beidzas", "/katalogs?closing=1d"],
       ["Bez rezerves", "/katalogs?reserve=no"],
-      ["Izsoļu rezultāti", "/katalogs?status=ended"],
+      ["Izsoļu rezultāti", "/rezultati"],
     ]],
     ["Kā tas darbojas", [
-      ["Solīšanas noteikumi", "/p/solisanas-noteikumi"],
-      ["Automātiskais solītājs", "/p/automatiskais-solitajs"],
+      ["Solīšanas noteikumi", "/buj"],
+      ["Automātiskais solītājs", "/buj"],
       ["Stāvokļa skala A–D", "/conditions"],
-      ["Maksājumu veidi", "/p/maksajumi"],
+      ["Maksājumu veidi", "/buj"],
     ]],
     ["Piegāde", [
-      ["Pakomāti Latvijā", "/p/piegade"],
-      ["Izņemšana Rīgā", "/p/iznemsana"],
-      ["Atteikuma tiesības", "/p/atteikuma-tiesibas"],
-      ["Bojāta prece", "/p/bojata-prece"],
+      ["Pakomāti Latvijā", "/buj"],
+      ["Izņemšana Rīgā", "/buj"],
+      ["Atteikuma tiesības", "/buj"],
+      ["Bojāta prece", "/buj"],
     ]],
   ];
 
   const company: Array<[string, string]> = pages.length
     ? pages.map((p) => [pickLocalized(p.title, lang), `/p/${p.slug}`] as [string, string])
-    : [["Par mums", "/p/par-mums"], ["No kurienes preces", "/p/preces"],
-       ["Palīdzības centrs", "/p/palidziba"], ["Sazinies ar mums", "/p/kontakti"]];
+    : [["Pārdod ar mums", "/pardod"], ["Izsoli Pass", "/pass"],
+       ["Biežākie jautājumi", "/buj"], ["Sazinies ar mums", "/kontakti"]];
 
   return (
     <footer><div className="wrap">
@@ -71,7 +71,7 @@ export function Footer({ pages }: { pages: Array<{ slug: string; title: Localize
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.6 7.2a2.5 2.5 0 0 0-1.8-1.8C18.2 5 12 5 12 5s-6.2 0-7.8.4A2.5 2.5 0 0 0 2.4 7.2 26 26 0 0 0 2 12c0 1.6.1 3.2.4 4.8a2.5 2.5 0 0 0 1.8 1.8C5.8 19 12 19 12 19s6.2 0 7.8-.4a2.5 2.5 0 0 0 1.8-1.8c.3-1.6.4-3.2.4-4.8s-.1-3.2-.4-4.8zM10 15V9l5.2 3L10 15z" /></svg>
           </a>
         </div>
-        <Link className="f-pill" href="/"><Icon name="globe" size={16} />Latvija · Latviešu · EUR €</Link>
+        <Link className="f-pill" href="/katalogs"><Icon name="globe" size={16} />Latvija · Latviešu · EUR €</Link>
       </div>
 
       <p className="f-legal">

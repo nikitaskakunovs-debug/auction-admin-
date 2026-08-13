@@ -43,7 +43,7 @@ const SORTS: Array<[string, string]> = [
 
 const price = (a: PublicAuction) => a.currentPriceCents ?? a.startPriceCents ?? 0;
 
-export function Catalogue({ auctions }: { auctions: Row[] }) {
+export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: string }) {
   const { t } = useT();
   const qs = useSearchParams();
   const [coll, setColl] = useState("all");
@@ -137,10 +137,10 @@ export function Catalogue({ auctions }: { auctions: Row[] }) {
 
       <div className="page-head">
         <div>
-          <h1 data-hero>Visi aktīvie loti</h1>
+          <h1 data-hero>{heading ?? "Visi aktīvie loti"}</h1>
           <p className="cnt">{rows.length} loti · atjaunojas reāllaikā</p>
         </div>
-        <Link className="link" href="/katalogs?status=live">
+        <Link className="link" href="/tiesraide">
           Skatīt izsoles tiešraidē <Icon name="arrow" size={16} />
         </Link>
       </div>

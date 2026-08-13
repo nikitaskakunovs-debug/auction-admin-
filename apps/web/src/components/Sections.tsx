@@ -55,7 +55,7 @@ export function LiveBand({ sales }: { sales: Array<{ id: string; title: string; 
           {rows.map((s, i) => (
             <div className="lb-item" key={i}>
               <div className="t"><h3>{s.title}</h3><p>{s.text}</p></div>
-              <Link className="btn btn-primary" href={`/katalogs?status=live`}>
+              <Link className="btn btn-primary" href="/tiesraide">
                 <Icon name="bolt" size={18} />Pievienoties
               </Link>
             </div>
@@ -74,10 +74,10 @@ const BRANDS: Array<[string, number]> = [
 export function Brands() {
   return (
     <section className="section wrap">
-      <SecHead id="brands" title="Meklē pēc zīmola" link="Visi zīmoli" href="/katalogs" />
+      <SecHead id="brands" title="Meklē pēc zīmola" link="Visi zīmoli" href="/zimoli" />
       <div className="brands">
         {BRANDS.map(([n, c]) => (
-          <Link className="brand" key={n} href={`/katalogs?q=${encodeURIComponent(n)}`}>
+          <Link className="brand" key={n} href={`/meklet?q=${encodeURIComponent(n)}`}>
             <b>{n}</b><span>{c} live</span>
           </Link>
         ))}
@@ -146,7 +146,7 @@ export function SeoBlock() {
           <p>
             Izsoli.lv ir online izsoļu platforma Rīgā. Katrs lots sākas ar zemu sākumcenu, un gala cenu nosaka
             solītāji. Apskati <Link href="/katalogs">pilno katalogu</Link>, pievienojies{" "}
-            <Link href="/katalogs?status=live">izsolei tiešraidē</Link> vai sāc ar{" "}
+            <Link href="/tiesraide">izsolei tiešraidē</Link> vai sāc ar{" "}
             <Link href="/katalogs?category=jewellery_watches">pulksteņiem un rotaslietām</Link>.
           </p>
           <p>
@@ -155,9 +155,9 @@ export function SeoBlock() {
             <Link href="/katalogs?category=electronics">audio tehnika</Link>,{" "}
             <Link href="/katalogs?category=tools">instrumenti</Link> un{" "}
             <Link href="/katalogs?category=home_garden">mājai un dizainam</Link>.
-            Var meklēt arī <Link href="#brands">pēc zīmola</Link>, izlasīt{" "}
-            <Link href="/p/solisanas-noteikumi">solīšanas noteikumus</Link> vai apskatīt{" "}
-            <Link href="/katalogs?status=ended">iepriekšējo izsoļu rezultātus</Link>.
+            Var meklēt arī <Link href="/zimoli">pēc zīmola</Link>, izlasīt{" "}
+            <Link href="/buj">solīšanas noteikumus</Link> vai apskatīt{" "}
+            <Link href="/rezultati">iepriekšējo izsoļu rezultātus</Link>.
             Visas cenas ar PVN, piegāde uz pakomātu 48 stundās.
           </p>
         </div>
@@ -192,12 +192,12 @@ export function Faq() {
           <p className="lead" style={{ marginTop: 12 }}>
             Solīšana, piegāde, atgriešana un stāvokļa skala — īsi un bez juridiskās miglas.
           </p>
-          <Link className="btn btn-dark" href="/p/buj" style={{ marginTop: 24 }}>
+          <Link className="btn btn-dark" href="/buj" style={{ marginTop: 24 }}>
             Skatīt visus BUJ <Icon name="arrow" size={18} />
           </Link>
           <p className="note" style={{ marginTop: 16 }}>
             Neatradi atbildi?{" "}
-            <Link href="/p/kontakti" style={{ color: "var(--text)", borderBottom: "2px solid var(--accent)", fontWeight: 700 }}>
+            <Link href="/kontakti" style={{ color: "var(--text)", borderBottom: "2px solid var(--accent)", fontWeight: 700 }}>
               Raksti mums
             </Link> — atbildam 1 darba dienas laikā.
           </p>

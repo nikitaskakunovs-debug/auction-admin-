@@ -119,7 +119,7 @@ export function Hero() {
     if (kw.trim()) p.set("q", kw.trim());
     if (cat[3]) p.set("category", cat[3]);
     if (when[3]) p.set("closing", when[3]);
-    router.push(`/katalogs${p.toString() ? `?${p}` : ""}`);
+    router.push(`/meklet${p.toString() ? `?${p}` : ""}`);
   };
 
   return (

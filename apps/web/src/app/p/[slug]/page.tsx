@@ -1,12 +1,24 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
-import { notFound } from "next/navigation";
+import Link from "next/link";
 import { API_URL } from "@/lib/config";
 import { resolveCountry } from "@/lib/country";
 import { alternatesFor } from "@/lib/seo";
 import { CmsBlocks, pickLocalized, type CmsPage } from "@/components/CmsBlocks";
 
 export const dynamic = "force-dynamic";
+
+/** Юридические страницы ведёт CMS. Пока текст не заведён — показываем
+ *  оформленную заглушку с контактом вместо 404: ссылки в подвале не должны
+ *  упираться в пустоту. Страница при этом закрыта от индексации. */
+const TITLES: Record<string, string> = {
+  "lietosanas-noteikumi": "Lietošanas noteikumi",
+  "privatuma-politika": "Privātuma politika",
+  "sikdatnes": "Sīkdatņu politika",
+  "sudzibas": "Sūdzību izskatīšana",
+  "pieejamiba": "Pieejamība",
+  "atteikuma-tiesibas": "Atteikuma tiesības",
+};
 
 async function fetchPage(slug: string): Promise<CmsPage | null> {
   try {
@@ -21,7 +33,7 @@ async function fetchPage(slug: string): Promise<CmsPage | null> {
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
   const [page, host] = await Promise.all([fetchPage(slug), headers().then((h) => h.get("host"))]);
-  if (!page) return { title: "Page" };
+  if (!page) return { title: TITLES[slug] ?? "Informācija", robots: { index: false } };
   const country = resolveCountry(host);
   // The domain's national language is the canonical SSR language; the client
   // can switch after load. CMS content is authored in lv/ru/en, so et/lt
@@ -37,6 +49,31 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 export default async function CmsPageRoute({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const page = await fetchPage(slug);
-  if (!page) notFound();
+  if (!page) {
+    return (
+      <section className="wrap" style={{ paddingTop: 24, paddingBottom: 80 }}>
+        <nav className="crumbs" aria-label="Navigācijas ceļš">
+          <ol>
+            <li><Link href="/">Sākums</Link></li>
+            <li aria-current="page">{TITLES[slug] ?? "Informācija"}</li>
+          </ol>
+        </nav>
+        <div className="page-head">
+          <div>
+            <h1 data-hero>{TITLES[slug] ?? "Informācija"}</h1>
+            <p className="cnt">Teksts tiek gatavots</p>
+          </div>
+        </div>
+        <p className="lead" style={{ maxWidth: "52ch" }}>
+          Šī dokumenta galīgā redakcija tiek sagatavota. Ja tas ir vajadzīgs jau tagad —
+          uzraksti mums, un nosūtīsim to e-pastā.
+        </p>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 24 }}>
+          <Link className="btn btn-primary" href="/kontakti">Sazināties</Link>
+          <Link className="btn btn-outline" href="/buj">Biežākie jautājumi</Link>
+        </div>
+      </section>
+    );
+  }
   return <CmsBlocks page={page} />;
 }

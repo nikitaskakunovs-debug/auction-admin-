@@ -37,12 +37,12 @@ export function Dock() {
   return (
     <nav className={`dock${hidden ? " is-hidden" : ""}`} aria-label="Galvenā navigācija">
       <Link href="/" aria-current={cur("/")}><Icon name="home" /><span className="lbl">Sākums</span></Link>
-      <Link href="/katalogs?status=live">
+      <Link href="/tiesraide">
         <Icon name="bolt" /><span className="lbl">Tiešraide</span>
         <i className="badge-dot" aria-hidden="true" />
       </Link>
-      <Link href="/katalogs"><Icon name="search" /><span className="lbl">Meklēt</span></Link>
-      <Link href="/account"><Icon name="heart" /><span className="lbl">Vēlmes</span></Link>
+      <Link href="/meklet"><Icon name="search" /><span className="lbl">Meklēt</span></Link>
+      <Link href="/velmes"><Icon name="heart" /><span className="lbl">Vēlmes</span></Link>
       <Link href="/account">
         <span className="ava" aria-hidden="true">{initial}</span><span className="lbl">Profils</span>
       </Link>

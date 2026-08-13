@@ -1150,3 +1150,24 @@ body{padding-top:var(--chrome-h,232px)}
 .prose img{max-width:100%;border-radius:var(--r-md)}
 .prose hr{border:0;border-top:1px solid var(--border);margin:8px 0}
 .prose ul,.prose ol{padding-left:20px;display:grid;gap:6px;color:var(--text-2)}
+
+/* ═══ Таблица результатов изсоле ═══ */
+.rslt{width:100%;border-collapse:collapse;font-size:15px}
+.rslt th{text-align:left;font-size:12px;text-transform:uppercase;letter-spacing:.05em;
+  color:var(--text-3);padding:0 12px 10px;border-bottom:1px solid var(--border)}
+.rslt td{padding:12px;border-bottom:1px solid var(--border);vertical-align:middle}
+.rslt tr:hover td{background:var(--surface-2)}
+.rslt-lot{display:flex;align-items:center;gap:12px;color:inherit}
+.rslt-lot .ic{width:44px;height:44px;flex:0 0 44px;border-radius:var(--r-sm);background:var(--surface-2);
+  display:grid;place-items:center;overflow:hidden}
+.rslt-lot .ic img{width:100%;height:100%;object-fit:cover}
+.rslt-lot .ic svg{width:22px;height:22px;stroke:var(--text-3);fill:none;stroke-width:1.6}
+.rslt-lot b{display:block;font-weight:700}
+.rslt-lot small{display:block;color:var(--text-3);font-size:12.5px}
+@media(max-width:760px){
+  .rslt thead{display:none}
+  .rslt tr{display:grid;grid-template-columns:1fr auto;gap:4px;padding:12px 0;
+    border-bottom:1px solid var(--border)}
+  .rslt td{border:0;padding:0}
+  .rslt td:first-child{grid-column:1 / -1;margin-bottom:6px}
+}

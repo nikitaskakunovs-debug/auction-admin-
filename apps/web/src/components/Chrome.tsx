@@ -10,7 +10,7 @@ import { Icon } from "./Icon";
 /** Категории макета. Коды — из движка (CATEGORY_CODES), первые три пункта
  *  это срезы каталога, а не категории: так было в утверждённом макете. */
 const RAIL: Array<{ label: string; icon: string; href: string; live?: boolean }> = [
-  { label: "Tiešraidē", icon: "bolt", href: "/katalogs?status=live", live: true },
+  { label: "Tiešraidē", icon: "bolt", href: "/tiesraide", live: true },
   { label: "Drīz beidzas", icon: "timer", href: "/katalogs?closing=1h" },
   { label: "Bez rezerves", icon: "tag", href: "/katalogs?reserve=no" },
   { label: "Pulksteņi", icon: "watch", href: "/katalogs?category=jewellery_watches" },
@@ -88,9 +88,9 @@ export function Chrome() {
         <div className="wrap">
           <span className="util-l"><Icon name="pin" size={16} />Rīga, LV</span>
           <nav className="util-c" aria-label="Ātrās saites">
-            <Link href="/katalogs?status=live"><i className="pulse" aria-hidden="true" />Tiešraidē</Link>
+            <Link href="/tiesraide"><i className="pulse" aria-hidden="true" />Tiešraidē</Link>
             <Link href="/katalogs">Visas kategorijas</Link>
-            <Link href="/katalogs?status=ended">Izsoļu rezultāti</Link>
+            <Link href="/rezultati">Izsoļu rezultāti</Link>
           </nav>
           <div className="util-r">
             <span style={{ position: "relative" }}>
@@ -122,17 +122,17 @@ export function Chrome() {
 
           <Link className="cat-btn" href="/katalogs"><Icon name="menu" size={18} /><span>Katalogs</span></Link>
 
-          <form className="search" role="search" action="/katalogs" method="get">
+          <form className="search" role="search" action="/meklet" method="get">
             <Icon name="search" size={20} />
             <label className="sr" htmlFor="q">Meklēt lotus</label>
             <input id="q" name="q" type="search" placeholder="Meklēt lotus…" autoComplete="off" />
           </form>
 
           <div className="head-act">
-            <Link className="icon-link" href="/account">
+            <Link className="icon-link" href="/velmes">
               <Icon name="bell" size={22} />Brīdinājumi
             </Link>
-            <Link className="icon-link" href="/account">
+            <Link className="icon-link" href="/velmes">
               <Icon name="heart" size={22} />Vēlmes
               {watched > 0 && (
                 <>
