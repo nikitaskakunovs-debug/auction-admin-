@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useT } from "@/lib/i18n";
 import type { Country } from "@/lib/country";
-import { pickLocalized, type Localized } from "./CmsBlocks";
+import { pickLocalized, type Localized } from "@/lib/localized";
 import { Icon } from "./Icon";
 import { COUNTRY_LABEL, LANG_NAME, RegionMenu } from "./RegionMenu";
 

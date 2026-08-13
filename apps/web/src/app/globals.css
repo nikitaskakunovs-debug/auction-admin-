@@ -467,9 +467,12 @@ footer li a:hover{opacity:1;text-decoration:underline}
 .modal[hidden]{display:none}
 .modal-bd{position:absolute;inset:0;background:rgba(14,15,12,.55);-webkit-backdrop-filter:blur(4px);
   backdrop-filter:blur(4px)}
-.modal-card{position:relative;background:var(--surface);border:1px solid var(--border);
+.modal-card{position:relative;background:var(--surface);color:var(--text);
+  border:1px solid var(--border);
   border-radius:var(--r-lg);box-shadow:var(--shadow-3);width:min(520px,100%);
   max-height:calc(100vh - 32px);overflow:auto;padding:24px}
+/* Диалог может быть отрисован внутри тёмного блока — например шторка региона
+   живёт в подвале. Цвет текста задаём явно, чтобы он не наследовался. */
 .modal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:20px}
 .modal-head p{font-size:14px;color:var(--text-2);margin-top:4px}
 .modal-x{width:44px;height:44px;border-radius:50%;background:var(--surface-2);display:grid;

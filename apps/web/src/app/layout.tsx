@@ -6,7 +6,7 @@ import { API_URL } from "@/lib/config";
 import { resolveCountry, SITE_ORIGINS } from "@/lib/country";
 import { alternatesFor } from "@/lib/seo";
 import { I18nProvider } from "@/lib/i18n";
-import type { Localized } from "@/components/CmsBlocks";
+import type { Localized } from "@/lib/localized";
 import { Chrome } from "@/components/Chrome";
 import { CookieBanner } from "@/components/CookieBanner";
 import { Dock } from "@/components/Dock";

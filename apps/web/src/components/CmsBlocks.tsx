@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useT, type Lang } from "@/lib/i18n";
+import { useT } from "@/lib/i18n";
+import { pickLocalized, type Localized } from "@/lib/localized";
 
-export type Localized = { lv: string; ru: string; en: string };
+export type { Localized };
 export type CmsBlock =
   | { type: "heading"; text: Localized }
   | { type: "text"; text: Localized }
@@ -17,15 +18,6 @@ export interface CmsPage {
   blocks: CmsBlock[];
   seo: { title: Localized; description: Localized } | null;
   updatedAt: string;
-}
-
-/**
- * Localized value with fallback: requested language → LV (house language) → EN.
- * CMS content is authored in lv/ru/en only; on the et/lt domains (whose
- * languages aren't Localized keys) this falls back to LV.
- */
-export function pickLocalized(l: Localized, lang: Lang): string {
-  return (l as Record<string, string>)[lang] || l.lv || l.en;
 }
 
 export function CmsBlocks({ page }: { page: CmsPage }) {

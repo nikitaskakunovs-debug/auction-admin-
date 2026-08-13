@@ -4,7 +4,8 @@ import Link from "next/link";
 import { API_URL } from "@/lib/config";
 import { resolveCountry } from "@/lib/country";
 import { alternatesFor } from "@/lib/seo";
-import { CmsBlocks, pickLocalized, type CmsPage } from "@/components/CmsBlocks";
+import { CmsBlocks, type CmsPage } from "@/components/CmsBlocks";
+import { pickLocalized } from "@/lib/localized";
 
 export const dynamic = "force-dynamic";
 
