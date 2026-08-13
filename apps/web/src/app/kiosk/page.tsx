@@ -70,6 +70,13 @@ export default function KioskPage() {
     [phase.kind, reset, submit],
   );
 
+  // Киоск — это экран на стене склада: витринная шапка, док и подвал
+  // на нём лишние. Прячем их, пока страница открыта.
+  useEffect(() => {
+    document.body.classList.add("kiosk-mode");
+    return () => { document.body.classList.remove("kiosk-mode"); };
+  }, []);
+
   // USB QR/barcode scanners type the code as keystrokes — capture globally.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -83,24 +90,24 @@ export default function KioskPage() {
   const mono = '"Geist Mono", ui-monospace, monospace';
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "#0F0F0E", color: "#fff", display: "grid", placeItems: "center", zIndex: 50 }}>
+    <div style={{ position: "fixed", inset: 0, background: "#0F0F0E", color: "#fff", display: "grid", placeItems: "center", zIndex: 200 }}>
       <div style={{ width: 380, maxWidth: "94vw", textAlign: "center", display: "grid", gap: 22 }}>
         {phase.kind === "ok" ? (
           <>
             <div style={{ fontSize: 17, fontWeight: 600, color: "rgba(255,255,255,0.75)" }}>
-              {phase.already ? "You are already checked in / Jūs jau esat reģistrēts" : "Welcome! Your ticket / Jūsu talons"}
+              {phase.already ? "Jūs jau esat reģistrēts" : "Jūsu talons"}
             </div>
             <div style={{ fontFamily: mono, fontSize: 120, fontWeight: 700, lineHeight: 1, background: "#fff", color: "#0F0F0E", borderRadius: 20, padding: "28px 0" }}>
               {phase.ticket}
             </div>
-            <div style={{ fontSize: 15, color: "rgba(255,255,255,0.65)" }}>Watch the screen — we are picking your items.</div>
+            <div style={{ fontSize: 15, color: "rgba(255,255,255,0.65)" }}>Skaties uz ekrānu — komplektējam tavu pasūtījumu.</div>
           </>
         ) : (
           <>
             <div>
-              <div style={{ fontSize: 20, fontWeight: 700 }}>Check in / Reģistrēties</div>
+              <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>Reģistrēšanās izsniegšanai</h1>
               <div style={{ fontSize: 13.5, color: "rgba(255,255,255,0.6)", marginTop: 6 }}>
-                Enter or scan your pickup code
+                Ievadi vai noskenē izņemšanas kodu
               </div>
             </div>
             <div

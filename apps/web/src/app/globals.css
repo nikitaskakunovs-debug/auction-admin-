@@ -32,6 +32,9 @@ body{margin:0;background:var(--surface);color:var(--text);font-family:var(--f);f
   line-height:1.5;-webkit-font-smoothing:antialiased;overflow-x:clip;
   padding-bottom:calc(var(--dock-h) + 24px + env(safe-area-inset-bottom))}
 body.no-scroll{overflow:hidden}
+/* Терминал на складе: витринная обвязка на нём не нужна. */
+body.kiosk-mode{padding:0}
+body.kiosk-mode .topchrome,body.kiosk-mode .dock,body.kiosk-mode footer,body.kiosk-mode .skip{display:none}
 /* Липкая панель действия висит над доком — последний блок не должен под неё уезжать. */
 @media(max-width:900px){
   body.has-bidbar{padding-bottom:calc(var(--dock-h) + 96px + env(safe-area-inset-bottom))}
