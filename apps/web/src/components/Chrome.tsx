@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { publicApi } from "@/lib/api";
 import { useT, type Lang } from "@/lib/i18n";
+import { alertStore, useRail, useReveal } from "@/lib/ui";
 import { watchStore } from "@/lib/watch";
 import { Icon } from "./Icon";
 
@@ -35,6 +36,10 @@ export function Chrome() {
   const [watched, setWatched] = useState(0);
   const [compact, setCompact] = useState(false);
   const [langOpen, setLangOpen] = useState(false);
+  const [alerts, setAlerts] = useState(0);
+  const rail = useRail<HTMLDivElement>();
+
+  useReveal();
 
   useEffect(() => {
     setSignedIn(publicApi.hasSession);
@@ -47,6 +52,12 @@ export function Chrome() {
     const sync = () => setWatched(watchStore.list().length);
     sync();
     return watchStore.subscribe(sync);
+  }, []);
+
+  useEffect(() => {
+    const sync = () => setAlerts(alertStore.list().length);
+    sync();
+    return alertStore.subscribe(sync);
   }, []);
 
   useEffect(() => {
@@ -109,7 +120,7 @@ export function Chrome() {
                 </div>
               )}
             </span>
-            <span>EUR €</span>
+            <Link href="/buj">EUR €</Link>
           </div>
         </div>
       </div>
@@ -131,6 +142,12 @@ export function Chrome() {
           <div className="head-act">
             <Link className="icon-link" href="/velmes">
               <Icon name="bell" size={22} />Brīdinājumi
+              {alerts > 0 && (
+                <>
+                  <span className="n" aria-hidden="true">{alerts}</span>
+                  <span className="sr">{alerts} brīdinājumi</span>
+                </>
+              )}
             </Link>
             <Link className="icon-link" href="/velmes">
               <Icon name="heart" size={22} />Vēlmes
@@ -158,7 +175,7 @@ export function Chrome() {
 
       <nav className="cats" aria-label="Kategorijas">
         <div className="wrap">
-          <div className="scroller">
+          <div className="scroller" ref={rail}>
             {RAIL.map((c, i) => (
               <Link key={c.label} className="cat" href={c.href} aria-current={i === 0 ? "page" : undefined}>
                 {c.live && <i className="dot" aria-hidden="true" />}

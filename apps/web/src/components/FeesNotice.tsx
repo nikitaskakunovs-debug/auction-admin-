@@ -22,18 +22,14 @@ export function FeesNotice() {
   if (!fees || fees.outstandingCents <= 0) return null;
 
   return (
-    <div style={{ background: "#FBE3E3", border: "1px solid #E8B4B4", borderRadius: 14, padding: "14px 18px" }}>
-      <div style={{ fontSize: 14, fontWeight: 700, color: "#8F1D21" }}>
-        {t("fees.banner")}: {formatEur(fees.outstandingCents)}
-      </div>
-      <div style={{ fontSize: 12.5, color: "#8F1D21", marginTop: 4 }}>{t("fees.note")}</div>
-      <div style={{ fontSize: 12, color: "#A54A4D", marginTop: 6, display: "flex", gap: 12, flexWrap: "wrap" }}>
+    <div className="bb-status out" style={{ margin: 0, padding: "14px 18px" }}>
+      <b>{t("fees.banner")}: {formatEur(fees.outstandingCents)}</b>
+      <p className="note" style={{ marginTop: 4 }}>{t("fees.note")}</p>
+      <p className="note tnum" style={{ marginTop: 6, display: "flex", gap: 12, flexWrap: "wrap" }}>
         {fees.fees.map((f) => (
-          <span key={f.orderRef} style={{ fontFamily: '"Geist Mono", ui-monospace, monospace' }}>
-            {f.orderRef} · {formatEur(f.amountCents)}
-          </span>
+          <span key={f.orderRef}>{f.orderRef} · {formatEur(f.amountCents)}</span>
         ))}
-      </div>
+      </p>
     </div>
   );
 }

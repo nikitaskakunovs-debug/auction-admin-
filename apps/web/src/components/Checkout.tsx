@@ -25,10 +25,12 @@ export function Checkout({ orderRef }: { orderRef: string }) {
   const [locations, setLocations] = useState<ParcelLocation[]>([]);
   const [method, setMethod] = useState("pickup");
   const [machineId, setMachineId] = useState("");
-  const [filter, setFilter] = useState("");
   const [pay, setPay] = useState("klix");
   const [phone, setPhone] = useState("");
   const [terms, setTerms] = useState(false);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [submitted, setSubmitted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -89,6 +91,7 @@ export function Checkout({ orderRef }: { orderRef: string }) {
         `/api/public/orders/${encodeURIComponent(orderRef)}/pay`,
         { language: lang, provider: pay },
       );
+      setSubmitted(true);
       window.location.assign(r.checkoutUrl);
     } catch (err) {
       setBusy(false);
@@ -123,9 +126,12 @@ export function Checkout({ orderRef }: { orderRef: string }) {
   }
 
   const paid = order.status === "paid" || order.status === "collected" || order.status === "shipped";
-  const shipCost = order.shippingCents + order.handlingCents;
-  const shown = locations.filter((l) =>
-    !filter.trim() || `${l.city} ${l.name} ${l.address} ${l.zip}`.toLowerCase().includes(filter.toLowerCase()));
+  // Итог пересчитываем сразу при выборе способа: цену берём из тарифов,
+  // а не ждём сохранения на сервере — как в макете.
+  const chosen = options.find((o) => o.method === method);
+  const shipCost = chosen ? chosen.priceCents + chosen.handlingCents : order.shippingCents + order.handlingCents;
+  const total = order.hammerCents + order.premiumCents + order.vatCents + shipCost;
+  const shown = locations;
 
   return (
     <section className="wrap" style={{ paddingTop: 24 }}>
@@ -137,7 +143,7 @@ export function Checkout({ orderRef }: { orderRef: string }) {
         </ol>
       </nav>
 
-      <div className="page-head">
+      <div className="page-head" hidden={paid || submitted}>
         <div>
           <h1 data-hero>Apmaksa</h1>
           <p className="cnt">
@@ -149,7 +155,7 @@ export function Checkout({ orderRef }: { orderRef: string }) {
         </div>
       </div>
 
-      {paid ? (
+      {paid || submitted ? (
         <div className="done">
           <span className="ic" aria-hidden="true"><Icon name="check" /></span>
           <h2>Paldies! Maksājums saņemts</h2>
@@ -163,14 +169,22 @@ export function Checkout({ orderRef }: { orderRef: string }) {
           </div>
         </div>
       ) : (
-        <form className="pay" onSubmit={(e) => { e.preventDefault(); void startPayment(); }}>
+        <form className="pay" onSubmit={(e) => {
+          e.preventDefault();
+          if (!terms) { say("Lūdzu, apstiprini noteikumus"); return; }
+          if (provider && !machineId) { say("Izvēlies pakomātu"); return; }
+          say("Apstrādājam maksājumu…");
+          // Сначала фиксируем доставку на сервере — он пересчитывает заказ,
+          // и только потом уходим на оплату уже с итоговой суммой.
+          void saveDelivery(method, machineId).then(() => startPayment());
+        }}>
           <div className="pay-main">
             <fieldset className="card-b">
               <legend><h2>Piegāde</h2></legend>
               {options.map((o) => (
                 <label className="opt" key={o.method}>
                   <input type="radio" name="ship" value={o.method} checked={method === o.method}
-                         onChange={() => { setMethod(o.method); if (o.method === "pickup") void saveDelivery("pickup", ""); }} />
+                         onChange={() => setMethod(o.method)} />
                   <span>
                     <b>{o.method === "pickup" ? t("acc.deliveryPickup")
                       : o.method === "dpd_pm" ? t("acc.deliveryDpd") : t("acc.deliveryOmniva")}</b>
@@ -184,32 +198,31 @@ export function Checkout({ orderRef }: { orderRef: string }) {
                 </label>
               ))}
 
-              {provider && (
-                <div className="fields" style={{ marginTop: 12 }}>
-                  <label>
-                    Pakomāts
-                    <input type="text" value={filter} placeholder="Meklē pēc pilsētas vai adreses"
-                           onChange={(e) => setFilter(e.target.value)} />
-                  </label>
-                  <label>
-                    Izvēlies
+            </fieldset>
+
+            <fieldset className="card-b">
+              <legend><h2>Saņēmējs</h2></legend>
+              <div className="fields">
+                <label>Vārds, uzvārds
+                  <input type="text" name="name" autoComplete="name" required
+                         value={name} onChange={(e) => setName(e.target.value)} /></label>
+                <label>E-pasts
+                  <input type="email" name="email" autoComplete="email" required
+                         value={email} onChange={(e) => setEmail(e.target.value)} /></label>
+                <label>Tālrunis
+                  <input type="tel" name="tel" autoComplete="tel"
+                         value={phone} onChange={(e) => setPhone(e.target.value)} /></label>
+                {provider && (
+                  <label>Pakomāts
                     <select value={machineId} onChange={(e) => setMachineId(e.target.value)}>
                       <option value="">—</option>
-                      {shown.slice(0, 80).map((l) => (
+                      {shown.slice(0, 200).map((l) => (
                         <option key={l.id} value={l.id}>{l.city} — {l.name}</option>
                       ))}
                     </select>
                   </label>
-                  <label>
-                    Tālrunis
-                    <input type="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
-                  </label>
-                  <div style={{ alignSelf: "end" }}>
-                    <button className="btn btn-outline" type="button" disabled={!machineId || busy}
-                            onClick={() => void saveDelivery(method, machineId)}>Saglabāt piegādi</button>
-                  </div>
-                </div>
-              )}
+                )}
+              </div>
             </fieldset>
 
             <fieldset className="card-b">
@@ -236,11 +249,11 @@ export function Checkout({ orderRef }: { orderRef: string }) {
               </div>
               <table className="fees"><tbody>
                 <tr><th scope="row">Āmura cena</th><td className="tnum">{formatEur(order.hammerCents)}</td></tr>
-                <tr><th scope="row">Pircēja komisija</th><td className="tnum">{formatEur(order.premiumCents)}</td></tr>
+                <tr><th scope="row">Pircēja komisija ({Math.round((order.premiumCents / Math.max(order.hammerCents, 1)) * 100)} %)</th><td className="tnum">{formatEur(order.premiumCents)}</td></tr>
                 <tr><th scope="row">PVN</th><td className="tnum">{formatEur(order.vatCents)}</td></tr>
                 <tr><th scope="row">Piegāde</th>
                   <td className="tnum">{shipCost === 0 ? "Bez maksas" : formatEur(shipCost)}</td></tr>
-                <tr className="tot"><th scope="row">Kopā</th><td className="tnum">{formatEur(order.totalCents)}</td></tr>
+                <tr className="tot"><th scope="row">Kopā</th><td className="tnum">{formatEur(total)}</td></tr>
               </tbody></table>
 
               {error && <p className="bb-status err" style={{ marginTop: 12 }}>{error}</p>}
@@ -248,13 +261,13 @@ export function Checkout({ orderRef }: { orderRef: string }) {
               <label className="terms">
                 <input type="checkbox" required checked={terms} onChange={(e) => setTerms(e.target.checked)} />
                 <span>
-                  Piekrītu <Link href="/p/lietosanas-noteikumi">lietošanas noteikumiem</Link> un apstiprinu,
-                  ka esmu iepazinies ar <Link href="/p/atteikuma-tiesibas">atteikuma tiesībām</Link>.
+                  Piekrītu <Link href="/lietosanas-noteikumi">lietošanas noteikumiem</Link> un apstiprinu,
+                  ka esmu iepazinies ar <Link href="/atteikuma-tiesibas">atteikuma tiesībām</Link>.
                 </span>
               </label>
 
-              <button className="btn btn-primary btn-lg btn-block" type="submit" disabled={busy || !terms}>
-                {busy ? "Novirzām…" : <>Maksāt <span className="tnum">{formatEur(order.totalCents)}</span></>}
+              <button className="btn btn-primary btn-lg btn-block" type="submit" disabled={busy}>
+                {busy ? "Novirzām…" : <>Maksāt <span className="tnum">{formatEur(total)}</span></>}
               </button>
               <p className="note" style={{ textAlign: "center", marginTop: 10 }}>
                 Droša apmaksa · Klix by Citadele

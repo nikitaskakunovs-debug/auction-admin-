@@ -1,11 +1,15 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { publicApi, PublicApiError } from "@/lib/api";
 import { conditionLabel } from "@/lib/conditions";
+import { increment } from "@/lib/fees";
 import { useT } from "@/lib/i18n";
 import { photoThumb } from "@/lib/photos";
 import { formatEur, type PublicAuction } from "@/lib/types";
+import { alertStore } from "@/lib/ui";
 import { watchStore } from "@/lib/watch";
 import { Icon } from "./Icon";
 import { useNow, formatLeft } from "./Countdown";
@@ -19,24 +23,15 @@ import { say } from "./Toast";
  *    retailCents — зачёркнутая цена магазина и процент скидки
  *    gradeCode   — грейд A+/A/A−/B/D рядом с артикулом
  *    packaging   — второй чип состояния (упаковка)
- *    categoryIcon — иконка категории в углу картинки
+ *    hot / noReserve — теги «Karsts» и «Bez rezerves»
  */
 export type CardLot = PublicAuction & {
   retailCents?: number | null;
   gradeCode?: string | null;
   packaging?: string | null;
   categoryIcon?: string | null;
+  hot?: boolean | null;
 };
-
-/** Шаг ставки движка (центы). */
-function increment(cents: number): number {
-  if (cents >= 500_000) return 10_000;
-  if (cents >= 100_000) return 5_000;
-  if (cents >= 50_000) return 2_500;
-  if (cents >= 20_000) return 1_000;
-  if (cents >= 5_000) return 500;
-  return 100;
-}
 
 const CAT_ICON: Record<string, string> = {
   electronics: "tv", appliances: "coffee", furniture: "chair", tools: "tools",
@@ -49,10 +44,14 @@ const FRAMES = 4;
 
 export function LotCard({ lot }: { lot: CardLot }) {
   const { t } = useT();
+  const router = useRouter();
   const now = useNow();
   const [frame, setFrame] = useState(0);
+  const [touched, setTouched] = useState(false);
   const [watched, setWatched] = useState(false);
   const [alerted, setAlerted] = useState(false);
+  const [live, setLive] = useState<{ price: number; bids: number; youLead: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
   const art = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -60,12 +59,19 @@ export function LotCard({ lot }: { lot: CardLot }) {
     return watchStore.subscribe(() => setWatched(watchStore.has(lot.id)));
   }, [lot.id]);
 
-  const live = lot.status === "live";
+  useEffect(() => {
+    setAlerted(alertStore.has(lot.id));
+    return alertStore.subscribe(() => setAlerted(alertStore.has(lot.id)));
+  }, [lot.id]);
+
+  const isLive = lot.status === "live";
   const settled = lot.status.startsWith("ended");
   const shots = lot.photos.length ? lot.photos : new Array<string | null>(FRAMES).fill(null);
-  const price = lot.currentPriceCents ?? lot.startPriceCents ?? 0;
+  const price = live?.price ?? lot.currentPriceCents ?? lot.startPriceCents ?? 0;
+  const bidCount = live?.bids ?? lot.bidCount;
   const ask = price + increment(price);
   const left = new Date(lot.endsAt).getTime() - now;
+  const over = left <= 0;
   const icon = lot.categoryIcon || CAT_ICON[lot.category] || "art";
   const off = lot.retailCents ? Math.max(0, Math.round((1 - price / lot.retailCents) * 100)) : null;
 
@@ -82,25 +88,65 @@ export function LotCard({ lot }: { lot: CardLot }) {
 
   const swipe = useRef(0);
 
-  const timeLabel = settled
-    ? (lot.reserveMet || !lot.hasReserve ? "Pārdots" : "Nepārdots")
-    : live ? formatLeft(left)
+  /** Ставка прямо из карточки — как `[data-bid]` в макете.
+   *  Без сессии уводим на вход, сохранив адрес лота. */
+  const bid = async (e: React.MouseEvent) => {
+    stop(e);
+    if (settled || over) { say("Izsole šim lotam ir beigusies"); return; }
+    if (!publicApi.hasSession) { router.push(`/login?next=/auction/${lot.id}`); return; }
+    setBusy(true);
+    try {
+      const r = await publicApi.post<{ youLead: boolean; currentPriceCents: number; extended: boolean }>(
+        `/api/public/auctions/${lot.id}/bids`, { maxCents: ask },
+      );
+      setLive({ price: r.currentPriceCents, bids: bidCount + 1, youLead: r.youLead });
+      say(r.youLead ? `Tavs solījums pieņemts · ${formatEur(r.currentPriceCents)}` : t("a.outbid"));
+      if (r.extended) say(t("a.extended"));
+    } catch (err) {
+      if (err instanceof PublicApiError && typeof err.body.minAcceptableCents === "number") {
+        say(`${t("a.minBid")}: ${formatEur(err.body.minAcceptableCents)}`);
+      } else {
+        say(err instanceof Error ? err.message : "error");
+      }
+    } finally { setBusy(false); }
+  };
+
+  // Строка аукционных состояний под ценой — `.chant` макета.
+  const chant: [string, string] | null =
+    settled
+      ? (lot.hasReserve && !lot.reserveMet ? ["chant-pass", "Nepārdots — rezerve nav sasniegta"]
+        : ["chant-sold", `Pārdots · ${formatEur(price)}`])
+      : live?.youLead ? ["chant-win", "Tu esi augstākais solītājs"]
+      : live ? ["chant-out", "Tevi pārsolīja — solī vēlreiz"]
+      : isLive && left > 0 && left < 30_000 ? ["chant-go2", "Otro reizi…"]
+      : isLive && left > 0 && left < 90_000 ? ["chant-go1", "Pirmo reizi…"]
+      : null;
+
+  const timeLabel = settled || over
+    ? (settled ? (lot.hasReserve && !lot.reserveMet ? "Nepārdots" : "Pārdots") : "Beidzies")
+    : isLive ? `Beidzas pēc ${formatLeft(left)}`
     : `Sākas ${new Date(lot.startsAt).toLocaleDateString("lv-LV")}`;
 
   return (
-    <article className="lot" data-lot data-id={lot.sku}>
+    <article
+      className={`lot${settled ? " is-settled" : ""}`}
+      data-lot data-id={lot.sku}
+      onKeyDown={(e) => {
+        if (e.key === "ArrowLeft") set(frame - 1);
+        if (e.key === "ArrowRight") set(frame + 1);
+      }}
+    >
       <div className="lot-art" ref={art} onPointerMove={scrub} onPointerLeave={() => setFrame(0)}>
         <div
-          className="gal" data-gal
-          onPointerDown={(e) => { if (e.pointerType !== "mouse") swipe.current = e.clientX; }}
+          className={`gal${touched ? " is-touched" : ""}`} data-gal
+          onPointerDown={(e) => {
+            if (e.pointerType === "mouse") return;
+            swipe.current = e.clientX; setTouched(true);
+          }}
           onPointerUp={(e) => {
             if (e.pointerType === "mouse") return;
             const dx = e.clientX - swipe.current;
             if (Math.abs(dx) > 28) set(frame + (dx < 0 ? 1 : -1));
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "ArrowLeft") set(frame - 1);
-            if (e.key === "ArrowRight") set(frame + 1);
           }}
         >
           {shots.map((p, i) => (
@@ -128,7 +174,8 @@ export function LotCard({ lot }: { lot: CardLot }) {
         </div>
 
         <div className="lot-tags">
-          {live && <span className="tag tag-live">LIVE</span>}
+          {lot.hot && <span className="tag tag-live">Karsts</span>}
+          {!lot.hasReserve && isLive && <span className="tag">Bez rezerves</span>}
           {lot.hasReserve && !lot.reserveMet && <span className="tag">{t("a.reserveNotMet")}</span>}
         </div>
 
@@ -144,11 +191,11 @@ export function LotCard({ lot }: { lot: CardLot }) {
           <button type="button" aria-pressed={alerted}
                   aria-label={`Brīdināt par līdzīgiem lotiem: ${lot.title}`}
                   onClick={(e) => {
-                    stop(e); setAlerted((v) => !v);
-                    say(alerted ? "Brīdinājums atcelts" : "Brīdināsim par jauniem līdzīgiem lotiem");
+                    stop(e); alertStore.toggle(lot.id);
+                    say(alertStore.has(lot.id) ? "Brīdināsim par jauniem līdzīgiem lotiem" : "Brīdinājums atcelts");
                   }}><Icon name="bell" /></button>
           <button type="button" aria-label={`Dalīties ar lotu: ${lot.title}`}
-                  onClick={(e) => { stop(e); openShare({ id: lot.id, sku: lot.sku, title: lot.title }); }}
+                  onClick={(e) => { stop(e); openShare({ id: lot.id, sku: lot.sku, title: lot.title, icon }); }}
           ><Icon name="share" /></button>
         </div>
 
@@ -173,9 +220,9 @@ export function LotCard({ lot }: { lot: CardLot }) {
           </span>
           <time dateTime={lot.endsAt} suppressHydrationWarning
                 className={[
-                  live && left > 0 && left < 600_000 ? "soon" : "",
-                  live && left > 0 && left < 60_000 ? "blink" : "",
-                  settled ? "ended" : "",
+                  isLive && left > 0 && left < 600_000 ? "soon" : "",
+                  isLive && left > 0 && left < 60_000 ? "blink" : "",
+                  settled || over ? "ended" : "",
                 ].filter(Boolean).join(" ") || undefined}>{timeLabel}</time>
         </p>
 
@@ -188,8 +235,8 @@ export function LotCard({ lot }: { lot: CardLot }) {
 
         <div className="price-row">
           <div>
-            <p className="price-lab">Pašreizējā · {lot.bidCount}<span className="sr"> solījumi</span></p>
-            <p className="price tnum">{formatEur(price)}</p>
+            <p className="price-lab">Pašreizējā · {bidCount}<span className="sr"> solījumi</span></p>
+            <p className={`price tnum${live?.youLead ? " is-win" : ""}`}>{formatEur(price)}</p>
           </div>
           {lot.retailCents ? (
             <div className="rrp">
@@ -204,12 +251,21 @@ export function LotCard({ lot }: { lot: CardLot }) {
           ) : null}
         </div>
 
-        <Link className={`btn ${settled ? "btn-outline" : "btn-primary"} btn-block bid-btn`}
-              href={`/auction/${lot.id}`}>
-          {settled ? "Skatīt lotu" : live
-            ? <>Solīt · <span className="ask">{formatEur(ask)}</span></>
-            : "Skatīt lotu"}
-        </Link>
+        {chant && (
+          <p className={`chant ${chant[0]}`}><i aria-hidden="true" />{chant[1]}</p>
+        )}
+
+        {settled || over || !isLive ? (
+          <Link className="btn btn-outline btn-block bid-btn" href={`/auction/${lot.id}`}>
+            {settled ? (lot.hasReserve && !lot.reserveMet ? "Skatīt lotu" : `Pārdots · ${formatEur(price)}`)
+              : "Skatīt lotu"}
+          </Link>
+        ) : (
+          <button className="btn btn-primary btn-block bid-btn" type="button" disabled={busy} onClick={bid}>
+            {live && !live.youLead ? "Solīt vēlreiz · " : "Solīt · "}
+            <span className="ask">{formatEur(ask)}</span>
+          </button>
+        )}
       </div>
     </article>
   );

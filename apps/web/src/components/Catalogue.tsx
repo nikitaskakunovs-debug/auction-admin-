@@ -6,9 +6,11 @@ import { useSearchParams } from "next/navigation";
 import { CATEGORY_CODES } from "@/lib/categories";
 import { CONDITION_CODES, conditionBadge } from "@/lib/conditions";
 import { useT } from "@/lib/i18n";
-import type { PublicAuction } from "@/lib/types";
+import { formatEur, type PublicAuction } from "@/lib/types";
+import { useRail } from "@/lib/ui";
 import { Icon } from "./Icon";
 import { LotCard, type CardLot } from "./LotCard";
+import { say } from "./Toast";
 
 /** Каталог утверждённого макета: коллекции, панель фильтров с поповерами,
  *  чипы активных фильтров, пустое состояние.
@@ -41,6 +43,10 @@ const SORTS: Array<[string, string]> = [
   ["high", "Cena: dilstoša"], ["bids", "Visvairāk solījumu"],
 ];
 
+const PRICE_MAX = 1_000_000;   // 10 000 € в центах — верх ползунка
+const PRICE_STEP = 10_000;     // 100 € — шаг
+const PRICE_GAP = 10_000;      // минимальный зазор между ползунками
+
 const price = (a: PublicAuction) => a.currentPriceCents ?? a.startPriceCents ?? 0;
 
 export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: string }) {
@@ -52,17 +58,21 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
   const [grades, setGrades] = useState<string[]>([]);
   const [quick, setQuick] = useState<string[]>(qs.get("reserve") === "no" ? ["nores"] : []);
   const [min, setMin] = useState(0);
-  const [max, setMax] = useState(1_000_000);
+  const [max, setMax] = useState(PRICE_MAX);
   const [sort, setSort] = useState("ending");
-  const [q, setQ] = useState(qs.get("q") ?? "");
+  const [q] = useState(qs.get("q") ?? "");
   const [open, setOpen] = useState<string | null>(null);
   const bar = useRef<HTMLDivElement>(null);
+  const colls = useRail<HTMLDivElement>();
   const [now, setNow] = useState(() => Date.now());
 
+  // Пересчитываем только когда время реально влияет на выдачу — как в макете.
+  const timeMatters = sort === "ending" || quick.length > 0 || when !== "any";
   useEffect(() => {
+    if (!timeMatters) return;
     const id = setInterval(() => setNow(Date.now()), 5000);
     return () => clearInterval(id);
-  }, []);
+  }, [timeMatters]);
 
   useEffect(() => {
     if (!open) return;
@@ -90,7 +100,7 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
       if (left(a) > window_) return false;
       if (quick.includes("closing") && left(a) > 3_600) return false;
       if (quick.includes("nores") && a.hasReserve) return false;
-      if (quick.includes("hot") && a.bidCount < 20) return false;
+      if (quick.includes("hot") && !a.hot) return false;
       if (q.trim() && !a.title.toLowerCase().includes(q.trim().toLowerCase())) return false;
       return true;
     });
@@ -103,26 +113,50 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
     return [...out].sort(cmp[sort]);
   }, [auctions, coll, cat, grades, quick, when, min, max, q, sort, now]);
 
-  const active: Array<[string, string, () => void]> = [
-    ...(coll !== "all" ? [["coll", COLLS.find(([c]) => c === coll)![1], () => setColl("all")] as [string, string, () => void]] : []),
-    ...(cat !== "all" ? [["cat", catLabel(cat), () => setCat("all")] as [string, string, () => void]] : []),
-    ...(when !== "any" ? [["when", WHENS.find(([c]) => c === when)![1], () => setWhen("any")] as [string, string, () => void]] : []),
-    ...grades.map((g) => ["grade", t(`cond.${g}`), () => setGrades((x) => x.filter((y) => y !== g))] as [string, string, () => void]),
-    ...quick.map((k) => ["quick", QUICK.find(([c]) => c === k)![1], () => setQuick((x) => x.filter((y) => y !== k))] as [string, string, () => void]),
+  type Chip = { key: string; label: string; drop: () => void };
+  const active: Chip[] = [
+    ...(coll !== "all"
+      ? [{ key: "coll", label: COLLS.find(([c]) => c === coll)![1], drop: () => setColl("all") }] : []),
+    ...(cat !== "all" ? [{ key: "cat", label: catLabel(cat), drop: () => setCat("all") }] : []),
+    ...(when !== "any"
+      ? [{ key: "when", label: WHENS.find(([c]) => c === when)![1], drop: () => setWhen("any") }] : []),
+    ...grades.map((g) => ({
+      key: `grade:${g}`, label: `Stāvoklis ${t(`cond.${g}`)}`,
+      drop: () => setGrades((x) => x.filter((y) => y !== g)),
+    })),
+    ...quick.map((k) => ({
+      key: `quick:${k}`, label: QUICK.find(([c]) => c === k)![1],
+      drop: () => setQuick((x) => x.filter((y) => y !== k)),
+    })),
+    ...(min > 0 ? [{ key: "min", label: `no ${formatEur(min)}`, drop: () => setMin(0) }] : []),
+    ...(max < PRICE_MAX ? [{ key: "max", label: `līdz ${formatEur(max)}`, drop: () => setMax(PRICE_MAX) }] : []),
   ];
 
   const clearAll = () => {
     setColl("all"); setCat("all"); setWhen("any"); setGrades([]); setQuick([]);
-    setMin(0); setMax(1_000_000); setQ("");
+    setMin(0); setMax(PRICE_MAX); setSort("ending"); setOpen(null);
+    say("Filtri atiestatīti");
+  };
+
+  const priceLabel = min === 0 && max === PRICE_MAX
+    ? "Jebkura"
+    : `${formatEur(min)} – ${max === PRICE_MAX ? "Jebkura" : formatEur(max)}`;
+
+  const chipOn: Record<string, boolean> = {
+    coll: coll !== "all", cat: cat !== "all", when: when !== "any",
+    grade: grades.length > 0, price: min > 0 || max < PRICE_MAX,
+    quick: quick.length > 0, sort: sort !== "ending",
   };
 
   const chip = (id: string, label: string, value: string, pop: React.ReactNode, right?: boolean) => (
     <div style={{ position: "relative" }}>
-      <button className="fchip" type="button" aria-expanded={open === id}
+      <button className={`fchip${chipOn[id] ? " on" : ""}`} type="button" aria-expanded={open === id}
               onClick={() => setOpen(open === id ? null : id)}>
         {label} <span className="val">{value}</span><Icon name="chev" className="chev" size={14} />
       </button>
-      {open === id && <div className={`pop${right ? " right" : ""}`}>{pop}</div>}
+      {open === id && (
+        <div className={`pop${right ? " right" : ""}`} role="listbox" aria-label={label}>{pop}</div>
+      )}
     </div>
   );
 
@@ -145,7 +179,7 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
         </Link>
       </div>
 
-      <div className="hrail" style={{ gap: 8, paddingBottom: 8 }}>
+      <div className="hrail" style={{ gap: 8, paddingBottom: 8 }} ref={colls}>
         {COLLS.map(([id, label]) => (
           <button key={id} className={`chip${coll === id ? " chip-dark" : ""}`} type="button"
                   aria-pressed={coll === id} style={{ flex: "0 0 auto" }}
@@ -154,13 +188,14 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
       </div>
 
       <div className="fbar" role="group" aria-label="Filtri" ref={bar}>
-        <button className="fchip fchip-dark" type="button" onClick={clearAll}>
+        <button className="fchip fchip-dark" type="button" onClick={clearAll}
+                title="Atiestatīt visus filtrus">
           <Icon name="sliders" size={16} />Visi filtri
           {active.length > 0 && <span className="n">{active.length}</span>}
         </button>
 
         {chip("coll", "Kolekcija", COLLS.find(([c]) => c === coll)![1],
-          <div role="listbox">
+          <>
             {COLLS.map(([id, label, sub]) => (
               <button key={id} type="button" role="option" aria-selected={coll === id}
                       onClick={() => { setColl(id); setOpen(null); }}>
@@ -170,13 +205,14 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
                 </span>
               </button>
             ))}
-          </div>)}
+          </>)}
 
         {chip("cat", "Kategorija", catLabel(cat),
-          <div role="listbox">
+          <>
             <button type="button" role="option" aria-selected={cat === "all"}
                     onClick={() => { setCat("all"); setOpen(null); }}>
               <span className="nm">Visas kategorijas</span>
+              <span className="c">{auctions.length}</span>
             </button>
             {CATEGORY_CODES.map((c) => (
               <button key={c} type="button" role="option" aria-selected={cat === c}
@@ -185,19 +221,20 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
                 <span className="c">{auctions.filter((a) => a.category === c).length}</span>
               </button>
             ))}
-          </div>)}
+          </>)}
 
         {chip("when", "Beidzas", WHENS.find(([c]) => c === when)![1],
-          <div role="listbox">
+          <>
             {WHENS.map(([id, label]) => (
               <button key={id} type="button" role="option" aria-selected={when === id}
                       onClick={() => { setWhen(id); setOpen(null); }}>
                 <span className="nm">{label}</span>
               </button>
             ))}
-          </div>)}
+          </>)}
 
-        {chip("grade", "Stāvoklis", grades.length ? `${grades.length}` : "Jebkurš",
+        {chip("grade", "Stāvoklis",
+          grades.length ? grades.map((g) => t(`cond.${g}`)).join(" · ") : "Jebkurš",
           <>
             <b>Stāvoklis</b>
             {CONDITION_CODES.map((g) => (
@@ -208,19 +245,30 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
             ))}
           </>)}
 
-        {chip("price", "Cena", min === 0 && max === 1_000_000 ? "Jebkura" : `${Math.round(min / 100)}–${Math.round(max / 100)} €`,
+        {chip("price", "Cena", priceLabel,
           <div className="rng">
-            <p className="row"><span>{Math.round(min / 100)} €</span>
-              <span>{max === 1_000_000 ? "Jebkura" : `${Math.round(max / 100)} €`}</span></p>
+            <p className="row">
+              <span>{formatEur(min)}</span>
+              <span>{max === PRICE_MAX ? "Jebkura" : formatEur(max)}</span>
+            </p>
             <label className="sr" htmlFor="pmin">Cena no</label>
-            <input id="pmin" type="range" min={0} max={1_000_000} step={10_000}
-                   value={min} onChange={(e) => setMin(Math.min(+e.target.value, max))} />
+            <input id="pmin" type="range" min={0} max={PRICE_MAX} step={PRICE_STEP} value={min}
+                   onChange={(e) => {
+                     const v = +e.target.value;
+                     setMin(v);
+                     if (v > max - PRICE_GAP) setMax(Math.min(PRICE_MAX, v + PRICE_GAP));
+                   }} />
             <label className="sr" htmlFor="pmax">Cena līdz</label>
-            <input id="pmax" type="range" min={10_000} max={1_000_000} step={10_000}
-                   value={max} onChange={(e) => setMax(Math.max(+e.target.value, min))} />
+            <input id="pmax" type="range" min={PRICE_STEP} max={PRICE_MAX} step={PRICE_STEP} value={max}
+                   onChange={(e) => {
+                     const v = +e.target.value;
+                     setMax(v);
+                     if (v < min + PRICE_GAP) setMin(Math.max(0, v - PRICE_GAP));
+                   }} />
           </div>)}
 
-        {chip("quick", "Rādīt tikai", quick.length ? `${quick.length}` : "Visu",
+        {chip("quick", "Rādīt tikai",
+          quick.length ? quick.map((k) => QUICK.find(([c]) => c === k)![1]).join(" · ") : "Visu",
           <>
             <b>Rādīt tikai</b>
             {QUICK.map(([id, label]) => (
@@ -231,31 +279,37 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
             ))}
           </>)}
 
-        <div className="sortwrap">
-          {chip("sort", "Kārtot", SORTS.find(([c]) => c === sort)![1],
-            <div role="listbox">
+        <div className="sortwrap" style={{ position: "relative" }}>
+          <button className={`fchip${chipOn.sort ? " on" : ""}`} type="button" aria-expanded={open === "sort"}
+                  onClick={() => setOpen(open === "sort" ? null : "sort")}>
+            Kārtot <span className="val">{SORTS.find(([c]) => c === sort)![1]}</span>
+            <Icon name="chev" className="chev" size={14} />
+          </button>
+          {open === "sort" && (
+            <div className="pop right" role="listbox" aria-label="Kārtot">
               {SORTS.map(([id, label]) => (
                 <button key={id} type="button" role="option" aria-selected={sort === id}
                         onClick={() => { setSort(id); setOpen(null); }}>
                   <span className="nm">{label}</span>
                 </button>
               ))}
-            </div>, true)}
+            </div>
+          )}
         </div>
       </div>
 
       {active.length > 0 && (
         <div className="active-f">
-          {active.map(([kind, label, drop], i) => (
-            <button key={`${kind}${i}`} className="af" type="button" onClick={drop}>
-              {label}<Icon name="x" size={14} />
+          {active.map((f) => (
+            <button key={f.key} className="af" type="button" onClick={f.drop}>
+              {f.label}<b aria-hidden="true">×</b><span className="sr">Noņemt filtru</span>
             </button>
           ))}
-          <button className="af-clear" type="button" onClick={clearAll}>Notīrīt visu</button>
+          <button className="clear-all" type="button" onClick={clearAll}>Notīrīt visu</button>
         </div>
       )}
 
-      <p className="sr" role="status" aria-live="polite">{rows.length} loti</p>
+      <p className="sr" role="status" aria-live="polite">{rows.length} loti atbilst filtriem</p>
 
       {rows.length > 0 ? (
         <div className="results">
@@ -265,14 +319,14 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
         <div className="empty">
           <span className="ic" aria-hidden="true"><Icon name="search" /></span>
           <h3>Neviens lots neatbilst filtriem</h3>
-          <p>Atlaid vienu vai divus filtrus — šobrīd aktīvi vairāk nekā {auctions.length} lotu visās kategorijās.</p>
+          <p>Atlaid vienu vai divus filtrus — kopā katalogā ir {auctions.length} aktīvi loti.</p>
           <button className="btn btn-primary" type="button" onClick={clearAll}>Atiestatīt filtrus</button>
         </div>
       )}
 
       <p className="note" style={{ marginTop: "var(--s5)" }}>
         Ieteiktā cena — ražotāja ieteiktā mazumtirdzniecības cena, nevis mūsu iepriekšējā cena.
-        Uzvarot izsolē, cenai tiek pievienota pircēja komisija un PVN.
+        Uzvarot izsolē, cenai tiek pievienota pircēja komisija 10 % un PVN 21 %.
       </p>
     </section>
   );

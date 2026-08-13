@@ -45,43 +45,37 @@ export function PickupPass() {
   if (orders.length === 0) return null;
 
   return (
-    <section>
-      <h2 style={{ fontSize: 17, fontWeight: 700, margin: "0 0 10px" }}>{t("pickup.title")}</h2>
-      <div style={{ display: "grid", gap: 12 }}>
+    <section className="card-b">
+      <h2>{t("pickup.title")}</h2>
+      <ul className="orders">
         {orders.map((o) => (
-          <div
-            key={o.ref}
-            style={{
-              display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap",
-              background: "#fff", border: "1px solid rgba(10,10,10,0.10)", borderRadius: 14, padding: "14px 18px",
-            }}
-          >
-            {o.pickupCode && <Qr value={o.pickupCode} />}
-            <div style={{ flex: 1, minWidth: 200 }}>
-              <div style={{ fontSize: 13.5, fontWeight: 700 }}>{o.itemTitle}</div>
-              <div style={{ fontSize: 12, color: "#6B6B68", marginTop: 2 }}>{o.ref}</div>
-              {o.collecting ? (
-                <div style={{ fontSize: 12.5, fontWeight: 700, color: "#2D7A2D", marginTop: 6 }}>{t("pickup.inProgress")}</div>
-              ) : (
-                o.pickupDeadlineAt && (
-                  <div style={{ fontSize: 12.5, color: "#6B6B68", marginTop: 6 }}>
-                    {t("pickup.deadline")}: <strong>{new Date(o.pickupDeadlineAt).toLocaleDateString()}</strong>
-                    <span style={{ display: "block", marginTop: 2 }}>{t("pickup.feeNote")}</span>
-                  </div>
-                )
+          <li key={o.ref}>
+            <div className="o-top">
+              {o.pickupCode && <Qr value={o.pickupCode} />}
+              <span className="o-title" style={{ minWidth: 200 }}>
+                {o.itemTitle}
+                <small style={{ display: "block", color: "var(--text-3)", fontWeight: 600 }}>{o.ref}</small>
+              </span>
+              {o.pickupCode && (
+                <span style={{ textAlign: "center" }}>
+                  <span className="price-lab">{t("pickup.code")}</span>
+                  <b className="tnum" style={{ display: "block", fontSize: 26, letterSpacing: ".14em" }}>
+                    {o.pickupCode}
+                  </b>
+                </span>
               )}
             </div>
-            {o.pickupCode && (
-              <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 10.5, letterSpacing: "0.08em", color: "#6B6B68", fontWeight: 700 }}>{t("pickup.code")}</div>
-                <div style={{ fontFamily: '"Geist Mono", ui-monospace, monospace', fontSize: 26, fontWeight: 700, letterSpacing: "0.14em" }}>
-                  {o.pickupCode}
-                </div>
-              </div>
-            )}
-          </div>
+            {o.collecting ? (
+              <p className="bb-status win" style={{ margin: 0 }}>{t("pickup.inProgress")}</p>
+            ) : o.pickupDeadlineAt ? (
+              <p className="note">
+                {t("pickup.deadline")}: <b>{new Date(o.pickupDeadlineAt).toLocaleDateString("lv-LV")}</b>
+                {" · "}{t("pickup.feeNote")}
+              </p>
+            ) : null}
+          </li>
         ))}
-      </div>
+      </ul>
     </section>
   );
 }

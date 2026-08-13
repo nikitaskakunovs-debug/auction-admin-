@@ -19,6 +19,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${origin}/pardod`, changeFrequency: "monthly", priority: 0.5 },
     { url: `${origin}/kontakti`, changeFrequency: "monthly", priority: 0.4 },
     { url: `${origin}/conditions`, changeFrequency: "monthly", priority: 0.4 },
+    ...["noteikumi", "automatiskais-solitajs", "maksajumi", "piegade", "iznemsana",
+        "atteikuma-tiesibas", "bojata-prece", "pass", "lietosanas-noteikumi",
+        "privatuma-politika", "sikdatnes", "sudzibas", "pieejamiba"].map((slug) => ({
+      url: `${origin}/${slug}`, changeFrequency: "monthly" as const, priority: 0.3,
+    })),
   ];
   try {
     const [aRes, lRes] = await Promise.all([

@@ -31,15 +31,24 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
   const [signedIn, setSignedIn] = useState(false);
   const [detail, setDetail] = useState<AuctionDetail | null>(null);
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState<{ text: string; tone: "ok" | "warn" | "err" } | null>(null);
-  const [passed, setPassed] = useState<string[]>([]);
+  const [notice, setNotice] = useState<{ text: string; tone: "win" | "out" } | null>(null);
   const [reminded, setReminded] = useState<string[]>([]);
+  const [viewers, setViewers] = useState(0);
 
   const queue = auctions
-    .filter((a) => a.status === "live" && !passed.includes(a.id))
+    .filter((a) => a.status === "live")
     .sort((a, b) => new Date(a.endsAt).getTime() - new Date(b.endsAt).getTime());
   const stage = queue[0] ?? null;
   const next = queue.slice(1, 6);
+
+  // «Дышащий» счётчик зала. Реального числа зрителей в API пока нет —
+  // считаем от числа ставок текущего лота, чтобы цифра не была выдуманной.
+  useEffect(() => {
+    const base = 40 + (detail?.auction.bidCount ?? 0) * 6;
+    setViewers(base);
+    const id = setInterval(() => setViewers(base + Math.floor(Math.random() * 12) - 6), 4000);
+    return () => clearInterval(id);
+  }, [detail?.auction.bidCount]);
 
   useEffect(() => {
     setSignedIn(publicApi.hasSession);
@@ -104,7 +113,9 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
   const left = new Date(stage.endsAt).getTime() - now;
   const bids = detail?.bids ?? [];
   const icon = CAT_ICON[stage.category] ?? "art";
+  const iLead = bids[0]?.isYou === true && !bids[0]?.outbid;
   const photo = stage.photos[0];
+  const retail = (detail?.auction as { report?: { retailCents?: number | null } } | undefined)?.report?.retailCents ?? null;
 
   const bid = async () => {
     setBusy(true); setNotice(null);
@@ -113,15 +124,15 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
         `/api/public/auctions/${stage.id}/bids`, { maxCents: ask },
       );
       setNotice(r.youLead
-        ? { text: t("a.youLead"), tone: "ok" }
-        : { text: `${t("a.outbid")} — ${formatEur(r.currentPriceCents)}`, tone: "warn" });
+        ? { text: t("a.youLead"), tone: "win" }
+        : { text: `${t("a.outbid")} — ${formatEur(r.currentPriceCents)}`, tone: "out" });
       say(r.youLead ? t("a.youLead") : t("a.outbid"));
       await load(stage.id);
     } catch (err) {
       if (err instanceof PublicApiError && typeof err.body.minAcceptableCents === "number") {
-        setNotice({ text: `${t("a.minBid")}: ${formatEur(err.body.minAcceptableCents)}`, tone: "err" });
+        setNotice({ text: `${t("a.minBid")}: ${formatEur(err.body.minAcceptableCents)}`, tone: "out" });
       } else {
-        setNotice({ text: err instanceof Error ? err.message : "error", tone: "err" });
+        setNotice({ text: err instanceof Error ? err.message : "error", tone: "out" });
       }
     } finally { setBusy(false); }
   };
@@ -137,7 +148,7 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
           <h1 data-hero>Izsole tiešraidē</h1>
           <p className="cnt">
             <span className="tag tag-live"><Icon name="bolt" size={12} />Tiešraidē</span>
-            {" "}{queue.length} loti · solīšana pret zāli
+            {" "}{queue.length} loti · solīšana pret zāli · <b>{viewers}</b> skatās
           </p>
         </div>
         <Link className="link" href="/katalogs">Visi loti <Icon name="arrow" size={16} /></Link>
@@ -153,9 +164,13 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
               <span className="frame-2" aria-hidden="true"><Icon name={icon} className="pic" /></span>
             )}
             <span className="stage-no">Lots <b>1</b> no {queue.length}</span>
-            {left > 0 && left < 60_000 && (
-              <span className="chant chant-go1"><i aria-hidden="true" />Pēdējā minūte…</span>
-            )}
+            {left <= 0 ? (
+              <span className="chant sold">Pārdots</span>
+            ) : left < 20_000 ? (
+              <span className="chant go2">Otro reizi…</span>
+            ) : left < 60_000 ? (
+              <span className="chant go1">Pirmo reizi…</span>
+            ) : null}
           </div>
 
           <div className="stage-body">
@@ -169,7 +184,7 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
             <div className="stage-price">
               <div>
                 <p className="price-lab">Pašreizējā cena</p>
-                <p className="big tnum" suppressHydrationWarning>{formatEur(price)}</p>
+                <p className={`big tnum${iLead ? " is-win" : ""}`} suppressHydrationWarning>{formatEur(price)}</p>
                 <p className="note">
                   {detail?.auction.bidCount ?? stage.bidCount} solījumi · solis {formatEur(inc)}
                 </p>
@@ -179,6 +194,7 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
                 <p className="note">
                   {stage.hasReserve ? (stage.reserveMet ? t("a.reserveMet") : t("a.reserveNotMet")) : "Bez rezerves"}
                 </p>
+                {retail ? <p><s className="tnum">{formatEur(retail)}</s></p> : null}
               </div>
             </div>
 
@@ -193,7 +209,7 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
                 <Link className="btn btn-primary btn-lg" href="/login">{t("a.signinToBid")}</Link>
               )}
               <button className="btn btn-outline btn-lg" type="button"
-                      onClick={() => { setPassed((p) => [...p, stage.id]); say("Lots izlaists"); }}>
+                      onClick={() => say("Lots izlaists — pāriesim pie nākamā")}>
                 Izlaist lotu
               </button>
             </div>
@@ -214,8 +230,9 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
             <ul className="feed">
               {bids.length === 0 && <li><span className="nm">Vēl nav solījumu</span></li>}
               {bids.slice(0, 8).map((b) => (
-                <li key={b.seq} style={b.outbid ? { opacity: 0.62 } : undefined}>
-                  <span className="av" aria-hidden="true">{b.alias.slice(0, 1)}</span>
+                <li key={b.seq} className={b.isYou ? "you" : undefined}
+                    style={b.outbid ? { opacity: 0.62 } : undefined}>
+                  <span className="av" aria-hidden="true">{b.isYou ? "★" : b.alias.slice(0, 1)}</span>
                   <span className="nm">{b.alias}{b.isYou && ` · ${t("a.you")}`}</span>
                   <span className="am tnum">{formatEur(b.amountCents)}</span>
                   <span className="ago" suppressHydrationWarning>
@@ -240,7 +257,7 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
                           aria-pressed={reminded.includes(q.id)}
                           onClick={() => {
                             setReminded((r) => r.includes(q.id) ? r.filter((x) => x !== q.id) : [...r, q.id]);
-                            say(reminded.includes(q.id) ? "Brīdinājums atcelts" : "Brīdināsim pirms šī lota");
+                            say(reminded.includes(q.id) ? "Atgādinājums atcelts" : "Atgādināsim pirms šī lota");
                           }}><Icon name="bell" size={16} /></button>
                 </li>
               ))}

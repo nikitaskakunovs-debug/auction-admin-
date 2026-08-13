@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
+import { useRail } from "@/lib/ui";
 import { Icon } from "./Icon";
 
 /** Заголовок секции макета: слева h2 (+подпись), справа ссылка «смотреть всё». */
@@ -116,7 +117,9 @@ export function WhyUs() {
                   <span className="bar-who">{who}</span>
                   <span className="bar-amt tnum">{amt}</span>
                 </p>
-                <div className="bar-track"><i className="bar-fill" style={{ width: `${w}%` }} /></div>
+                <div className="bar-track">
+                  <i className="bar-fill" style={{ ["--w" as string]: `${w}%`, width: `${w}%` } as CSSProperties} />
+                </div>
               </div>
             ))}
             <p className="note">Vidējā uzvarējušā solījuma cena šajā kategorijā pēdējās 90 dienās. Cenas ar PVN.</p>
@@ -156,7 +159,7 @@ export function SeoBlock() {
             <Link href="/katalogs?category=tools">instrumenti</Link> un{" "}
             <Link href="/katalogs?category=home_garden">mājai un dizainam</Link>.
             Var meklēt arī <Link href="/zimoli">pēc zīmola</Link>, izlasīt{" "}
-            <Link href="/buj">solīšanas noteikumus</Link> vai apskatīt{" "}
+            <Link href="/noteikumi">solīšanas noteikumus</Link> vai apskatīt{" "}
             <Link href="/rezultati">iepriekšējo izsoļu rezultātus</Link>.
             Visas cenas ar PVN, piegāde uz pakomātu 48 stundās.
           </p>

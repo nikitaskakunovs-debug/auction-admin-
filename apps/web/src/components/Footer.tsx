@@ -18,16 +18,16 @@ export function Footer({ pages }: { pages: Array<{ slug: string; title: Localize
       ["Izsoļu rezultāti", "/rezultati"],
     ]],
     ["Kā tas darbojas", [
-      ["Solīšanas noteikumi", "/buj"],
-      ["Automātiskais solītājs", "/buj"],
+      ["Solīšanas noteikumi", "/noteikumi"],
+      ["Automātiskais solītājs", "/automatiskais-solitajs"],
       ["Stāvokļa skala A–D", "/conditions"],
-      ["Maksājumu veidi", "/buj"],
+      ["Maksājumu veidi", "/maksajumi"],
     ]],
     ["Piegāde", [
-      ["Pakomāti Latvijā", "/buj"],
-      ["Izņemšana Rīgā", "/buj"],
-      ["Atteikuma tiesības", "/buj"],
-      ["Bojāta prece", "/buj"],
+      ["Pakomāti Latvijā", "/piegade"],
+      ["Izņemšana Rīgā", "/iznemsana"],
+      ["Atteikuma tiesības", "/atteikuma-tiesibas"],
+      ["Bojāta prece", "/bojata-prece"],
     ]],
   ];
 
@@ -82,11 +82,11 @@ export function Footer({ pages }: { pages: Array<{ slug: string; title: Localize
       </p>
 
       <nav className="f-links" aria-label="Juridiskā informācija">
-        <Link href="/p/lietosanas-noteikumi">Lietošanas noteikumi</Link>
-        <Link href="/p/privatuma-politika">Privātuma politika</Link>
-        <Link href="/p/sikdatnes">Sīkdatnes</Link>
-        <Link href="/p/sudzibas">Sūdzību izskatīšana</Link>
-        <Link href="/p/pieejamiba">Pieejamība</Link>
+        <Link href="/lietosanas-noteikumi">Lietošanas noteikumi</Link>
+        <Link href="/privatuma-politika">Privātuma politika</Link>
+        <Link href="/sikdatnes">Sīkdatnes</Link>
+        <Link href="/sudzibas">Sūdzību izskatīšana</Link>
+        <Link href="/pieejamiba">Pieejamība</Link>
         <Link href="/sitemap.xml">Vietnes karte</Link>
       </nav>
 

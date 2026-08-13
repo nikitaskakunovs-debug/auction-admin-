@@ -75,7 +75,7 @@ export function CookieBanner() {
                 onClick={() => close("accept", "Visas sīkdatnes pieņemtas")}>Pieņemt visas</button>
       </div>
       <p className="cc-more">
-        <Link href="/p/sikdatnes">Sīkdatņu politika</Link> ·{" "}
+        <Link href="/sikdatnes">Sīkdatņu politika</Link> ·{" "}
         <button type="button" onClick={() => close("custom", "Izvēle saglabāta")}>Saglabāt manu izvēli</button>
       </p>
     </section>

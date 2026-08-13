@@ -48,7 +48,7 @@ export function LotPage({
   const [detail, setDetail] = useState(initial);
   const [signedIn, setSignedIn] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState<{ text: string; tone: "ok" | "warn" | "err" } | null>(null);
+  const [notice, setNotice] = useState<{ text: string; tone: "win" | "out" } | null>(null);
 
   const a = detail.auction;
   const rep = (a as PublicAuction & { report?: LotReport }).report ?? {};
@@ -65,7 +65,7 @@ export function LotPage({
   const shots = a.photos.length ? a.photos : new Array<string | null>(FALLBACK_FRAMES).fill(null);
   const [frame, setFrame] = useState(0);
   const [zoom, setZoom] = useState(false);
-  const [lens, setLens] = useState<{ x: number; y: number } | null>(null);
+  const [lens, setLens] = useState<{ x: number; y: number; bx: number; by: number } | null>(null);
   const gal = useRef<HTMLDivElement>(null);
   const goto = (i: number) => setFrame(((i % shots.length) + shots.length) % shots.length);
 
@@ -128,24 +128,26 @@ export function LotPage({
       );
       setConfirm(false);
       setNotice(r.youLead
-        ? { text: t("a.youLead"), tone: "ok" }
-        : { text: `${t("a.outbid")} — ${formatEur(r.currentPriceCents)}`, tone: "warn" });
+        ? { text: t("a.youLead"), tone: "win" }
+        : { text: `${t("a.outbid")} — ${formatEur(r.currentPriceCents)}`, tone: "out" });
       say(r.youLead ? t("a.youLead") : t("a.outbid"));
       if (r.extended) say(t("a.extended"));
       await reload();
     } catch (err) {
       if (err instanceof PublicApiError && typeof err.body.minAcceptableCents === "number") {
-        setNotice({ text: `${t("a.minBid")}: ${formatEur(err.body.minAcceptableCents)}`, tone: "err" });
+        setNotice({ text: `${t("a.minBid")}: ${formatEur(err.body.minAcceptableCents)}`, tone: "out" });
       } else if (err instanceof PublicApiError && err.body.code === "FEES_OUTSTANDING") {
-        setNotice({ text: t("fees.blockedShort"), tone: "err" });
+        setNotice({ text: t("fees.blockedShort"), tone: "out" });
       } else {
-        setNotice({ text: err instanceof Error ? err.message : "error", tone: "err" });
+        setNotice({ text: err instanceof Error ? err.message : "error", tone: "out" });
       }
     } finally { setBusy(false); }
   };
 
   const inv = computeInvoice(amount, a.marketCode);
+  const won = computeInvoice(price, a.marketCode);
   const left = new Date(a.endsAt).getTime() - now;
+  const over = left <= 0;
   const off = rep.retailCents ? Math.max(0, Math.round((1 - price / rep.retailCents) * 100)) : null;
   const myTop = detail.bids.find((b) => b.isYou);
   const iLead = detail.bids[0]?.isYou === true && !detail.bids[0]?.outbid;
@@ -166,13 +168,27 @@ export function LotPage({
         {/* ═══ ЛЕВАЯ КОЛОНКА ═══ */}
         <div>
           <div
-            className="lgal" ref={gal}
+            className={`lgal${zoom ? " zoom" : ""}`} ref={gal}
             onPointerMove={(e) => {
               if (!zoom) return;
               const r = e.currentTarget.getBoundingClientRect();
-              setLens({ x: ((e.clientX - r.left) / r.width) * 100, y: ((e.clientY - r.top) / r.height) * 100 });
+              // Круг 170 px центрируем по курсору и держим внутри рамки — как в макете.
+              const px = Math.min(Math.max(e.clientX - r.left - 85, 0), Math.max(r.width - 170, 0));
+              const py = Math.min(Math.max(e.clientY - r.top - 85, 0), Math.max(r.height - 170, 0));
+              setLens({
+                x: px, y: py,
+                bx: ((e.clientX - r.left) / r.width) * 100,
+                by: ((e.clientY - r.top) / r.height) * 100,
+              });
             }}
             onPointerLeave={() => setLens(null)}
+            tabIndex={0}
+            role="group"
+            aria-label={`Foto: ${a.title}`}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowLeft") { e.preventDefault(); goto(frame - 1); }
+              if (e.key === "ArrowRight") { e.preventDefault(); goto(frame + 1); }
+            }}
           >
             {shots.map((p, i) => (
               <span key={i} className={`lframe frame-${i + 1}${i === frame ? " on" : ""}`}>
@@ -189,15 +205,15 @@ export function LotPage({
             <span className="lcount">{frame + 1} / {shots.length}</span>
             <button className="lzoom" type="button" aria-pressed={zoom}
                     onClick={() => { setZoom((v) => !v); setLens(null); }}>
-              <Icon name="search" size={16} />Tuvinājums
+              <Icon name="search" size={16} />{zoom ? "Tuvinājums ieslēgts" : "Tuvinājums"}
             </button>
             {zoom && lens && shots[frame] && (
               <span className="lens" aria-hidden="true"
                     style={{
-                      left: `${lens.x}%`, top: `${lens.y}%`,
+                      left: lens.x, top: lens.y,
                       backgroundImage: `url(${photoWeb(shots[frame]!)})`,
                       backgroundSize: "300% 300%",
-                      backgroundPosition: `${lens.x}% ${lens.y}%`,
+                      backgroundPosition: `${lens.bx}% ${lens.by}%`,
                     }} />
             )}
           </div>
@@ -348,10 +364,10 @@ export function LotPage({
           </div>
 
           <div className="bidbox" data-bidbox>
-            <div className="bb-top">
-              <span className="lab">{settled ? "Izsole noslēgusies" : live ? "Noslēdzas pēc" : "Sākas"}</span>
+            <div className={`bb-top${live && left > 0 && left < 60_000 ? " crit" : ""}`}>
+              <span className="lab">{settled || over ? "Izsole beigusies" : live ? "Noslēdzas pēc" : "Sākas"}</span>
               <b className="tnum" suppressHydrationWarning>
-                {settled ? "—" : live ? formatLeft(left) : new Date(a.startsAt).toLocaleDateString("lv-LV")}
+                {settled || over ? "—" : live ? formatLeft(left) : new Date(a.startsAt).toLocaleDateString("lv-LV")}
               </b>
             </div>
 
@@ -359,9 +375,9 @@ export function LotPage({
               <div>
                 <p className="price-lab">
                   {a.currentPriceCents !== null ? t("card.currentBid") : t("card.startPrice")}
-                  {live && <span className="livepill"><i aria-hidden="true" />LIVE</span>}
+                  {live && !over && <span className="livepill"><i aria-hidden="true" />LIVE</span>}
                 </p>
-                <p className="big tnum" suppressHydrationWarning>{formatEur(price)}</p>
+                <p className={`big tnum${iLead ? " is-win" : ""}`} suppressHydrationWarning>{formatEur(price)}</p>
                 <p className="note">{a.bidCount} solījumi{a.leaderAlias ? ` · ${t("a.leader")}: ${a.leaderAlias}` : ""}</p>
               </div>
               {rep.retailCents ? (
@@ -378,10 +394,10 @@ export function LotPage({
             </div>
 
             {notice && <p className={`bb-status ${notice.tone}`}>{notice.text}</p>}
-            {!notice && iLead && <p className="bb-status ok">{t("a.youLead")}</p>}
-            {!notice && !iLead && myTop && <p className="bb-status warn">{t("a.outbid")}</p>}
+            {!notice && iLead && <p className="bb-status win">{t("a.youLead")}</p>}
+            {!notice && !iLead && myTop && <p className="bb-status out">{t("a.outbid")}</p>}
 
-            {live && (
+            {live && !over && (
               signedIn ? (
                 <div>
                   <p className="bb-lab">Ātrā izvēle</p>
@@ -404,7 +420,7 @@ export function LotPage({
                             onClick={() => setAmount((v) => v + inc)}>+</button>
                   </div>
 
-                  <label className="maxrow">
+                  <label className={`maxrow${proxy ? " on" : ""}`}>
                     <input type="checkbox" checked={proxy} onChange={(e) => setProxy(e.target.checked)} />
                     <span>
                       Iestatīt kā maksimālo solījumu — solīsim tavā vietā līdz šai summai
@@ -450,12 +466,43 @@ export function LotPage({
               )
             )}
 
-            {settled && (
-              <div>
-                <p className="bb-lab">
-                  {a.hasReserve && !a.reserveMet ? "Nepārdots — rezerve nav sasniegta" : "Pārdots"}
-                </p>
-                <Link className="btn btn-outline btn-block" href="/katalogs">Skatīt līdzīgus lotus</Link>
+            {(settled || over) && (
+              <div className="bb-ended">
+                {iLead ? (
+                  <>
+                    <div className="won">
+                      <span className="ic" aria-hidden="true"><Icon name="check" /></span>
+                      <h3>Tu uzvarēji šo lotu!</h3>
+                      <p className="note">
+                        Nokārto samaksu norādītajā termiņā un izvēlies piegādi vai izņemšanu Rīgā.
+                      </p>
+                    </div>
+                    <table className="fees"><tbody>
+                      <tr><th scope="row">Āmura cena</th><td className="tnum">{formatEur(won.hammerCents)}</td></tr>
+                      <tr><th scope="row">Pircēja komisija ({fees.buyerPremiumBp / 100} %)</th>
+                        <td className="tnum">{formatEur(won.premiumCents)}</td></tr>
+                      <tr><th scope="row">PVN ({fees.vatRateBp / 100} %)</th>
+                        <td className="tnum">{formatEur(won.vatCents)}</td></tr>
+                      <tr className="tot"><th scope="row">Kopā</th>
+                        <td className="tnum">{formatEur(won.totalCents)}</td></tr>
+                    </tbody></table>
+                    <Link className="btn btn-primary btn-block" href="/account">
+                      Apmaksāt {formatEur(won.totalCents)}
+                    </Link>
+                  </>
+                ) : (
+                  <div className="won">
+                    <h3>
+                      {a.hasReserve && !a.reserveMet ? "Nepārdots — rezerve nav sasniegta"
+                        : myTop ? "Tevi pārsolīja" : "Izsole ir noslēgusies"}
+                    </h3>
+                    <p className="note">Gala cena</p>
+                    <p className="sum-amt tnum">{formatEur(price)}</p>
+                    <Link className="btn btn-primary btn-block" href={`/katalogs?category=${a.category}`}>
+                      Atrast līdzīgu lotu
+                    </Link>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -467,9 +514,10 @@ export function LotPage({
             </div>
             <ul className="feed">
               {detail.bids.length === 0 && <li><span className="nm">Vēl nav solījumu</span></li>}
-              {detail.bids.map((b) => (
-                <li key={b.seq} style={b.outbid ? { opacity: 0.62 } : undefined}>
-                  <span className="av" aria-hidden="true">{b.alias.slice(0, 1)}</span>
+              {detail.bids.slice(0, 24).map((b) => (
+                <li key={b.seq} className={b.isYou ? "you" : undefined}
+                    style={b.outbid ? { opacity: 0.62 } : undefined}>
+                  <span className="av" aria-hidden="true">{b.isYou ? "★" : b.alias.slice(0, 1)}</span>
                   <span className="nm">
                     {b.alias}{b.isYou && ` · ${t("a.you")}`}{b.auto && ` · ${t("a.proxy")}`}
                   </span>

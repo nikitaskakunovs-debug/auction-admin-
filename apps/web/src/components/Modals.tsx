@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { Icon } from "./Icon";
+import { say } from "./Toast";
 
 /** Модалки макета: шкала состояния и «Поделиться».
  *  Открываются из любой карточки — состояние держим в модуле, чтобы не тащить
  *  контекст через всё дерево. */
-type ShareLot = { id: string; sku: string; title: string };
+type ShareLot = { id: string; sku: string; title: string; icon?: string };
 type State = { scale: string | null; share: ShareLot | null };
 
 let setState: ((s: State) => void) | null = null;
@@ -81,6 +83,9 @@ export function Modals() {
               </div>
             ))}
           </div>
+          <Link className="btn btn-primary btn-block" href="/conditions" onClick={close}>
+            Pilnā vērtēšanas rokasgrāmata <Icon name="arrow" size={16} />
+          </Link>
         </div>
       </div>
     );
@@ -103,7 +108,7 @@ export function Modals() {
         <div className="modal-card" ref={card}>
           <div className="modal-head">
             <div className="share-lot">
-              <span className="ic" aria-hidden="true"><Icon name="art" /></span>
+              <span className="ic" aria-hidden="true"><Icon name={state.share.icon ?? "art"} /></span>
               <span>
                 <span className="kicker">Dalīties ar lotu · {state.share.sku}</span>
                 <h3 id="m-share-t">{state.share.title}</h3>
@@ -123,6 +128,7 @@ export function Modals() {
               onClick={() => {
                 navigator.clipboard?.writeText(url).catch(() => {});
                 setCopied(true);
+                say("Saite nokopēta");
                 setTimeout(() => setCopied(false), 1800);
               }}
             >{copied ? "Nokopēts" : "Kopēt"}</button>
@@ -131,7 +137,8 @@ export function Modals() {
             {channels.map(([label, icon, href]) => (
               <a key={label} className="share-btn" href={href}
                  target={label === "E-pasts" ? undefined : "_blank"}
-                 rel={label === "E-pasts" ? undefined : "noopener noreferrer"}>
+                 rel={label === "E-pasts" ? undefined : "noopener noreferrer"}
+                 onClick={() => { say(`Atveram ${label}…`); setTimeout(close, 150); }}>
                 <Icon name={icon} />{label}
               </a>
             ))}

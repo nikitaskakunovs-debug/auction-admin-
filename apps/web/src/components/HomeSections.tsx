@@ -4,11 +4,14 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { publicApi } from "@/lib/api";
 import type { FixedListing, PublicAuction } from "@/lib/types";
+import { useRail } from "@/lib/ui";
 import { Banners } from "./Banners";
 import { Hero } from "./Hero";
 import { Icon } from "./Icon";
 import { LotCard, LotSkeleton, type CardLot } from "./LotCard";
 import { Brands, Faq, LiveBand, MyBids, SecHead, SeoBlock, WhyUs } from "./Sections";
+
+const PAGE = 8;
 
 /** Главная страница утверждённого макета.
  *  Порядок блоков менять нельзя — он и есть макет. */
@@ -18,7 +21,9 @@ export function HomeSections({
   const [signedIn, setSignedIn] = useState(false);
   const [rounds, setRounds] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState("");
   const sentinel = useRef<HTMLDivElement>(null);
+  const rail = useRail<HTMLDivElement>();
 
   useEffect(() => {
     setSignedIn(publicApi.hasSession);
@@ -33,13 +38,17 @@ export function HomeSections({
   );
   const closing = byEnd.slice(0, 4) as CardLot[];
   const recommended = byEnd.slice(4, 10) as CardLot[];
-  const explore = auctions.slice(0, 8 + rounds * 8) as CardLot[];
+  const explore = auctions.slice(0, PAGE + rounds * PAGE) as CardLot[];
   const exhausted = explore.length >= auctions.length;
 
   const loadMore = () => {
     if (busy || exhausted) return;
     setBusy(true);
-    setTimeout(() => { setRounds((r) => r + 1); setBusy(false); }, 300);
+    setTimeout(() => {
+      setRounds((r) => r + 1);
+      setBusy(false);
+      setStatus(`Ielādēti vēl ${PAGE} loti`);
+    }, 300);
   };
 
   useEffect(() => {
@@ -51,6 +60,10 @@ export function HomeSections({
     return () => io.disconnect();
   });
 
+  // Пока каталог не приехал, четвёртая ячейка «Drīz noslēdzas» держит скелетон —
+  // как `[data-skel]` в макете.
+  const closingBusy = closing.length < 4;
+
   return (
     <>
       <Hero />
@@ -58,9 +71,9 @@ export function HomeSections({
       <section className="section wrap" id="lots" style={{ paddingTop: 0 }}>
         <SecHead icon="timer" title="Drīz noslēdzas" sub="Loti, kuriem atlikušas dažas stundas"
                  link={`Visi ${auctions.length} loti`} href="/katalogs" />
-        <div className="grid-4" aria-live="polite">
+        <div className="grid-4" aria-live="polite" aria-busy={closingBusy}>
           {closing.map((a) => <LotCard key={a.id} lot={a} />)}
-          {closing.length === 0 && Array.from({ length: 4 }, (_, i) => <LotSkeleton key={i} />)}
+          {closingBusy && Array.from({ length: 4 - closing.length }, (_, i) => <LotSkeleton key={i} />)}
         </div>
         <p className="note" style={{ marginTop: 16 }}>
           Ieteiktā cena — ražotāja ieteiktā mazumtirdzniecības cena preces izlaišanas brīdī, nevis mūsu iepriekšējā cena.
@@ -76,7 +89,7 @@ export function HomeSections({
         <section className="section wrap">
           <SecHead title="Tev varētu patikt" sub="Pēc skatītajām kategorijām"
                    link="Skatīt visu" href="/katalogs" />
-          <div className="hrail">
+          <div className="hrail" ref={rail}>
             {recommended.map((a) => <LotCard key={a.id} lot={a} />)}
           </div>
         </section>
@@ -105,14 +118,15 @@ export function HomeSections({
             </p>
           )}
         </div>
+        <p className="sr" role="status" aria-live="polite">{status}</p>
       </section>
 
       {listings.length > 0 && (
         <section className="section wrap">
           <SecHead title="Pērc uzreiz" sub="Fiksēta cena, bez solīšanas"
                    link="Visi piedāvājumi" href="/katalogs?type=fixed" />
-          <div className="grid-4">
-            {listings.slice(0, 4).map((l) => (
+          <div className="hrail">
+            {listings.slice(0, 6).map((l) => (
               <article className="lot" key={l.id}>
                 <div className="lot-art">
                   <div className="gal">

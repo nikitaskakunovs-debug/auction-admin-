@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
 import localFont from "next/font/local";
 import type { ReactNode } from "react";
@@ -28,6 +28,14 @@ const figtree = localFont({
   display: "swap",
   variable: "--font-figtree",
 });
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#163300",
+  colorScheme: "light dark",
+};
 
 export async function generateMetadata(): Promise<Metadata> {
   const host = (await headers()).get("host");
@@ -62,7 +70,12 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   const country = resolveCountry(host);
   const footerPages = await fetchFooterPages();
   return (
-    <html lang={country.defaultLang} className={figtree.variable}>
+    <html lang={country.defaultLang} className={`${figtree.variable} no-js`}>
+      <head>
+        {/* Снимаем no-js до первой отрисовки: правила фолбэка в globals.css
+            рассчитаны на то, что с JS их не видно. */}
+        <script dangerouslySetInnerHTML={{ __html: "document.documentElement.classList.remove('no-js')" }} />
+      </head>
       <body>
         <a className="skip" href="#main">Pāriet uz galveno saturu</a>
         <I18nProvider initialLang={country.defaultLang} available={country.languages}>
