@@ -870,7 +870,7 @@ body{padding-top:var(--chrome-h,232px)}
 .pop .c{margin-left:auto;font-size:13px;font-weight:700;color:var(--text-3);font-variant-numeric:tabular-nums}
 .pop button[aria-selected="true"] .c,.pop button[aria-pressed="true"] .c{color:var(--on-accent)}
 .pop .rng{padding:10px}
-.pop .rng input{width:100%}
+.pop .rng input,.sheet .rng input{width:100%;accent-color:var(--brand)}
 .pop .rng .row{display:flex;justify-content:space-between;font-size:14px;font-weight:700;margin-bottom:8px}
 
 /* активные фильтры */
