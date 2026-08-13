@@ -781,7 +781,8 @@ body{padding-top:var(--chrome-h,232px)}
 .page-head{display:flex;align-items:flex-end;justify-content:space-between;gap:var(--s5);
   flex-wrap:wrap;margin:20px 0 var(--s5)}
 .page-head h1{font-size:clamp(28px,3.4vw,44px);letter-spacing:-.035em}
-.page-head .cnt{font-size:15px;color:var(--text-3);font-weight:600;margin-top:6px}
+.page-head .cnt{font-size:15px;color:var(--text-3);font-weight:600;margin-top:6px;display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.page-head .cnt>.tag{flex:0 0 auto;white-space:nowrap}
 
 /* ── ПАНЕЛЬ ФИЛЬТРОВ ── */
 .fbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:var(--s4)}
@@ -1117,3 +1118,35 @@ body{padding-top:var(--chrome-h,232px)}
 .done .ic{width:72px;height:72px;border-radius:50%;background:var(--accent);display:grid;place-items:center}
 .done .ic svg{width:34px;height:34px;stroke:var(--on-accent);fill:none;stroke-width:2.8}
 .done-acts{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;margin-top:8px}
+
+/* ═══ Формы входа/регистрации на дизайн-системе ═══ */
+.auth-card{max-width:440px;margin:0 auto;display:grid;gap:16px}
+.auth-card h1{font-size:26px;letter-spacing:-.03em}
+.auth-card form{display:grid;gap:12px}
+.auth-card .fields{grid-template-columns:1fr}
+.auth-card select{min-height:52px;border-radius:var(--r-md);border:2px solid var(--border);
+  background:var(--surface);color:var(--text);font:inherit;padding:0 14px}
+.auth-err{font-size:13.5px;font-weight:700;color:var(--live);
+  background:color-mix(in srgb,var(--live) 10%,var(--surface));
+  border-radius:var(--r-md);padding:10px 12px}
+.auth-alt{font-size:14px;color:var(--text-3);margin:0}
+.auth-alt a{color:var(--text);font-weight:700;border-bottom:2px solid var(--accent)}
+
+/* ═══ Кабинет ═══ */
+.acct{display:grid;gap:var(--s5);margin-top:var(--s5)}
+.orders{list-style:none;display:grid;gap:12px}
+.orders>li{border:1px solid var(--border);border-radius:var(--r-md);padding:14px 16px;display:grid;gap:10px}
+.o-top{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.o-ref{font-size:12px;color:var(--text-3)}
+.o-title{font-weight:700;flex:1;min-width:180px}
+.o-act{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.bb-status.info{background:color-mix(in srgb,var(--blue,#A0E1E1) 35%,var(--surface));color:var(--text)}
+
+/* ═══ Проза CMS-страниц ═══ */
+.prose{max-width:68ch;display:grid;gap:14px}
+.prose h2{font-size:22px;letter-spacing:-.02em;margin-top:14px}
+.prose p{font-size:16px;line-height:1.7;color:var(--text-2)}
+.prose a{color:var(--text);font-weight:700;border-bottom:2px solid var(--accent)}
+.prose img{max-width:100%;border-radius:var(--r-md)}
+.prose hr{border:0;border-top:1px solid var(--border);margin:8px 0}
+.prose ul,.prose ol{padding-left:20px;display:grid;gap:6px;color:var(--text-2)}

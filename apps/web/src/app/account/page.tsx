@@ -3,11 +3,10 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
-import { loadPaymentsConfig, type PaymentsConfig } from "@/components/KlixPayLater";
 import { useT } from "@/lib/i18n";
 import { formatEur, type MyOrder, type PublicAuction } from "@/lib/types";
 import { Countdown } from "@/components/Countdown";
-import { DeliveryPicker, TrackingLine } from "@/components/DeliveryPicker";
+import { TrackingLine } from "@/components/DeliveryPicker";
 import { FeesNotice } from "@/components/FeesNotice";
 import { KlixPayLater } from "@/components/KlixPayLater";
 import { PickupPass } from "@/components/PickupPass";
@@ -24,8 +23,6 @@ export default function AccountPage() {
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const [suspended, setSuspended] = useState(false);
   const [payBanner, setPayBanner] = useState<PayBanner>(null);
-  const [payingRef, setPayingRef] = useState<string | null>(null);
-  const [payConfig, setPayConfig] = useState<PaymentsConfig | null>(null);
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadOrders = useCallback(() => {
@@ -38,7 +35,6 @@ export default function AccountPage() {
       return;
     }
     setSignedIn(true);
-    void loadPaymentsConfig().then(setPayConfig);
     void publicApi.get<{ bidder: { blocked: boolean } }>("/api/public/auth/me").then((r) => setSuspended(r.bidder.blocked)).catch(() => undefined);
     void publicApi.get<{ bids: MyBidAuction[] }>("/api/public/me/bids").then((r) => setBids(r.bids)).catch(() => undefined);
     loadOrders();
@@ -95,19 +91,6 @@ export default function AccountPage() {
     };
   }, [signedIn, loadOrders]);
 
-  async function payOrder(ref: string, provider?: "klix" | "inbank") {
-    setPayingRef(ref);
-    try {
-      const r = await publicApi.post<{ checkoutUrl: string }>(`/api/public/orders/${encodeURIComponent(ref)}/pay`, {
-        language: lang,
-        ...(provider ? { provider } : {}),
-      });
-      window.location.assign(r.checkoutUrl);
-    } catch (err) {
-      setPayingRef(null);
-      setPayBanner(err instanceof PublicApiError && err.status === 503 ? "unavailable" : "failed");
-    }
-  }
 
   if (signedIn === false) {
     return (
@@ -117,21 +100,6 @@ export default function AccountPage() {
     );
   }
 
-  const card: React.CSSProperties = { background: "#fff", border: "1px solid rgba(10,10,10,0.10)", borderRadius: 14, overflow: "hidden" };
-  const row: React.CSSProperties = { display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: "1px solid rgba(10,10,10,0.05)", fontSize: 13.5, textDecoration: "none", color: "#0A0A0A" };
-
-  const bannerStyle = (kind: PayBanner): React.CSSProperties => {
-    const blue = kind === "confirming" || kind === "processing";
-    return {
-      borderRadius: 14,
-      padding: "14px 18px",
-      fontSize: 14,
-      fontWeight: 700,
-      background: kind === "success" ? "#E4F4EA" : blue ? "#EAF0FE" : "#FCEFD9",
-      border: `1px solid ${kind === "success" ? "#B5DFC4" : blue ? "#C4D3F9" : "#EBD5AB"}`,
-      color: kind === "success" ? "#1F8A4C" : blue ? "#2D4BFF" : "#9A5B00",
-    };
-  };
   const bannerText: Record<Exclude<PayBanner, null>, string> = {
     confirming: t("acc.payConfirming"),
     success: t("acc.paySuccess"),
@@ -140,111 +108,88 @@ export default function AccountPage() {
     unavailable: t("acc.payUnavailable"),
     processing: t("acc.payProcessing"),
   };
+  const bannerTone = (kind: PayBanner) =>
+    kind === "success" ? "ok" : kind === "confirming" || kind === "processing" ? "info" : "warn";
 
   return (
-    <div style={{ display: "grid", gap: 26 }}>
-      {suspended && (
-        <div style={{ background: "#FBE3E3", border: "1px solid #E8B4B4", borderRadius: 14, padding: "14px 18px", fontSize: 14, fontWeight: 700, color: "#8F1D21" }}>
-          {t("acc.suspended")}
+    <section className="wrap" style={{ paddingTop: 24 }}>
+      <nav className="crumbs" aria-label="Navigācijas ceļš">
+        <ol><li><Link href="/">Sākums</Link></li><li aria-current="page">{t("nav.account")}</li></ol>
+      </nav>
+
+      <div className="page-head">
+        <div>
+          <h1 data-hero>{t("nav.account")}</h1>
+          <p className="cnt">{t("acc.myBids")} · {t("acc.myOrders")}</p>
         </div>
-      )}
-      {payBanner && <div style={bannerStyle(payBanner)}>{bannerText[payBanner]}</div>}
+        <button className="btn btn-outline btn-sm" type="button" onClick={() => publicApi.logout()}>
+          {t("nav.signout")}
+        </button>
+      </div>
+
+      {suspended && <p className="bb-status err">{t("acc.suspended")}</p>}
+      {payBanner && <p className={`bb-status ${bannerTone(payBanner)}`}>{bannerText[payBanner]}</p>}
       <FeesNotice />
       <PickupPass />
-      <section>
-        <h1 style={{ fontSize: 20, fontWeight: 700, margin: "0 0 12px", letterSpacing: "-0.02em" }}>{t("acc.myBids")}</h1>
-        <div style={card}>
-          {bids.length === 0 ? (
-            <div style={{ padding: 22, color: "#6B6B68", fontSize: 13 }}>{t("acc.empty")}</div>
-          ) : (
-            bids.map((b) => (
-              <Link key={b.id} href={`/auction/${b.id}`} style={row}>
-                <span style={{ fontWeight: 600, flex: 1 }}>{b.title}</span>
-                {b.status === "live" ? (
-                  <>
-                    <span style={{
-                      fontSize: 11, fontWeight: 700, borderRadius: 99, padding: "2px 9px",
-                      background: b.youLead ? "#E4F4EA" : "#FBE3E3", color: b.youLead ? "#1F8A4C" : "#B0282C",
-                    }}>{b.youLead ? t("acc.leading") : t("acc.outbid")}</span>
-                    <Countdown endsAt={b.endsAt} />
-                  </>
-                ) : (
-                  <span style={{ fontSize: 11.5, color: "#6B6B68" }}>{t("card.ended")}</span>
-                )}
-                <span style={{ fontFamily: '"Geist Mono", ui-monospace, monospace', fontWeight: 700 }}>
-                  {formatEur(b.currentPriceCents ?? b.startPriceCents ?? 0)}
-                </span>
-              </Link>
-            ))
-          )}
-        </div>
-      </section>
 
-      <section>
-        <h2 style={{ fontSize: 17, fontWeight: 700, margin: "0 0 12px", letterSpacing: "-0.02em" }}>{t("acc.myOrders")}</h2>
-        <div style={card}>
-          {orders.length === 0 ? (
-            <div style={{ padding: 22, color: "#6B6B68", fontSize: 13 }}>{t("acc.empty")}</div>
+      <div className="acct">
+        <section className="card-b">
+          <h2>{t("acc.myBids")}</h2>
+          {bids.length === 0 ? (
+            <p className="note">{t("acc.empty")}</p>
           ) : (
-            orders.map((o) => (
-              <div key={o.ref} style={{ borderBottom: "1px solid rgba(10,10,10,0.05)" }}>
-                <div style={{ ...row, borderBottom: "none" }}>
-                  <span style={{ fontFamily: '"Geist Mono", ui-monospace, monospace', fontSize: 12 }}>{o.ref}</span>
-                  <span style={{ fontWeight: 600, flex: 1 }}>{o.itemTitle}</span>
-                  <span style={{
-                    fontSize: 11, fontWeight: 700, borderRadius: 99, padding: "2px 9px",
-                    background: o.status === "awaiting_payment" ? "#FCEFD9" : "#E4F4EA",
-                    color: o.status === "awaiting_payment" ? "#9A5B00" : "#1F8A4C",
-                  }}>
-                    {o.status === "awaiting_payment" ? t("acc.awaiting") : t("acc.paid")}
-                  </span>
-                  <span style={{ fontFamily: '"Geist Mono", ui-monospace, monospace', fontWeight: 700 }}>{formatEur(o.totalCents)}</span>
-                  {o.status === "awaiting_payment" && (
-                    <span style={{ display: "flex", gap: 6 }}>
-                      {payConfig?.providers?.klix !== false && (
-                        <button
-                          onClick={() => void payOrder(o.ref, payConfig?.providers?.klix ? "klix" : undefined)}
-                          disabled={payingRef !== null}
-                          style={{
-                            border: "none", borderRadius: 99, padding: "6px 14px", fontSize: 12, fontWeight: 700,
-                            background: "#2D4BFF", color: "#fff", cursor: payingRef ? "wait" : "pointer",
-                            opacity: payingRef && payingRef !== o.ref ? 0.5 : 1,
-                          }}
-                        >
-                          {payingRef === o.ref ? t("acc.payRedirecting") : t("acc.pay")}
-                        </button>
-                      )}
-                      {payConfig?.providers?.inbank && (
-                        <button
-                          onClick={() => void payOrder(o.ref, "inbank")}
-                          disabled={payingRef !== null}
-                          style={{
-                            borderRadius: 99, padding: "6px 14px", fontSize: 12, fontWeight: 700,
-                            background: "#fff", color: "#2D4BFF", border: "1.5px solid #2D4BFF",
-                            cursor: payingRef ? "wait" : "pointer",
-                            opacity: payingRef && payingRef !== o.ref ? 0.5 : 1,
-                          }}
-                        >
-                          {t("acc.payInbank")}
-                        </button>
-                      )}
-                    </span>
+            <ul className="feed">
+              {bids.map((b) => (
+                <li key={b.id}>
+                  <span className="nm"><Link href={`/auction/${b.id}`}>{b.title}</Link></span>
+                  {b.status === "live" ? (
+                    <>
+                      <span className={`tag${b.youLead ? "" : " tag-live"}`}>
+                        {b.youLead ? t("acc.leading") : t("acc.outbid")}
+                      </span>
+                      <span className="ago"><Countdown endsAt={b.endsAt} /></span>
+                    </>
+                  ) : (
+                    <span className="ago">{t("card.ended")}</span>
                   )}
-                </div>
-                {o.status === "awaiting_payment" && (
-                  <div style={{ padding: "0 16px 10px", display: "grid", gap: 8 }}>
-                    {/* Delivery choice reprices the order — pay after choosing. */}
-                    <DeliveryPicker order={o} onSaved={loadOrders} />
-                    {/* Pay Later monthly-payment preview on the exact amount due. */}
-                    <KlixPayLater amountCents={o.totalCents} view="checkout" micro />
-                  </div>
-                )}
-                {o.status === "paid" && o.fulfilment !== "pickup" && <TrackingLine order={o} />}
-              </div>
-            ))
+                  <span className="am tnum">{formatEur(b.currentPriceCents ?? b.startPriceCents ?? 0)}</span>
+                </li>
+              ))}
+            </ul>
           )}
-        </div>
-      </section>
-    </div>
+        </section>
+
+        <section className="card-b">
+          <h2>{t("acc.myOrders")}</h2>
+          {orders.length === 0 ? (
+            <p className="note">{t("acc.empty")}</p>
+          ) : (
+            <ul className="orders">
+              {orders.map((o) => (
+                <li key={o.ref}>
+                  <div className="o-top">
+                    <span className="o-ref tnum">{o.ref}</span>
+                    <span className="o-title">{o.itemTitle}</span>
+                    <span className={`tag${o.status === "awaiting_payment" ? " tag-live" : ""}`}>
+                      {o.status === "awaiting_payment" ? t("acc.awaiting") : t("acc.paid")}
+                    </span>
+                    <span className="am tnum">{formatEur(o.totalCents)}</span>
+                  </div>
+                  {o.status === "awaiting_payment" && (
+                    <div className="o-act">
+                      <Link className="btn btn-primary btn-sm" href={`/apmaksa/${encodeURIComponent(o.ref)}`}>
+                        {t("acc.pay")}
+                      </Link>
+                      <KlixPayLater amountCents={o.totalCents} view="checkout" micro />
+                    </div>
+                  )}
+                  {o.status === "paid" && o.fulfilment !== "pickup" && <TrackingLine order={o} />}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+    </section>
   );
 }

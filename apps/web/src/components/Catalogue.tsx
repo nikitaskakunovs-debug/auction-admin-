@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { CATEGORY_CODES } from "@/lib/categories";
-import { CONDITION_CODES } from "@/lib/conditions";
+import { CONDITION_CODES, conditionBadge } from "@/lib/conditions";
 import { useT } from "@/lib/i18n";
 import type { PublicAuction } from "@/lib/types";
 import { Icon } from "./Icon";
@@ -40,15 +40,6 @@ const SORTS: Array<[string, string]> = [
   ["ending", "Drīzāk beidzas"], ["low", "Cena: augoša"],
   ["high", "Cena: dilstoša"], ["bids", "Visvairāk solījumu"],
 ];
-
-/** Короткий бейдж состояния для попапа фильтра. */
-function badge(code: string): string {
-  if (code.startsWith("brand_new") || code === "new_no_package") return "A+";
-  if (code.startsWith("open_package") || code.startsWith("new_")) return "A";
-  if (code === "lightly_used" || code === "refurbished" || code === "display_model") return "A−";
-  if (code.startsWith("used") || code === "previously_assembled") return "B";
-  return "D";
-}
 
 const price = (a: PublicAuction) => a.currentPriceCents ?? a.startPriceCents ?? 0;
 
@@ -212,7 +203,7 @@ export function Catalogue({ auctions }: { auctions: Row[] }) {
             {CONDITION_CODES.map((g) => (
               <button key={g} type="button" aria-pressed={grades.includes(g)}
                       onClick={() => setGrades((x) => x.includes(g) ? x.filter((y) => y !== g) : [...x, g])}>
-                <span className="g">{badge(g)}</span><span className="nm">{t(`cond.${g}`)}</span>
+                <span className="g">{conditionBadge(g)}</span><span className="nm">{t(`cond.${g}`)}</span>
               </button>
             ))}
           </>)}

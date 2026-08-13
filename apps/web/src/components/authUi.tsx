@@ -2,33 +2,20 @@
 
 import type { CSSProperties, ReactNode } from "react";
 
-export const authInput: CSSProperties = {
-  height: 44,
-  borderRadius: 10,
-  border: "1px solid rgba(10,10,10,0.15)",
-  fontSize: 14.5,
-  padding: "0 12px",
-  outline: "none",
-  background: "#fff",
-};
+/** Формы входа и регистрации на дизайн-системе макета: карточка `.card-b`,
+ *  поля `.fields`, кнопка `.btn`. Инлайновых цветов больше нет — тёмная тема
+ *  работает сама. */
+export const authInput: CSSProperties = {};
+export const authButton: CSSProperties = {};
 
-export const authButton: CSSProperties = {
-  all: "unset",
-  cursor: "pointer",
-  background: "#0A0A0A",
-  color: "#fff",
-  fontWeight: 700,
-  fontSize: 14.5,
-  borderRadius: 10,
-  padding: "13px 0",
-  textAlign: "center",
-};
-
-export function AuthCard({ title, children }: { title: string; children: ReactNode }) {
+export function AuthCard({ title, sub, children }: { title: string; sub?: string; children: ReactNode }) {
   return (
-    <div style={{ maxWidth: 400, margin: "40px auto", background: "#fff", border: "1px solid rgba(10,10,10,0.10)", borderRadius: 16, padding: 26, display: "grid", gap: 16 }}>
-      <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, letterSpacing: "-0.02em" }}>{title}</h1>
-      {children}
-    </div>
+    <section className="wrap" style={{ paddingTop: 40, paddingBottom: 80 }}>
+      <div className="card-b auth-card">
+        <h1>{title}</h1>
+        {sub && <p className="note">{sub}</p>}
+        {children}
+      </div>
+    </section>
   );
 }

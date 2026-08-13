@@ -1,34 +1,43 @@
 "use client";
 
-import { CONDITION_CODES } from "@/lib/conditions";
+import Link from "next/link";
+import { CONDITION_CODES, conditionBadge } from "@/lib/conditions";
 import { useT } from "@/lib/i18n";
 
-/** SEE NOTES grades — these always carry a per-lot note describing the issue. */
+/** Грейды, у которых всегда есть пояснение к конкретному лоту. */
 const NOTED = new Set(["new_with_issue", "new_cosmetic_imperfection", "lightly_used", "used", "used_with_issue"]);
 
 export function ConditionsList() {
   const { t } = useT();
   return (
-    <div style={{ maxWidth: 760, display: "grid", gap: 14 }}>
-      <div>
-        <h1 style={{ margin: 0, fontSize: 26, fontWeight: 700, letterSpacing: "-0.02em" }}>{t("cond.title")}</h1>
-        <p style={{ color: "#454542", fontSize: 14, lineHeight: 1.6, margin: "8px 0 0" }}>{t("cond.intro")}</p>
+    <section className="wrap" style={{ paddingTop: 24 }}>
+      <nav className="crumbs" aria-label="Navigācijas ceļš">
+        <ol><li><Link href="/">Sākums</Link></li><li aria-current="page">{t("cond.title")}</li></ol>
+      </nav>
+
+      <div className="page-head">
+        <div>
+          <h1 data-hero>{t("cond.title")}</h1>
+          <p className="cnt">{CONDITION_CODES.length} pakāpes · vienādi visiem lotiem</p>
+        </div>
       </div>
-      <div style={{ display: "grid", gap: 8 }}>
+
+      <p className="lead" style={{ maxWidth: "62ch", marginBottom: "var(--s5)" }}>{t("cond.intro")}</p>
+
+      <div className="scale">
         {CONDITION_CODES.map((code) => (
-          <div key={code} style={{ background: "#fff", border: "1px solid rgba(10,10,10,0.10)", borderRadius: 12, padding: "12px 16px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <span style={{ fontSize: 14, fontWeight: 700 }}>{t(`cond.${code}`)}</span>
-              {NOTED.has(code) && (
-                <span style={{ fontSize: 10.5, fontWeight: 700, color: "#9A5B00", background: "#FCEFD9", borderRadius: 99, padding: "2px 8px", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                  {t("cond.notes")}
-                </span>
-              )}
-            </div>
-            <div style={{ fontSize: 13, color: "#454542", lineHeight: 1.55, marginTop: 3 }}>{t(`cond.${code}.d`)}</div>
+          <div className="scale-row" key={code}>
+            <span className="g" aria-hidden="true">{conditionBadge(code)}</span>
+            <span>
+              <b>
+                {t(`cond.${code}`)}
+                {NOTED.has(code) && <span className="this">{t("cond.notes")}</span>}
+              </b>
+              <small>{t(`cond.${code}.d`)}</small>
+            </span>
           </div>
         ))}
       </div>
-    </div>
+    </section>
   );
 }
