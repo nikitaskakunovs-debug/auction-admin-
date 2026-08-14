@@ -82,7 +82,7 @@ export function Banners() {
     <section className="section wrap" aria-label={t("bn.aria")} style={{ paddingTop: 0 }}>
       <div
         className={`bslider${paused ? " is-paused" : ""}`}
-        role="region" aria-roledescription="karuselis" aria-label="Piedāvājumi"
+        role="region" aria-roledescription={t("nav.carousel")} aria-label={t("bn.offers")}
         ref={root}
         onMouseEnter={() => setPaused(true)}
         onMouseLeave={() => setPaused(false)}
@@ -129,11 +129,11 @@ export function Banners() {
                 onClick={() => go(i + 1)}><Icon name="arrow" /></button>
 
         <div className="bbar">
-          <div className="bdots" role="tablist" aria-label="Piedāvājumi">
+          <div className="bdots" role="tablist" aria-label={t("bn.offers")}>
             {SLIDES.map((s, k) => (
               <button key={s.title} className="bdot" type="button" role="tab"
                       aria-current={k === i ? "true" : undefined}
-                      aria-label={`Piedāvājums ${k + 1} no ${n}`}
+                      aria-label={t("bn.offerN", { i: k + 1, n })}
                       onClick={() => go(k)}><i aria-hidden="true" /></button>
             ))}
           </div>

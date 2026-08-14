@@ -16,6 +16,7 @@ import { Icon } from "@/components/Icon";
 import { LotCard, type CardLot } from "@/components/LotCard";
 import { alertStore } from "@/lib/ui";
 import { watchStore } from "@/lib/watch";
+import { say } from "@/components/Toast";
 
 type MyBidAuction = PublicAuction & { youLead: boolean };
 
@@ -47,7 +48,26 @@ export default function AccountPage() {
   const [watchIds, setWatchIds] = useState<string[]>([]);
   const [alertIds, setAlertIds] = useState<string[]>([]);
   const [catalog, setCatalog] = useState<PublicAuction[]>([]);
-  const [me, setMe] = useState<{ email: string; alias: string; emailVerified?: boolean } | null>(null);
+  const [me, setMe] = useState<{ email: string; alias: string; emailVerified?: boolean; marketingOptIn?: boolean } | null>(null);
+  const [marketing, setMarketing] = useState(false);
+  const [mkBusy, setMkBusy] = useState(false);
+
+  useEffect(() => { setMarketing(me?.marketingOptIn === true); }, [me?.marketingOptIn]);
+
+  /** Отозвать согласие на рассылку — одним переключателем в своём кабинете.
+   *  По GDPR отзыв обязан быть не сложнее, чем само согласие. */
+  const toggleMarketing = async () => {
+    const next = !marketing;
+    setMkBusy(true);
+    setMarketing(next);            // отвечаем сразу, переключатель не должен залипать
+    try {
+      await publicApi.post("/api/public/me/marketing", { optIn: next });
+      say(next ? t("acc.marketingOn") : t("acc.marketingOff"));
+    } catch {
+      setMarketing(!next);         // не сохранилось — возвращаем как было
+      say(t("acc.marketingFailed"));
+    } finally { setMkBusy(false); }
+  };
 
   const loadOrders = useCallback(() => {
     void publicApi.get<{ orders: MyOrder[] }>("/api/public/me/orders").then((r) => setOrders(r.orders)).catch(() => undefined);
@@ -203,7 +223,7 @@ export default function AccountPage() {
               <span className={`tag${b.youLead ? "" : " tag-live"}`}>
                 {b.youLead ? t("acc.leading") : t("acc.outbid")}
               </span>
-              <span className="ago"><Countdown endsAt={b.endsAt} /></span>
+              <span className="ago"><Countdown endsAt={b.endsAt} lang={lang} /></span>
             </>
           ) : (
             <span className="ago">{t("card.ended")}</span>

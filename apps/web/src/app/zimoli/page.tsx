@@ -3,6 +3,7 @@ import { API_URL } from "@/lib/config";
 import type { PublicAuction } from "@/lib/types";
 import { Icon } from "@/components/Icon";
 import { T } from "@/lib/i18n";
+import { Crumbs } from "@/components/Crumbs";
 
 export const dynamic = "force-dynamic";
 
@@ -38,9 +39,7 @@ export default async function BrandsPage() {
 
   return (
     <section className="wrap" style={{ paddingTop: 24 }}>
-      <nav className="crumbs" aria-label="Navigācijas ceļš">
-        <ol><li><Link href="/"><T k="nav.home" /></Link></li><li aria-current="page"><T k="misc.brands" /></li></ol>
-      </nav>
+      <Crumbs here={<T k="misc.brands" />} />
 
       <div className="page-head">
         <div>

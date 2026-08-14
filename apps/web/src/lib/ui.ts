@@ -96,9 +96,24 @@ export function useReveal() {
         .forEach((n) => io.observe(n));
     };
     scan();
-    const mo = new MutationObserver(scan);
+
+    /* Пересканировать документ имеет смысл только когда в него добавили узлы,
+     * и не чаще одного раза за кадр.
+     *
+     * Наблюдатель висит на всём body с subtree: true, поэтому раньше каждое
+     * изменение — тик таймера на карточке, новая цена по вебсокету, счётчик
+     * в шапке — запускало querySelectorAll по всему документу. На странице
+     * живых торгов это выходило десятки полных обходов в секунду. */
+    let raf = 0;
+    const mo = new MutationObserver((records) => {
+      if (raf) return;
+      let added = false;
+      for (const r of records) if (r.addedNodes.length > 0) { added = true; break; }
+      if (!added) return;
+      raf = requestAnimationFrame(() => { raf = 0; scan(); });
+    });
     mo.observe(document.body, { childList: true, subtree: true });
-    return () => { io.disconnect(); mo.disconnect(); };
+    return () => { io.disconnect(); mo.disconnect(); if (raf) cancelAnimationFrame(raf); };
   }, []);
 }
 

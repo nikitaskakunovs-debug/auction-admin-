@@ -12,6 +12,8 @@ export const SHELL = {
   "sh.nav.desk": { lv: "Lete", ru: "Стойка", en: "Front desk" },
   "sh.nav.pickup": { lv: "Izsniegšana", ru: "Выдача", en: "Pickup" },
   "sh.nav.whstats": { lv: "Statistika", ru: "Статистика", en: "Stats" },
+  "sh.nav.ads": { lv: "Reklāma", ru: "Реклама", en: "Ads" },
+  "sh.nav.consents": { lv: "Piekrišanas", ru: "Согласия", en: "Consents" },
   "sh.nav.customers": { lv: "Solītāji", ru: "Участники", en: "Bidders" },
   "sh.nav.finance": { lv: "Finanses", ru: "Финансы", en: "Finance" },
   "sh.nav.content": { lv: "Saturs", ru: "Контент", en: "Content" },

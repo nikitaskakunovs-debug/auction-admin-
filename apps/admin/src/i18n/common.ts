@@ -55,6 +55,7 @@ export const COMMON = {
   "c.remove": { lv: "Noņemt", ru: "Убрать", en: "Remove" },
   "c.search": { lv: "Meklēt", ru: "Поиск", en: "Search" },
   "c.loading": { lv: "Ielādē…", ru: "Загрузка…", en: "Loading…" },
+  "c.deleted": { lv: "Dzēsts", ru: "Удалено", en: "Deleted" },
   "c.loadMore": { lv: "Ielādēt vairāk", ru: "Показать ещё", en: "Load more" },
   "c.all": { lv: "Visi", ru: "Все", en: "All" },
   "c.none": { lv: "Nav", ru: "Нет", en: "None" },

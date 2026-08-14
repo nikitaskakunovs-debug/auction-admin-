@@ -2,15 +2,15 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import type { PublicAuction } from "@/lib/types";
+import type { FixedListing, PublicAuction } from "@/lib/types";
 import { watchStore } from "@/lib/watch";
 import { useT } from "@/lib/i18n";
 import { Icon } from "./Icon";
-import { LotCard, type CardLot } from "./LotCard";
+import { fixedToCard, LotCard, type CardLot } from "./LotCard";
 
 /** Вэлмес — сохранённые лоты. Список ID живёт локально (в движке пока нет
  *  вотчлиста), сами лоты приходят из каталога. */
-export function Watchlist({ auctions }: { auctions: PublicAuction[] }) {
+export function Watchlist({ auctions, listings = [] }: { auctions: PublicAuction[]; listings?: FixedListing[] }) {
   const { t } = useT();
   const [ids, setIds] = useState<string[] | null>(null);
 
@@ -20,7 +20,8 @@ export function Watchlist({ auctions }: { auctions: PublicAuction[] }) {
     return watchStore.subscribe(sync);
   }, []);
 
-  const rows = ids === null ? [] : auctions.filter((a) => ids.includes(a.id));
+  const pool: CardLot[] = [...auctions, ...listings.map(fixedToCard)];
+  const rows = ids === null ? [] : pool.filter((a) => ids.includes(a.id));
   const missing = ids === null ? 0 : ids.length - rows.length;
 
   return (

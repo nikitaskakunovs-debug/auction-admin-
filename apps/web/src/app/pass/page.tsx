@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { Icon } from "@/components/Icon";
+import { Crumbs } from "@/components/Crumbs";
 
 export const metadata = {
   title: "Izsoli Pass",
@@ -16,9 +16,7 @@ const PERKS: Array<[string, string, string]> = [
 export default function PassPage() {
   return (
     <section className="wrap" style={{ paddingTop: 24 }}>
-      <nav className="crumbs" aria-label="Navigācijas ceļš">
-        <ol><li><Link href="/">Sākums</Link></li><li aria-current="page">Izsoli Pass</li></ol>
-      </nav>
+      <Crumbs here="Izsoli Pass" />
 
       <div className="page-head">
         <div>

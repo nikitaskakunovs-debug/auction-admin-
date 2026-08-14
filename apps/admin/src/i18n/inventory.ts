@@ -66,6 +66,13 @@ export const INVENTORY = {
   // ── Bulk bar ───────────────────────────────────────────────────────────────
   "inv.printLabel": { lv: "Drukāt etiķeti", ru: "Печать этикетки", en: "Print label" },
   "inv.printLabels": { lv: "Drukāt etiķetes", ru: "Печать этикеток", en: "Print labels" },
+  "inv.warehouseBin": { lv: "Noliktavas plaukts", ru: "Полка на складе", en: "Warehouse bin" },
+  "inv.binHint": { lv: "Plaukta maiņa tiek ierakstīta krājumu žurnālā.", ru: "Смена полки записывается в журнал склада.", en: "Changing the bin writes a putaway/move into the stock ledger." },
+  "inv.noBinDash": { lv: "— bez plaukta —", ru: "— без полки —", en: "— no bin —" },
+  "inv.setCategory": { lv: "Piešķirt kategoriju", ru: "Назначить категорию", en: "Set category" },
+  "inv.pickCategory": { lv: "Izvēlieties kategoriju…", ru: "Выберите категорию…", en: "Pick a category…" },
+  "inv.condition": { lv: "Stāvoklis", ru: "Состояние", en: "Condition" },
+  "inv.conditionNotes": { lv: "Piezīmes par stāvokli", ru: "Заметки о состоянии", en: "Condition notes" },
   "inv.moveToBin": { lv: "Pārvietot uz plauktu", ru: "Переместить на полку", en: "Move to bin" },
   "inv.pickBin": { lv: "Izvēlieties plauktu…", ru: "Выберите полку…", en: "Pick a bin…" },
   "inv.movedOne": { lv: "prece pārvietota", ru: "товар перемещён", en: "item moved" },

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PUBLIC_API_URL } from "@/lib/config";
+import { useT } from "@/lib/i18n";
 
 /**
  * Warehouse check-in kiosk (a wall-mounted tablet). The client types their
@@ -17,6 +18,7 @@ type Phase = { kind: "idle" } | { kind: "busy" } | { kind: "ok"; ticket: number;
 const DIGITS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "⌫"];
 
 export default function KioskPage() {
+  const { t } = useT();
   const [code, setCode] = useState("");
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -95,19 +97,19 @@ export default function KioskPage() {
         {phase.kind === "ok" ? (
           <>
             <div style={{ fontSize: 17, fontWeight: 600, color: "rgba(255,255,255,0.75)" }}>
-              {phase.already ? "Jūs jau esat reģistrēts" : "Jūsu talons"}
+              {phase.already ? t("kiosk.already") : t("kiosk.yourTicket")}
             </div>
             <div style={{ fontFamily: mono, fontSize: 120, fontWeight: 700, lineHeight: 1, background: "#fff", color: "#0F0F0E", borderRadius: 20, padding: "28px 0" }}>
               {phase.ticket}
             </div>
-            <div style={{ fontSize: 15, color: "rgba(255,255,255,0.65)" }}>Skaties uz ekrānu — komplektējam tavu pasūtījumu.</div>
+            <div style={{ fontSize: 15, color: "rgba(255,255,255,0.65)" }}>{t("kiosk.watch")}</div>
           </>
         ) : (
           <>
             <div>
-              <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>Reģistrēšanās izsniegšanai</h1>
+              <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>{t("kiosk.title")}</h1>
               <div style={{ fontSize: 13.5, color: "rgba(255,255,255,0.6)", marginTop: 6 }}>
-                Ievadi vai noskenē izņemšanas kodu
+                {t("kiosk.enterCode")}
               </div>
             </div>
             <div

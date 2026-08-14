@@ -170,6 +170,11 @@ export interface Customer {
   erasedAt: string | null;
   /** A3: customer_tag_defs ids. */
   tags: string[];
+  /** Согласие на рассылку: сам флаг плюс то, чем его доказывают. */
+  marketingOptIn?: boolean;
+  marketingOptInAt?: string | null;
+  marketingSource?: string | null;
+  marketingOptOutAt?: string | null;
   createdAt: string;
   /** Present on the A3 power list response. */
   outstandingFeeCents?: number;

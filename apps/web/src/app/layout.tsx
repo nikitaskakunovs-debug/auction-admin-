@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { API_URL } from "@/lib/config";
 import { resolveCountry, SITE_ORIGINS } from "@/lib/country";
 import { alternatesFor } from "@/lib/seo";
-import { I18nProvider } from "@/lib/i18n";
+import { I18nProvider, T } from "@/lib/i18n";
 import type { Localized } from "@/lib/localized";
 import { Chrome } from "@/components/Chrome";
 import { CookieBanner } from "@/components/CookieBanner";
@@ -77,8 +77,10 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: "document.documentElement.classList.remove('no-js')" }} />
       </head>
       <body>
-        <a className="skip" href="#main">Pāriet uz galveno saturu</a>
         <I18nProvider initialLang={country.defaultLang} available={country.languages}>
+          {/* Внутри провайдера: снаружи <T /> получал пустой контекст и выводил
+              сам ключ — на экране стояло «nav.skipToMain». */}
+          <a className="skip" href="#main"><T k="nav.skipToMain" /></a>
           <Chrome country={country.code} />
           <main id="main">{children}</main>
           <Footer pages={footerPages} country={country.code} />

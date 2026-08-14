@@ -14,18 +14,36 @@ export function Dock() {
   const [hidden, setHidden] = useState(false);
   const [initial, setInitial] = useState("N");
 
+  /* Док прячется при движении вниз и возвращается при движении вверх.
+   *
+   * Отправная точка берётся из текущего положения страницы, а не из нуля.
+   * Раньше она была нулём: если страница открывалась уже прокрученной —
+   * при возврате назад или по ссылке с якорем, — первое же событие скролла
+   * читалось как «ушли далеко вниз», и док прятался сразу. Отсюда и брались
+   * экраны, где его просто нет. */
   useEffect(() => {
-    let last = 0, tick = false;
-    const on = () => {
+    let last = window.scrollY, raf = 0;
+    const read = () => {
+      raf = 0;
       const y = window.scrollY;
-      if (y > 320 && y > last + 6) setHidden(true);
-      else if (y < last - 6 || y <= 320) setHidden(false);
-      last = y; tick = false;
+      const next = y > 320 && y > last + 6 ? true : (y < last - 6 || y <= 320) ? false : null;
+      last = y;
+      if (next !== null) setHidden((cur) => (cur === next ? cur : next));
     };
-    const onScroll = () => { if (!tick) { tick = true; requestAnimationFrame(on); } };
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(read); };
     window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
   }, []);
+
+  /* Переход на другую страницу всегда возвращает док.
+   *
+   * Без этого он оставался спрятанным: короткая страница не порождает ни
+   * одного события скролла, значит и вернуть его было нечему. Это вторая
+   * половина «где-то появляется, где-то нет». */
+  useEffect(() => { setHidden(false); }, [path]);
 
   useEffect(() => {
     const sync = () => setInitial(publicApi.hasSession ? "•" : "N");

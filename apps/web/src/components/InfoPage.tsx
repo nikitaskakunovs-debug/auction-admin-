@@ -92,7 +92,7 @@ export function InfoPage({
           <h3>{t("misc.stillQuestion")}</h3>
           <p>{t("misc.writeUsReply")}</p>
         </div>
-        <Link className="btn btn-dark" href="/kontakti">Sazināties</Link>
+        <Link className="btn btn-dark" href="/kontakti">{t("misc.contactUs")}</Link>
       </div>
     </section>
   );

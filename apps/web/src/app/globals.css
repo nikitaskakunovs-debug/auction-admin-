@@ -6,7 +6,11 @@
   --brand:#163300; --brand-2:#1F4A05; --on-brand:#FFFFFF;
   --blue:#A0E1E1; --pink:#FFC9F0; --yellow:#FFEB69;
   --surface:#FFFFFF; --surface-2:#F7F7F4; --surface-3:#EFEFEB;
-  --text:#0E0F0C; --text-2:#454745; --text-3:#6F7269; --border:#E4E5E0;
+  --text:#0E0F0C; --text-2:#454745; --text-3:#6B6D65; --border:#E4E5E0;
+  /* Граница элемента управления — поля, переключателя, обводки кнопки —
+     по WCAG 1.4.11 обязана давать 3:1 к фону. Хайрлайн --border даёт 1.27:1:
+     для разделителя это нормально, для края поля ввода — нет. */
+  --border-strong:#8D8E8B;
   --live:#C43D05; --live-soft:#FDEFE8; --on-live:#FFFFFF;
   --f:var(--font-figtree),ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
   --s1:4px;--s2:8px;--s3:12px;--s4:16px;--s5:24px;--s6:32px;--s7:48px;--s8:64px;--s9:96px;
@@ -21,13 +25,22 @@
   :root{
     --surface:#12150F; --surface-2:#1A1E15; --surface-3:#232819;
     --text:#EDF0E9; --text-2:#BEC4B6; --text-3:#98A08D; --border:#2E3625;
+    --border-strong:#5C6D4A;
     --brand:#1A1E15; --brand-2:#232819; --on-brand:#EDF0E9;
     --live:#FF7A3D; --live-soft:#2A1A10; --on-live:#12150F;
     --shadow-1:none; --shadow-2:0 16px 32px -16px rgba(0,0,0,.6); --shadow-3:0 28px 56px -24px rgba(0,0,0,.75);
   }
 }
 *,*::before,*::after{box-sizing:border-box}
-html{overflow-x:hidden;overflow-x:clip;scroll-behavior:smooth}
+html{overflow-x:hidden;overflow-x:clip}
+/* Плавная прокрутка — только по якорям внутри страницы.
+   На html она распространялась и на переход между страницами: роутер
+   возвращает страницу к началу программно, и весь экран уезжал вверх
+   анимацией. На телефоне это и читалось как «блоки переключаются рывками».
+   scroll-behavior на :target действует только на переходы по якорю. */
+@media(prefers-reduced-motion:no-preference){
+  :root:has(:target){scroll-behavior:smooth}
+}
 body{margin:0;background:var(--surface);color:var(--text);font-family:var(--f);font-size:16px;
   line-height:1.5;-webkit-font-smoothing:antialiased;overflow-x:clip;
   padding-bottom:calc(var(--dock-h) + 24px + env(safe-area-inset-bottom))}
@@ -123,7 +136,9 @@ button.search .ph{flex:1;min-width:0;font-size:16px;white-space:nowrap;overflow:
 .icon-link .n{position:absolute;top:2px;right:6px;min-width:18px;height:18px;padding:0 5px;
   border-radius:var(--r-pill);background:var(--live);color:var(--on-live);font-size:12px;font-weight:800;
   display:grid;place-items:center;line-height:1}
-@media(max-width:1160px){.cat-btn span{display:none}.cat-btn{padding:12px 16px}}
+/* Слово «Каталог» остаётся при кнопке: раньше ниже 1160px от неё оставался
+   один значок, и понять, что это каталог, было нельзя. */
+@media(max-width:1160px){.cat-btn{padding:12px 16px}}
 @media(max-width:900px){.icon-link,.head .btn-outline{display:none}
   .head .btn-outline.keep{display:inline-flex}}
 @media(max-width:600px){
@@ -443,24 +458,35 @@ footer li a:hover{opacity:1;text-decoration:underline}
   background:color-mix(in srgb,var(--surface) 82%,transparent);
   -webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);
   border:1px solid var(--border);border-radius:var(--r-pill);box-shadow:var(--shadow-3);
-  translate:0 0;opacity:1;transition:translate .32s var(--ease),opacity .32s var(--ease)}
+  translate:0 0;opacity:1;transition:translate .32s var(--ease),opacity .32s var(--ease);
+  /* Активная пилюля дока растёт через flex-grow, а подпись раскрывается
+     через max-width — обе анимации пересчитывают раскладку на каждом кадре.
+     contain:layout запирает этот пересчёт внутри дока, иначе браузер трогал
+     всю страницу при каждом переходе между разделами. */
+  contain:layout}
 @supports not (backdrop-filter:blur(1px)){.dock{background:var(--surface)}}
 .dock.is-hidden{translate:0 160%;opacity:0;pointer-events:none}
-.dock a{position:relative;flex:1;min-width:0;height:56px;border-radius:var(--r-pill);
-  display:flex;align-items:center;justify-content:center;gap:8px;color:var(--text);
-  transition:background var(--fast) var(--ease),flex-grow .32s var(--ease)}
+/* Значок над подписью. Раньше подпись раскрывалась только у текущего раздела,
+   а остальные четыре оставались безымянными значками — узнать «сердечко» или
+   «молнию» без слова нельзя, и это же ломало доступность: на ощупь по значку
+   ориентируется только тот, кто уже знает интерфейс. */
+.dock a{position:relative;flex:1;min-width:0;height:56px;border-radius:var(--r-md);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  color:var(--text);padding:0 2px;
+  transition:background var(--fast) var(--ease),color var(--fast) var(--ease)}
 .dock a:hover{background:var(--surface-2)}
-.dock svg{width:24px;height:24px;flex:none;stroke:currentColor;fill:none;stroke-width:1.9;
+.dock svg{width:23px;height:23px;flex:none;stroke:currentColor;fill:none;stroke-width:1.9;
   stroke-linecap:round;stroke-linejoin:round}
-.dock .lbl{font-size:14px;font-weight:700;letter-spacing:-.01em;white-space:nowrap;
-  max-width:0;opacity:0;overflow:hidden;transition:max-width .32s var(--ease),opacity .2s var(--ease)}
-.dock a[aria-current]{background:var(--accent);color:var(--on-accent);flex-grow:1.9}
-.dock a[aria-current] .lbl{max-width:120px;opacity:1}
-.dock .badge-dot{position:absolute;top:10px;right:calc(50% - 16px);width:10px;height:10px;
+.dock .lbl{font-size:11px;font-weight:700;letter-spacing:-.01em;line-height:1;
+  max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dock a[aria-current]{background:var(--accent);color:var(--on-accent)}
+.dock .badge-dot{position:absolute;top:6px;right:calc(50% - 16px);width:10px;height:10px;
   border-radius:50%;background:var(--live);box-shadow:0 0 0 2px var(--surface)}
-.dock .ava{width:28px;height:28px;border-radius:50%;background:var(--brand);color:var(--accent);
-  display:grid;place-items:center;font-size:12px;font-weight:800;flex:none}
-@media(max-width:380px){.dock .lbl{display:none}.dock a[aria-current]{flex-grow:1}}
+.dock .ava{width:23px;height:23px;border-radius:50%;background:var(--brand);color:var(--accent);
+  display:grid;place-items:center;font-size:11px;font-weight:800;flex:none}
+/* На узком экране подпись не прячем — уменьшаем. Безымянный значок хуже
+   мелкой подписи: угадывать раздел по картинке человек не должен. */
+@media(max-width:380px){.dock{gap:2px;padding:6px}.dock .lbl{font-size:10px}}
 
 /* ═══ МОДАЛКИ ═══ */
 .modal{position:fixed;inset:0;z-index:120;display:grid;place-items:center;padding:16px}
@@ -535,7 +561,7 @@ footer li a:hover{opacity:1;text-decoration:underline}
   border-radius:var(--r-md);background:var(--surface-2);font-size:14px;font-weight:600;min-height:52px}
 .cc-opt small{display:block;font-weight:500;color:var(--text-3);font-size:13px;margin-top:2px}
 .sw{position:relative;width:48px;height:28px;border-radius:var(--r-pill);background:var(--surface-3);
-  flex:none;transition:background var(--fast) var(--ease);border:1px solid var(--border)}
+  flex:none;transition:background var(--fast) var(--ease);border:1px solid var(--border-strong)}
 .sw::before{content:"";position:absolute;inset:-8px;border-radius:var(--r-pill)}
 .sw::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;
   background:var(--surface);box-shadow:var(--shadow-1);transition:translate var(--fast) var(--ease)}
@@ -1153,7 +1179,7 @@ body{padding-top:var(--chrome-h,232px)}
 .fields{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 @media(max-width:640px){.fields{grid-template-columns:1fr}}
 .fields label{display:grid;gap:6px;font-size:13px;font-weight:700;color:var(--text-3)}
-.fields input{min-height:52px;border-radius:var(--r-md);border:2px solid var(--border);background:var(--surface);
+.fields input{min-height:52px;border-radius:var(--r-md);border:2px solid var(--border-strong);background:var(--surface);
   padding:0 16px;font-size:16px;font-weight:600;color:var(--text)}
 .fields input:focus{outline:0;border-color:var(--text)}
 .pay-side{position:sticky;top:calc(var(--chrome-c,84px) + 16px)}
@@ -1184,7 +1210,7 @@ body{padding-top:var(--chrome-h,232px)}
 .auth-card h1{font-size:26px;letter-spacing:-.03em}
 .auth-card form{display:grid;gap:12px}
 .auth-card .fields{grid-template-columns:1fr}
-.auth-card select{min-height:52px;border-radius:var(--r-md);border:2px solid var(--border);
+.auth-card select{min-height:52px;border-radius:var(--r-md);border:2px solid var(--border-strong);
   background:var(--surface);color:var(--text);font:inherit;padding:0 14px}
 .auth-err{font-size:13.5px;font-weight:700;color:var(--live);
   background:color-mix(in srgb,var(--live) 10%,var(--surface));
@@ -1236,7 +1262,7 @@ body{padding-top:var(--chrome-h,232px)}
 .lgal.zoom{cursor:crosshair}
 .stage-art img{width:100%;height:100%;object-fit:cover}
 .lthumb img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
-.fields select,.fields textarea{min-height:52px;border-radius:var(--r-md);border:2px solid var(--border);
+.fields select,.fields textarea{min-height:52px;border-radius:var(--r-md);border:2px solid var(--border-strong);
   background:var(--surface);color:var(--text);font:inherit;padding:0 14px}
 .fields select:focus,.fields textarea:focus{outline:0;border-color:var(--text)}
 /* Появление блоков при скролле — замена GSAP ScrollTrigger */
@@ -1546,3 +1572,49 @@ footer .f-pill{border:0;font:inherit;cursor:pointer}
   .head .btn-sm{padding:0 14px;font-size:14px}
 }
 @media(max-width:400px){.logo{font-size:20px}.logo-mark{width:32px;height:32px}}
+
+/* ═══ РЕКЛАМНАЯ КАРТОЧКА В ЛЕНТЕ ═══
+   Три вида одного места: баннер, карусель кадров, видео. Стоит в общем
+   потоке карточек каталога. Пометка «Реклама» для чужой оплаченной рекламы
+   обязана быть видна — закон о рекламе. */
+.lot-ad{position:relative;display:flex;flex-direction:column;justify-content:flex-end;gap:10px;
+  overflow:hidden;padding:20px;min-height:320px;touch-action:pan-y}
+.lot-ad.banner-green{background:var(--accent);color:var(--on-accent)}
+.lot-ad.banner-blue{background:var(--blue);color:#0E2A2A}
+.lot-ad.banner-pink{background:var(--pink);color:#3A0E2E}
+.lot-ad.banner-yellow{background:var(--yellow);color:#332B00}
+.lot-ad .ad-mark{position:absolute;top:14px;left:14px;z-index:3;
+  font-size:11px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+  padding:4px 9px;border-radius:var(--r-pill);
+  background:color-mix(in srgb,var(--surface) 88%,transparent);color:var(--text-2)}
+/* Фон карточки: картинка, кадр карусели или видео — во весь размер. */
+.lot-ad .ad-media{position:absolute;inset:0;z-index:0;width:100%;height:100%;object-fit:cover}
+.lot-ad .ad-frame{opacity:0;transition:opacity .3s var(--ease)}
+.lot-ad .ad-frame.on{opacity:1}
+@media(prefers-reduced-motion:reduce){.lot-ad .ad-frame{transition:none}}
+/* Стрелки и точки карусели — выше ссылки, работают сами. */
+.lot-ad .ad-nav{position:absolute;top:50%;translate:0 -50%;z-index:2;width:40px;height:40px;
+  border-radius:50%;display:grid;place-items:center;
+  background:color-mix(in srgb,var(--surface) 88%,transparent);color:var(--text)}
+.lot-ad .ad-nav.p{left:10px;rotate:180deg}
+.lot-ad .ad-nav.n{right:10px}
+.lot-ad .ad-nav svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:2;
+  stroke-linecap:round;stroke-linejoin:round}
+.lot-ad .ad-dots{position:relative;z-index:2;display:flex;gap:6px;justify-content:center}
+.lot-ad .ad-dots button{width:24px;height:24px;border-radius:50%;display:grid;place-items:center}
+.lot-ad .ad-dots button::after{content:"";width:8px;height:8px;border-radius:50%;
+  background:color-mix(in srgb,var(--surface) 70%,transparent)}
+.lot-ad .ad-dots button[aria-current]::after{background:var(--surface);scale:1.25}
+/* Одна ссылка: заголовок, текст и кнопка. Поверх фона — на подложке. */
+.lot-ad .ad-go{position:relative;z-index:2;display:flex;flex-direction:column;gap:8px;
+  align-items:flex-start;color:inherit}
+.lot-ad .ad-media~.ad-go{background:color-mix(in srgb,var(--surface) 90%,transparent);
+  color:var(--text);border-radius:var(--r-md);padding:14px}
+.lot-ad .ad-go b{font-size:22px;line-height:1.15;letter-spacing:-.03em}
+.lot-ad .ad-text{font-size:14.5px;line-height:1.45;opacity:.86}
+.lot-ad .ad-cta{display:inline-flex;align-items:center;gap:8px;
+  min-height:44px;padding:10px 20px;border-radius:var(--r-pill);font-weight:700;font-size:15px;
+  background:var(--brand);color:var(--on-brand);
+  transition:background var(--fast) var(--ease)}
+.lot-ad .ad-go:hover .ad-cta{background:var(--brand-2)}
+.lot-ad .ad-cta svg{stroke:currentColor;fill:none;stroke-width:2}

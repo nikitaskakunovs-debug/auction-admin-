@@ -1,4 +1,4 @@
-import { bids, customerFees, customers, customerTagDefs, orders } from "@auction/db";
+import { bids, cookieConsents, customerFees, customers, customerTagDefs, orders } from "@auction/db";
 import { and, asc, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -29,6 +29,13 @@ const customerCols = {
   notes: customers.notes,
   erasedAt: customers.erasedAt,
   tags: customers.tags,
+  /* Согласие на рассылку. Показывается в панели, потому что доказывать его —
+   * обязанность компании, а не человека: без даты и источника оно ничего не
+   * стоит (GDPR ст. 7 п. 1). */
+  marketingOptIn: customers.marketingOptIn,
+  marketingOptInAt: customers.marketingOptInAt,
+  marketingSource: customers.marketingSource,
+  marketingOptOutAt: customers.marketingOptOutAt,
   createdAt: customers.createdAt,
 } as const;
 
@@ -46,10 +53,54 @@ const customerBody = z.object({
 export function registerCustomerRoutes(app: FastifyInstance, ctx: AppContext, perms: PermissionService): void {
   const guard = (p: Parameters<typeof requirePermission>[1]) => ({ preHandler: requirePermission(perms, p) });
 
+
+  /* Журнал согласий на cookie.
+   *
+   * До этого выбор человека жил только в его браузере: показать его в панели
+   * было негде, а на запрос «докажите, что он соглашался» ответить нечем. */
+  app.get("/api/consents", guard("customers.view"), async (req) => {
+    const q = req.query as { q?: string; mode?: string; limit?: string; offset?: string };
+    const limit = Math.min(Math.max(Number(q.limit) || 100, 1), 500);
+    const offset = Math.max(Number(q.offset) || 0, 0);
+    const conds = [];
+    if (q.mode === "accept" || q.mode === "reject" || q.mode === "custom") {
+      conds.push(eq(cookieConsents.mode, q.mode));
+    }
+    if (q.q) conds.push(or(ilike(customers.email, `%${q.q}%`), ilike(cookieConsents.visitorId, `%${q.q}%`)));
+    const where = conds.length ? and(...conds) : undefined;
+    const rows = await ctx.db
+      .select({
+        id: cookieConsents.id,
+        mode: cookieConsents.mode,
+        analytics: cookieConsents.analytics,
+        marketing: cookieConsents.marketing,
+        policyVersion: cookieConsents.policyVersion,
+        host: cookieConsents.host,
+        ip: cookieConsents.ip,
+        visitorId: cookieConsents.visitorId,
+        createdAt: cookieConsents.createdAt,
+        email: customers.email,
+        alias: customers.alias,
+      })
+      .from(cookieConsents)
+      .leftJoin(customers, eq(cookieConsents.customerId, customers.id))
+      .where(where)
+      .orderBy(desc(cookieConsents.createdAt))
+      .limit(limit + 1)
+      .offset(offset);
+    const [totalRow] = await ctx.db.select({ n: sql<string>`count(*)` }).from(cookieConsents);
+    return {
+      consents: rows.slice(0, limit),
+      hasMore: rows.length > limit,
+      total: Number(totalRow?.n ?? 0),
+    };
+  });
+
   app.get("/api/customers", guard("customers.view"), async (req) => {
     const q = req.query as {
       q?: string; status?: string; tag?: string; country?: string; market?: string;
       from?: string; to?: string; debt?: string; sort?: string; limit?: string; offset?: string;
+      marketing?: string;
     };
     // A3 power query. Status apart from the rest — pill counts ignore it.
     const statusConds = [];
@@ -63,6 +114,9 @@ export function registerCustomerRoutes(app: FastifyInstance, ctx: AppContext, pe
     if (q.tag) otherConds.push(sql`${customers.tags} @> ${JSON.stringify([q.tag])}::jsonb`);
     if (q.country) otherConds.push(eq(customers.country, q.country.toUpperCase()));
     if (q.market) otherConds.push(eq(customers.marketCode, q.market.toUpperCase()));
+    // Кому вообще законно писать рассылку.
+    if (q.marketing === "yes") otherConds.push(eq(customers.marketingOptIn, true));
+    else if (q.marketing === "no") otherConds.push(eq(customers.marketingOptIn, false));
     const dayStart = (d: string) => new Date(`${d}T00:00:00.000Z`);
     if (q.from) otherConds.push(sql`${customers.createdAt} >= ${dayStart(q.from)}`);
     if (q.to) otherConds.push(sql`${customers.createdAt} < ${new Date(dayStart(q.to).getTime() + 86_400_000)}`);

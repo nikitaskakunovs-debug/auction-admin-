@@ -1,23 +1,92 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { publicApi } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { Icon } from "./Icon";
 import { say } from "./Toast";
 
 const KEY = "izsoli_cc_v1";
+const VISITOR_KEY = "izsoli_visitor_v1";
 
-/** Плашка согласия на cookie из макета. Выбор храним локально —
- *  до появления серверного эндпоинта согласий. */
+/** Действующая редакция текста. Должна совпадать с той, что знает API:
+ *  согласие на прежнюю редакцию считается устаревшим и спрашивается заново. */
+const POLICY_VERSION = "2026-08-14";
+
+type Saved = { mode: string; analytics: boolean; marketing: boolean; policyVersion?: string };
+
+const readLocal = (): Saved | null => {
+  try {
+    const raw = localStorage.getItem(KEY);
+    return raw ? (JSON.parse(raw) as Saved) : null;
+  } catch { return null; }
+};
+
+/** Постоянный идентификатор браузера — чтобы связать решения одного гостя.
+ *  Не персональные данные: случайное число, живущее рядом с самим согласием. */
+function visitorId(): string {
+  try {
+    let v = localStorage.getItem(VISITOR_KEY);
+    if (!v) {
+      v = (crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)).replace(/-/g, "");
+      localStorage.setItem(VISITOR_KEY, v);
+    }
+    return v;
+  } catch {
+    return "no-storage";
+  }
+}
+
+/**
+ * Плашка согласия на cookie.
+ *
+ * Решение уходит на сервер. До этого оно записывалось только в браузер и не
+ * читалось вообще ничем: доказать согласие было нечем, показать в панели —
+ * негде, а на втором устройстве плашка спрашивала заново.
+ */
 export function CookieBanner() {
   const { t } = useT();
   const [shown, setShown] = useState(false);
   const [analytics, setAnalytics] = useState(false);
   const [marketing, setMarketing] = useState(false);
 
+  /** Открыть плашку заново — из подвала, для отзыва согласия. */
+  const reopen = useCallback(() => {
+    const saved = readLocal();
+    setAnalytics(saved?.analytics ?? false);
+    setMarketing(saved?.marketing ?? false);
+    setShown(true);
+  }, []);
+
   useEffect(() => {
-    try { if (!localStorage.getItem(KEY)) setShown(true); } catch { setShown(true); }
+    window.addEventListener("izsoli:cookie-settings", reopen);
+    return () => window.removeEventListener("izsoli:cookie-settings", reopen);
+  }, [reopen]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const local = readLocal();
+    // Локальная запись — только чтобы не мигать плашкой, пока идёт запрос.
+    if (local && local.policyVersion === POLICY_VERSION) return;
+
+    void (async () => {
+      try {
+        const r = await publicApi.get<{ consent: Saved | null; stale?: boolean }>(
+          `/api/public/consent?visitorId=${encodeURIComponent(visitorId())}`,
+        );
+        if (cancelled) return;
+        if (r.consent && !r.stale) {
+          // Согласие нашлось на сервере — на этом устройстве больше не спрашиваем.
+          try { localStorage.setItem(KEY, JSON.stringify({ ...r.consent, policyVersion: POLICY_VERSION })); } catch { /* приватный режим */ }
+          return;
+        }
+      } catch {
+        // API недоступен — спросим, это безопаснее, чем предположить согласие.
+      }
+      if (!cancelled) setShown(true);
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -30,15 +99,18 @@ export function CookieBanner() {
   });
 
   const close = (mode: string, message: string) => {
+    const a = mode === "accept" ? true : mode === "reject" ? false : analytics;
+    const m = mode === "accept" ? true : mode === "reject" ? false : marketing;
     try {
-      localStorage.setItem(KEY, JSON.stringify({
-        mode,
-        analytics: mode === "accept" ? true : mode === "reject" ? false : analytics,
-        marketing: mode === "accept" ? true : mode === "reject" ? false : marketing,
-      }));
+      localStorage.setItem(KEY, JSON.stringify({ mode, analytics: a, marketing: m, policyVersion: POLICY_VERSION }));
     } catch { /* приватный режим — просто прячем плашку */ }
     setShown(false);
     say(message);
+    // Запись в журнал — то, чем согласие доказывается. Молча падать нельзя,
+    // но и держать человека перед плашкой из-за сети тоже нельзя.
+    void publicApi
+      .post("/api/public/consent", { visitorId: visitorId(), mode, analytics: a, marketing: m })
+      .catch(() => undefined);
   };
 
   if (!shown) return null;
@@ -78,5 +150,19 @@ export function CookieBanner() {
         <button type="button" onClick={() => close("custom", t("cc.saved"))}>{t("cc.saveMine")}</button>
       </p>
     </section>
+  );
+}
+
+/** Ссылка «Настройки cookie» для подвала.
+ *
+ *  По GDPR отозвать согласие должно быть так же просто, как его дать. До
+ *  этого в подвале была только ссылка на текст политики — то есть отозвать
+ *  согласие было нельзя вообще. */
+export function CookieSettingsLink({ label }: { label: string }) {
+  return (
+    <button type="button" className="f-pill"
+            onClick={() => window.dispatchEvent(new Event("izsoli:cookie-settings"))}>
+      {label}
+    </button>
   );
 }

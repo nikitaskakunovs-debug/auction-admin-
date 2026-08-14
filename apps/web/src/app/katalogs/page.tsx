@@ -1,5 +1,5 @@
 import { API_URL } from "@/lib/config";
-import type { PublicAuction } from "@/lib/types";
+import type { AdCard, FixedListing, PublicAuction } from "@/lib/types";
 import { Catalogue } from "@/components/Catalogue";
 
 export const dynamic = "force-dynamic";
@@ -8,11 +8,22 @@ export const metadata = { title: "Katalogs" };
 
 export default async function CataloguePage() {
   let auctions: PublicAuction[] = [];
+  let listings: FixedListing[] = [];
+  let ads: AdCard[] = [];
   try {
-    const res = await fetch(`${API_URL}/api/public/auctions`, { cache: "no-store" });
-    if (res.ok) auctions = ((await res.json()) as { auctions: PublicAuction[] }).auctions;
+    // Оба типа: до этого каталог грузил только аукционы, и лоты «Купить сразу»
+    // не показывались в нём вообще — даже по ссылке «?type=fixed» из макета.
+    const [aRes, lRes] = await Promise.all([
+      fetch(`${API_URL}/api/public/auctions`, { cache: "no-store" }),
+      fetch(`${API_URL}/api/public/listings`, { cache: "no-store" }),
+    ]);
+    if (aRes.ok) auctions = ((await aRes.json()) as { auctions: PublicAuction[] }).auctions;
+    if (lRes.ok) listings = ((await lRes.json()) as { listings: FixedListing[] }).listings;
+    // Реклама не должна ронять каталог: не пришла — просто её нет.
+    const adRes = await fetch(`${API_URL}/api/public/ads`, { cache: "no-store" });
+    if (adRes.ok) ads = ((await adRes.json()) as { ads: AdCard[] }).ads;
   } catch {
     // API down — отдаём пустой каталог, страница не должна падать на SSR.
   }
-  return <Catalogue auctions={auctions} />;
+  return <Catalogue auctions={auctions} listings={listings} ads={ads} />;
 }

@@ -82,7 +82,7 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
           <div className="lthumbs">
             {shots.map((p, i) => (
               <button key={i} className={`lthumb${i === frame ? " on" : ""}`} type="button"
-                      aria-label={`Foto ${i + 1} no ${shots.length}`}
+                      aria-label={t("card.photoN", { i: i + 1, n: shots.length })}
                       aria-current={i === frame ? "true" : undefined}
                       onClick={() => setFrame(i)}>
                 {p ? (
@@ -171,7 +171,7 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
                       onClick={() => setConfirm(false)}><Icon name="x" /></button>
             </div>
             <div className="sum">
-              <p className="sum-lab">Cena</p>
+              <p className="sum-lab">{t("buy.price")}</p>
               <p className="sum-amt tnum">{formatEur(listing.priceCents)}</p>
               <p className="note">{t("buy.vatNote")}</p>
             </div>

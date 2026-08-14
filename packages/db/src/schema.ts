@@ -317,10 +317,107 @@ export const customers = pgTable(
     /** A3: customer_tag_defs ids (order irrelevant; defs carry position). */
     tags: jsonb("tags").$type<string[]>().notNull().default([]),
     notes: text("notes").notNull().default(""),
+    /* ── Согласие на маркетинг ──────────────────────────────────────────
+     * Отдельно от cookie: cookie — про сайт, это — про право написать
+     * человеку письмо. По GDPR (ст. 7 п. 1) согласие нужно уметь доказать,
+     * поэтому хранится не только флаг, но и когда и откуда он взялся.
+     * Отсутствие согласия — это false, а не null: молчание согласием не
+     * является. */
+    marketingOptIn: boolean("marketing_opt_in").notNull().default(false),
+    marketingOptInAt: timestamp("marketing_opt_in_at", { withTimezone: true }),
+    /** Где человек согласился: register | account | checkout | admin | import. */
+    marketingSource: text("marketing_source"),
+    /** Когда согласие отозвали. Строку не чистим — отзыв тоже надо доказывать. */
+    marketingOptOutAt: timestamp("marketing_opt_out_at", { withTimezone: true }),
     erasedAt: timestamp("erased_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("customers_email_idx").on(t.email)],
+);
+
+/**
+ * Рекламная карточка в ленте лотов.
+ *
+ * Показывается среди обычных карточек каталога: человек листает лоты и
+ * встречает рекламу. Место продаётся рекламодателю, поэтому у карточки есть
+ * и его имя, и срок показа.
+ *
+ * `categoryCode` пустой означает «во всех категориях». `everyN` — через
+ * сколько карточек лотов вставлять эту: так плотность рекламы задаётся
+ * отдельно для каждой категории, а не одна на весь сайт.
+ */
+export const adCards = pgTable(
+  "ad_cards",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Кто купил место — для отчёта рекламодателю и для счёта. */
+    advertiser: text("advertiser").notNull().default(""),
+    title: text("title").notNull(),
+    body: text("body").notNull().default(""),
+    ctaLabel: text("cta_label").notNull().default(""),
+    href: text("href").notNull(),
+    /** banner — одна картинка или цвет темы; carousel — несколько кадров;
+     *  video — ролик с финальной ссылкой. */
+    kind: text("kind").notNull().default("banner"),
+    imageUrl: text("image_url"),
+    /** Кадры карусели по порядку. У видео первый кадр — постер до запуска. */
+    images: jsonb("images").$type<string[]>().notNull().default([]),
+    videoUrl: text("video_url"),
+    /** Пометка «Реклама». Для оплаченной чужой рекламы обязана быть включена —
+     *  закон о рекламе требует, чтобы её было видно. Снимать её честно только
+     *  на собственных промо-карточках, ведущих внутрь сайта. */
+    showLabel: boolean("show_label").notNull().default(true),
+    /** Оформление из палитры макета: green | blue | pink | yellow. */
+    theme: text("theme").notNull().default("green"),
+    /** Пусто — во всех категориях. Иначе код категории из домена. */
+    categoryCode: text("category_code"),
+    /** Через сколько карточек лотов вставлять эту. Меньше — чаще. */
+    everyN: integer("every_n").notNull().default(12),
+    active: boolean("active").notNull().default(false),
+    startsAt: timestamp("starts_at", { withTimezone: true }),
+    endsAt: timestamp("ends_at", { withTimezone: true }),
+    /** Сколько раз карточку показали — рекламодателю это и продаётся. */
+    impressions: integer("impressions").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("ad_cards_active_idx").on(t.active, t.categoryCode)],
+);
+
+/**
+ * Журнал согласий на cookie.
+ *
+ * До этого выбор человека записывался только в его собственный браузер и не
+ * читался вообще ничем: доказать согласие было нечем, увидеть его в панели —
+ * негде, а при заходе с другого устройства плашка спрашивала заново.
+ *
+ * Строки не переписываются: каждое решение — новая запись, последняя по
+ * времени и есть действующая. Так видно и историю: согласился, потом отозвал.
+ */
+export const cookieConsents = pgTable(
+  "cookie_consents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Заполнен, если человек был в кабинете, — тогда согласие переезжает с ним. */
+    customerId: uuid("customer_id").references(() => customers.id),
+    /** Случайный идентификатор браузера: связывает решения анонимного гостя. */
+    visitorId: text("visitor_id").notNull(),
+    /** accept | reject | custom */
+    mode: text("mode").notNull(),
+    analytics: boolean("analytics").notNull().default(false),
+    marketing: boolean("marketing").notNull().default(false),
+    /** Редакция текста, на которую соглашались: без неё согласие не доказать. */
+    policyVersion: text("policy_version").notNull(),
+    /** Домен: .lv, .ee и .lt спрашивают отдельно. */
+    host: text("host").notNull().default(""),
+    ip: text("ip"),
+    userAgent: text("user_agent"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("cookie_consents_visitor_idx").on(t.visitorId, t.createdAt),
+    index("cookie_consents_customer_idx").on(t.customerId, t.createdAt),
+  ],
 );
 
 // ── Warehouse ERP: structured locations + movement ledger ───────────────────
