@@ -98,8 +98,8 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
       ws.onmessage = (e) => {
         try {
           const m = JSON.parse(String(e.data)) as { type?: string };
-          if (m.type === "extended") say("Izsole pagarināta");
-          if (m.type === "closed") say("Lots noslēgts");
+          if (m.type === "extended") say(t("lp.extended"));
+          if (m.type === "closed") say(t("lr.closed"));
         } catch { /* не JSON — просто перечитываем */ }
         void loadRef.current(id);
       };
@@ -115,14 +115,14 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
   if (!stage) {
     return (
       <section className="wrap" style={{ paddingTop: 24 }}>
-        <nav className="crumbs" aria-label="Navigācijas ceļš">
-          <ol><li><Link href="/">Sākums</Link></li><li aria-current="page">Tiešraide</li></ol>
+        <nav className="crumbs" aria-label={t("nav.breadcrumb")}>
+          <ol><li><Link href="/">{t("nav.home")}</Link></li><li aria-current="page">{t("lr.crumb")}</li></ol>
         </nav>
         <div className="empty">
           <span className="ic" aria-hidden="true"><Icon name="bolt" /></span>
-          <h3>Šobrīd nenotiek neviena tiešraide</h3>
-          <p>Nākamā izsole sāksies drīz — līdz tam apskati katalogu.</p>
-          <Link className="btn btn-primary" href="/katalogs">Atvērt katalogu</Link>
+          <h3>{t("lr.noneNow")}</h3>
+          <p>{t("lr.noneNowD")}</p>
+          <Link className="btn btn-primary" href="/katalogs">{t("lr.openCatalogue")}</Link>
         </div>
       </section>
     );
@@ -152,7 +152,7 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
       await load(stage.id);
     } catch (err) {
       if (err instanceof PublicApiError && err.body.code === "EMAIL_NOT_VERIFIED") {
-        setNotice({ text: "Vispirms apstiprini e-pastu — saite nosūtīta uz tavu adresi", tone: "out" });
+        setNotice({ text: t("lc.verifyFirst"), tone: "out" });
       } else if (err instanceof PublicApiError && typeof err.body.minAcceptableCents === "number") {
         setNotice({ text: `${t("a.minBid")}: ${formatEur(err.body.minAcceptableCents)}`, tone: "out" });
       } else {
@@ -163,19 +163,19 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
 
   return (
     <section className="wrap" style={{ paddingTop: 24 }}>
-      <nav className="crumbs" aria-label="Navigācijas ceļš">
-        <ol><li><Link href="/">Sākums</Link></li><li aria-current="page">Tiešraide</li></ol>
+      <nav className="crumbs" aria-label={t("nav.breadcrumb")}>
+        <ol><li><Link href="/">{t("nav.home")}</Link></li><li aria-current="page">{t("lr.crumb")}</li></ol>
       </nav>
 
       <div className="page-head">
         <div>
-          <h1 data-hero>Izsole tiešraidē</h1>
+          <h1 data-hero>{t("lr.title")}</h1>
           <p className="cnt">
-            <span className="tag tag-live"><Icon name="bolt" size={12} />Tiešraidē</span>
-            {" "}{queue.length} loti · solīšana pret zāli · <b suppressHydrationWarning>{viewers}</b> skatās
+            <span className="tag tag-live"><Icon name="bolt" size={12} />{t("rail.live")}</span>
+            {" "}<span suppressHydrationWarning>{t("lr.meta", { n: queue.length, v: viewers })}</span>
           </p>
         </div>
-        <Link className="link" href="/katalogs">Visi loti <Icon name="arrow" size={16} /></Link>
+        <Link className="link" href="/katalogs">{t("lr.allLots")} <Icon name="arrow" size={16} /></Link>
       </div>
 
       <div className="room">
@@ -187,13 +187,13 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
             ) : (
               <span className="frame-2" aria-hidden="true"><Icon name={icon} className="pic" /></span>
             )}
-            <span className="stage-no">Lots <b>1</b> no {queue.length}</span>
+            <span className="stage-no">{t("lr.lotOf", { i: 1, n: queue.length })}</span>
             {left <= 0 ? (
-              <span className="chant sold">Pārdots</span>
+              <span className="chant sold">{t("lr.sold")}</span>
             ) : left < 20_000 ? (
-              <span className="chant go2">Otro reizi…</span>
+              <span className="chant go2">{t("lr.go2")}</span>
             ) : left < 60_000 ? (
-              <span className="chant go1">Pirmo reizi…</span>
+              <span className="chant go1">{t("lr.go1")}</span>
             ) : null}
           </div>
 
@@ -207,16 +207,16 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
 
             <div className="stage-price">
               <div>
-                <p className="price-lab">Pašreizējā cena</p>
+                <p className="price-lab">{t("card.currentBid")}</p>
                 <p className={`big tnum${iLead ? " is-win" : ""}`} suppressHydrationWarning>{formatEur(price)}</p>
                 <p className="note">
-                  {detail?.auction.bidCount ?? stage.bidCount} solījumi · solis {formatEur(inc)}
+                  {t("lr.bidsStep", { n: detail?.auction.bidCount ?? stage.bidCount, inc: formatEur(inc) })}
                 </p>
               </div>
               <div style={{ textAlign: "right" }}>
-                <p className="price-lab">Rezerve</p>
+                <p className="price-lab">{t("lr.reserve")}</p>
                 <p className="note">
-                  {stage.hasReserve ? (stage.reserveMet ? t("a.reserveMet") : t("a.reserveNotMet")) : "Bez rezerves"}
+                  {stage.hasReserve ? (stage.reserveMet ? t("a.reserveMet") : t("a.reserveNotMet")) : t("lr.noReserve")}
                 </p>
                 {retail ? <p><s className="tnum">{formatEur(retail)}</s></p> : null}
               </div>
@@ -226,25 +226,24 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
 
             <div className="stage-acts">
               {left <= 0 ? (
-                <p className="bb-ended">Āmurs nokritis — pārejam pie nākamā lota…</p>
+                <p className="bb-ended">{t("lr.hammerFell")}</p>
               ) : signedIn ? (
                 <button className="btn btn-primary btn-lg" type="button" disabled={busy} onClick={() => void bid()}>
-                  Solīt · <span className="tnum">{formatEur(ask)}</span>
+                  {t("lc.bid")}<span className="tnum">{formatEur(ask)}</span>
                 </button>
               ) : (
                 <Link className="btn btn-primary btn-lg" href="/login">{t("a.signinToBid")}</Link>
               )}
               {left > 0 && (
                 <button className="btn btn-outline btn-lg" type="button"
-                        onClick={() => say("Lots izlaists — pāriesim pie nākamā")}>
-                  Izlaist lotu
+                        onClick={() => say(t("lr.skipped"))}>
+                  {t("lr.skipLot")}
                 </button>
               )}
             </div>
 
             <p className="fine">
-              Āmura cenai tiek pievienota pircēja komisija {fees.buyerPremiumBp / 100} % un
-              PVN {fees.vatRateBp / 100} %. Solījums pēdējās sekundēs pagarina izsoli.
+              {t("lr.fine", { prem: fees.buyerPremiumBp / 100, vat: fees.vatRateBp / 100 })}
             </p>
           </div>
         </div>
@@ -252,11 +251,11 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
         <aside className="room-side">
           <div className="feedbox">
             <div className="fb-head">
-              <h2>Zāle</h2>
+              <h2>{t("lr.room")}</h2>
               <span className="tag"><i className="livedot" aria-hidden="true" />Live</span>
             </div>
             <ul className="feed">
-              {bids.length === 0 && <li><span className="nm">Vēl nav solījumu</span></li>}
+              {bids.length === 0 && <li><span className="nm">{t("lp.noBidsYet")}</span></li>}
               {bids.slice(0, 8).map((b) => (
                 <li key={b.seq} className={b.isYou ? "you" : undefined}
                     style={b.outbid ? { opacity: 0.62 } : undefined}>
@@ -272,24 +271,24 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
           </div>
 
           <div className="queue">
-            <h2>Nākamie loti</h2>
+            <h2>{t("lr.nextLots")}</h2>
             <ol>
               {next.map((q) => (
                 <li key={q.id}>
                   <span className="q-ic" aria-hidden="true"><Icon name={CAT_ICON[q.category] ?? "art"} /></span>
                   <span className="q-t">
                     <b>{q.title}</b>
-                    <small>{q.sku} · sākuma cena {formatEur(q.startPriceCents ?? 0)}</small>
+                    <small>{q.sku} · {t("lr.startPrice", { sum: formatEur(q.startPriceCents ?? 0) })}</small>
                   </span>
-                  <button className="q-b" type="button" aria-label={`Brīdināt pirms ${q.title}`}
+                  <button className="q-b" type="button" aria-label={t("lr.remindBefore", { title: q.title })}
                           aria-pressed={reminded.includes(q.id)}
                           onClick={() => {
                             setReminded((r) => r.includes(q.id) ? r.filter((x) => x !== q.id) : [...r, q.id]);
-                            say(reminded.includes(q.id) ? "Atgādinājums atcelts" : "Atgādināsim pirms šī lota");
+                            say(reminded.includes(q.id) ? t("lr.remindOff") : t("lr.remindOn"));
                           }}><Icon name="bell" size={16} /></button>
                 </li>
               ))}
-              {next.length === 0 && <li><span className="q-t"><b>Šis ir pēdējais lots</b></span></li>}
+              {next.length === 0 && <li><span className="q-t"><b>{t("lr.lastLot")}</b></span></li>}
             </ol>
           </div>
         </aside>
@@ -298,12 +297,12 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
       {left > 0 && (
         <div className="bidbar">
           <div className="t">
-            <span className="lab" suppressHydrationWarning>{formatLeft(left)}{iLead ? " · tu vadi" : ""}</span>
+            <span className="lab" suppressHydrationWarning>{formatLeft(left)}{iLead ? t("lp.youLeadShort") : ""}</span>
             <b className="tnum">{formatEur(price)}</b>
           </div>
           {signedIn ? (
             <button className="btn btn-primary" type="button" disabled={busy} onClick={() => void bid()}>
-              Solīt · <span className="tnum">{formatEur(ask)}</span>
+              {t("lc.bid")}<span className="tnum">{formatEur(ask)}</span>
             </button>
           ) : (
             <Link className="btn btn-primary" href="/login?next=/tiesraide">{t("a.signinToBid")}</Link>
