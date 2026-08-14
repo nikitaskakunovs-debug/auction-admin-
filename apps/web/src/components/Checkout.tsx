@@ -252,8 +252,8 @@ export function Checkout({ orderRef }: { orderRef: string }) {
               <table className="fees"><tbody>
                 <tr><th scope="row">{t("lp.hammer")}</th><td className="tnum">{formatEur(order.hammerCents)}</td></tr>
                 <tr><th scope="row">{t("lp.premium", { n: Math.round((order.premiumCents / Math.max(order.hammerCents, 1)) * 100) })}</th><td className="tnum">{formatEur(order.premiumCents)}</td></tr>
-                <tr><th scope="row">PVN</th><td className="tnum">{formatEur(order.vatCents)}</td></tr>
-                <tr><th scope="row">Piegāde</th>
+                <tr><th scope="row">{t("lp.vatN", { n: Math.round((order.vatCents / Math.max(order.hammerCents + order.premiumCents, 1)) * 100) })}</th><td className="tnum">{formatEur(order.vatCents)}</td></tr>
+                <tr><th scope="row">{t("f.delivery")}</th>
                   <td className="tnum">{shipCost === 0 ? "Bez maksas" : formatEur(shipCost)}</td></tr>
                 {machineName && (
                   <tr><th scope="row">{t("co.parcel")}</th><td>{machineName}</td></tr>

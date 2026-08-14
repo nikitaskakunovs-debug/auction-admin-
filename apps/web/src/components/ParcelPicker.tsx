@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { publicApi } from "@/lib/api";
 import type { ParcelLocation } from "@/lib/types";
+import { useT } from "@/lib/i18n";
 import { Icon } from "./Icon";
 
 /** Выбор пакомата. Точки приходят из движка:
@@ -20,6 +21,7 @@ export function ParcelPicker({
   onPick: (l: ParcelLocation) => void;
   country?: string;
 }) {
+  const { t } = useT();
   const [open, setOpen] = useState(false);
   const [all, setAll] = useState<ParcelLocation[] | null>(null);
   const [q, setQ] = useState("");
@@ -75,8 +77,8 @@ export function ParcelPicker({
               aria-haspopup="dialog" aria-expanded={open}>
         <span className="ic" aria-hidden="true"><Icon name="pin" /></span>
         <span className="t">
-          <span className="lab">{label} pakomāts</span>
-          <span className="v">{chosen ? `${chosen.city} — ${chosen.name}` : "Izvēlies pakomātu"}</span>
+          <span className="lab">{t("pp.provider", { p: label })}</span>
+          <span className="v">{chosen ? `${chosen.city} — ${chosen.name}` : t("pp.pickParcel")}</span>
         </span>
         <Icon name="chev" className="chev" size={18} />
       </button>
@@ -88,29 +90,29 @@ export function ParcelPicker({
             <div className="modal-head">
               <div>
                 <span className="kicker">{label}</span>
-                <h3 id="parcel-t">Izvēlies pakomātu</h3>
+                <h3 id="parcel-t">{t("pp.pickParcel")}</h3>
               </div>
-              <button className="modal-x" type="button" aria-label="Aizvērt"
+              <button className="modal-x" type="button" aria-label={t("nav.close")}
                       onClick={() => setOpen(false)}><Icon name="x" /></button>
             </div>
 
             <div className="share-url">
               <span className="f">
                 <Icon name="search" />
-                <label className="sr" htmlFor="parcel-q">Meklēt pēc pilsētas vai adreses</label>
+                <label className="sr" htmlFor="parcel-q">{t("pp.searchLabel")}</label>
                 <input id="parcel-q" value={q} onChange={(e) => setQ(e.target.value)}
-                       placeholder="Pilsēta, iela vai pakomāta nosaukums" autoComplete="off" />
+                       placeholder={t("pp.searchPh")} autoComplete="off" />
               </span>
             </div>
 
             <p className="note" style={{ margin: "0 0 8px" }} role="status" aria-live="polite">
-              {all === null ? "Ielādē pakomātus…" : `${shownCount} pakomāti`}
+              {all === null ? t("pp.loading") : t("pp.countN", { n: shownCount })}
             </p>
 
             <div className="parcel-list">
               {all !== null && shownCount === 0 && (
                 <p className="note" style={{ padding: 16 }}>
-                  Nekas neatbilst. Pamēģini citu pilsētu vai ielu.
+                  {t("pp.nothing")}
                 </p>
               )}
               {groups.map(([city, rows]) => (

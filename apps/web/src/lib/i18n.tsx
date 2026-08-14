@@ -60,6 +60,13 @@ const STRINGS: Record<string, Record<Lang, string>> = {
   "vn.notReceived": { lv: "Nesaņēmu vēstuli", ru: "Письмо не пришло", en: "I did not get the email", et: "Ma ei saanud kirja", lt: "Negavau laiško" },
   "vn.wrongAddress": { lv: "Nepareiza adrese?", ru: "Неверный адрес?", en: "Wrong address?", et: "Vale aadress?", lt: "Neteisingas adresas?" },
   "vn.registerAgain": { lv: "Reģistrējies vēlreiz", ru: "Зарегистрируйтесь заново", en: "Register again", et: "Registreeru uuesti", lt: "Registruokitės iš naujo" },
+  "pp.pickParcel": { lv: "Izvēlies pakomātu", ru: "Выберите пакомат", en: "Choose a parcel machine", et: "Vali pakiautomaat", lt: "Pasirinkite siuntų automatą" },
+  "pp.provider": { lv: "{p} pakomāts", ru: "Пакомат {p}", en: "{p} parcel machine", et: "{p} pakiautomaat", lt: "{p} siuntų automatas" },
+  "pp.searchLabel": { lv: "Meklēt pēc pilsētas vai adreses", ru: "Искать по городу или адресу", en: "Search by city or address", et: "Otsi linna või aadressi järgi", lt: "Ieškoti pagal miestą ar adresą" },
+  "pp.searchPh": { lv: "Pilsēta, iela vai pakomāta nosaukums", ru: "Город, улица или название пакомата", en: "City, street or machine name", et: "Linn, tänav või automaadi nimi", lt: "Miestas, gatvė arba automato pavadinimas" },
+  "pp.loading": { lv: "Ielādē pakomātus…", ru: "Загружаем пакоматы…", en: "Loading parcel machines…", et: "Laadime pakiautomaate…", lt: "Įkeliami siuntų automatai…" },
+  "pp.countN": { lv: "{n} pakomāti", ru: "Пакоматов: {n}", en: "{n} parcel machines", et: "{n} pakiautomaati", lt: "Siuntų automatų: {n}" },
+  "pp.nothing": { lv: "Nekas neatbilst. Pamēģini citu pilsētu vai ielu.", ru: "Ничего не найдено. Попробуйте другой город или улицу.", en: "Nothing matches. Try another city or street.", et: "Midagi ei leitud. Proovi teist linna või tänavat.", lt: "Nieko nerasta. Pabandykite kitą miestą ar gatvę." },
   // ── ОПЛАТА ──────────────────────────────────────────────────
   "co.title": { lv: "Apmaksa", ru: "Оплата", en: "Checkout", et: "Tasumine", lt: "Apmokėjimas" },
   "co.notFound": { lv: "Pasūtījums nav atrasts", ru: "Заказ не найден", en: "Order not found", et: "Tellimust ei leitud", lt: "Užsakymas nerastas" },
