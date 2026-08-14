@@ -91,4 +91,33 @@ describe("public catalog browse", () => {
     const none = await app.inject({ method: "GET", url: "/api/public/auctions?category=fashion" });
     expect((none.json() as { auctions: unknown[] }).auctions).toHaveLength(0);
   });
+
+  /**
+   * Каждая из двенадцати категорий должна быть проходимой насквозь: предмет
+   * заводится с кодом, лот публикуется, витрина находит его по этому коду и не
+   * находит по чужому.
+   *
+   * Написан после того, как в админке поле категории писало не в ту переменную:
+   * всё, что заводилось через этот экран, уходило в базу с «other», и на
+   * витрине каждая категория стояла пустой. Со стороны API всё было в порядке —
+   * поэтому одной проверки API мало, но она хотя бы фиксирует контракт, на
+   * который опирается экран.
+   */
+  it("проводит каждую из двенадцати категорий от предмета до витрины", async () => {
+    const app = world.server.app;
+    const { CATEGORY_CODES } = await import("@auction/domain");
+
+    expect(CATEGORY_CODES).toHaveLength(12);
+
+    for (const code of CATEGORY_CODES) {
+      const title = `Kategorijas parbaude ${code}`;
+      await publishFixed(title, code);
+
+      const hit = await app.inject({ method: "GET", url: `/api/public/listings?category=${code}` });
+      expect(hit.statusCode, `${code}: витрина отвечает`).toBe(200);
+      const rows = (hit.json() as { listings: Array<{ title: string; category: string }> }).listings;
+      expect(rows.some((l) => l.title === title), `${code}: лот виден в своей категории`).toBe(true);
+      expect(rows.every((l) => l.category === code), `${code}: чужих лотов в выдаче нет`).toBe(true);
+    }
+  });
 });

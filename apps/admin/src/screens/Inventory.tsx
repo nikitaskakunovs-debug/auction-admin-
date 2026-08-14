@@ -181,6 +181,7 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
   const [filters, setFilters] = useState<Filters>(() => filterTools.loadStored(FILTERS_KEY));
   const [qInput, setQInput] = useState(filters.q);
   const [bulkBinPick, setBulkBinPick] = useState(false);
+  const [bulkCatPick, setBulkCatPick] = useState(false);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Item | null>(null);
   const [drawerTab, setDrawerTab] = useState<DrawerTab>("details");
@@ -508,6 +509,34 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
     load();
   };
 
+  /* Проставить категорию сразу многим предметам.
+   *
+   * Нужно потому, что поле категории в карточке предмета до сих пор писало не
+   * туда, и всё, что заведено через этот экран, лежит в базе с «other».
+   * Чинить это по одному предмету — часы работы; здесь это отмеченные строки
+   * и один выбор. */
+  const bulkCategory = async (code: string) => {
+    let ok = 0;
+    let failed = 0;
+    for (const i of selectedRows) {
+      try {
+        await api.patch(`/api/items/${i.id}`, { category: code });
+        ok++;
+      } catch {
+        failed++;
+      }
+    }
+    const label = catLabel(code);
+    toast(
+      failed > 0
+        ? `${ok} → ${label} · ${failed} ${t("inv.failedSuffix")}`
+        : `${ok} → ${label}`,
+      failed > 0 ? "warn" : "ok",
+    );
+    setBulkCatPick(false);
+    load();
+  };
+
   const exportCount = selected.size > 0 ? selected.size : total;
 
   return (
@@ -655,10 +684,11 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
         )}
       </ACard>
 
-      <BulkBar count={selected.size} onClear={() => { setSelected(new Set()); setBulkBinPick(false); }}>
+      <BulkBar count={selected.size} onClear={() => { setSelected(new Set()); setBulkBinPick(false); setBulkCatPick(false); }}>
         <span style={bulkDividerStyle} />
         <BulkBtn onClick={bulkLabels}>{t("inv.printLabels")}</BulkBtn>
-        {can("warehouse.manage") && <BulkBtn onClick={() => setBulkBinPick((v) => !v)}>{t("inv.moveToBin")} ▾</BulkBtn>}
+        {can("warehouse.manage") && <BulkBtn onClick={() => { setBulkBinPick((v) => !v); setBulkCatPick(false); }}>{t("inv.moveToBin")} ▾</BulkBtn>}
+        {can("items.edit") && <BulkBtn onClick={() => { setBulkCatPick((v) => !v); setBulkBinPick(false); }}>{t("inv.setCategory")} ▾</BulkBtn>}
         <span style={bulkDividerStyle} />
         <BulkBtn onClick={() => void runExport("csv")}>{t("c.export")} CSV</BulkBtn>
         {bulkBinPick && (
@@ -671,6 +701,19 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
             >
               <option value="" disabled>{t("inv.pickBin")}</option>
               {bins.map((b) => <option key={b.id} value={b.id}>{b.label}</option>)}
+            </select>
+          </>
+        )}
+        {bulkCatPick && (
+          <>
+            <span style={bulkDividerStyle} />
+            <select
+              onChange={(e) => e.target.value && void bulkCategory(e.target.value)}
+              defaultValue=""
+              style={{ borderRadius: 7, border: "none", padding: "5px 8px", fontFamily: AT.body, fontSize: 12.5 }}
+            >
+              <option value="" disabled>{t("inv.pickCategory")}</option>
+              {CATEGORIES.map((c) => <option key={c.code} value={c.code}>{catLabel(c.code)}</option>)}
             </select>
           </>
         )}
@@ -760,7 +803,7 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
             {/* minmax(0,…): a long <select> option (condition labels) otherwise
                 sets the column's min-content width and squeezes the other one. */}
             <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 12 }}>
-              <AField label="Condition">
+              <AField label={t("inv.condition")}>
                 <ASelect
                   value={form.condition}
                   onChange={(v) => set({ condition: v })}
@@ -770,14 +813,19 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
                   ]}
                 />
               </AField>
-              <AField label="Market">
+              <AField label={t("c.market")}>
                 <ASelect value={form.marketCode} onChange={(v) => set({ marketCode: v })} options={markets.map((m) => ({ value: m.code, label: m.code }))} />
               </AField>
-              <AField label="Category">
-                <ASelect value={form.category} onChange={(v) => setF({ category: v })} options={CATEGORIES.map((c) => ({ value: c.code, label: c.label }))} />
+              {/* `set`, а не `setF`: setF правит фильтр списка позади диалога.
+                  Из-за этой опечатки категория предмета не сохранялась никогда —
+                  поле показывало form.category и тут же возвращалось назад, а
+                  предмет уходил в базу с «other». На витрине из-за этого все
+                  категории стояли пустыми. */}
+              <AField label={t("inv.category")}>
+                <ASelect value={form.category} onChange={(v) => set({ category: v })} options={CATEGORIES.map((c) => ({ value: c.code, label: catLabel(c.code) }))} />
               </AField>
-              <AField label="Location (note)"><AInput value={form.location} onChange={(v) => set({ location: v })} placeholder="A-01-03" /></AField>
-              <AField label="Weight (grams)"><AInput value={form.weight} onChange={(v) => set({ weight: v })} placeholder="1200" /></AField>
+              <AField label={t("inv.locationNote")}><AInput value={form.location} onChange={(v) => set({ location: v })} placeholder="A-01-03" /></AField>
+              <AField label={t("inv.weightGrams")}><AInput value={form.weight} onChange={(v) => set({ weight: v })} placeholder="1200" /></AField>
               {showCost && (
                 <AField label={t("inv.cost.label")} hint={t("inv.cost.private")}>
                   {/* Text, not number: a number input silently drops "12,50"
@@ -852,11 +900,11 @@ export function InventoryScreen({ nav }: { nav: Nav }) {
               </AField>
             )}
             {editing && can("warehouse.manage") && (
-              <AField label="Warehouse bin" hint="Changing the bin writes a putaway/move into the stock ledger.">
+              <AField label={t("inv.warehouseBin")} hint={t("inv.binHint")}>
                 <ASelect
                   value={editing.locationId ?? ""}
                   onChange={(v) => void putaway(v || null)}
-                  options={[{ value: "", label: "— no bin —" }, ...bins.map((b) => ({ value: b.id, label: b.label }))]}
+                  options={[{ value: "", label: t("inv.noBinDash") }, ...bins.map((b) => ({ value: b.id, label: b.label }))]}
                 />
               </AField>
             )}
