@@ -6,7 +6,7 @@ import { publicApi, PublicApiError } from "@/lib/api";
 import { PUBLIC_API_URL } from "@/lib/config";
 import { conditionLabel } from "@/lib/conditions";
 import { computeInvoice, increment, marketFees } from "@/lib/fees";
-import { useT } from "@/lib/i18n";
+import { dateLocale, useT } from "@/lib/i18n";
 import { photoWeb, photoThumb } from "@/lib/photos";
 import { formatEur, type AuctionDetail, type PublicAuction } from "@/lib/types";
 import { useStickyBar } from "@/lib/ui";
@@ -130,7 +130,7 @@ export function LotPage({
       ws.onmessage = (e) => {
         try {
           const msg = JSON.parse(String(e.data)) as { type?: string };
-          if (msg.type === "extended") say("Izsole pagarināta");
+          if (msg.type === "extended") say(t("lp.extended"));
         } catch { /* сообщение не JSON — просто перечитываем лот */ }
         void reloadRef.current();
       };
@@ -155,7 +155,7 @@ export function LotPage({
       await reload();
     } catch (err) {
       if (err instanceof PublicApiError && err.body.code === "EMAIL_NOT_VERIFIED") {
-        setNotice({ text: "Vispirms apstiprini e-pastu — saite nosūtīta uz tavu adresi", tone: "out" });
+        setNotice({ text: t("lc.verifyFirst"), tone: "out" });
       } else if (err instanceof PublicApiError && typeof err.body.minAcceptableCents === "number") {
         setNotice({ text: `${t("a.minBid")}: ${formatEur(err.body.minAcceptableCents)}`, tone: "out" });
       } else if (err instanceof PublicApiError && err.body.code === "FEES_OUTSTANDING") {
@@ -180,9 +180,9 @@ export function LotPage({
   useStickyBar(live && !over && !bidVisible);
   return (
     <section className="wrap" style={{ paddingTop: 24 }}>
-      <nav className="crumbs" aria-label="Navigācijas ceļš">
+      <nav className="crumbs" aria-label={t("nav.breadcrumb")}>
         <ol>
-          <li><Link href="/">Sākums</Link></li>
+          <li><Link href="/">{t("nav.home")}</Link></li>
           <li><Link href="/katalogs">Katalogs</Link></li>
           <li aria-current="page">{a.title}</li>
         </ol>
@@ -223,18 +223,18 @@ export function LotPage({
                 ) : <Icon name="art" className="pic" />}
               </span>
             ))}
-            <button className="lnav p" type="button" aria-label="Iepriekšējais foto"
+            <button className="lnav p" type="button" aria-label={t("lp.prevPhoto")}
                     onClick={() => goto(frame - 1)}><Icon name="arrow" /></button>
-            <button className="lnav n" type="button" aria-label="Nākamais foto"
+            <button className="lnav n" type="button" aria-label={t("lp.nextPhoto")}
                     onClick={() => goto(frame + 1)}><Icon name="arrow" /></button>
             <span className="lcount">{frame + 1} / {shots.length}</span>
             <button className="lfull" type="button" aria-haspopup="dialog"
-                    aria-label="Atvērt visā ekrānā" onClick={() => setBox(true)}>
-              <Icon name="plus" size={16} />Visā ekrānā
+                    aria-label={t("lp.fullscreenAria")} onClick={() => setBox(true)}>
+              <Icon name="plus" size={16} />{t("lp.fullscreen")}
             </button>
             <button className="lzoom" type="button" aria-pressed={zoom}
                     onClick={() => { setZoom((v) => !v); setLens(null); }}>
-              <Icon name="search" size={16} />{zoom ? "Tuvinājums ieslēgts" : "Tuvinājums"}
+              <Icon name="search" size={16} />{zoom ? t("lp.zoomOn") : t("lp.zoom")}
             </button>
             {zoom && lens && shots[frame] && (
               <span className="lens" aria-hidden="true"
@@ -263,14 +263,14 @@ export function LotPage({
 
           <div className="facts">
             <div><span>Lots</span><b>{a.sku}</b></div>
-            {rep.seller && <div><span>Pārdevējs</span><b>{rep.seller}</b></div>}
+            {rep.seller && <div><span>{t("lp.seller")}</span><b>{rep.seller}</b></div>}
             <div><span>Tirgus</span><b>{a.marketCode}</b></div>
           </div>
 
           <section className="report" aria-labelledby="rep-t">
             <div className="rep-head">
-              <h2 id="rep-t">Stāvokļa novērtējums</h2>
-              {rep.inspectedOn && <span className="note">Pārbaudīts {rep.inspectedOn}</span>}
+              <h2 id="rep-t">{t("lp.repTitle")}</h2>
+              {rep.inspectedOn && <span className="note">{t("lp.inspectedOn", { date: rep.inspectedOn })}</span>}
             </div>
 
             <div className="rep-grade">
@@ -281,7 +281,7 @@ export function LotPage({
                   {t(`cond.${a.condition}.d`)}
                   {rep.gradeCode && (
                     <button className="info-btn" type="button" aria-haspopup="dialog"
-                            aria-label={`Stāvokļa skala — šis lots ${rep.gradeCode}`}
+                            aria-label={t("lc.scaleAria", { g: rep.gradeCode ?? "" })}
                             onClick={() => openScale(rep.gradeCode!)}>i</button>
                   )}
                 </p>
@@ -312,7 +312,7 @@ export function LotPage({
             {(rep.included?.length || rep.missing?.length) && (
               <div className="rep-cols">
                 <div>
-                  <h3>Komplektā ir</h3>
+                  <h3>{t("lp.included")}</h3>
                   <ul className="rep-list">
                     {(rep.included ?? []).map((x) => (
                       <li className="in" key={x}><Icon name="check" size={16} />{x}</li>
@@ -320,7 +320,7 @@ export function LotPage({
                   </ul>
                 </div>
                 <div>
-                  <h3>Nav komplektā</h3>
+                  <h3>{t("lp.notIncluded")}</h3>
                   <ul className="rep-list">
                     {(rep.missing ?? []).map((x) => (
                       <li className="out" key={x}><Icon name="x" size={16} />{x}</li>
@@ -332,7 +332,7 @@ export function LotPage({
 
             {rep.flaws?.length ? (
               <div>
-                <h3>Inspektora piezīmes</h3>
+                <h3>{t("lp.inspectorNotes")}</h3>
                 <ul className="rep-list">
                   {rep.flaws.map((x) => (<li className="note-i" key={x}><Icon name="dot" size={16} />{x}</li>))}
                 </ul>
@@ -345,7 +345,7 @@ export function LotPage({
 
             {rep.specs?.length ? (
               <div>
-                <h3>Specifikācija</h3>
+                <h3>{t("lp.specs")}</h3>
                 <table className="specs"><tbody>
                   {rep.specs.map(([k, v]) => (<tr key={k}><th scope="row">{k}</th><td>{v}</td></tr>))}
                 </tbody></table>
@@ -360,8 +360,8 @@ export function LotPage({
             )}
 
             <p className="rep-terms">
-              <span>{rep.seller ? `Pārbaudīja: ${rep.seller}` : "Pārbaudīts pirms publicēšanas"}</span>
-              <span>{rep.terms ?? "Pārdots kā aprakstīts. Patērētājam — 14 dienu atteikuma tiesības."}</span>
+              <span>{rep.seller ? t("lp.inspectedBy", { who: rep.seller }) : t("lp.inspectedBefore")}</span>
+              <span>{rep.terms ?? t("lp.termsDefault")}</span>
             </p>
           </section>
         </div>
@@ -369,7 +369,7 @@ export function LotPage({
         {/* ═══ ПРАВАЯ КОЛОНКА ═══ */}
         <div className="lot-side">
           <div className="ltags">
-            {live && <span className="tag tag-live"><Icon name="bolt" size={12} />Aktīvs</span>}
+            {live && <span className="tag tag-live"><Icon name="bolt" size={12} />{t("lp.active")}</span>}
             {a.hasReserve && (
               <span className="tag">{a.reserveMet ? t("a.reserveMet") : t("a.reserveNotMet")}</span>
             )}
@@ -379,24 +379,24 @@ export function LotPage({
           <h1 data-hero>{a.title}</h1>
 
           <div className="lacts">
-            <button type="button" aria-pressed={watched} aria-label="Saglabāt vēlmju sarakstā"
+            <button type="button" aria-pressed={watched} aria-label={t("lp.saveAria")}
                     onClick={() => {
                       watchStore.toggle(a.id);
-                      say(watchStore.has(a.id) ? "Pievienots vēlmju sarakstam" : "Noņemts no vēlmju saraksta");
+                      say(watchStore.has(a.id) ? t("lc.saved") : t("lc.unsaved"));
                     }}><Icon name="heart" /></button>
-            <button type="button" aria-pressed={alerted} aria-label="Brīdināt par līdzīgiem lotiem"
-                    onClick={() => { setAlerted((v) => !v); say(alerted ? "Brīdinājums atcelts" : "Brīdināsim par līdzīgiem lotiem"); }}
+            <button type="button" aria-pressed={alerted} aria-label={t("lp.alertAria")}
+                    onClick={() => { setAlerted((v) => !v); say(alerted ? t("lc.alertOff") : t("lp.alertOn")); }}
             ><Icon name="bell" /></button>
-            <button type="button" aria-haspopup="dialog" aria-label="Dalīties ar lotu"
+            <button type="button" aria-haspopup="dialog" aria-label={t("lp.shareAria")}
                     onClick={() => openShare({ id: a.id, sku: a.sku, title: a.title })}
             ><Icon name="share" /></button>
           </div>
 
           <div className="bidbox" data-bidbox ref={bidBox}>
             <div className={`bb-top${live && left > 0 && left < 60_000 ? " crit" : ""}`}>
-              <span className="lab">{settled || over ? "Izsole beigusies" : live ? "Noslēdzas pēc" : "Sākas"}</span>
+              <span className="lab">{settled || over ? t("lp.over") : live ? t("lp.closesIn") : t("lp.starts")}</span>
               <b className="tnum" suppressHydrationWarning>
-                {settled || over ? "—" : live ? formatLeft(left) : new Date(a.startsAt).toLocaleDateString("lv-LV")}
+                {settled || over ? "—" : live ? formatLeft(left) : new Date(a.startsAt).toLocaleDateString(dateLocale(lang))}
               </b>
             </div>
 
@@ -407,17 +407,17 @@ export function LotPage({
                   {live && !over && <span className="livepill"><i aria-hidden="true" />LIVE</span>}
                 </p>
                 <p className={`big tnum${iLead ? " is-win" : ""}`} suppressHydrationWarning>{formatEur(price)}</p>
-                <p className="note">{a.bidCount} solījumi{a.leaderAlias ? ` · ${t("a.leader")}: ${a.leaderAlias}` : ""}</p>
+                <p className="note">{t("lp.bidsN", { n: a.bidCount })}{a.leaderAlias ? ` · ${t("a.leader")}: ${a.leaderAlias}` : ""}</p>
               </div>
               {rep.retailCents ? (
                 <div style={{ textAlign: "right" }}>
                   <p className="price-lab">
-                    Ieteiktā cena
-                    <button className="info-btn" type="button" aria-label="Kas ir ieteiktā cena"
-                            onClick={() => say("Ieteiktā cena — ražotāja cena, nevis mūsu iepriekšējā")}>i</button>
+                    {t("lp.retailPrice")}
+                    <button className="info-btn" type="button" aria-label={t("lc.retailAria")}
+                            onClick={() => say(t("lc.retailNote"))}>i</button>
                   </p>
                   <p><s className="tnum">{formatEur(rep.retailCents)}</s></p>
-                  {off !== null && <p className="save">−{off} % no veikala cenas</p>}
+                  {off !== null && <p className="save">{t("lp.offRetail", { n: off })}</p>}
                 </div>
               ) : null}
             </div>
@@ -429,8 +429,8 @@ export function LotPage({
             {live && !over && (
               signedIn ? (
                 <div>
-                  <p className="bb-lab">Ātrā izvēle</p>
-                  <div className="quick3" role="group" aria-label="Ātrā solījuma summa">
+                  <p className="bb-lab">{t("lp.quickPick")}</p>
+                  <div className="quick3" role="group" aria-label={t("lp.quickPickAria")}>
                     {quick.map((q) => (
                       <button key={q} className={`qb${amount === q ? " on" : ""}`} type="button"
                               onClick={() => setAmount(q)}>{formatEur(q)}</button>
@@ -438,22 +438,22 @@ export function LotPage({
                   </div>
 
                   <div className="amt">
-                    <button type="button" aria-label="Samazināt par soli"
+                    <button type="button" aria-label={t("lp.stepDown")}
                             onClick={() => setAmount((v) => Math.max(minNext, v - inc))}>−</button>
-                    <label className="sr" htmlFor="amt">Solījuma summa eiro</label>
+                    <label className="sr" htmlFor="amt">{t("lp.amountLabel")}</label>
                     <span className="cur" aria-hidden="true">€</span>
                     <input id="amt" type="number" inputMode="numeric" step={inc / 100} min={minNext / 100}
                            value={amount % 100 === 0 ? String(amount / 100) : (amount / 100).toFixed(2)}
                            onChange={(e) => setAmount(Math.round(parseFloat(e.target.value || "0") * 100))} />
-                    <button type="button" aria-label="Palielināt par soli"
+                    <button type="button" aria-label={t("lp.stepUp")}
                             onClick={() => setAmount((v) => v + inc)}>+</button>
                   </div>
 
                   <label className={`maxrow${proxy ? " on" : ""}`}>
                     <input type="checkbox" checked={proxy} onChange={(e) => setProxy(e.target.checked)} />
                     <span>
-                      Iestatīt kā maksimālo solījumu — solīsim tavā vietā līdz šai summai
-                      <button className="info-btn" type="button" aria-haspopup="dialog" aria-label="Kas ir maksimālais solījums"
+                      {t("lp.setMax")}
+                      <button className="info-btn" type="button" aria-haspopup="dialog" aria-label={t("lp.whatIsMax")}
                               onClick={(e) => { e.preventDefault(); setProxyInfo(true); }}>i</button>
                     </span>
                   </label>
@@ -461,21 +461,21 @@ export function LotPage({
                   <button className="btn btn-primary btn-lg btn-block" type="button"
                           disabled={busy || amount < minNext}
                           onClick={() => setConfirm(true)}>
-                    Solīt · <span className="tnum">{formatEur(amount)}</span>
+                    {t("lc.bid")}<span className="tnum">{formatEur(amount)}</span>
                   </button>
                   <p className="fine tnum">
-                    Nākamais minimums {formatEur(minNext)} · solis {formatEur(inc)} ·
-                    {" "}+{fees.buyerPremiumBp / 100} % komisija · +{fees.vatRateBp / 100} % PVN
+                    {t("lp.minNext", { min: formatEur(minNext), inc: formatEur(inc),
+                      prem: fees.buyerPremiumBp / 100, vat: fees.vatRateBp / 100 })}
                   </p>
 
                   {rep.buyNowCents ? (
                     <>
-                      <p className="or"><span>vai izlaid solīšanu</span></p>
+                      <p className="or"><span>{t("lp.orSkip")}</span></p>
                       <Link className="btn btn-outline btn-block" href={`/auction/${a.id}/pirkt`}>
-                        <Icon name="bolt" size={18} />Pirkt tagad · {formatEur(rep.buyNowCents)}
+                        <Icon name="bolt" size={18} />{t("lp.buyNowFor", { sum: formatEur(rep.buyNowCents) })}
                       </Link>
                       <p className="note" style={{ textAlign: "center", marginTop: 8 }}>
-                        Uzvari uzreiz — izsole noslēdzas tavā labā
+                        {t("lp.winInstantly")}
                       </p>
                     </>
                   ) : null}
@@ -488,8 +488,8 @@ export function LotPage({
                 <div>
                   <Link className="btn btn-primary btn-lg btn-block" href="/login">{t("a.signinToBid")}</Link>
                   <p className="fine tnum">
-                    Nākamais minimums {formatEur(minNext)} · solis {formatEur(inc)} ·
-                    {" "}+{fees.buyerPremiumBp / 100} % komisija · +{fees.vatRateBp / 100} % PVN
+                    {t("lp.minNext", { min: formatEur(minNext), inc: formatEur(inc),
+                      prem: fees.buyerPremiumBp / 100, vat: fees.vatRateBp / 100 })}
                   </p>
                 </div>
               )
@@ -501,34 +501,34 @@ export function LotPage({
                   <>
                     <div className="won">
                       <span className="ic" aria-hidden="true"><Icon name="check" /></span>
-                      <h3>Tu uzvarēji šo lotu!</h3>
+                      <h3>{t("lp.youWon")}</h3>
                       <p className="note">
-                        Nokārto samaksu norādītajā termiņā un izvēlies piegādi vai izņemšanu Rīgā.
+                        {t("lp.wonNote")}
                       </p>
                     </div>
                     <table className="fees"><tbody>
-                      <tr><th scope="row">Āmura cena</th><td className="tnum">{formatEur(won.hammerCents)}</td></tr>
-                      <tr><th scope="row">Pircēja komisija ({fees.buyerPremiumBp / 100} %)</th>
+                      <tr><th scope="row">{t("lp.hammer")}</th><td className="tnum">{formatEur(won.hammerCents)}</td></tr>
+                      <tr><th scope="row">{t("lp.premium", { n: fees.buyerPremiumBp / 100 })}</th>
                         <td className="tnum">{formatEur(won.premiumCents)}</td></tr>
-                      <tr><th scope="row">PVN ({fees.vatRateBp / 100} %)</th>
+                      <tr><th scope="row">{t("lp.vatN", { n: fees.vatRateBp / 100 })}</th>
                         <td className="tnum">{formatEur(won.vatCents)}</td></tr>
-                      <tr className="tot"><th scope="row">Kopā</th>
+                      <tr className="tot"><th scope="row">{t("bn.total")}</th>
                         <td className="tnum">{formatEur(won.totalCents)}</td></tr>
                     </tbody></table>
                     <Link className="btn btn-primary btn-block" href="/account">
-                      Apmaksāt {formatEur(won.totalCents)}
+                      {t("lp.payNow", { sum: formatEur(won.totalCents) })}
                     </Link>
                   </>
                 ) : (
                   <div className="won">
                     <h3>
-                      {a.hasReserve && !a.reserveMet ? "Nepārdots — rezerve nav sasniegta"
-                        : myTop ? "Tevi pārsolīja" : "Izsole ir noslēgusies"}
+                      {a.hasReserve && !a.reserveMet ? t("lc.unsoldReserve")
+                        : myTop ? t("lp.outbidYou") : t("lp.auctionClosed")}
                     </h3>
-                    <p className="note">Gala cena</p>
+                    <p className="note">{t("lp.finalPrice")}</p>
                     <p className="sum-amt tnum">{formatEur(price)}</p>
                     <Link className="btn btn-primary btn-block" href={`/katalogs?category=${a.category}`}>
-                      Atrast līdzīgu lotu
+                      {t("lp.findSimilar")}
                     </Link>
                   </div>
                 )}
@@ -542,7 +542,7 @@ export function LotPage({
               {live && <span className="tag"><i className="livedot" aria-hidden="true" />Live</span>}
             </div>
             <ul className="feed">
-              {detail.bids.length === 0 && <li><span className="nm">Vēl nav solījumu</span></li>}
+              {detail.bids.length === 0 && <li><span className="nm">{t("lp.noBidsYet")}</span></li>}
               {detail.bids.slice(0, 24).map((b) => (
                 <li key={b.seq} className={b.isYou ? "you" : undefined}
                     style={b.outbid ? { opacity: 0.62 } : undefined}>
@@ -565,7 +565,7 @@ export function LotPage({
       {related.length > 0 && (
         <section className="section" style={{ paddingBottom: 0 }}>
           <div className="sec-head">
-            <div><h2>Vēl šajā kategorijā</h2><p className="sub">{t(`cat.${a.category}`)}</p></div>
+            <div><h2>{t("lp.moreInCat")}</h2><p className="sub">{t(`cat.${a.category}`)}</p></div>
             <Link className="link" href={`/katalogs?category=${a.category}`}>
               Visi loti <Icon name="arrow" size={16} />
             </Link>
@@ -581,14 +581,14 @@ export function LotPage({
         <div className="bidbar">
           <div className="t">
             <span className="lab" suppressHydrationWarning>
-              {formatLeft(left)}{iLead ? " · tu vadi" : ""}
+              {formatLeft(left)}{iLead ? t("lp.youLeadShort") : ""}
             </span>
             <b className="tnum">{formatEur(price)}</b>
           </div>
           {signedIn ? (
             <button className="btn btn-primary" type="button" aria-haspopup="dialog"
                     onClick={() => { setAmount((v) => (v < minNext ? minNext : v)); setConfirm(true); }}>
-              Solīt · <span className="tnum">{formatEur(minNext)}</span>
+              {t("lc.bid")}<span className="tnum">{formatEur(minNext)}</span>
             </button>
           ) : (
             <Link className="btn btn-primary" href={`/login?next=/auction/${a.id}`}>{t("a.signinToBid")}</Link>
@@ -607,7 +607,7 @@ export function LotPage({
              tabIndex={-1}
              ref={(n) => n?.focus()}>
           <div className="lb-bd" onClick={() => setBox(false)} />
-          <button className="lb-x" type="button" aria-label="Aizvērt" onClick={() => setBox(false)}>
+          <button className="lb-x" type="button" aria-label={t("nav.close")} onClick={() => setBox(false)}>
             <Icon name="x" />
           </button>
           <div className="lb-stage">
@@ -616,9 +616,9 @@ export function LotPage({
               <img src={photoWeb(shots[frame]!)} alt={a.title} />
             ) : <Icon name="art" className="pic" />}
           </div>
-          <button className="lb-nav p" type="button" aria-label="Iepriekšējais foto"
+          <button className="lb-nav p" type="button" aria-label={t("lp.prevPhoto")}
                   onClick={() => goto(frame - 1)}><Icon name="arrow" /></button>
-          <button className="lb-nav n" type="button" aria-label="Nākamais foto"
+          <button className="lb-nav n" type="button" aria-label={t("lp.nextPhoto")}
                   onClick={() => goto(frame + 1)}><Icon name="arrow" /></button>
           <div className="lb-bar">
             <span className="lb-count tnum">{frame + 1} / {shots.length}</span>
@@ -645,31 +645,31 @@ export function LotPage({
           <div className="modal-card">
             <div className="modal-head">
               <div>
-                <span className="kicker">Apstiprini solījumu · {a.sku}</span>
+                <span className="kicker">{t("lp.confirmKicker")} · {a.sku}</span>
                 <h3 id="m-bid-t">{a.title}</h3>
               </div>
-              <button className="modal-x" type="button" aria-label="Aizvērt"
+              <button className="modal-x" type="button" aria-label={t("nav.close")}
                       onClick={() => setConfirm(false)}><Icon name="x" /></button>
             </div>
             <div className="sum">
-              <p className="sum-lab">{proxy ? "Tavs maksimālais solījums" : "Tavs solījums"}</p>
+              <p className="sum-lab">{proxy ? t("lp.yourMaxBid") : t("lp.yourBid")}</p>
               <p className="sum-amt tnum">{formatEur(amount)}</p>
-              <p className="note">Minimālais nākamais solījums {formatEur(minNext)}.</p>
+              <p className="note">{t("lp.minNextShort", { sum: formatEur(minNext) })}</p>
             </div>
             <table className="fees"><tbody>
-              <tr><th scope="row">Ja uzvari, āmura cena</th><td className="tnum">{formatEur(inv.hammerCents)}</td></tr>
-              <tr><th scope="row">Pircēja komisija ({fees.buyerPremiumBp / 100} %)</th><td className="tnum">{formatEur(inv.premiumCents)}</td></tr>
+              <tr><th scope="row">{t("lp.ifYouWin")}</th><td className="tnum">{formatEur(inv.hammerCents)}</td></tr>
+              <tr><th scope="row">{t("lp.premium", { n: fees.buyerPremiumBp / 100 })}</th><td className="tnum">{formatEur(inv.premiumCents)}</td></tr>
               <tr><th scope="row">PVN ({fees.vatRateBp / 100} %)</th><td className="tnum">{formatEur(inv.vatCents)}</td></tr>
-              <tr className="tot"><th scope="row">Kopā, ja uzvari</th><td className="tnum">{formatEur(inv.totalCents)}</td></tr>
+              <tr className="tot"><th scope="row">{t("lp.totalIfWin")}</th><td className="tnum">{formatEur(inv.totalCents)}</td></tr>
             </tbody></table>
             <button className="btn btn-primary btn-block" type="button" disabled={busy}
                     onClick={() => void placeBid()}>
-              {busy ? "Sūtām…" : "Apstiprināt solījumu"}
+              {busy ? t("lp.sending") : t("lp.confirmBid")}
             </button>
             <button className="btn btn-outline btn-block" type="button" style={{ marginTop: 8 }}
                     onClick={() => setConfirm(false)}>Atcelt</button>
             <p className="note" style={{ textAlign: "center", marginTop: 12 }}>
-              Solījums ir juridiski saistošs · maksā tikai tad, ja uzvari
+              {t("lp.bindingNote")}
             </p>
           </div>
         </div>
@@ -682,20 +682,21 @@ export function LotPage({
           <div className="modal-card">
             <div className="modal-head">
               <div>
-                <h3 id="m-proxy-t">Maksimālais solījums</h3>
-                <p>Norādi augstāko summu, ko esi gatavs maksāt — pārējo darām mēs.</p>
+                <h3 id="m-proxy-t">{t("lp.proxyTitle")}</h3>
+                <p>{t("lp.proxyIntro")}</p>
               </div>
-              <button className="modal-x" type="button" aria-label="Aizvērt"
+              <button className="modal-x" type="button" aria-label={t("nav.close")}
                       onClick={() => setProxyInfo(false)}><Icon name="x" /></button>
             </div>
             <ul className="rep-list">
-              <li className="in"><Icon name="check" size={16} />Solām pa vienam solim tavā vietā, līdz sasniedz tavu maksimumu.</li>
-              <li className="in"><Icon name="check" size={16} />Citi solītāji nekad neredz tavu maksimālo summu.</li>
-              <li className="in"><Icon name="check" size={16} />Uzvari par zemāko cenu, kas pārsniedz pārējos — bieži krietni zem maksimuma.</li>
+              <li className="in"><Icon name="check" size={16} />{t("lp.proxy1")}</li>
+              <li className="in"><Icon name="check" size={16} />{t("lp.proxy2")}</li>
+              <li className="in"><Icon name="check" size={16} />{t("lp.proxy3")}</li>
             </ul>
             <p className="ex">
-              <b>Piemērs.</b> Ja iestati {formatEur(price + inc * 4)}, bet konkurents apstājas pie{" "}
-              {formatEur(price + inc * 2)}, tu uzvari par {formatEur(price + inc * 3)}.
+              <b>{t("lp.example")}</b>{" "}
+              {t("lp.exampleText", { max: formatEur(price + inc * 4), rival: formatEur(price + inc * 2),
+                win: formatEur(price + inc * 3) })}
             </p>
           </div>
         </div>
