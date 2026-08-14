@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "./Icon";
+import { useT } from "@/lib/i18n";
 
 /** Плавающие иконки фона героя — позиции из утверждённого макета
  *  (left%, top%, размер, длительность, задержка, наклон). */
@@ -76,6 +77,7 @@ function Dropdown({
 }
 
 export function Hero() {
+  const { t } = useT();
   const router = useRouter();
   const [word, setWord] = useState(0);
   const [prev, setPrev] = useState(-1);
@@ -158,14 +160,14 @@ export function Hero() {
           </span>
         </h1>
 
-        <form className="finder" role="search" aria-label="Atrast lotu" data-finder onSubmit={submit}>
+        <form className="finder" role="search" aria-label={t("he.findLot")} data-finder onSubmit={submit}>
           <button
             type="button" className="fi" data-dd="cat"
             aria-expanded={dd === "cat"} aria-haspopup="listbox"
             onClick={(e) => { e.stopPropagation(); setDd(dd === "cat" ? null : "cat"); }}
           >
             <span className="ic" aria-hidden="true"><Icon name="grid" /></span>
-            <span className="t"><span className="lab">Kategorija</span><span className="v">{cat[0]}</span></span>
+            <span className="t"><span className="lab">{t("he.category")}</span><span className="v">{cat[0]}</span></span>
             <Icon name="chev" className="chev" size={18} />
             {dd === "cat" && (
               <Dropdown list={CATS} value={cat[0]} onClose={() => setDd(null)}
@@ -178,8 +180,8 @@ export function Hero() {
           <label className="fi">
             <span className="ic" aria-hidden="true"><Icon name="search" /></span>
             <span className="t">
-              <span className="lab" id="kw-lab">Atslēgvārds</span>
-              <input className="v" id="kw" placeholder="piem. niršanas pulkstenis" aria-labelledby="kw-lab"
+              <span className="lab" id="kw-lab">{t("he.keyword")}</span>
+              <input className="v" id="kw" placeholder={t("he.keywordPh")} aria-labelledby="kw-lab"
                      value={kw} onChange={(e) => setKw(e.target.value)} />
             </span>
           </label>
@@ -192,7 +194,7 @@ export function Hero() {
             onClick={(e) => { e.stopPropagation(); setDd(dd === "when" ? null : "when"); }}
           >
             <span className="ic" aria-hidden="true"><Icon name="timer" /></span>
-            <span className="t"><span className="lab">Beidzas</span><span className="v">{when[0]}</span></span>
+            <span className="t"><span className="lab">{t("he.ends")}</span><span className="v">{when[0]}</span></span>
             <Icon name="chev" className="chev" size={18} />
             {dd === "when" && (
               <Dropdown list={WHEN} value={when[0]} right onClose={() => setDd(null)}

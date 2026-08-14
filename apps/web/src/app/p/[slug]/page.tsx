@@ -6,6 +6,8 @@ import { resolveCountry } from "@/lib/country";
 import { alternatesFor } from "@/lib/seo";
 import { CmsBlocks, type CmsPage } from "@/components/CmsBlocks";
 import { pickLocalized } from "@/lib/localized";
+import { Crumbs } from "@/components/Crumbs";
+import { T } from "@/lib/i18n";
 
 export const dynamic = "force-dynamic";
 
@@ -53,16 +55,11 @@ export default async function CmsPageRoute({ params }: { params: Promise<{ slug:
   if (!page) {
     return (
       <section className="wrap" style={{ paddingTop: 24, paddingBottom: 80 }}>
-        <nav className="crumbs" aria-label="Navigācijas ceļš">
-          <ol>
-            <li><Link href="/">Sākums</Link></li>
-            <li aria-current="page">{TITLES[slug] ?? "Informācija"}</li>
-          </ol>
-        </nav>
+        <Crumbs here={TITLES[slug] ?? "Informācija"} />
         <div className="page-head">
           <div>
             <h1 data-hero>{TITLES[slug] ?? "Informācija"}</h1>
-            <p className="cnt">Teksts tiek gatavots</p>
+            <p className="cnt"><T k="misc.textInProgress" /></p>
           </div>
         </div>
         <p className="lead" style={{ maxWidth: "52ch" }}>
@@ -70,8 +67,8 @@ export default async function CmsPageRoute({ params }: { params: Promise<{ slug:
           uzraksti mums, un nosūtīsim to e-pastā.
         </p>
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 24 }}>
-          <Link className="btn btn-primary" href="/kontakti">Sazināties</Link>
-          <Link className="btn btn-outline" href="/buj">Biežākie jautājumi</Link>
+          <Link className="btn btn-primary" href="/kontakti"><T k="misc.contactUs" /></Link>
+          <Link className="btn btn-outline" href="/buj"><T k="f.faq" /></Link>
         </div>
       </section>
     );

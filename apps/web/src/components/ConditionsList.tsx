@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { CONDITION_CODES, conditionBadge } from "@/lib/conditions";
 import { useT } from "@/lib/i18n";
+import { Crumbs } from "@/components/Crumbs";
 
 /** Грейды, у которых всегда есть пояснение к конкретному лоту. */
 const NOTED = new Set(["new_with_issue", "new_cosmetic_imperfection", "lightly_used", "used", "used_with_issue"]);
@@ -11,9 +11,7 @@ export function ConditionsList() {
   const { t } = useT();
   return (
     <section className="wrap" style={{ paddingTop: 24 }}>
-      <nav className="crumbs" aria-label="Navigācijas ceļš">
-        <ol><li><Link href="/">Sākums</Link></li><li aria-current="page">{t("cond.title")}</li></ol>
-      </nav>
+      <Crumbs here={t("cond.title")} />
 
       <div className="page-head">
         <div>

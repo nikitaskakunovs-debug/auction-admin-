@@ -59,6 +59,36 @@ export const STRINGS: Record<string, Record<Lang, string>> = {
   "pp.loading": { lv: "Ielādē pakomātus…", ru: "Загружаем пакоматы…", en: "Loading parcel machines…", et: "Laadime pakiautomaate…", lt: "Įkeliami siuntų automatai…" },
   "pp.countN": { lv: "{n} pakomāti", ru: "Пакоматов: {n}", en: "{n} parcel machines", et: "{n} pakiautomaati", lt: "Siuntų automatų: {n}" },
   "pp.nothing": { lv: "Nekas neatbilst. Pamēģini citu pilsētu vai ielu.", ru: "Ничего не найдено. Попробуйте другой город или улицу.", en: "Nothing matches. Try another city or street.", et: "Midagi ei leitud. Proovi teist linna või tänavat.", lt: "Nieko nerasta. Pabandykite kitą miestą ar gatvę." },
+  // ── ХВОСТЫ ИНТЕРФЕЙСА, ВТОРОЙ ЗАХОД ─────────────────────────
+  // Подписи для незрячих (aria-label, alt) — такой же интерфейс, как кнопки,
+  // и переводить их надо так же. Раньше они оставались латышскими.
+  "nav.carousel": { lv: "karuselis", ru: "карусель", en: "carousel", et: "karussell", lt: "karuselė" },
+  "bn.offerN": { lv: "Piedāvājums {i} no {n}", ru: "Предложение {i} из {n}", en: "Offer {i} of {n}", et: "Pakkumine {i} / {n}", lt: "Pasiūlymas {i} iš {n}" },
+  "card.photoN": { lv: "Foto {i} no {n}", ru: "Фото {i} из {n}", en: "Photo {i} of {n}", et: "Foto {i} / {n}", lt: "Nuotrauka {i} iš {n}" },
+  "card.photoOf": { lv: "Foto: {title}", ru: "Фото: {title}", en: "Photo: {title}", et: "Foto: {title}", lt: "Nuotrauka: {title}" },
+  "card.photoNOf": { lv: "Foto {i} no {n}: {title}", ru: "Фото {i} из {n}: {title}", en: "Photo {i} of {n}: {title}", et: "Foto {i} / {n}: {title}", lt: "Nuotrauka {i} iš {n}: {title}" },
+  // Страница, которой нет.
+  "nf.title": { lv: "Šādas lapas nav", ru: "Такой страницы нет", en: "No such page", et: "Sellist lehte ei ole", lt: "Tokio puslapio nėra" },
+  "nf.body": { lv: "Iespējams, lots jau ir pārdots vai saite ir novecojusi. Šobrīd aktīvi ir simtiem citu lotu.", ru: "Возможно, лот уже продан или ссылка устарела. Сейчас активны сотни других лотов.", en: "The lot may already be sold, or the link is out of date. Hundreds of other lots are live right now.", et: "Partii võib olla juba müüdud või link on aegunud. Praegu on aktiivseid partiisid sadu.", lt: "Lotas galbūt jau parduotas arba nuoroda pasenusi. Šiuo metu aktyvūs šimtai kitų lotų." },
+  "nf.catalogue": { lv: "Atvērt katalogu", ru: "Открыть каталог", en: "Open the catalogue", et: "Ava kataloog", lt: "Atverti katalogą" },
+  "nf.home": { lv: "Uz sākumu", ru: "На главную", en: "Go to the home page", et: "Avalehele", lt: "Į pradžią" },
+  // Вход через соцсети.
+  "sa.orContinue": { lv: "vai turpini ar", ru: "или продолжите через", en: "or continue with", et: "või jätka", lt: "arba tęskite su" },
+  "sa.agreePre": { lv: "Turpinot piekrīti", ru: "Продолжая, вы соглашаетесь с", en: "By continuing you agree to", et: "Jätkates nõustud", lt: "Tęsdami sutinkate su" },
+  "sa.terms": { lv: "lietošanas noteikumiem", ru: "условиями использования", en: "the terms of use", et: "kasutustingimustega", lt: "naudojimo sąlygomis" },
+  "sa.soon": { lv: "{provider} pieteikšanās vēl tiek pieslēgta", ru: "Вход через {provider} ещё подключается", en: "{provider} sign-in is still being connected", et: "{provider} sisselogimine on veel ühendamisel", lt: "Prisijungimas per {provider} dar jungiamas" },
+  // Регистрация.
+  "auth.pwHint": { lv: "Parolē vismaz 8 rakstzīmes", ru: "В пароле минимум 8 символов", en: "At least 8 characters", et: "Vähemalt 8 märki", lt: "Bent 8 simboliai" },
+  "auth.pwLeft": { lv: "Vēl {n} rakstzīmes — parolē vajag vismaz 8", ru: "Ещё {n} символов — в пароле нужно минимум 8", en: "{n} more characters — a password needs at least 8", et: "Veel {n} märki — parool vajab vähemalt 8", lt: "Dar {n} simbolių — slaptažodžiui reikia bent 8" },
+  "reg.countryLV": { lv: "Latvija", ru: "Латвия", en: "Latvia", et: "Läti", lt: "Latvija" },
+  "reg.countryEE": { lv: "Igaunija", ru: "Эстония", en: "Estonia", et: "Eesti", lt: "Estija" },
+  "reg.countryLT": { lv: "Lietuva", ru: "Литва", en: "Lithuania", et: "Leedu", lt: "Lietuva" },
+  // Терминал выдачи на складе.
+  "kiosk.title": { lv: "Reģistrēšanās izsniegšanai", ru: "Регистрация на выдачу", en: "Check in for collection", et: "Registreerimine väljastamiseks", lt: "Registracija atsiėmimui" },
+  "kiosk.enterCode": { lv: "Ievadi vai noskenē izņemšanas kodu", ru: "Введите или отсканируйте код получения", en: "Enter or scan your collection code", et: "Sisesta või skaneeri kättesaamise kood", lt: "Įveskite arba nuskaitykite atsiėmimo kodą" },
+  "kiosk.yourTicket": { lv: "Jūsu talons", ru: "Ваш талон", en: "Your ticket", et: "Teie talong", lt: "Jūsų talonas" },
+  "kiosk.already": { lv: "Jūs jau esat reģistrēts", ru: "Вы уже зарегистрированы", en: "You are already checked in", et: "Olete juba registreeritud", lt: "Jūs jau užsiregistravote" },
+  "kiosk.watch": { lv: "Skaties uz ekrānu — komplektējam tavu pasūtījumu.", ru: "Смотрите на экран — собираем ваш заказ.", en: "Watch the screen — we are picking your order.", et: "Vaadake ekraani — komplekteerime teie tellimust.", lt: "Žiūrėkite į ekraną — renkame jūsų užsakymą." },
   // ── ХВОСТЫ ИНТЕРФЕЙСА ───────────────────────────────────────
   "misc.textInProgress": { lv: "Teksts tiek gatavots", ru: "Текст готовится", en: "The text is being prepared", et: "Tekst on koostamisel", lt: "Tekstas ruošiamas" },
   "misc.contactUs": { lv: "Sazināties", ru: "Связаться", en: "Get in touch", et: "Võta ühendust", lt: "Susisiekti" },

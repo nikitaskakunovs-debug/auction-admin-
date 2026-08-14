@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { jsonLdScript } from "@/lib/jsonld";
 import { Icon } from "@/components/Icon";
+import { Crumbs } from "@/components/Crumbs";
 
 export const metadata = {
   title: "Biežākie jautājumi",
@@ -104,9 +105,7 @@ export default function FaqPage() {
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdScript(jsonLd) }} />
       <section className="wrap" style={{ paddingTop: 24 }}>
-        <nav className="crumbs" aria-label="Navigācijas ceļš">
-          <ol><li><Link href="/">Sākums</Link></li><li aria-current="page">Biežākie jautājumi</li></ol>
-        </nav>
+        <Crumbs here="Biežākie jautājumi" />
 
         <div className="page-head">
           <div>

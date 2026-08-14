@@ -208,7 +208,7 @@ export function LotPage({
             onPointerLeave={() => setLens(null)}
             tabIndex={0}
             role="group"
-            aria-label={`Foto: ${a.title}`}
+            aria-label={t("card.photoOf", { title: a.title })}
             onKeyDown={(e) => {
               if (e.key === "ArrowLeft") { e.preventDefault(); goto(frame - 1); }
               if (e.key === "ArrowRight") { e.preventDefault(); goto(frame + 1); }
@@ -250,7 +250,7 @@ export function LotPage({
           <div className="lthumbs">
             {shots.map((p, i) => (
               <button key={i} className={`lthumb${i === frame ? " on" : ""}`} type="button"
-                      aria-label={`Foto ${i + 1} no ${shots.length}`}
+                      aria-label={t("card.photoN", { i: i + 1, n: shots.length })}
                       aria-current={i === frame ? "true" : undefined}
                       onClick={() => goto(i)}>
                 {p ? (
@@ -598,7 +598,7 @@ export function LotPage({
 
       {/* ═══ ГАЛЕРЕЯ ВО ВЕСЬ ЭКРАН ═══ */}
       {box && (
-        <div className="lightbox" role="dialog" aria-modal="true" aria-label={`Foto: ${a.title}`}
+        <div className="lightbox" role="dialog" aria-modal="true" aria-label={t("card.photoOf", { title: a.title })}
              onKeyDown={(e) => {
                if (e.key === "ArrowLeft") goto(frame - 1);
                if (e.key === "ArrowRight") goto(frame + 1);
@@ -625,7 +625,7 @@ export function LotPage({
             <div className="lb-thumbs">
               {shots.map((p, i) => (
                 <button key={i} className={`lb-thumb${i === frame ? " on" : ""}`} type="button"
-                        aria-label={`Foto ${i + 1}`} aria-current={i === frame ? "true" : undefined}
+                        aria-label={t("card.photoN", { i: i + 1, n: shots.length })} aria-current={i === frame ? "true" : undefined}
                         onClick={() => goto(i)}>
                   {p ? (
                     // eslint-disable-next-line @next/next/no-img-element

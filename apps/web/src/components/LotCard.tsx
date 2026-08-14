@@ -165,19 +165,19 @@ export function LotCard({ lot }: { lot: CardLot }) {
                   onClick={(e) => { stop(e); set(frame - 1); }}><Icon name="arrow" /></button>
           <button className="gal-nav n" type="button" aria-label={t("lc.nextPhoto", { title: lot.title })}
                   onClick={(e) => { stop(e); set(frame + 1); }}><Icon name="arrow" /></button>
-          <div className="gal-dots" role="group" aria-label={`Foto: ${lot.title}`}>
+          <div className="gal-dots" role="group" aria-label={t("card.photoOf", { title: lot.title })}>
             {shots.map((_, i) => (
               <button key={i} className="gal-dot" type="button"
                       aria-current={i === frame ? "true" : undefined}
-                      aria-label={`Foto ${i + 1} no ${shots.length}: ${lot.title}`}
+                      aria-label={t("card.photoNOf", { i: i + 1, n: shots.length, title: lot.title })}
                       onClick={(e) => { stop(e); set(i); }} />
             ))}
           </div>
         </div>
 
         <div className="lot-tags">
-          {lot.hot && <span className="tag tag-live">Karsts</span>}
-          {!lot.hasReserve && isLive && <span className="tag">Bez rezerves</span>}
+          {lot.hot && <span className="tag tag-live">{t("lc.hot")}</span>}
+          {!lot.hasReserve && isLive && <span className="tag">{t("lr.noReserve")}</span>}
           {lot.hasReserve && !lot.reserveMet && <span className="tag">{t("a.reserveNotMet")}</span>}
         </div>
 

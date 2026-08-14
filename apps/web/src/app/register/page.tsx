@@ -46,13 +46,13 @@ export default function RegisterPage() {
             видно сразу, иначе кнопка выглядит сломанной. */}
         <p className="note" id="pw-hint">
           {password.length > 0 && password.length < 8
-            ? `Vēl ${8 - password.length} rakstzīmes — parolē vajag vismaz 8`
-            : "Parolē vismaz 8 rakstzīmes"}
+            ? t("auth.pwLeft", { n: 8 - password.length })
+            : t("auth.pwHint")}
         </p>
         <select value={country} onChange={(e) => setCountry(e.target.value)}>
-          <option value="LV">Latvija</option>
-          <option value="EE">Eesti</option>
-          <option value="LT">Lietuva</option>
+          <option value="LV">{t("reg.countryLV")}</option>
+          <option value="EE">{t("reg.countryEE")}</option>
+          <option value="LT">{t("reg.countryLT")}</option>
         </select>
         {error && <div className="auth-err">{error}</div>}
         <button className="btn btn-primary btn-lg btn-block" type="submit" disabled={busy || !email || !alias || password.length < 8}>{t("auth.register")}</button>

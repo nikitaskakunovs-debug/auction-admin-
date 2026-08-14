@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Icon } from "@/components/Icon";
+import { Crumbs } from "@/components/Crumbs";
 
 export const metadata = {
   title: "Pārdod ar mums",
@@ -25,9 +26,7 @@ const NOT: string[] = [
 export default function SellPage() {
   return (
     <section className="wrap" style={{ paddingTop: 24 }}>
-      <nav className="crumbs" aria-label="Navigācijas ceļš">
-        <ol><li><Link href="/">Sākums</Link></li><li aria-current="page">Pārdod ar mums</li></ol>
-      </nav>
+      <Crumbs here="Pārdod ar mums" />
 
       <div className="page-head">
         <div>

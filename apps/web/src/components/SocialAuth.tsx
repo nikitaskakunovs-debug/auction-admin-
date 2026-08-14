@@ -3,6 +3,7 @@
 import { useState, type ReactElement } from "react";
 import { PUBLIC_API_URL } from "@/lib/config";
 import { say } from "./Toast";
+import { useT } from "@/lib/i18n";
 
 /** Вход через Google, Facebook и Telegram.
  *
@@ -43,6 +44,7 @@ const PROVIDERS: Array<{ id: string; label: string; brand: string; icon: ReactEl
 ];
 
 export function SocialAuth({ next = "/" }: { next?: string }) {
+  const { t } = useT();
   const [busy, setBusy] = useState<string | null>(null);
 
   const start = async (id: string, label: string) => {
@@ -53,7 +55,7 @@ export function SocialAuth({ next = "/" }: { next?: string }) {
       // Проверяем, поднят ли провайдер, чтобы не увести человека в 404.
       const res = await fetch(url, { method: "HEAD" });
       if (res.status === 404 || res.status === 501) {
-        say(`${label} pieteikšanās vēl tiek pieslēgta`);
+        say(t("sa.soon", { provider: label }));
         setBusy(null);
         return;
       }
@@ -66,7 +68,7 @@ export function SocialAuth({ next = "/" }: { next?: string }) {
 
   return (
     <div className="social">
-      <p className="or"><span>vai turpini ar</span></p>
+      <p className="or"><span>{t("sa.orContinue")}</span></p>
       <div className="social-grid">
         {PROVIDERS.map((p) => (
           <button key={p.id} className={`social-btn s-${p.brand}`} type="button"
@@ -77,7 +79,7 @@ export function SocialAuth({ next = "/" }: { next?: string }) {
         ))}
       </div>
       <p className="note" style={{ textAlign: "center", marginTop: 10 }}>
-        Turpinot piekrīti <a href="/lietosanas-noteikumi">lietošanas noteikumiem</a>.
+        {t("sa.agreePre")} <a href="/lietosanas-noteikumi">{t("sa.terms")}</a>.
       </p>
     </div>
   );

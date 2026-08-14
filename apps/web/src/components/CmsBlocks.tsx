@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { useT } from "@/lib/i18n";
 import { pickLocalized, type Localized } from "@/lib/localized";
+import { Crumbs } from "@/components/Crumbs";
 
 export type { Localized };
 export type CmsBlock =
@@ -24,12 +24,7 @@ export function CmsBlocks({ page }: { page: CmsPage }) {
   const { lang } = useT();
   return (
     <section className="wrap" style={{ paddingTop: 24 }}>
-      <nav className="crumbs" aria-label="Navigācijas ceļš">
-        <ol>
-          <li><Link href="/">Sākums</Link></li>
-          <li aria-current="page">{pickLocalized(page.title, lang)}</li>
-        </ol>
-      </nav>
+      <Crumbs here={pickLocalized(page.title, lang)} />
 
       <div className="page-head">
         <div><h1 data-hero>{pickLocalized(page.title, lang)}</h1></div>
