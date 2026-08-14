@@ -216,7 +216,7 @@ export function AdsScreen() {
             )}
             {form.kind === "video" && (
               <AField label={t("ads.f.video")} hint={t("ads.f.videoHint")}>
-                <AInput value={form.videoUrl} onChange={(v) => set({ videoUrl: v })} placeholder="https://…/reklama.mp4" />
+                <AInput value={form.videoUrl} onChange={(v) => set({ videoUrl: v })} placeholder="https://… .mp4 · .webm · .svg · .gif · .webp" />
               </AField>
             )}
             <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 12 }}>

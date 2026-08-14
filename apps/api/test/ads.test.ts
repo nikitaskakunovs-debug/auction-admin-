@@ -134,6 +134,20 @@ describe("реклама в ленте", () => {
     expect(withUrl.statusCode).toBe(200);
   });
 
+  it("роликом может быть и анимированная картинка — svg, gif, webp", async () => {
+    // Анимация в картинке весит в разы меньше mp4; поле одно и то же,
+    // витрина сама решает по расширению, чем её показывать.
+    for (const url of ["https://x.test/ad.svg", "https://x.test/ad.gif", "https://x.test/ad.webp"]) {
+      const ad = await create({ title: `Анимация ${url.split(".").pop()}`, kind: "video", videoUrl: url, active: true });
+      const pub = (await world.server.app.inject({ method: "GET", url: "/api/public/ads" })).json() as {
+        ads: Array<{ id: string; kind: string; videoUrl: string | null }>;
+      };
+      const mine = pub.ads.find((a) => a.id === ad.id);
+      expect(mine!.kind).toBe("video");
+      expect(mine!.videoUrl).toBe(url);
+    }
+  });
+
   it("пометку «Реклама» можно снять, и витрина это узнаёт", async () => {
     const ad = await create({ title: "Своё промо", href: "/katalogs?category=tools", active: true, showLabel: false });
     const pub = (await world.server.app.inject({ method: "GET", url: "/api/public/ads" })).json() as {

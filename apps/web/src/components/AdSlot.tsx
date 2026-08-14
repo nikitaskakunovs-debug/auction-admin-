@@ -36,6 +36,13 @@ export function AdSlot({ ad, label }: { ad: AdCard; label: string }) {
   const poster = ad.imageUrl ?? frames[0] ?? null;
   const external = /^https?:/i.test(ad.href);
 
+  /* Ролик — не обязательно видеофайл. Анимированный SVG, GIF или WebP весит
+   * в разы меньше mp4 и играет в обычном <img>; видеотег ему не нужен и не
+   * подходит. Чем показывать — решаем по расширению адреса; без расширения
+   * считаем видеофайлом. Важно: чужой SVG рисуем только через <img> — там
+   * браузер не исполняет вложенные скрипты. */
+  const isVideoFile = !!ad.videoUrl && !/\.(svg|gif|webp|png|apng|avif|jpe?g)([?#]|$)/i.test(ad.videoUrl);
+
   // ── Показы ────────────────────────────────────────────────────────────────
   useEffect(() => {
     const el = box.current;
@@ -60,6 +67,7 @@ export function AdSlot({ ad, label }: { ad: AdCard; label: string }) {
   useEffect(() => {
     if (ad.kind !== "video") return;
     if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      // Для анимированной картинки паузы нет — вместо неё покажем постер.
       // Человек просил поменьше движения — не автоплеим, даём кнопку.
       setStill(true);
       return;
@@ -112,11 +120,16 @@ export function AdSlot({ ad, label }: { ad: AdCard; label: string }) {
     >
       {ad.showLabel !== false && <span className="ad-mark">{label}</span>}
 
-      {ad.kind === "video" && ad.videoUrl ? (
+      {ad.kind === "video" && ad.videoUrl && isVideoFile ? (
         <video
           ref={vid} className="ad-media" src={ad.videoUrl} poster={poster ?? undefined}
           muted loop playsInline preload="metadata" controls={still}
         />
+      ) : ad.kind === "video" && ad.videoUrl ? (
+        /* Анимация в картинке. Остановить её нельзя, поэтому при
+           prefers-reduced-motion показываем постер, если он задан. */
+        // eslint-disable-next-line @next/next/no-img-element
+        <img className="ad-media" src={still && poster ? poster : ad.videoUrl} alt="" loading="lazy" />
       ) : ad.kind === "carousel" && shots.length > 0 ? (
         <>
           {shots.map((src, i) => (
