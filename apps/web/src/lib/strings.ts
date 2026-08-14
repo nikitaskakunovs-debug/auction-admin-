@@ -253,6 +253,7 @@ export const STRINGS: Record<string, Record<Lang, string>> = {
   "co.payBy": { lv: " · nokārto līdz {date}", ru: " · оплатите до {date}", en: " · pay by {date}", et: " · tasu kuni {date}", lt: " · sumokėkite iki {date}" },
   // ── КАТАЛОГ И ФИЛЬТРЫ ───────────────────────────────────────
   "cg.allActive": { lv: "Visi aktīvie loti", ru: "Все активные лоты", en: "All active lots", et: "Kõik aktiivsed partiid", lt: "Visi aktyvūs lotai" },
+  "cg.allCats": { lv: "Visas", ru: "Все", en: "All", et: "Kõik", lt: "Visos" },
   "cg.collAll": { lv: "Visi", ru: "Все", en: "All", et: "Kõik", lt: "Visi" },
   "cg.collAllD": { lv: "Viss, kas šobrīd ir aktīvs", ru: "Всё, что сейчас активно", en: "Everything currently live", et: "Kõik, mis on praegu aktiivne", lt: "Viskas, kas šiuo metu aktyvu" },
   "cg.filters": { lv: "Filtri", ru: "Фильтры", en: "Filters", et: "Filtrid", lt: "Filtrai" },

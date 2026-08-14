@@ -97,7 +97,7 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
     return () => { document.removeEventListener("click", onDoc); document.removeEventListener("keydown", onKey); };
   }, [open]);
 
-  const catLabel = (c: string) => (c === "all" ? "Visas" : t(`cat.${c}`));
+  const catLabel = (c: string) => (c === "all" ? t("cg.allCats") : t(`cat.${c}`));
 
   const rows = useMemo(() => {
     const left = (a: Row) => (new Date(a.endsAt).getTime() - now) / 1000;
@@ -217,11 +217,11 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
       <div className="fbar" role="group" aria-label={t("cg.filters")} ref={bar}>
         <button className="fchip fchip-dark" type="button" aria-haspopup="dialog" aria-expanded={sheet}
                 onClick={() => setSheet(true)}>
-          <Icon name="sliders" size={16} />Visi filtri
+          <Icon name="sliders" size={16} />{t("cg.allFilters")}
           {active.length > 0 && <span className="n">{active.length}</span>}
         </button>
 
-        {chip("coll", "Kolekcija", COLLS.find(([c]) => c === coll)![1],
+        {chip("coll", t("cg.collection"), t(COLLS.find(([c]) => c === coll)![1]),
           <>
             {COLLS.map(([id, key, subKey]) => (
               <button key={id} type="button" role="option" aria-selected={coll === id}
@@ -234,7 +234,7 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
             ))}
           </>)}
 
-        {chip("cat", "Kategorija", catLabel(cat),
+        {chip("cat", t("he.category"), catLabel(cat),
           <>
             <button type="button" role="option" aria-selected={cat === "all"}
                     onClick={() => { setCat("all"); setOpen(null); }}>
@@ -272,7 +272,7 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
             ))}
           </>)}
 
-        {chip("price", "Cena", priceLabel,
+        {chip("price", t("buy.price"), priceLabel,
           <div className="rng">
             <p className="row">
               <span>{formatEur(min)}</span>
