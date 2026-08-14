@@ -14,6 +14,37 @@ export type Lang = "lv" | "ru" | "en" | "et" | "lt";
 export const ALL_LANGS: Lang[] = ["lv", "ru", "en", "et", "lt"];
 
 const STRINGS: Record<string, Record<Lang, string>> = {
+  // ── РАЗВОРОТ КАТАЛОГА И ШТОРКА РЕГИОНА ──────────────────────
+  "cm.new": { lv: "Jaunumi", ru: "Новые", en: "New arrivals", et: "Uued", lt: "Naujienos" },
+  "cm.collections": { lv: "Kolekcijas", ru: "Коллекции", en: "Collections", et: "Kollektsioonid", lt: "Kolekcijos" },
+  "cm.openAll": { lv: "Atvērt visu katalogu", ru: "Открыть весь каталог", en: "Open the full catalogue", et: "Ava kogu kataloog", lt: "Atverti visą katalogą" },
+  "cm.byBrand": { lv: "Meklēt pēc zīmola", ru: "Искать по бренду", en: "Search by brand", et: "Otsi kaubamärgi järgi", lt: "Ieškoti pagal prekės ženklą" },
+  "coll.premium": { lv: "Augstvērtīgie", ru: "Премиальные", en: "Premium", et: "Kõrgema klassi", lt: "Aukštos vertės" },
+  "coll.premiumD": { lv: "Veikala cena no 1 000 €", ru: "Магазинная цена от 1 000 €", en: "Retail price from €1,000", et: "Poehind alates 1 000 €", lt: "Parduotuvės kaina nuo 1 000 €" },
+  "coll.stock": { lv: "Noliktavu atlikumi", ru: "Складские остатки", en: "Warehouse stock", et: "Laojäägid", lt: "Sandėlio likučiai" },
+  "coll.stockD": { lv: "Bez rezerves — viss tiek pārdots", ru: "Без резерва — продаётся всё", en: "No reserve — everything sells", et: "Reservhinnata — kõik müüakse", lt: "Be rezervo — parduodama viskas" },
+  "coll.estate": { lv: "Mantojumi un dizains", ru: "Наследие и дизайн", en: "Estate and design", et: "Pärandvara ja disain", lt: "Palikimai ir dizainas" },
+  "coll.estateD": { lv: "Viena īpašnieka kolekcijas", ru: "Коллекции одного владельца", en: "Single-owner collections", et: "Ühe omaniku kollektsioonid", lt: "Vieno savininko kolekcijos" },
+  "coll.signature": { lv: "Signature", ru: "Signature", en: "Signature", et: "Signature", lt: "Signature" },
+  "coll.signatureD": { lv: "Atlasīti pulksteņi un objekti", ru: "Отобранные часы и предметы", en: "Selected watches and objects", et: "Valitud kellad ja esemed", lt: "Atrinkti laikrodžiai ir objektai" },
+  "reg.kicker": { lv: "Reģions un valoda", ru: "Регион и язык", en: "Region and language", et: "Piirkond ja keel", lt: "Regionas ir kalba" },
+  "reg.title": { lv: "Kur tu iepērcies?", ru: "Где вы покупаете?", en: "Where do you shop?", et: "Kus sa ostled?", lt: "Kur perkate?" },
+  "reg.country": { lv: "Valsts", ru: "Страна", en: "Country", et: "Riik", lt: "Šalis" },
+  "reg.language": { lv: "Valoda", ru: "Язык", en: "Language", et: "Keel", lt: "Kalba" },
+  "reg.currency": { lv: "Valūta", ru: "Валюта", en: "Currency", et: "Valuuta", lt: "Valiuta" },
+  "reg.countryNote": { lv: "Katrai valstij ir savi loti, savs PVN un sava piegāde — tāpēc tā ir atsevišķa vietne.", ru: "У каждой страны свои лоты, свой НДС и своя доставка — поэтому это отдельный сайт.", en: "Each country has its own lots, its own VAT and its own delivery — that is why it is a separate site.", et: "Igal riigil on omad partiid, oma käibemaks ja oma tarne — seetõttu on see eraldi sait.", lt: "Kiekviena šalis turi savo lotus, savo PVM ir savo pristatymą — todėl tai atskira svetainė." },
+  "reg.currencyNote": { lv: "Visās trīs valstīs norēķini ir eiro. Cenas rādām ar PVN.", ru: "Во всех трёх странах расчёты в евро. Цены показываем с НДС.", en: "All three countries settle in euro. Prices are shown with VAT.", et: "Kõigis kolmes riigis arveldatakse eurodes. Hinnad on koos käibemaksuga.", lt: "Visose trijose šalyse atsiskaitoma eurais. Kainos rodomos su PVM." },
+  // ── ЭКРАН ПОИСКА ────────────────────────────────────────────
+  "srch.aria": { lv: "Meklēšana", ru: "Поиск", en: "Search", et: "Otsing", lt: "Paieška" },
+  "srch.label": { lv: "Meklēt lotus", ru: "Искать лоты", en: "Search lots", et: "Otsi partiisid", lt: "Ieškoti lotų" },
+  "srch.recent": { lv: "Nesen meklēts", ru: "Недавние запросы", en: "Recent searches", et: "Hiljutised otsingud", lt: "Naujausios paieškos" },
+  "srch.clearHistory": { lv: "Notīrīt vēsturi", ru: "Очистить историю", en: "Clear history", et: "Tühjenda ajalugu", lt: "Išvalyti istoriją" },
+  "srch.popularCats": { lv: "Populārās kategorijas", ru: "Популярные категории", en: "Popular categories", et: "Populaarsed kategooriad", lt: "Populiarios kategorijos" },
+  "srch.quickViews": { lv: "Ātrie skati", ru: "Быстрые подборки", en: "Quick views", et: "Kiirvaated", lt: "Greitos peržiūros" },
+  "srch.searching": { lv: "Meklējam…", ru: "Ищем…", en: "Searching…", et: "Otsime…", lt: "Ieškome…" },
+  "srch.lotsN": { lv: "Loti · {n}", ru: "Лоты · {n}", en: "Lots · {n}", et: "Partiid · {n}", lt: "Lotai · {n}" },
+  "srch.nothing": { lv: "Nekas neatbilst «{q}». Pamēģini citu vārdu vai atver visu katalogu.", ru: "По запросу «{q}» ничего нет. Попробуйте другое слово или откройте весь каталог.", en: "Nothing matches “{q}”. Try another word or open the full catalogue.", et: "Midagi ei vasta päringule „{q}“. Proovi teist sõna või ava kogu kataloog.", lt: "Pagal „{q}“ nieko nerasta. Pabandykite kitą žodį arba atverkite visą katalogą." },
+  "srch.showAll": { lv: "Rādīt visus rezultātus «{q}»", ru: "Показать все результаты «{q}»", en: "Show all results for “{q}”", et: "Näita kõiki tulemusi „{q}“", lt: "Rodyti visus rezultatus „{q}“" },
   // ── МОДАЛКИ: ШКАЛА СОСТОЯНИЯ И «ПОДЕЛИТЬСЯ» ─────────────────
   "scale.title": { lv: "Stāvokļa skala", ru: "Шкала состояния", en: "Condition scale", et: "Seisukorra skaala", lt: "Būklės skalė" },
   "scale.intro": { lv: "Kā mēs novērtējam katru lotu pirms publicēšanas.", ru: "Как мы оцениваем каждый лот перед публикацией.", en: "How we grade every lot before it goes live.", et: "Kuidas hindame iga partiid enne avaldamist.", lt: "Kaip vertiname kiekvieną lotą prieš skelbdami." },

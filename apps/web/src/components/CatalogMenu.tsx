@@ -19,18 +19,18 @@ const CAT_ICON: Record<string, string> = {
 };
 
 const SLICES: Array<[string, string, string]> = [
-  ["Tiešraidē", "bolt", "/tiesraide"],
-  ["Drīz beidzas", "timer", "/katalogs?closing=1h"],
-  ["Bez rezerves", "tag", "/katalogs?reserve=no"],
-  ["Jaunumi", "plus", "/katalogs"],
-  ["Izsoļu rezultāti", "gavel", "/rezultati"],
+  ["rail.live", "bolt", "/tiesraide"],
+  ["rail.closing", "timer", "/katalogs?closing=1h"],
+  ["rail.noReserve", "tag", "/katalogs?reserve=no"],
+  ["cm.new", "plus", "/katalogs"],
+  ["nav.results", "gavel", "/rezultati"],
 ];
 
 const COLLECTIONS: Array<[string, string, string]> = [
-  ["Augstvērtīgie", "Veikala cena no 1 000 €", "/katalogs"],
-  ["Noliktavu atlikumi", "Bez rezerves — viss tiek pārdots", "/katalogs?reserve=no"],
-  ["Mantojumi un dizains", "Viena īpašnieka kolekcijas", "/katalogs"],
-  ["Signature", "Atlasīti pulksteņi un objekti", "/katalogs"],
+  ["coll.premium", "coll.premiumD", "/katalogs"],
+  ["coll.stock", "coll.stockD", "/katalogs?reserve=no"],
+  ["coll.estate", "coll.estateD", "/katalogs"],
+  ["coll.signature", "coll.signatureD", "/katalogs"],
 ];
 
 export function CatalogMenu({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -79,15 +79,15 @@ export function CatalogMenu({ open, onClose }: { open: boolean; onClose: () => v
   return (
     <>
       <div className="cmenu-bd" onClick={onClose} />
-      <div className="cmenu" ref={panel} role="dialog" aria-modal="true" aria-label="Katalogs">
+      <div className="cmenu" ref={panel} role="dialog" aria-modal="true" aria-label={t("nav.catalogue")}>
         <div className="wrap cmenu-in">
           <div className="cmenu-col">
-            <h3>Ātrie skati</h3>
+            <h3>{t("srch.quickViews")}</h3>
             <ul>
-              {SLICES.map(([label, icon, href]) => (
-                <li key={label}>
+              {SLICES.map(([key, icon, href]) => (
+                <li key={key}>
                   <Link href={href} onClick={onClose}>
-                    <span className="ic"><Icon name={icon} /></span>{label}
+                    <span className="ic"><Icon name={icon} /></span>{t(key)}
                   </Link>
                 </li>
               ))}
@@ -95,7 +95,7 @@ export function CatalogMenu({ open, onClose }: { open: boolean; onClose: () => v
           </div>
 
           <div className="cmenu-col cmenu-cats">
-            <h3>Visas kategorijas</h3>
+            <h3>{t("nav.allCategories")}</h3>
             <div className="cmenu-grid">
               {CATEGORY_CODES.map((c) => (
                 <Link key={c} href={`/katalogs?category=${c}`} onClick={onClose}>
@@ -108,21 +108,21 @@ export function CatalogMenu({ open, onClose }: { open: boolean; onClose: () => v
           </div>
 
           <div className="cmenu-col">
-            <h3>Kolekcijas</h3>
+            <h3>{t("cm.collections")}</h3>
             <ul className="cmenu-colls">
-              {COLLECTIONS.map(([label, sub, href]) => (
-                <li key={label}>
+              {COLLECTIONS.map(([key, subKey, href]) => (
+                <li key={key}>
                   <Link href={href} onClick={onClose}>
-                    <b>{label}</b><small>{sub}</small>
+                    <b>{t(key)}</b><small>{t(subKey)}</small>
                   </Link>
                 </li>
               ))}
             </ul>
             <Link className="btn btn-primary btn-block" href="/katalogs" onClick={onClose}>
-              Atvērt visu katalogu{total ? ` · ${total}` : ""} <Icon name="arrow" size={16} />
+              {t("cm.openAll")}{total ? ` · ${total}` : ""} <Icon name="arrow" size={16} />
             </Link>
             <Link className="link" href="/zimoli" onClick={onClose} style={{ marginTop: 12 }}>
-              Meklēt pēc zīmola <Icon name="arrow" size={14} />
+              {t("cm.byBrand")} <Icon name="arrow" size={14} />
             </Link>
           </div>
         </div>

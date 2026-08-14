@@ -83,21 +83,21 @@ export function SearchOverlay({ open, onClose }: { open: boolean; onClose: () =>
   const popular = CATEGORY_CODES.slice(0, 8);
 
   return (
-    <div className="srch" role="dialog" aria-modal="true" aria-label="Meklēšana">
+    <div className="srch" role="dialog" aria-modal="true" aria-label={t("srch.aria")}>
       <div className="srch-bd" onClick={onClose} />
       <div className="srch-panel">
         <form className="srch-bar" role="search" onSubmit={(e) => { e.preventDefault(); go(q); }}>
           <Icon name="search" size={22} />
-          <label className="sr" htmlFor="srch-q">Meklēt lotus</label>
+          <label className="sr" htmlFor="srch-q">{t("srch.label")}</label>
           <input id="srch-q" ref={input} value={q} type="search" autoComplete="off"
-                 placeholder="Meklēt lotus…" onChange={(e) => setQ(e.target.value)} />
+                 placeholder={t("nav.searchPh")} onChange={(e) => setQ(e.target.value)} />
           {q && (
-            <button className="srch-clear" type="button" aria-label="Notīrīt" onClick={() => setQ("")}>
+            <button className="srch-clear" type="button" aria-label={t("nav.clear")} onClick={() => setQ("")}>
               <Icon name="x" size={18} />
             </button>
           )}
-          <button className="btn btn-primary" type="submit">Meklēt</button>
-          <button className="srch-x" type="button" aria-label="Aizvērt" onClick={onClose}>
+          <button className="btn btn-primary" type="submit">{t("nav.search")}</button>
+          <button className="srch-x" type="button" aria-label={t("nav.close")} onClick={onClose}>
             <Icon name="x" />
           </button>
         </form>
@@ -107,7 +107,7 @@ export function SearchOverlay({ open, onClose }: { open: boolean; onClose: () =>
             <>
               {recent.length > 0 && (
                 <section>
-                  <h4>Nesen meklēts</h4>
+                  <h4>{t("srch.recent")}</h4>
                   <div className="sheet-chips">
                     {recent.map((r) => (
                       <button key={r} className="chip" type="button" onClick={() => go(r)}>
@@ -118,13 +118,13 @@ export function SearchOverlay({ open, onClose }: { open: boolean; onClose: () =>
                             onClick={() => {
                               try { localStorage.removeItem(RECENT_KEY); } catch { /* приватный режим */ }
                               setRecent([]);
-                            }}>Notīrīt vēsturi</button>
+                            }}>{t("srch.clearHistory")}</button>
                   </div>
                 </section>
               )}
 
               <section>
-                <h4>Populārās kategorijas</h4>
+                <h4>{t("srch.popularCats")}</h4>
                 <div className="srch-cats">
                   {popular.map((c) => (
                     <button key={c} className="srch-cat" type="button"
@@ -137,16 +137,16 @@ export function SearchOverlay({ open, onClose }: { open: boolean; onClose: () =>
               </section>
 
               <section>
-                <h4>Ātrie skati</h4>
+                <h4>{t("srch.quickViews")}</h4>
                 <div className="sheet-chips">
                   <button className="chip" type="button"
-                          onClick={() => { onClose(); router.push("/tiesraide"); }}>Tiešraidē</button>
+                          onClick={() => { onClose(); router.push("/tiesraide"); }}>{t("rail.live")}</button>
                   <button className="chip" type="button"
-                          onClick={() => { onClose(); router.push("/katalogs?closing=1h"); }}>Drīz beidzas</button>
+                          onClick={() => { onClose(); router.push("/katalogs?closing=1h"); }}>{t("rail.closing")}</button>
                   <button className="chip" type="button"
-                          onClick={() => { onClose(); router.push("/katalogs?reserve=no"); }}>Bez rezerves</button>
+                          onClick={() => { onClose(); router.push("/katalogs?reserve=no"); }}>{t("rail.noReserve")}</button>
                   <button className="chip" type="button"
-                          onClick={() => { onClose(); router.push("/rezultati"); }}>Izsoļu rezultāti</button>
+                          onClick={() => { onClose(); router.push("/rezultati"); }}>{t("nav.results")}</button>
                 </div>
               </section>
             </>
@@ -154,7 +154,7 @@ export function SearchOverlay({ open, onClose }: { open: boolean; onClose: () =>
             <>
               {catHits.length > 0 && (
                 <section>
-                  <h4>Kategorijas</h4>
+                  <h4>{t("nav.categories")}</h4>
                   <div className="sheet-chips">
                     {catHits.map((c) => (
                       <button key={c} className="chip" type="button"
@@ -167,11 +167,9 @@ export function SearchOverlay({ open, onClose }: { open: boolean; onClose: () =>
               )}
 
               <section>
-                <h4>{all === null ? "Meklējam…" : `Loti · ${hits.length}`}</h4>
+                <h4>{all === null ? t("srch.searching") : t("srch.lotsN", { n: hits.length })}</h4>
                 {hits.length === 0 && all !== null && (
-                  <p className="note">
-                    Nekas neatbilst «{q.trim()}». Pamēģini citu vārdu vai atver visu katalogu.
-                  </p>
+                  <p className="note">{t("srch.nothing", { q: q.trim() })}</p>
                 )}
                 <div className="srch-hits">
                   {hits.map((a) => (
@@ -191,7 +189,7 @@ export function SearchOverlay({ open, onClose }: { open: boolean; onClose: () =>
                   ))}
                 </div>
                 <button className="btn btn-outline btn-block" type="button" onClick={() => go(q)}>
-                  Rādīt visus rezultātus «{q.trim()}»
+                  {t("srch.showAll", { q: q.trim() })}
                 </button>
               </section>
             </>

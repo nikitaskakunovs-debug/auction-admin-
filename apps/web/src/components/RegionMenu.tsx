@@ -23,7 +23,7 @@ export const LANG_NAME: Record<string, string> = {
 export function RegionMenu({
   open, onClose, country,
 }: { open: boolean; onClose: () => void; country: Country }) {
-  const { lang, setLang, available } = useT();
+  const { t, lang, setLang, available } = useT();
 
   useEffect(() => {
     if (!open) return;
@@ -44,16 +44,16 @@ export function RegionMenu({
       <div className="modal-card region-card">
         <div className="modal-head">
           <div>
-            <span className="kicker">Reģions un valoda</span>
-            <h3 id="reg-t">Kur tu iepērcies?</h3>
+            <span className="kicker">{t("reg.kicker")}</span>
+            <h3 id="reg-t">{t("reg.title")}</h3>
           </div>
-          <button className="modal-x" type="button" aria-label="Aizvērt" onClick={onClose}>
+          <button className="modal-x" type="button" aria-label={t("nav.close")} onClick={onClose}>
             <Icon name="x" />
           </button>
         </div>
 
         <section>
-          <h4>Valsts</h4>
+          <h4>{t("reg.country")}</h4>
           <div className="region-list">
             {(Object.keys(COUNTRY_LABEL) as Country[]).map((c) => {
               const on = c === country;
@@ -75,12 +75,12 @@ export function RegionMenu({
             })}
           </div>
           <p className="note" style={{ marginTop: 8 }}>
-            Katrai valstij ir savi loti, savs PVN un sava piegāde — tāpēc tā ir atsevišķa vietne.
+            {t("reg.countryNote")}
           </p>
         </section>
 
         <section style={{ marginTop: 20 }}>
-          <h4>Valoda</h4>
+          <h4>{t("reg.language")}</h4>
           <div className="sheet-chips">
             {available.map((l: Lang) => (
               <button key={l} className={`chip${lang === l ? " chip-dark" : ""}`} type="button"
@@ -93,12 +93,12 @@ export function RegionMenu({
         </section>
 
         <section style={{ marginTop: 20 }}>
-          <h4>Valūta</h4>
+          <h4>{t("reg.currency")}</h4>
           <div className="sheet-chips">
             <button className="chip chip-dark" type="button" aria-pressed="true">EUR €</button>
           </div>
           <p className="note" style={{ marginTop: 8 }}>
-            Visās trīs valstīs norēķini ir eiro. Cenas rādām ar PVN.
+            {t("reg.currencyNote")}
           </p>
         </section>
       </div>
