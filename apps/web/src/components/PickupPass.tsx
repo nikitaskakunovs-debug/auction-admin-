@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 import { publicApi } from "@/lib/api";
-import { useT } from "@/lib/i18n";
+import { dateLocale, useT } from "@/lib/i18n";
 
 /**
  * The client's pickup pass: one card per paid, uncollected order with the
@@ -31,7 +31,7 @@ function Qr({ value }: { value: string }) {
 }
 
 export function PickupPass() {
-  const { t } = useT();
+  const { t, lang } = useT();
   const [orders, setOrders] = useState<PickupOrder[]>([]);
 
   useEffect(() => {
@@ -69,7 +69,7 @@ export function PickupPass() {
               <p className="bb-status win" style={{ margin: 0 }}>{t("pickup.inProgress")}</p>
             ) : o.pickupDeadlineAt ? (
               <p className="note">
-                {t("pickup.deadline")}: <b>{new Date(o.pickupDeadlineAt).toLocaleDateString("lv-LV")}</b>
+                {t("pickup.deadline")}: <b>{new Date(o.pickupDeadlineAt).toLocaleDateString(dateLocale(lang))}</b>
                 {" · "}{t("pickup.feeNote")}
               </p>
             ) : null}

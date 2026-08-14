@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
 import { PUBLIC_API_URL } from "@/lib/config";
-import { useT } from "@/lib/i18n";
+import { dateLocale, useT } from "@/lib/i18n";
 import { formatEur, type MyOrder, type PublicAuction } from "@/lib/types";
 import { Countdown } from "@/components/Countdown";
 import { TrackingLine } from "@/components/DeliveryPicker";
@@ -233,7 +233,7 @@ export default function AccountPage() {
               </Link>
               {o.paymentDeadlineAt && (
                 <span className="note">
-                  Termiņš {new Date(o.paymentDeadlineAt).toLocaleDateString("lv-LV")}
+                  {t("ac.deadline", { date: new Date(o.paymentDeadlineAt).toLocaleDateString(dateLocale(lang)) })}
                 </span>
               )}
               <KlixPayLater amountCents={o.totalCents} view="checkout" micro />
@@ -274,7 +274,7 @@ export default function AccountPage() {
         <div className="verify-banner">
           <span className="grow">{t("ac.notVerified")}</span>
           <Link className="btn btn-dark btn-sm" href={`/verify-email?email=${encodeURIComponent(me.email)}`}>
-            Apstiprināt e-pastu
+            {t("ac.confirmEmail")}
           </Link>
         </div>
       )}

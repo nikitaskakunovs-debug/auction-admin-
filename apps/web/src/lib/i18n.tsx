@@ -68,6 +68,8 @@ const STRINGS: Record<string, Record<Lang, string>> = {
   "pp.countN": { lv: "{n} pakomāti", ru: "Пакоматов: {n}", en: "{n} parcel machines", et: "{n} pakiautomaati", lt: "Siuntų automatų: {n}" },
   "pp.nothing": { lv: "Nekas neatbilst. Pamēģini citu pilsētu vai ielu.", ru: "Ничего не найдено. Попробуйте другой город или улицу.", en: "Nothing matches. Try another city or street.", et: "Midagi ei leitud. Proovi teist linna või tänavat.", lt: "Nieko nerasta. Pabandykite kitą miestą ar gatvę." },
   // ── КАБИНЕТ ─────────────────────────────────────────────────
+  "ac.confirmEmail": { lv: "Apstiprināt e-pastu", ru: "Подтвердить e-mail", en: "Confirm your email", et: "Kinnita e-post", lt: "Patvirtinti el. paštą" },
+  "ac.deadline": { lv: "Termiņš {date}", ru: "Срок {date}", en: "Due {date}", et: "Tähtaeg {date}", lt: "Terminas {date}" },
   "ac.signinNeeded": { lv: "Pieteikšanās vajadzīga, lai redzētu savus solījumus un pasūtījumus.", ru: "Чтобы увидеть свои ставки и заказы, нужно войти.", en: "Sign in to see your bids and orders.", et: "Oma pakkumiste ja tellimuste nägemiseks logi sisse.", lt: "Kad matytumėte savo pasiūlymus ir užsakymus, reikia prisijungti." },
   "ac.overview": { lv: "Pārskats", ru: "Обзор", en: "Overview", et: "Ülevaade", lt: "Apžvalga" },
   "ac.orders": { lv: "Pasūtījumi", ru: "Заказы", en: "Orders", et: "Tellimused", lt: "Užsakymai" },
