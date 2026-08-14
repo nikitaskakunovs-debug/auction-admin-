@@ -13,7 +13,47 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 export type Lang = "lv" | "ru" | "en" | "et" | "lt";
 export const ALL_LANGS: Lang[] = ["lv", "ru", "en", "et", "lt"];
 
+/** Локаль для дат и чисел. Валюта везде евро, но разделители и порядок
+ *  элементов даты у языков разные. */
+const DATE_LOCALE: Record<Lang, string> = {
+  lv: "lv-LV", ru: "ru-RU", en: "en-GB", et: "et-EE", lt: "lt-LT",
+};
+export const dateLocale = (l: Lang): string => DATE_LOCALE[l] ?? "lv-LV";
+
 const STRINGS: Record<string, Record<Lang, string>> = {
+  // ── КАРТОЧКА ЛОТА ───────────────────────────────────────────
+  "lc.ended": { lv: "Izsole šim lotam ir beigusies", ru: "Торги по этому лоту завершены", en: "Bidding on this lot has ended", et: "Selle partii pakkumine on lõppenud", lt: "Šio loto siūlymas baigėsi" },
+  "lc.accepted": { lv: "Tavs solījums pieņemts · {sum}", ru: "Ваша ставка принята · {sum}", en: "Your bid was accepted · {sum}", et: "Teie pakkumine võeti vastu · {sum}", lt: "Jūsų pasiūlymas priimtas · {sum}" },
+  "lc.verifyFirst": { lv: "Vispirms apstiprini e-pastu — saite nosūtīta uz tavu adresi", ru: "Сначала подтвердите e-mail — ссылка отправлена на ваш адрес", en: "Confirm your email first — we sent a link to your address", et: "Kinnita esmalt e-post — saatsime lingi teie aadressile", lt: "Pirmiausia patvirtinkite el. paštą — nuorodą išsiuntėme jūsų adresu" },
+  "lc.unsoldReserve": { lv: "Nepārdots — rezerve nav sasniegta", ru: "Не продан — резерв не достигнут", en: "Unsold — reserve not met", et: "Müümata — reservhinda ei saavutatud", lt: "Neparduota — rezervas nepasiektas" },
+  "lc.soldFor": { lv: "Pārdots · {sum}", ru: "Продан · {sum}", en: "Sold · {sum}", et: "Müüdud · {sum}", lt: "Parduota · {sum}" },
+  "lc.youTop": { lv: "Tu esi augstākais solītājs", ru: "Вы — лидер торгов", en: "You are the top bidder", et: "Olete kõrgeim pakkuja", lt: "Jūs — didžiausią kainą pasiūlęs" },
+  "lc.outbidAgain": { lv: "Tevi pārsolīja — solī vēlreiz", ru: "Вашу ставку перебили — сделайте новую", en: "You were outbid — bid again", et: "Teid ületati — paku uuesti", lt: "Jus perviršijo — siūlykite dar kartą" },
+  "lc.second": { lv: "Otro reizi…", ru: "Второй раз…", en: "Going twice…", et: "Teist korda…", lt: "Antrą kartą…" },
+  "lc.first": { lv: "Pirmo reizi…", ru: "Первый раз…", en: "Going once…", et: "Esimest korda…", lt: "Pirmą kartą…" },
+  "lc.unsold": { lv: "Nepārdots", ru: "Не продан", en: "Unsold", et: "Müümata", lt: "Neparduota" },
+  "lc.sold": { lv: "Pārdots", ru: "Продан", en: "Sold", et: "Müüdud", lt: "Parduota" },
+  "lc.over": { lv: "Beidzies", ru: "Завершён", en: "Ended", et: "Lõppenud", lt: "Pasibaigė" },
+  "lc.endsIn": { lv: "Beidzas pēc {left}", ru: "До конца {left}", en: "Ends in {left}", et: "Lõpeb {left} pärast", lt: "Baigiasi po {left}" },
+  "lc.startsOn": { lv: "Sākas {date}", ru: "Начало {date}", en: "Starts {date}", et: "Algab {date}", lt: "Prasideda {date}" },
+  "lc.prevPhoto": { lv: "Iepriekšējais foto: {title}", ru: "Предыдущее фото: {title}", en: "Previous photo: {title}", et: "Eelmine foto: {title}", lt: "Ankstesnė nuotrauka: {title}" },
+  "lc.nextPhoto": { lv: "Nākamais foto: {title}", ru: "Следующее фото: {title}", en: "Next photo: {title}", et: "Järgmine foto: {title}", lt: "Kita nuotrauka: {title}" },
+  "lc.saveAria": { lv: "Saglabāt vēlmju sarakstā: {title}", ru: "Сохранить в избранное: {title}", en: "Save to watchlist: {title}", et: "Salvesta jälgimisnimekirja: {title}", lt: "Išsaugoti norų sąraše: {title}" },
+  "lc.saved": { lv: "Pievienots vēlmju sarakstam", ru: "Добавлено в избранное", en: "Added to your watchlist", et: "Lisatud jälgimisnimekirja", lt: "Įtraukta į norų sąrašą" },
+  "lc.unsaved": { lv: "Noņemts no vēlmju saraksta", ru: "Убрано из избранного", en: "Removed from your watchlist", et: "Eemaldatud jälgimisnimekirjast", lt: "Pašalinta iš norų sąrašo" },
+  "lc.alertAria": { lv: "Brīdināt par līdzīgiem lotiem: {title}", ru: "Уведомлять о похожих лотах: {title}", en: "Alert me about similar lots: {title}", et: "Teavita sarnastest partiidest: {title}", lt: "Pranešti apie panašius lotus: {title}" },
+  "lc.alertOn": { lv: "Brīdināsim par jauniem līdzīgiem lotiem", ru: "Сообщим о новых похожих лотах", en: "We will alert you about similar new lots", et: "Teavitame uutest sarnastest partiidest", lt: "Pranešime apie naujus panašius lotus" },
+  "lc.alertOff": { lv: "Brīdinājums atcelts", ru: "Уведомление отменено", en: "Alert cancelled", et: "Teavitus tühistatud", lt: "Pranešimas atšauktas" },
+  "lc.shareAria": { lv: "Dalīties ar lotu: {title}", ru: "Поделиться лотом: {title}", en: "Share lot: {title}", et: "Jaga partiid: {title}", lt: "Dalintis lotu: {title}" },
+  "lc.scaleAria": { lv: "Stāvokļa skala — šis lots {g}", ru: "Шкала состояния — этот лот {g}", en: "Condition scale — this lot is {g}", et: "Seisukorra skaala — see partii on {g}", lt: "Būklės skalė — šis lotas {g}" },
+  "lc.currentN": { lv: "Pašreizējā · {n}", ru: "Текущая · {n}", en: "Current · {n}", et: "Praegune · {n}", lt: "Dabartinė · {n}" },
+  "lc.bidsSr": { lv: " solījumi", ru: " ставок", en: " bids", et: " pakkumist", lt: " pasiūlymai" },
+  "lc.retail": { lv: "Ieteiktā", ru: "Розничная", en: "Retail", et: "Soovituslik", lt: "Rekomenduojama" },
+  "lc.retailAria": { lv: "Kas ir ieteiktā cena", ru: "Что такое розничная цена", en: "What the retail price means", et: "Mida tähendab soovituslik hind", lt: "Ką reiškia rekomenduojama kaina" },
+  "lc.retailNote": { lv: "Ieteiktā cena — ražotāja cena, nevis mūsu iepriekšējā", ru: "Розничная цена — цена производителя, а не наша прежняя", en: "The retail price is the maker's price, not our previous one", et: "Soovituslik hind on tootja hind, mitte meie eelmine", lt: "Rekomenduojama kaina — gamintojo, o ne mūsų ankstesnė" },
+  "lc.viewLot": { lv: "Skatīt lotu", ru: "Смотреть лот", en: "View lot", et: "Vaata partiid", lt: "Žiūrėti lotą" },
+  "lc.bidAgain": { lv: "Solīt vēlreiz · ", ru: "Ставка снова · ", en: "Bid again · ", et: "Paku uuesti · ", lt: "Siūlyti vėl · " },
+  "lc.bid": { lv: "Solīt · ", ru: "Ставка · ", en: "Bid · ", et: "Paku · ", lt: "Siūlyti · " },
   // ── РАЗВОРОТ КАТАЛОГА И ШТОРКА РЕГИОНА ──────────────────────
   "cm.new": { lv: "Jaunumi", ru: "Новые", en: "New arrivals", et: "Uued", lt: "Naujienos" },
   "cm.collections": { lv: "Kolekcijas", ru: "Коллекции", en: "Collections", et: "Kollektsioonid", lt: "Kolekcijos" },

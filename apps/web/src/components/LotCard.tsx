@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
 import { conditionLabel } from "@/lib/conditions";
 import { increment } from "@/lib/fees";
-import { useT } from "@/lib/i18n";
+import { dateLocale, useT } from "@/lib/i18n";
 import { photoThumb } from "@/lib/photos";
 import { formatEur, type PublicAuction } from "@/lib/types";
 import { alertStore } from "@/lib/ui";
@@ -43,7 +43,7 @@ const CAT_ICON: Record<string, string> = {
 const FRAMES = 4;
 
 export function LotCard({ lot }: { lot: CardLot }) {
-  const { t } = useT();
+  const { t, lang } = useT();
   const router = useRouter();
   const now = useNow();
   const [frame, setFrame] = useState(0);
@@ -92,7 +92,7 @@ export function LotCard({ lot }: { lot: CardLot }) {
    *  Без сессии уводим на вход, сохранив адрес лота. */
   const bid = async (e: React.MouseEvent) => {
     stop(e);
-    if (settled || over) { say("Izsole šim lotam ir beigusies"); return; }
+    if (settled || over) { say(t("lc.ended")); return; }
     if (!publicApi.hasSession) { router.push(`/login?next=/auction/${lot.id}`); return; }
     setBusy(true);
     try {
@@ -100,11 +100,11 @@ export function LotCard({ lot }: { lot: CardLot }) {
         `/api/public/auctions/${lot.id}/bids`, { maxCents: ask },
       );
       setLive({ price: r.currentPriceCents, bids: bidCount + 1, youLead: r.youLead });
-      say(r.youLead ? `Tavs solījums pieņemts · ${formatEur(r.currentPriceCents)}` : t("a.outbid"));
+      say(r.youLead ? t("lc.accepted", { sum: formatEur(r.currentPriceCents) }) : t("a.outbid"));
       if (r.extended) say(t("a.extended"));
     } catch (err) {
       if (err instanceof PublicApiError && err.body.code === "EMAIL_NOT_VERIFIED") {
-        say("Vispirms apstiprini e-pastu — saite nosūtīta uz tavu adresi");
+        say(t("lc.verifyFirst"));
       } else if (err instanceof PublicApiError && typeof err.body.minAcceptableCents === "number") {
         say(`${t("a.minBid")}: ${formatEur(err.body.minAcceptableCents)}`);
       } else {
@@ -116,18 +116,18 @@ export function LotCard({ lot }: { lot: CardLot }) {
   // Строка аукционных состояний под ценой — `.chant` макета.
   const chant: [string, string] | null =
     settled
-      ? (lot.hasReserve && !lot.reserveMet ? ["chant-pass", "Nepārdots — rezerve nav sasniegta"]
-        : ["chant-sold", `Pārdots · ${formatEur(price)}`])
-      : live?.youLead ? ["chant-win", "Tu esi augstākais solītājs"]
-      : live ? ["chant-out", "Tevi pārsolīja — solī vēlreiz"]
-      : isLive && left > 0 && left < 30_000 ? ["chant-go2", "Otro reizi…"]
-      : isLive && left > 0 && left < 90_000 ? ["chant-go1", "Pirmo reizi…"]
+      ? (lot.hasReserve && !lot.reserveMet ? ["chant-pass", t("lc.unsoldReserve")]
+        : ["chant-sold", t("lc.soldFor", { sum: formatEur(price) })])
+      : live?.youLead ? ["chant-win", t("lc.youTop")]
+      : live ? ["chant-out", t("lc.outbidAgain")]
+      : isLive && left > 0 && left < 30_000 ? ["chant-go2", t("lc.second")]
+      : isLive && left > 0 && left < 90_000 ? ["chant-go1", t("lc.first")]
       : null;
 
   const timeLabel = settled || over
-    ? (settled ? (lot.hasReserve && !lot.reserveMet ? "Nepārdots" : "Pārdots") : "Beidzies")
-    : isLive ? `Beidzas pēc ${formatLeft(left)}`
-    : `Sākas ${new Date(lot.startsAt).toLocaleDateString("lv-LV")}`;
+    ? (settled ? (lot.hasReserve && !lot.reserveMet ? t("lc.unsold") : t("lc.sold")) : t("lc.over"))
+    : isLive ? t("lc.endsIn", { left: formatLeft(left) })
+    : t("lc.startsOn", { date: new Date(lot.startsAt).toLocaleDateString(dateLocale(lang)) });
 
   return (
     <article
@@ -161,9 +161,9 @@ export function LotCard({ lot }: { lot: CardLot }) {
               )}
             </span>
           ))}
-          <button className="gal-nav p" type="button" aria-label={`Iepriekšējais foto: ${lot.title}`}
+          <button className="gal-nav p" type="button" aria-label={t("lc.prevPhoto", { title: lot.title })}
                   onClick={(e) => { stop(e); set(frame - 1); }}><Icon name="arrow" /></button>
-          <button className="gal-nav n" type="button" aria-label={`Nākamais foto: ${lot.title}`}
+          <button className="gal-nav n" type="button" aria-label={t("lc.nextPhoto", { title: lot.title })}
                   onClick={(e) => { stop(e); set(frame + 1); }}><Icon name="arrow" /></button>
           <div className="gal-dots" role="group" aria-label={`Foto: ${lot.title}`}>
             {shots.map((_, i) => (
@@ -185,18 +185,18 @@ export function LotCard({ lot }: { lot: CardLot }) {
 
         <div className="lot-acts">
           <button type="button" aria-pressed={watched}
-                  aria-label={`Saglabāt vēlmju sarakstā: ${lot.title}`}
+                  aria-label={t("lc.saveAria", { title: lot.title })}
                   onClick={(e) => {
                     stop(e); watchStore.toggle(lot.id);
-                    say(watchStore.has(lot.id) ? "Pievienots vēlmju sarakstam" : "Noņemts no vēlmju saraksta");
+                    say(watchStore.has(lot.id) ? t("lc.saved") : t("lc.unsaved"));
                   }}><Icon name="heart" /></button>
           <button type="button" aria-pressed={alerted}
-                  aria-label={`Brīdināt par līdzīgiem lotiem: ${lot.title}`}
+                  aria-label={t("lc.alertAria", { title: lot.title })}
                   onClick={(e) => {
                     stop(e); alertStore.toggle(lot.id);
-                    say(alertStore.has(lot.id) ? "Brīdināsim par jauniem līdzīgiem lotiem" : "Brīdinājums atcelts");
+                    say(alertStore.has(lot.id) ? t("lc.alertOn") : t("lc.alertOff"));
                   }}><Icon name="bell" /></button>
-          <button type="button" aria-haspopup="dialog" aria-label={`Dalīties ar lotu: ${lot.title}`}
+          <button type="button" aria-haspopup="dialog" aria-label={t("lc.shareAria", { title: lot.title })}
                   onClick={(e) => { stop(e); openShare({ id: lot.id, sku: lot.sku, title: lot.title, icon }); }}
           ><Icon name="share" /></button>
         </div>
@@ -205,7 +205,7 @@ export function LotCard({ lot }: { lot: CardLot }) {
 
         {settled && (
           <div className={`sold-ov${lot.hasReserve && !lot.reserveMet ? " passed" : ""}`}>
-            <b>{lot.hasReserve && !lot.reserveMet ? "Nepārdots" : "Pārdots"}</b>
+            <b>{lot.hasReserve && !lot.reserveMet ? t("lc.unsold") : t("lc.sold")}</b>
           </div>
         )}
       </div>
@@ -216,7 +216,7 @@ export function LotCard({ lot }: { lot: CardLot }) {
             {lot.sku}{lot.gradeCode ? ` · ${lot.gradeCode}` : ""}
             {lot.gradeCode && (
               <button className="info-btn" type="button" aria-haspopup="dialog"
-                      aria-label={`Stāvokļa skala — šis lots ${lot.gradeCode}`}
+                      aria-label={t("lc.scaleAria", { g: lot.gradeCode ?? "" })}
                       onClick={(e) => { stop(e); openScale(lot.gradeCode!); }}>i</button>
             )}
           </span>
@@ -237,15 +237,15 @@ export function LotCard({ lot }: { lot: CardLot }) {
 
         <div className="price-row">
           <div>
-            <p className="price-lab">Pašreizējā · {bidCount}<span className="sr"> solījumi</span></p>
+            <p className="price-lab">{t("lc.currentN", { n: bidCount })}<span className="sr">{t("lc.bidsSr")}</span></p>
             <p className={`price tnum${live?.youLead ? " is-win" : ""}`}>{formatEur(price)}</p>
           </div>
           {lot.retailCents ? (
             <div className="rrp">
               <p className="price-lab">
-                Ieteiktā
-                <button className="info-btn" type="button" aria-label="Kas ir ieteiktā cena"
-                        onClick={(e) => { stop(e); say("Ieteiktā cena — ražotāja cena, nevis mūsu iepriekšējā"); }}
+                {t("lc.retail")}
+                <button className="info-btn" type="button" aria-label={t("lc.retailAria")}
+                        onClick={(e) => { stop(e); say(t("lc.retailNote")); }}
                 >i</button>
               </p>
               <s className="tnum">{formatEur(lot.retailCents)}</s>
@@ -259,12 +259,13 @@ export function LotCard({ lot }: { lot: CardLot }) {
 
         {settled || over || !isLive ? (
           <Link className="btn btn-outline btn-block bid-btn" href={`/auction/${lot.id}`}>
-            {settled ? (lot.hasReserve && !lot.reserveMet ? "Skatīt lotu" : `Pārdots · ${formatEur(price)}`)
-              : "Skatīt lotu"}
+            {settled && !(lot.hasReserve && !lot.reserveMet)
+              ? t("lc.soldFor", { sum: formatEur(price) })
+              : t("lc.viewLot")}
           </Link>
         ) : (
           <button className="btn btn-primary btn-block bid-btn" type="button" disabled={busy} onClick={bid}>
-            {live && !live.youLead ? "Solīt vēlreiz · " : "Solīt · "}
+            {live && !live.youLead ? t("lc.bidAgain") : t("lc.bid")}
             <span className="ask">{formatEur(ask)}</span>
           </button>
         )}
