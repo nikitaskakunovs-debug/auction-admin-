@@ -22,13 +22,13 @@ type MyBidAuction = PublicAuction & { youLead: boolean };
 /** Экраны кабинета. Адрес хранится в ?tab=, чтобы на них можно было
  *  сослаться из шапки, дока и писем. */
 const TABS: Array<[Tab, string, string]> = [
-  ["overview", "Pārskats", "home"],
-  ["bids", "Mani solījumi", "gavel"],
-  ["orders", "Pasūtījumi", "box"],
-  ["watch", "Vēlmes", "heart"],
-  ["alerts", "Brīdinājumi", "bell"],
-  ["pickup", "Izņemšana", "pin"],
-  ["profile", "Profils", "shield"],
+  ["overview", "ac.overview", "home"],
+  ["bids", "acc.myBids", "gavel"],
+  ["orders", "ac.orders", "box"],
+  ["watch", "nav.watchlist", "heart"],
+  ["alerts", "nav.alerts", "bell"],
+  ["pickup", "ac.pickup", "pin"],
+  ["profile", "ac.profile", "shield"],
 ];
 type Tab = "overview" | "bids" | "orders" | "watch" | "alerts" | "pickup" | "profile";
 
@@ -160,7 +160,7 @@ export default function AccountPage() {
         <div className="empty">
           <span className="ic" aria-hidden="true"><Icon name="shield" /></span>
           <h3>{t("a.signinToBid")}</h3>
-          <p>Pieteikšanās vajadzīga, lai redzētu savus solījumus un pasūtījumus.</p>
+          <p>{t("ac.signinNeeded")}</p>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
             <Link className="btn btn-primary" href="/login">{t("nav.signin")}</Link>
             <Link className="btn btn-outline" href="/register">{t("nav.register")}</Link>
@@ -256,8 +256,8 @@ export default function AccountPage() {
 
   return (
     <section className="wrap" style={{ paddingTop: 24 }}>
-      <nav className="crumbs" aria-label="Navigācijas ceļš">
-        <ol><li><Link href="/">Sākums</Link></li><li aria-current="page">{t("nav.account")}</li></ol>
+      <nav className="crumbs" aria-label={t("nav.breadcrumb")}>
+        <ol><li><Link href="/">{t("nav.home")}</Link></li><li aria-current="page">{t("nav.account")}</li></ol>
       </nav>
 
       <div className="page-head">
@@ -272,7 +272,7 @@ export default function AccountPage() {
 
       {me?.emailVerified === false && (
         <div className="verify-banner">
-          <span className="grow">E-pasts vēl nav apstiprināts — solīšana būs pieejama pēc apstiprināšanas.</span>
+          <span className="grow">{t("ac.notVerified")}</span>
           <Link className="btn btn-dark btn-sm" href={`/verify-email?email=${encodeURIComponent(me.email)}`}>
             Apstiprināt e-pastu
           </Link>
@@ -282,11 +282,11 @@ export default function AccountPage() {
       {payBanner && <p className={`bb-status ${bannerTone(payBanner)}`}>{bannerText[payBanner]}</p>}
       <FeesNotice />
 
-      <nav className="acct-nav" aria-label="Konta sadaļas" ref={navRef}>
+      <nav className="acct-nav" aria-label={t("ac.sections")} ref={navRef}>
         {TABS.map(([id, label, icon]) => (
           <button key={id} type="button" className={`acct-tab${tab === id ? " on" : ""}`}
                   aria-current={tab === id ? "page" : undefined} onClick={() => goTab(id)}>
-            <Icon name={icon} size={18} />{label}
+            <Icon name={icon} size={18} />{t(label)}
             {counts[id] > 0 && <span className="n">{counts[id]}</span>}
           </button>
         ))}
@@ -295,15 +295,15 @@ export default function AccountPage() {
       {tab === "overview" && (
         <div className="acct">
           <div className="stats">
-            <div className="stat"><span className="k">Aktīvi solījumi</span><b className="tnum">{bids.filter((b) => b.status === "live").length}</b></div>
-            <div className="stat"><span className="k">Vadi</span><b className="tnum">{leading}</b></div>
-            <div className="stat"><span className="k">Pārsolīts</span><b className="tnum">{outbid}</b></div>
-            <div className="stat"><span className="k">Neapmaksāti</span><b className="tnum">{unpaid.length}</b></div>
+            <div className="stat"><span className="k">{t("ac.activeBids")}</span><b className="tnum">{bids.filter((b) => b.status === "live").length}</b></div>
+            <div className="stat"><span className="k">{t("ac.leadingN")}</span><b className="tnum">{leading}</b></div>
+            <div className="stat"><span className="k">{t("ac.outbidN")}</span><b className="tnum">{outbid}</b></div>
+            <div className="stat"><span className="k">{t("ac.unpaidN")}</span><b className="tnum">{unpaid.length}</b></div>
           </div>
 
           {unpaid.length > 0 && (
             <section className="card-b">
-              <h2>Gaida apmaksu</h2>
+              <h2>{t("ac.awaitingPay")}</h2>
               {orderRows(unpaid)}
             </section>
           )}
@@ -311,7 +311,7 @@ export default function AccountPage() {
           <section className="card-b">
             <h2>{t("acc.myBids")}</h2>
             {bids.length === 0
-              ? empty("gavel", "Vēl neesi solījis", "Kad būsi solījis, šeit redzēsi aktīvos solījumus.", "/katalogs", "Atrast pirmo lotu")
+              ? empty("gavel", t("sec.noBidsYet"), t("ac.noBidsD"), "/katalogs", t("sec.findFirst"))
               : bidRows(bids.slice(0, 5))}
             {bids.length > 5 && (
               <button className="link" type="button" onClick={() => goTab("bids")}>
@@ -329,7 +329,7 @@ export default function AccountPage() {
           <section className="card-b">
             <h2>{t("acc.myBids")}</h2>
             {bids.length === 0
-              ? empty("gavel", "Vēl neesi solījis", "Solījumi parādīsies šeit uzreiz pēc pirmās likmes.", "/katalogs", "Atrast lotu")
+              ? empty("gavel", t("sec.noBidsYet"), t("ac.noBidsD2"), "/katalogs", t("ac.findLot"))
               : bidRows(bids)}
           </section>
         </div>
@@ -340,7 +340,7 @@ export default function AccountPage() {
           <section className="card-b">
             <h2>{t("acc.myOrders")}</h2>
             {orders.length === 0
-              ? empty("box", "Pasūtījumu vēl nav", "Uzvarētie loti un pirkumi parādīsies šeit.", "/katalogs", "Atvērt katalogu")
+              ? empty("box", t("ac.noOrders"), t("ac.noOrdersD"), "/katalogs", t("lr.openCatalogue"))
               : orderRows(orders)}
           </section>
         </div>
@@ -349,7 +349,7 @@ export default function AccountPage() {
       {tab === "watch" && (
         <div className="acct">
           {watched.length === 0
-            ? empty("heart", "Saraksts ir tukšs", "Nospied sirsniņu uz jebkura lota — tas parādīsies šeit.", "/katalogs", "Atrast lotus")
+            ? empty("heart", t("ac.listEmpty"), t("ac.listEmptyD"), "/katalogs", t("ac.findLots"))
             : <div className="results">{watched.map((a) => <LotCard key={a.id} lot={a as CardLot} />)}</div>}
         </div>
       )}
@@ -357,7 +357,7 @@ export default function AccountPage() {
       {tab === "alerts" && (
         <div className="acct">
           {alerted.length === 0
-            ? empty("bell", "Brīdinājumu vēl nav", "Nospied zvaniņu uz lota — brīdināsim par līdzīgiem.", "/katalogs", "Atrast lotus")
+            ? empty("bell", t("ac.noAlerts"), t("ac.noAlertsD"), "/katalogs", t("ac.findLots"))
             : <div className="results">{alerted.map((a) => <LotCard key={a.id} lot={a as CardLot} />)}</div>}
         </div>
       )}
@@ -366,12 +366,11 @@ export default function AccountPage() {
         <div className="acct">
           <PickupPass />
           <section className="card-b">
-            <h2>Izņemšana Rīgā</h2>
+            <h2>{t("ac.pickupRiga")}</h2>
             <p className="note">
-              Apmaksātos lotus var izņemt klātienē darbdienās. Paņem līdzi izņemšanas kodu vai QR —
-              tos rādām šeit, tiklīdz pasūtījums ir apmaksāts.
+              {t("ac.pickupNote")}
             </p>
-            <Link className="btn btn-outline" href="/kontakti">Kontakti un darba laiks</Link>
+            <Link className="btn btn-outline" href="/kontakti">{t("ac.contactsHours")}</Link>
           </section>
         </div>
       )}
@@ -379,19 +378,19 @@ export default function AccountPage() {
       {tab === "profile" && (
         <div className="acct">
           <section className="card-b">
-            <h2>Profils</h2>
+            <h2>{t("ac.profile")}</h2>
             <div className="facts">
-              <div><span>Segvārds</span><b>{me?.alias ?? "—"}</b></div>
+              <div><span>{t("ac.alias")}</span><b>{me?.alias ?? "—"}</b></div>
               <div>
-                <span>E-pasts</span>
+                <span>{t("auth.email")}</span>
                 <b>
                   {me?.email ?? "—"}
                   {me?.emailVerified === false
-                    ? <span className="tag tag-live" style={{ marginLeft: 8 }}>Nav apstiprināts</span>
-                    : me?.emailVerified ? <span className="tag" style={{ marginLeft: 8 }}>Apstiprināts</span> : null}
+                    ? <span className="tag tag-live" style={{ marginLeft: 8 }}>{t("ac.notConfirmed")}</span>
+                    : me?.emailVerified ? <span className="tag" style={{ marginLeft: 8 }}>{t("ac.confirmed")}</span> : null}
                 </b>
               </div>
-              <div><span>Statuss</span><b>{suspended ? "Ierobežots" : "Aktīvs"}</b></div>
+              <div><span>{t("ac.status")}</span><b>{suspended ? t("ac.limited") : t("ac.active")}</b></div>
             </div>
             {me?.emailVerified === false && (
               <div style={{ marginTop: 16 }}><VerifyNotice email={me.email} compact /></div>
@@ -400,8 +399,8 @@ export default function AccountPage() {
               Publiskajā solījumu plūsmā redzams tikai segvārds. Vārds, e-pasts un tālrunis citiem nav redzami.
             </p>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 16 }}>
-              <Link className="btn btn-outline" href="/forgot-password">Mainīt paroli</Link>
-              <Link className="btn btn-outline" href="/kontakti">Dzēst kontu</Link>
+              <Link className="btn btn-outline" href="/forgot-password">{t("ac.changePassword")}</Link>
+              <Link className="btn btn-outline" href="/kontakti">{t("ac.deleteAccount")}</Link>
             </div>
           </section>
         </div>
