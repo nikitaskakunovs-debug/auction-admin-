@@ -336,6 +336,45 @@ export const customers = pgTable(
 );
 
 /**
+ * Рекламная карточка в ленте лотов.
+ *
+ * Показывается среди обычных карточек каталога: человек листает лоты и
+ * встречает рекламу. Место продаётся рекламодателю, поэтому у карточки есть
+ * и его имя, и срок показа.
+ *
+ * `categoryCode` пустой означает «во всех категориях». `everyN` — через
+ * сколько карточек лотов вставлять эту: так плотность рекламы задаётся
+ * отдельно для каждой категории, а не одна на весь сайт.
+ */
+export const adCards = pgTable(
+  "ad_cards",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Кто купил место — для отчёта рекламодателю и для счёта. */
+    advertiser: text("advertiser").notNull().default(""),
+    title: text("title").notNull(),
+    body: text("body").notNull().default(""),
+    ctaLabel: text("cta_label").notNull().default(""),
+    href: text("href").notNull(),
+    imageUrl: text("image_url"),
+    /** Оформление из палитры макета: green | blue | pink | yellow. */
+    theme: text("theme").notNull().default("green"),
+    /** Пусто — во всех категориях. Иначе код категории из домена. */
+    categoryCode: text("category_code"),
+    /** Через сколько карточек лотов вставлять эту. Меньше — чаще. */
+    everyN: integer("every_n").notNull().default(12),
+    active: boolean("active").notNull().default(false),
+    startsAt: timestamp("starts_at", { withTimezone: true }),
+    endsAt: timestamp("ends_at", { withTimezone: true }),
+    /** Сколько раз карточку показали — рекламодателю это и продаётся. */
+    impressions: integer("impressions").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("ad_cards_active_idx").on(t.active, t.categoryCode)],
+);
+
+/**
  * Журнал согласий на cookie.
  *
  * До этого выбор человека записывался только в его собственный браузер и не

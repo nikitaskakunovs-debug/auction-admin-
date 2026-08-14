@@ -136,7 +136,9 @@ button.search .ph{flex:1;min-width:0;font-size:16px;white-space:nowrap;overflow:
 .icon-link .n{position:absolute;top:2px;right:6px;min-width:18px;height:18px;padding:0 5px;
   border-radius:var(--r-pill);background:var(--live);color:var(--on-live);font-size:12px;font-weight:800;
   display:grid;place-items:center;line-height:1}
-@media(max-width:1160px){.cat-btn span{display:none}.cat-btn{padding:12px 16px}}
+/* Слово «Каталог» остаётся при кнопке: раньше ниже 1160px от неё оставался
+   один значок, и понять, что это каталог, было нельзя. */
+@media(max-width:1160px){.cat-btn{padding:12px 16px}}
 @media(max-width:900px){.icon-link,.head .btn-outline{display:none}
   .head .btn-outline.keep{display:inline-flex}}
 @media(max-width:600px){
@@ -464,21 +466,27 @@ footer li a:hover{opacity:1;text-decoration:underline}
   contain:layout}
 @supports not (backdrop-filter:blur(1px)){.dock{background:var(--surface)}}
 .dock.is-hidden{translate:0 160%;opacity:0;pointer-events:none}
-.dock a{position:relative;flex:1;min-width:0;height:56px;border-radius:var(--r-pill);
-  display:flex;align-items:center;justify-content:center;gap:8px;color:var(--text);
-  transition:background var(--fast) var(--ease),flex-grow .32s var(--ease)}
+/* Значок над подписью. Раньше подпись раскрывалась только у текущего раздела,
+   а остальные четыре оставались безымянными значками — узнать «сердечко» или
+   «молнию» без слова нельзя, и это же ломало доступность: на ощупь по значку
+   ориентируется только тот, кто уже знает интерфейс. */
+.dock a{position:relative;flex:1;min-width:0;height:56px;border-radius:var(--r-md);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  color:var(--text);padding:0 2px;
+  transition:background var(--fast) var(--ease),color var(--fast) var(--ease)}
 .dock a:hover{background:var(--surface-2)}
-.dock svg{width:24px;height:24px;flex:none;stroke:currentColor;fill:none;stroke-width:1.9;
+.dock svg{width:23px;height:23px;flex:none;stroke:currentColor;fill:none;stroke-width:1.9;
   stroke-linecap:round;stroke-linejoin:round}
-.dock .lbl{font-size:14px;font-weight:700;letter-spacing:-.01em;white-space:nowrap;
-  max-width:0;opacity:0;overflow:hidden;transition:max-width .32s var(--ease),opacity .2s var(--ease)}
-.dock a[aria-current]{background:var(--accent);color:var(--on-accent);flex-grow:1.9}
-.dock a[aria-current] .lbl{max-width:120px;opacity:1}
-.dock .badge-dot{position:absolute;top:10px;right:calc(50% - 16px);width:10px;height:10px;
+.dock .lbl{font-size:11px;font-weight:700;letter-spacing:-.01em;line-height:1;
+  max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dock a[aria-current]{background:var(--accent);color:var(--on-accent)}
+.dock .badge-dot{position:absolute;top:6px;right:calc(50% - 16px);width:10px;height:10px;
   border-radius:50%;background:var(--live);box-shadow:0 0 0 2px var(--surface)}
-.dock .ava{width:28px;height:28px;border-radius:50%;background:var(--brand);color:var(--accent);
-  display:grid;place-items:center;font-size:12px;font-weight:800;flex:none}
-@media(max-width:380px){.dock .lbl{display:none}.dock a[aria-current]{flex-grow:1}}
+.dock .ava{width:23px;height:23px;border-radius:50%;background:var(--brand);color:var(--accent);
+  display:grid;place-items:center;font-size:11px;font-weight:800;flex:none}
+/* На узком экране подпись не прячем — уменьшаем. Безымянный значок хуже
+   мелкой подписи: угадывать раздел по картинке человек не должен. */
+@media(max-width:380px){.dock{gap:2px;padding:6px}.dock .lbl{font-size:10px}}
 
 /* ═══ МОДАЛКИ ═══ */
 .modal{position:fixed;inset:0;z-index:120;display:grid;place-items:center;padding:16px}
@@ -1564,3 +1572,32 @@ footer .f-pill{border:0;font:inherit;cursor:pointer}
   .head .btn-sm{padding:0 14px;font-size:14px}
 }
 @media(max-width:400px){.logo{font-size:20px}.logo-mark{width:32px;height:32px}}
+
+/* ═══ РЕКЛАМНАЯ КАРТОЧКА В ЛЕНТЕ ═══
+   Стоит в общем потоке карточек каталога. Помечена словом «Реклама»:
+   выдавать её за лот нельзя ни по закону о рекламе, ни по совести. */
+.lot-ad{display:flex;overflow:hidden}
+/* Цвет темы задан выше, но `.lot` идёт после него и перекрывал фон — карточка
+   получалась белой. Повторяем здесь, где правило уже последнее. */
+.lot-ad.banner-green{background:var(--accent);color:var(--on-accent)}
+.lot-ad.banner-blue{background:var(--blue);color:#0E2A2A}
+.lot-ad.banner-pink{background:var(--pink);color:#3A0E2E}
+.lot-ad.banner-yellow{background:var(--yellow);color:#332B00}
+.lot-ad .ad-face{display:flex;flex-direction:column;justify-content:flex-end;gap:10px;
+  width:100%;min-height:100%;padding:20px;position:relative;color:inherit;isolation:isolate}
+.lot-ad .ad-mark{position:absolute;top:14px;left:14px;z-index:2;
+  font-size:11px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+  padding:4px 9px;border-radius:var(--r-pill);
+  background:color-mix(in srgb,var(--surface) 88%,transparent);color:var(--text-2)}
+.lot-ad .ad-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0}
+.lot-ad .ad-body{position:relative;z-index:1;display:flex;flex-direction:column;gap:8px}
+.lot-ad .ad-body b{font-size:22px;line-height:1.15;letter-spacing:-.03em}
+.lot-ad .ad-text{font-size:14.5px;line-height:1.45;opacity:.86}
+.lot-ad .ad-cta{display:inline-flex;align-items:center;gap:8px;align-self:flex-start;
+  min-height:44px;padding:10px 20px;border-radius:var(--r-pill);font-weight:700;font-size:15px;
+  background:var(--brand);color:var(--on-brand);
+  transition:background var(--fast) var(--ease)}
+.lot-ad .ad-face:hover .ad-cta{background:var(--brand-2)}
+/* Картинка перекрывает фон — текст поверх неё читаем только на подложке. */
+.lot-ad .ad-img ~ .ad-body{background:color-mix(in srgb,var(--surface) 90%,transparent);
+  border-radius:var(--r-md);padding:14px}

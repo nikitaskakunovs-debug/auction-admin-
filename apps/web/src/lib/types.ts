@@ -111,3 +111,17 @@ export function formatEur(cents: number): string {
   const whole = Math.floor(abs / 100).toLocaleString("lv-LV").replace(/\s/g, "\u202f");
   return `${sign}${whole},${(abs % 100).toString().padStart(2, "0")}\u00a0€`;
 }
+
+/** Рекламная карточка в ленте лотов. Место продаётся рекламодателю. */
+export interface AdCard {
+  id: string;
+  title: string;
+  body: string;
+  ctaLabel: string;
+  href: string;
+  imageUrl: string | null;
+  theme: string;
+  categoryCode: string | null;
+  /** Через сколько карточек лотов вставлять эту. */
+  everyN: number;
+}

@@ -77,8 +77,10 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: "document.documentElement.classList.remove('no-js')" }} />
       </head>
       <body>
-        <a className="skip" href="#main"><T k="nav.skipToMain" /></a>
         <I18nProvider initialLang={country.defaultLang} available={country.languages}>
+          {/* Внутри провайдера: снаружи <T /> получал пустой контекст и выводил
+              сам ключ — на экране стояло «nav.skipToMain». */}
+          <a className="skip" href="#main"><T k="nav.skipToMain" /></a>
           <Chrome country={country.code} />
           <main id="main">{children}</main>
           <Footer pages={footerPages} country={country.code} />

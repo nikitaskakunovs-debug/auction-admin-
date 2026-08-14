@@ -6,9 +6,10 @@ import { useSearchParams } from "next/navigation";
 import { CATEGORY_CODES } from "@/lib/categories";
 import { CONDITION_CODES, conditionBadge } from "@/lib/conditions";
 import { useT } from "@/lib/i18n";
-import { formatEur, type FixedListing, type PublicAuction } from "@/lib/types";
+import { formatEur, type AdCard, type FixedListing, type PublicAuction } from "@/lib/types";
 import { useRail } from "@/lib/ui";
 import { Icon } from "./Icon";
+import { AdSlot } from "./AdSlot";
 import { fixedToCard, LotCard, type CardLot } from "./LotCard";
 import { say } from "./Toast";
 
@@ -56,8 +57,8 @@ const PRICE_GAP = 10_000;      // минимальный зазор между �
 const price = (a: PublicAuction) => a.currentPriceCents ?? a.startPriceCents ?? 0;
 
 export function Catalogue({
-  auctions, listings = [], heading,
-}: { auctions: Row[]; listings?: FixedListing[]; heading?: string }) {
+  auctions, listings = [], ads = [], heading,
+}: { auctions: Row[]; listings?: FixedListing[]; ads?: AdCard[]; heading?: string }) {
   const { t } = useT();
   const qs = useSearchParams();
   const [coll, setColl] = useState("all");
@@ -148,6 +149,29 @@ export function Catalogue({
     };
     return [...out].sort(cmp[sort]);
   }, [pool, kind, coll, cat, grades, quick, when, min, max, q, sort, now]);
+
+  /* Лента: карточки лотов со вставленной рекламой.
+   *
+   * Реклама, у которой указана категория, показывается только когда эта
+   * категория выбрана: платить за показ в чужом разделе рекламодатель не
+   * должен. Шаг берём из самой карточки — так плотность настраивается на
+   * категорию, а не одной цифрой на весь сайт. */
+  const feed = useMemo<Array<{ lot: Row } | { ad: AdCard; at: number }>>(() => {
+    const fit = ads.filter((a) => !a.categoryCode || a.categoryCode === cat);
+    if (fit.length === 0) return rows.map((lot) => ({ lot }));
+    const out: Array<{ lot: Row } | { ad: AdCard; at: number }> = [];
+    let placed = 0;
+    rows.forEach((lot, i) => {
+      out.push({ lot });
+      const due = fit.find((a) => (i + 1) % a.everyN === 0);
+      // Не приклеиваем рекламу к последней карточке: это выглядит как обрыв.
+      if (due && i + 1 < rows.length) {
+        out.push({ ad: fit[placed % fit.length]!, at: i });
+        placed++;
+      }
+    });
+    return out;
+  }, [rows, ads, cat]);
 
   type Chip = { key: string; label: string; drop: () => void };
   const active: Chip[] = [
@@ -495,7 +519,14 @@ export function Catalogue({
 
       {rows.length > 0 ? (
         <div className="results">
-          {rows.map((a) => <LotCard key={a.id} lot={a} />)}
+          {/* Реклама идёт в общем потоке: человек листает лоты и встречает её
+              среди них. Плотность задана для каждой категории отдельно — полем
+              «через сколько карточек показывать». */}
+          {feed.map((n) =>
+            "ad" in n
+              ? <AdSlot key={`ad-${n.ad.id}-${n.at}`} ad={n.ad} label={t("ad.label")} />
+              : <LotCard key={n.lot.id} lot={n.lot} />,
+          )}
         </div>
       ) : (
         <div className="empty">

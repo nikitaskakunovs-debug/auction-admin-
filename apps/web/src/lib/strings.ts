@@ -73,6 +73,8 @@ export const STRINGS: Record<string, Record<Lang, string>> = {
   "acc.marketingFailed": { lv: "Neizdevās saglabāt. Pamēģini vēlreiz.", ru: "Не удалось сохранить. Попробуйте ещё раз.", en: "Could not save. Try again.", et: "Salvestamine ebaõnnestus. Proovi uuesti.", lt: "Nepavyko išsaugoti. Bandykite dar kartą." },
   "acc.marketingOff": { lv: "Jaunumi izslēgti", ru: "Новости выключены", en: "Updates off", et: "Uudised väljas", lt: "Naujienos išjungtos" },
   "reg.marketing": { lv: "Gribu saņemt jaunumus par gaidāmajām izsolēm", ru: "Хочу получать новости о ближайших торгах", en: "Send me news about upcoming sales", et: "Soovin uudiseid tulevastest oksjonitest", lt: "Noriu gauti naujienas apie būsimus aukcionus" },
+  "lp.wantNews": { lv: "Sūtiet man ziņas par gaidāmajām izsolēm", ru: "Присылайте новости о ближайших торгах", en: "Send me news about upcoming sales", et: "Saatke mulle uudiseid tulevastest oksjonitest", lt: "Siųskite naujienas apie būsimus aukcionus" },
+  "ad.label": { lv: "Reklāma", ru: "Реклама", en: "Ad", et: "Reklaam", lt: "Reklama" },
   // ── ХВОСТЫ ИНТЕРФЕЙСА, ВТОРОЙ ЗАХОД ─────────────────────────
   // Подписи для незрячих (aria-label, alt) — такой же интерфейс, как кнопки,
   // и переводить их надо так же. Раньше они оставались латышскими.

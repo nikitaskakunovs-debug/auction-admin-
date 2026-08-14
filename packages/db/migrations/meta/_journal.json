@@ -211,6 +211,13 @@
       "when": 1786718650692,
       "tag": "0029_bent_nomad",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1786720349381,
+      "tag": "0030_stale_wither",
+      "breakpoints": true
     }
   ]
 }

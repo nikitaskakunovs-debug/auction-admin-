@@ -76,6 +76,15 @@ export function LotPage({
   // ── ставка ────────────────────────────────────────────────────────────
   const [amount, setAmount] = useState(minNext);
   const [proxy, setProxy] = useState(true);
+  /* Предложение подписки при подтверждении ставки.
+   *
+   * Показывается только тому, кто вошёл и ещё не подписан, и только галочкой
+   * внутри уже открытого окна — отдельного всплывающего окна не появляется.
+   * Галочка снята: согласие должно быть действием, а не тем, что человек
+   * забыл снять. */
+  const [wantNews, setWantNews] = useState(false);
+  const [newsDone, setNewsDone] = useState(false);
+  const [subscribed, setSubscribed] = useState(true);   // молчим, пока не узнали
   const [confirm, setConfirm] = useState(false);
   const [proxyInfo, setProxyInfo] = useState(false);
   const [watched, setWatched] = useState(false);
@@ -140,6 +149,18 @@ export function LotPage({
     return () => { closed = true; ws?.close(); };
   }, [a.id]);
 
+  /* Узнаём про подписку только когда окно ставки открыто: лишний запрос на
+   * каждом просмотре лота ради галочки не нужен. */
+  useEffect(() => {
+    if (!confirm || !signedIn || newsDone) return;
+    let cancelled = false;
+    void publicApi
+      .get<{ bidder: { marketingOptIn?: boolean } }>("/api/public/auth/me")
+      .then((r) => { if (!cancelled) setSubscribed(r.bidder.marketingOptIn === true); })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [confirm, signedIn, newsDone]);
+
   const placeBid = async () => {
     setBusy(true); setNotice(null);
     try {
@@ -147,6 +168,14 @@ export function LotPage({
         `/api/public/auctions/${a.id}/bids`, { maxCents: amount },
       );
       setConfirm(false);
+      // Подписку оформляем после успешной ставки и никогда не мешаем ей:
+      // если запрос не пройдёт, ставка всё равно принята.
+      if (wantNews && !newsDone) {
+        setNewsDone(true);
+        void publicApi.post("/api/public/me/marketing", { optIn: true })
+          .then(() => say(t("acc.marketingOn")))
+          .catch(() => setNewsDone(false));
+      }
       setNotice(r.youLead
         ? { text: t("a.youLead"), tone: "win" }
         : { text: `${t("a.outbid")} — ${formatEur(r.currentPriceCents)}`, tone: "out" });
@@ -662,6 +691,16 @@ export function LotPage({
               <tr><th scope="row">PVN ({fees.vatRateBp / 100} %)</th><td className="tnum">{formatEur(inv.vatCents)}</td></tr>
               <tr className="tot"><th scope="row">{t("lp.totalIfWin")}</th><td className="tnum">{formatEur(inv.totalCents)}</td></tr>
             </tbody></table>
+            {/* Предложение подписки — строкой в уже открытом окне, а не отдельным
+                всплывающим окном. Показывается только тому, кто ещё не подписан,
+                и исчезает навсегда, как только он согласится. */}
+            {signedIn && !newsDone && !subscribed && (
+              <label className={`maxrow${wantNews ? " on" : ""}`} style={{ marginTop: 12 }}>
+                <input type="checkbox" checked={wantNews}
+                       onChange={(e) => setWantNews(e.target.checked)} />
+                <span>{t("lp.wantNews")}</span>
+              </label>
+            )}
             <button className="btn btn-primary btn-block" type="button" disabled={busy}
                     onClick={() => void placeBid()}>
               {busy ? t("lp.sending") : t("lp.confirmBid")}

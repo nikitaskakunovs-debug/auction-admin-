@@ -1,5 +1,5 @@
 import { API_URL } from "@/lib/config";
-import type { FixedListing, PublicAuction } from "@/lib/types";
+import type { AdCard, FixedListing, PublicAuction } from "@/lib/types";
 import { Catalogue } from "@/components/Catalogue";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +18,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
   const { q } = await searchParams;
   let auctions: PublicAuction[] = [];
   let listings: FixedListing[] = [];
+  let ads: AdCard[] = [];
   const tail = `limit=100${q ? `&q=${encodeURIComponent(q)}` : ""}`;
   try {
     // Поиск тоже искал только по аукционам: лот «Купить сразу» найти было нельзя.
@@ -27,8 +28,11 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
     ]);
     if (aRes.ok) auctions = ((await aRes.json()) as { auctions: PublicAuction[] }).auctions;
     if (lRes.ok) listings = ((await lRes.json()) as { listings: FixedListing[] }).listings;
+    // Реклама не должна ронять каталог: не пришла — просто её нет.
+    const adRes = await fetch(`${API_URL}/api/public/ads`, { cache: "no-store" });
+    if (adRes.ok) ads = ((await adRes.json()) as { ads: AdCard[] }).ads;
   } catch {
     // API недоступен — покажем пустую выдачу.
   }
-  return <Catalogue auctions={auctions} listings={listings} heading={q ? `Meklēšana: ${q}` : "Meklēšana"} />;
+  return <Catalogue auctions={auctions} listings={listings} ads={ads} heading={q ? `Meklēšana: ${q}` : "Meklēšana"} />;
 }
