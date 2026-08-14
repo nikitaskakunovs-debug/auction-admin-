@@ -184,7 +184,7 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
       <div className="page-head">
         <div>
           <h1 data-hero>{heading ?? t("cg.allActive")}</h1>
-          <p className="cnt">{rows.length} loti · atjaunojas reāllaikā</p>
+          <p className="cnt">{t("cg.lotsLive", { n: rows.length })}</p>
         </div>
         <Link className="link" href="/tiesraide">
           {t("cg.watchLive")} <Icon name="arrow" size={16} />
