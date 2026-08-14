@@ -203,7 +203,7 @@ export default function AccountPage() {
               <span className={`tag${b.youLead ? "" : " tag-live"}`}>
                 {b.youLead ? t("acc.leading") : t("acc.outbid")}
               </span>
-              <span className="ago"><Countdown endsAt={b.endsAt} /></span>
+              <span className="ago"><Countdown endsAt={b.endsAt} lang={lang} /></span>
             </>
           ) : (
             <span className="ago">{t("card.ended")}</span>

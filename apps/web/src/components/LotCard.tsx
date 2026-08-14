@@ -126,7 +126,7 @@ export function LotCard({ lot }: { lot: CardLot }) {
 
   const timeLabel = settled || over
     ? (settled ? (lot.hasReserve && !lot.reserveMet ? t("lc.unsold") : t("lc.sold")) : t("lc.over"))
-    : isLive ? t("lc.endsIn", { left: formatLeft(left) })
+    : isLive ? t("lc.endsIn", { left: formatLeft(left, lang) })
     : t("lc.startsOn", { date: new Date(lot.startsAt).toLocaleDateString(dateLocale(lang)) });
 
   return (

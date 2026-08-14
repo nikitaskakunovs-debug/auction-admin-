@@ -59,6 +59,11 @@ export const STRINGS: Record<string, Record<Lang, string>> = {
   "pp.loading": { lv: "Ielādē pakomātus…", ru: "Загружаем пакоматы…", en: "Loading parcel machines…", et: "Laadime pakiautomaate…", lt: "Įkeliami siuntų automatai…" },
   "pp.countN": { lv: "{n} pakomāti", ru: "Пакоматов: {n}", en: "{n} parcel machines", et: "{n} pakiautomaati", lt: "Siuntų automatų: {n}" },
   "pp.nothing": { lv: "Nekas neatbilst. Pamēģini citu pilsētu vai ielu.", ru: "Ничего не найдено. Попробуйте другой город или улицу.", en: "Nothing matches. Try another city or street.", et: "Midagi ei leitud. Proovi teist linna või tänavat.", lt: "Nieko nerasta. Pabandykite kitą miestą ar gatvę." },
+  // Обратный отсчёт. Раньше эти три слова были зашиты в код по-латышски
+  // и оставались латышскими на русском и английском экране.
+  "cd.ended": { lv: "Beidzies", ru: "Завершён", en: "Ended", et: "Lõppenud", lt: "Pasibaigė" },
+  "cd.days": { lv: "{n} dienas", ru: "дн.: {n}", en: "{n} days", et: "{n} päeva", lt: "{n} d." },
+  "cd.dayH": { lv: "1 diena {h} h", ru: "1 дн. {h} ч", en: "1 day {h} h", et: "1 päev {h} h", lt: "1 d. {h} val." },
   // ── ХВОСТЫ ИНТЕРФЕЙСА, ВТОРОЙ ЗАХОД ─────────────────────────
   // Подписи для незрячих (aria-label, alt) — такой же интерфейс, как кнопки,
   // и переводить их надо так же. Раньше они оставались латышскими.

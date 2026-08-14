@@ -29,7 +29,7 @@ const CAT_ICON: Record<string, string> = {
 const HOLD_MS = 6000;
 
 export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
-  const { t } = useT();
+  const { t, lang } = useT();
   const now = useNow();
   const [signedIn, setSignedIn] = useState(false);
   const [detail, setDetail] = useState<AuctionDetail | null>(null);
@@ -202,7 +202,7 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
             <h2>{stage.title}</h2>
             <div className="grades">
               <span className="grade"><Icon name="shield" />{conditionLabel(stage.condition, t)}</span>
-              <span className="grade" suppressHydrationWarning><Icon name="timer" />{formatLeft(left)}</span>
+              <span className="grade" suppressHydrationWarning><Icon name="timer" />{formatLeft(left, lang)}</span>
             </div>
 
             <div className="stage-price">
@@ -297,7 +297,7 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
       {left > 0 && (
         <div className="bidbar">
           <div className="t">
-            <span className="lab" suppressHydrationWarning>{formatLeft(left)}{iLead ? t("lp.youLeadShort") : ""}</span>
+            <span className="lab" suppressHydrationWarning>{formatLeft(left, lang)}{iLead ? t("lp.youLeadShort") : ""}</span>
             <b className="tnum">{formatEur(price)}</b>
           </div>
           {signedIn ? (

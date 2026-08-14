@@ -396,7 +396,7 @@ export function LotPage({
             <div className={`bb-top${live && left > 0 && left < 60_000 ? " crit" : ""}`}>
               <span className="lab">{settled || over ? t("lp.over") : live ? t("lp.closesIn") : t("lp.starts")}</span>
               <b className="tnum" suppressHydrationWarning>
-                {settled || over ? "—" : live ? formatLeft(left) : new Date(a.startsAt).toLocaleDateString(dateLocale(lang))}
+                {settled || over ? "—" : live ? formatLeft(left, lang) : new Date(a.startsAt).toLocaleDateString(dateLocale(lang))}
               </b>
             </div>
 
@@ -581,7 +581,7 @@ export function LotPage({
         <div className="bidbar">
           <div className="t">
             <span className="lab" suppressHydrationWarning>
-              {formatLeft(left)}{iLead ? t("lp.youLeadShort") : ""}
+              {formatLeft(left, lang)}{iLead ? t("lp.youLeadShort") : ""}
             </span>
             <b className="tnum">{formatEur(price)}</b>
           </div>

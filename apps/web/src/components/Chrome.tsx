@@ -62,29 +62,55 @@ export function Chrome({ country = "LV" }: { country?: Country }) {
   }, []);
 
 
+  /* Высота панели. Её меряет ResizeObserver — он срабатывает ровно тогда,
+   * когда высота действительно изменилась.
+   *
+   * Раньше здесь на каждом кадре скролла стоял `setTimeout(measure, 360)`.
+   * Каждый такой вызов читал offsetHeight (браузер вынужден пересчитать
+   * раскладку немедленно) и записывал переменную в :root, обесценивая стили
+   * всей страницы. За пять секунд прокрутки набегало три сотни таких пар —
+   * это и был главный источник рывков. */
   useEffect(() => {
     const el = document.querySelector<HTMLElement>("[data-chrome]");
     const head = document.querySelector<HTMLElement>(".head");
     if (!el || !head) return;
+    let lastH = -1, lastC = -1;
     const measure = () => {
-      document.documentElement.style.setProperty("--chrome-h", `${el.offsetHeight}px`);
-      document.documentElement.style.setProperty("--chrome-c", `${head.offsetHeight}px`);
+      const h = el.offsetHeight, c = head.offsetHeight;
+      if (h !== lastH) { lastH = h; document.documentElement.style.setProperty("--chrome-h", `${h}px`); }
+      if (c !== lastC) { lastC = c; document.documentElement.style.setProperty("--chrome-c", `${c}px`); }
     };
     measure();
-    let raf = 0;
-    const onScroll = () => {
-      if (raf) return;
-      raf = requestAnimationFrame(() => {
-        raf = 0;
-        setCompact(window.scrollY > 56);
-        setTimeout(measure, 360);
-      });
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
+    }
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    ro.observe(head);
+    return () => ro.disconnect();
+  }, []);
+
+  /* Сворачивание панели — по направлению прокрутки, как в Instagram:
+   * листаешь вниз — панель ужимается и освобождает экран, ведёшь вверх —
+   * возвращается сразу, не дожидаясь, пока доскроллишь до самого верха.
+   *
+   * Порог в 8 пикселей гасит дрожание пальца, иначе панель будет моргать. */
+  useEffect(() => {
+    let last = window.scrollY, raf = 0;
+    const read = () => {
+      raf = 0;
+      const y = window.scrollY;
+      if (y <= 56) setCompact(false);
+      else if (y > last + 8) setCompact(true);
+      else if (y < last - 8) setCompact(false);
+      last = y;
     };
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(read); };
     window.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("resize", measure);
     return () => {
       window.removeEventListener("scroll", onScroll);
-      window.removeEventListener("resize", measure);
+      if (raf) cancelAnimationFrame(raf);
     };
   }, []);
 
