@@ -14,17 +14,17 @@ import { Icon } from "./Icon";
 
 /** Категории макета. Коды — из движка (CATEGORY_CODES), первые три пункта
  *  это срезы каталога, а не категории: так было в утверждённом макете. */
-const RAIL: Array<{ label: string; icon: string; href: string; live?: boolean }> = [
-  { label: "Tiešraidē", icon: "bolt", href: "/tiesraide", live: true },
-  { label: "Drīz beidzas", icon: "timer", href: "/katalogs?closing=1h" },
-  { label: "Bez rezerves", icon: "tag", href: "/katalogs?reserve=no" },
-  { label: "Pulksteņi", icon: "watch", href: "/katalogs?category=jewellery_watches" },
-  { label: "Elektronika", icon: "tv", href: "/katalogs?category=electronics" },
-  { label: "Kameras", icon: "camera", href: "/katalogs?category=electronics" },
-  { label: "Audio", icon: "audio", href: "/katalogs?category=electronics" },
-  { label: "Māksla", icon: "art", href: "/katalogs?category=art_antiques" },
-  { label: "Mājai", icon: "home", href: "/katalogs?category=home_garden" },
-  { label: "Instrumenti", icon: "tools", href: "/katalogs?category=tools" },
+const RAIL: Array<{ key: string; icon: string; href: string; live?: boolean }> = [
+  { key: "rail.live", icon: "bolt", href: "/tiesraide", live: true },
+  { key: "rail.closing", icon: "timer", href: "/katalogs?closing=1h" },
+  { key: "rail.noReserve", icon: "tag", href: "/katalogs?reserve=no" },
+  { key: "cat.watches", icon: "watch", href: "/katalogs?category=jewellery_watches" },
+  { key: "cat.electronics", icon: "tv", href: "/katalogs?category=electronics" },
+  { key: "cat.cameras", icon: "camera", href: "/katalogs?category=electronics" },
+  { key: "cat.audio", icon: "audio", href: "/katalogs?category=electronics" },
+  { key: "cat.art", icon: "art", href: "/katalogs?category=art_antiques" },
+  { key: "cat.home", icon: "home", href: "/katalogs?category=home_garden" },
+  { key: "cat.tools", icon: "tools", href: "/katalogs?category=tools" },
 ];
 
 /** Верхняя панель макета: утилити-полоса, шапка и лента категорий.
@@ -98,10 +98,10 @@ export function Chrome({ country = "LV" }: { country?: Country }) {
               <Icon name="pin" size={16} />{COUNTRY_LABEL[country].city}, {country}
             </button>
           </span>
-          <nav className="util-c" aria-label="Ātrās saites">
-            <Link href="/tiesraide"><i className="pulse" aria-hidden="true" />Tiešraidē</Link>
-            <Link href="/katalogs">Visas kategorijas</Link>
-            <Link href="/rezultati">Izsoļu rezultāti</Link>
+          <nav className="util-c" aria-label={t("nav.quickLinks")}>
+            <Link href="/tiesraide"><i className="pulse" aria-hidden="true" />{t("rail.live")}</Link>
+            <Link href="/katalogs">{t("nav.allCategories")}</Link>
+            <Link href="/rezultati">{t("nav.results")}</Link>
           </nav>
           <div className="util-r">
             <button type="button" aria-haspopup="dialog" aria-expanded={region}
@@ -121,31 +121,31 @@ export function Chrome({ country = "LV" }: { country?: Country }) {
 
           <button className="cat-btn" type="button" aria-expanded={menu} aria-haspopup="dialog"
                   onClick={() => setMenu((v) => !v)}>
-            <Icon name={menu ? "x" : "menu"} size={18} /><span>Katalogs</span>
+            <Icon name={menu ? "x" : "menu"} size={18} /><span>{t("nav.catalogue")}</span>
           </button>
 
           <button className="search" type="button" aria-haspopup="dialog" aria-expanded={search}
                   onClick={() => setSearch(true)}>
             <Icon name="search" size={20} />
-            <span className="ph">Meklēt lotus…</span>
+            <span className="ph">{t("nav.searchPh")}</span>
           </button>
 
           <div className="head-act">
             <Link className="icon-link" href="/account?tab=alerts">
-              <Icon name="bell" size={22} />Brīdinājumi
+              <Icon name="bell" size={22} />{t("nav.alerts")}
               {alerts > 0 && (
                 <>
                   <span className="n" aria-hidden="true">{alerts}</span>
-                  <span className="sr">{alerts} brīdinājumi</span>
+                  <span className="sr">{t("nav.alertsN", { n: alerts })}</span>
                 </>
               )}
             </Link>
             <Link className="icon-link" href="/velmes">
-              <Icon name="heart" size={22} />Vēlmes
+              <Icon name="heart" size={22} />{t("nav.watchlist")}
               {watched > 0 && (
                 <>
                   <span className="n" aria-hidden="true">{watched}</span>
-                  <span className="sr">{watched} saglabāti loti</span>
+                  <span className="sr">{t("nav.watchlistN", { n: watched })}</span>
                 </>
               )}
             </Link>
@@ -166,14 +166,14 @@ export function Chrome({ country = "LV" }: { country?: Country }) {
         </div>
       </header>
 
-      <nav className="cats" aria-label="Kategorijas">
+      <nav className="cats" aria-label={t("nav.categories")}>
         <div className="wrap">
           <div className="scroller" ref={rail}>
             {RAIL.map((c, i) => (
-              <Link key={c.label} className="cat" href={c.href} aria-current={i === 0 ? "page" : undefined}>
+              <Link key={c.key} className="cat" href={c.href} aria-current={i === 0 ? "page" : undefined}>
                 {c.live && <i className="dot" aria-hidden="true" />}
                 <span className="ic"><Icon name={c.icon} /></span>
-                <span>{c.label}</span>
+                <span>{t(c.key)}</span>
               </Link>
             ))}
             {/* «Visas» открывает разворот каталога — на телефоне это
@@ -181,7 +181,7 @@ export function Chrome({ country = "LV" }: { country?: Country }) {
             <button className="cat" type="button" aria-haspopup="dialog" aria-expanded={menu}
                     onClick={() => setMenu((v) => !v)}>
               <span className="ic"><Icon name="plus" /></span>
-              <span>Visas</span>
+              <span>{t("rail.all")}</span>
             </button>
           </div>
         </div>

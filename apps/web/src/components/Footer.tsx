@@ -11,7 +11,7 @@ import { COUNTRY_LABEL, LANG_NAME, RegionMenu } from "./RegionMenu";
 /** Подвал утверждённого макета: тёмный, четыре колонки, соцсети, юр. текст.
  *  Колонка «Uzņēmums» подмешивает страницы из CMS, если они есть. */
 export function Footer({ pages, country = "LV" }: { pages: Array<{ slug: string; title: Localized }>; country?: Country }) {
-  const { lang } = useT();
+  const { t, lang } = useT();
   const [region, setRegion] = useState(false);
 
   useEffect(() => {
@@ -27,30 +27,30 @@ export function Footer({ pages, country = "LV" }: { pages: Array<{ slug: string;
 
 
   const cols: Array<[string, Array<[string, string]>]> = [
-    ["Izsoles", [
-      ["Tiešraidē", "/tiesraide"],
-      ["Drīz beidzas", "/katalogs?closing=1d"],
-      ["Bez rezerves", "/katalogs?reserve=no"],
-      ["Izsoļu rezultāti", "/rezultati"],
+    ["f.auctions", [
+      ["rail.live", "/tiesraide"],
+      ["rail.closing", "/katalogs?closing=1d"],
+      ["rail.noReserve", "/katalogs?reserve=no"],
+      ["nav.results", "/rezultati"],
     ]],
-    ["Kā tas darbojas", [
-      ["Solīšanas noteikumi", "/noteikumi"],
-      ["Automātiskais solītājs", "/automatiskais-solitajs"],
-      ["Stāvokļa skala A–D", "/conditions"],
-      ["Maksājumu veidi", "/maksajumi"],
+    ["f.howItWorks", [
+      ["f.bidRules", "/noteikumi"],
+      ["f.autoBidder", "/automatiskais-solitajs"],
+      ["f.conditionScale", "/conditions"],
+      ["f.paymentMethods", "/maksajumi"],
     ]],
-    ["Piegāde", [
-      ["Pakomāti Latvijā", "/piegade"],
-      ["Izņemšana Rīgā", "/iznemsana"],
-      ["Atteikuma tiesības", "/atteikuma-tiesibas"],
-      ["Bojāta prece", "/bojata-prece"],
+    ["f.delivery", [
+      ["f.parcelMachines", "/piegade"],
+      ["f.pickupRiga", "/iznemsana"],
+      ["f.withdrawal", "/atteikuma-tiesibas"],
+      ["f.damaged", "/bojata-prece"],
     ]],
   ];
 
   const company: Array<[string, string]> = pages.length
     ? pages.map((p) => [pickLocalized(p.title, lang), `/p/${p.slug}`] as [string, string])
-    : [["Pārdod ar mums", "/pardod"], ["Izsoli Pass", "/pass"],
-       ["Biežākie jautājumi", "/buj"], ["Sazinies ar mums", "/kontakti"]];
+    : [[t("f.sellWithUs"), "/pardod"], [t("f.pass"), "/pass"],
+       [t("f.faq"), "/buj"], [t("f.contact"), "/kontakti"]];
 
   return (
     <footer><div className="wrap">
@@ -61,14 +61,14 @@ export function Footer({ pages, country = "LV" }: { pages: Array<{ slug: string;
       <div className="f-grid">
         {cols.map(([h, links]) => (
           <div key={h}>
-            <h4>{h}</h4>
-            <ul>{links.map(([label, href]) => (
-              <li key={label}><Link href={href}>{label}</Link></li>
+            <h4>{t(h)}</h4>
+            <ul>{links.map(([key, href]) => (
+              <li key={key}><Link href={href}>{t(key)}</Link></li>
             ))}</ul>
           </div>
         ))}
         <div>
-          <h4>Uzņēmums</h4>
+          <h4>{t("f.company")}</h4>
           <ul>{company.map(([label, href]) => (
             <li key={href}><Link href={href}>{label}</Link></li>
           ))}</ul>
@@ -93,23 +93,18 @@ export function Footer({ pages, country = "LV" }: { pages: Array<{ slug: string;
         </button>
       </div>
 
-      <p className="f-legal">
-        Izsoli.lv SIA, Rīga, Latvija. Visas cenas ar PVN. Solīšana ir juridiski saistoša — uzvarot izsolē,
-        tiek noslēgts pirkuma līgums. Cenai tiek pievienota pircēja komisija un PVN atbilstoši tirgum.
-        Strīdu gadījumā var vērsties Patērētāju tiesību aizsardzības centrā (PTAC) vai
-        ES strīdu izšķiršanas platformā.
-      </p>
+      <p className="f-legal">{t("f.legal")}</p>
 
-      <nav className="f-links" aria-label="Juridiskā informācija">
-        <Link href="/lietosanas-noteikumi">Lietošanas noteikumi</Link>
-        <Link href="/privatuma-politika">Privātuma politika</Link>
-        <Link href="/sikdatnes">Sīkdatnes</Link>
-        <Link href="/sudzibas">Sūdzību izskatīšana</Link>
-        <Link href="/pieejamiba">Pieejamība</Link>
-        <Link href="/sitemap.xml">Vietnes karte</Link>
+      <nav className="f-links" aria-label={t("f.legalNav")}>
+        <Link href="/lietosanas-noteikumi">{t("f.terms")}</Link>
+        <Link href="/privatuma-politika">{t("f.privacy")}</Link>
+        <Link href="/sikdatnes">{t("f.cookies")}</Link>
+        <Link href="/sudzibas">{t("f.complaints")}</Link>
+        <Link href="/pieejamiba">{t("f.accessibility")}</Link>
+        <Link href="/sitemap.xml">{t("f.sitemap")}</Link>
       </nav>
 
-      <p className="f-bottom"><span>© 2026 Izsoli.lv SIA</span><span>Veidots Rīgā</span></p>
+      <p className="f-bottom"><span>© 2026 Izsoli.lv SIA</span><span>{t("f.madeIn")}</span></p>
 
       <RegionMenu open={region} onClose={() => setRegion(false)} country={country} />
 

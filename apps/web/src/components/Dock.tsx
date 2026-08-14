@@ -4,10 +4,12 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { publicApi } from "@/lib/api";
+import { useT } from "@/lib/i18n";
 import { Icon } from "./Icon";
 
 /** Нижний док макета: прячется при скролле вниз, возвращается при скролле вверх. */
 export function Dock() {
+  const { t } = useT();
   const path = usePathname();
   const [hidden, setHidden] = useState(false);
   const [initial, setInitial] = useState("N");
@@ -35,16 +37,16 @@ export function Dock() {
   const cur = (href: string) => (path === href ? "page" : undefined);
 
   return (
-    <nav className={`dock${hidden ? " is-hidden" : ""}`} aria-label="Galvenā navigācija">
-      <Link href="/" aria-current={cur("/")}><Icon name="home" /><span className="lbl">Sākums</span></Link>
+    <nav className={`dock${hidden ? " is-hidden" : ""}`} aria-label={t("nav.mainNav")}>
+      <Link href="/" aria-current={cur("/")}><Icon name="home" /><span className="lbl">{t("nav.home")}</span></Link>
       <Link href="/tiesraide">
-        <Icon name="bolt" /><span className="lbl">Tiešraide</span>
+        <Icon name="bolt" /><span className="lbl">{t("rail.live")}</span>
         <i className="badge-dot" aria-hidden="true" />
       </Link>
-      <Link href="/meklet"><Icon name="search" /><span className="lbl">Meklēt</span></Link>
-      <Link href="/velmes"><Icon name="heart" /><span className="lbl">Vēlmes</span></Link>
+      <Link href="/meklet"><Icon name="search" /><span className="lbl">{t("nav.search")}</span></Link>
+      <Link href="/velmes"><Icon name="heart" /><span className="lbl">{t("nav.watchlist")}</span></Link>
       <Link href="/account">
-        <span className="ava" aria-hidden="true">{initial}</span><span className="lbl">Profils</span>
+        <span className="ava" aria-hidden="true">{initial}</span><span className="lbl">{t("nav.profile")}</span>
       </Link>
     </nav>
   );

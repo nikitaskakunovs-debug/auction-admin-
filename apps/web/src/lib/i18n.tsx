@@ -14,6 +14,65 @@ export type Lang = "lv" | "ru" | "en" | "et" | "lt";
 export const ALL_LANGS: Lang[] = ["lv", "ru", "en", "et", "lt"];
 
 const STRINGS: Record<string, Record<Lang, string>> = {
+  // ── ПОДВАЛ ──────────────────────────────────────────────────
+  "f.auctions": { lv: "Izsoles", ru: "Аукционы", en: "Auctions", et: "Oksjonid", lt: "Aukcionai" },
+  "f.howItWorks": { lv: "Kā tas darbojas", ru: "Как это работает", en: "How it works", et: "Kuidas see toimib", lt: "Kaip tai veikia" },
+  "f.delivery": { lv: "Piegāde", ru: "Доставка", en: "Delivery", et: "Tarne", lt: "Pristatymas" },
+  "f.company": { lv: "Uzņēmums", ru: "Компания", en: "Company", et: "Ettevõte", lt: "Įmonė" },
+  "f.bidRules": { lv: "Solīšanas noteikumi", ru: "Правила торгов", en: "Bidding rules", et: "Pakkumise reeglid", lt: "Siūlymo taisyklės" },
+  "f.autoBidder": { lv: "Automātiskais solītājs", ru: "Автоматическая ставка", en: "Automatic bidding", et: "Automaatne pakkumine", lt: "Automatinis siūlymas" },
+  "f.conditionScale": { lv: "Stāvokļa skala A–D", ru: "Шкала состояния A–D", en: "Condition scale A–D", et: "Seisukorra skaala A–D", lt: "Būklės skalė A–D" },
+  "f.paymentMethods": { lv: "Maksājumu veidi", ru: "Способы оплаты", en: "Payment methods", et: "Makseviisid", lt: "Mokėjimo būdai" },
+  "f.parcelMachines": { lv: "Pakomāti Latvijā", ru: "Посылочные автоматы в Латвии", en: "Parcel machines in Latvia", et: "Pakiautomaadid Lätis", lt: "Siuntų automatai Latvijoje" },
+  "f.pickupRiga": { lv: "Izņemšana Rīgā", ru: "Самовывоз в Риге", en: "Pickup in Riga", et: "Väljastus Riias", lt: "Atsiėmimas Rygoje" },
+  "f.withdrawal": { lv: "Atteikuma tiesības", ru: "Право на отказ", en: "Right of withdrawal", et: "Taganemisõigus", lt: "Teisė atsisakyti" },
+  "f.damaged": { lv: "Bojāta prece", ru: "Повреждённый товар", en: "Damaged item", et: "Kahjustatud kaup", lt: "Sugadinta prekė" },
+  "f.sellWithUs": { lv: "Pārdod ar mums", ru: "Продавайте с нами", en: "Sell with us", et: "Müü meiega", lt: "Parduokite su mumis" },
+  "f.pass": { lv: "Izsoli Pass", ru: "Izsoli Pass", en: "Izsoli Pass", et: "Izsoli Pass", lt: "Izsoli Pass" },
+  "f.faq": { lv: "Biežākie jautājumi", ru: "Частые вопросы", en: "FAQ", et: "Korduma kippuvad küsimused", lt: "Dažni klausimai" },
+  "f.contact": { lv: "Sazinies ar mums", ru: "Свяжитесь с нами", en: "Contact us", et: "Võta ühendust", lt: "Susisiekite" },
+  "f.legalNav": { lv: "Juridiskā informācija", ru: "Юридическая информация", en: "Legal information", et: "Juriidiline teave", lt: "Teisinė informacija" },
+  "f.terms": { lv: "Lietošanas noteikumi", ru: "Условия использования", en: "Terms of use", et: "Kasutustingimused", lt: "Naudojimo sąlygos" },
+  "f.privacy": { lv: "Privātuma politika", ru: "Политика конфиденциальности", en: "Privacy policy", et: "Privaatsuspoliitika", lt: "Privatumo politika" },
+  "f.cookies": { lv: "Sīkdatnes", ru: "Файлы cookie", en: "Cookies", et: "Küpsised", lt: "Slapukai" },
+  "f.complaints": { lv: "Sūdzību izskatīšana", ru: "Рассмотрение жалоб", en: "Complaints handling", et: "Kaebuste käsitlemine", lt: "Skundų nagrinėjimas" },
+  "f.accessibility": { lv: "Pieejamība", ru: "Доступность", en: "Accessibility", et: "Ligipääsetavus", lt: "Prieinamumas" },
+  "f.sitemap": { lv: "Vietnes karte", ru: "Карта сайта", en: "Sitemap", et: "Saidikaart", lt: "Svetainės žemėlapis" },
+  "f.madeIn": { lv: "Veidots Rīgā", ru: "Сделано в Риге", en: "Made in Riga", et: "Tehtud Riias", lt: "Sukurta Rygoje" },
+  "f.legal": {
+    lv: "Izsoli.lv SIA, Rīga, Latvija. Visas cenas ar PVN. Solīšana ir juridiski saistoša — uzvarot izsolē, tiek noslēgts pirkuma līgums. Cenai tiek pievienota pircēja komisija un PVN atbilstoši tirgum. Strīdu gadījumā var vērsties Patērētāju tiesību aizsardzības centrā (PTAC) vai ES strīdu izšķiršanas platformā.",
+    ru: "Izsoli.lv SIA, Рига, Латвия. Все цены с НДС. Ставка юридически обязывает — победа в торгах означает заключение договора купли-продажи. К цене добавляется комиссия покупателя и НДС согласно рынку. При споре можно обратиться в Центр защиты прав потребителей (PTAC) или на платформу ЕС по разрешению споров.",
+    en: "Izsoli.lv SIA, Riga, Latvia. All prices include VAT. Bidding is legally binding — winning an auction concludes a contract of sale. A buyer's premium and VAT are added to the price according to the market. In case of a dispute you may turn to the Consumer Rights Protection Centre (PTAC) or the EU dispute resolution platform.",
+    et: "Izsoli.lv SIA, Riia, Läti. Kõik hinnad sisaldavad käibemaksu. Pakkumine on juriidiliselt siduv — oksjoni võitmisega sõlmitakse ostuleping. Hinnale lisandub ostja komisjonitasu ja turule vastav käibemaks. Vaidluse korral saab pöörduda tarbijakaitseameti (PTAC) või EL-i vaidluste lahendamise platvormi poole.",
+    lt: "Izsoli.lv SIA, Ryga, Latvija. Visos kainos su PVM. Siūlymas teisiškai įpareigoja — laimėjus aukcioną sudaroma pirkimo sutartis. Prie kainos pridedamas pirkėjo komisinis mokestis ir rinkai taikomas PVM. Kilus ginčui galima kreiptis į Vartotojų teisių apsaugos centrą (PTAC) arba ES ginčų sprendimo platformą.",
+  },
+  // ── ШАПКА, ЛЕНТА КАТЕГОРИЙ, ДОК ─────────────────────────────
+  "nav.mainNav": { lv: "Galvenā navigācija", ru: "Основная навигация", en: "Main navigation", et: "Peamine navigatsioon", lt: "Pagrindinė navigacija" },
+  "nav.profile": { lv: "Profils", ru: "Профиль", en: "Profile", et: "Profiil", lt: "Profilis" },
+  "rail.live": { lv: "Tiešraidē", ru: "В эфире", en: "Live", et: "Otseülekandes", lt: "Tiesiogiai" },
+  "rail.closing": { lv: "Drīz beidzas", ru: "Скоро закроются", en: "Ending soon", et: "Lõpeb varsti", lt: "Netrukus baigiasi" },
+  "rail.noReserve": { lv: "Bez rezerves", ru: "Без резерва", en: "No reserve", et: "Reservhinnata", lt: "Be rezervo" },
+  "rail.all": { lv: "Visas", ru: "Все", en: "All", et: "Kõik", lt: "Visos" },
+  "cat.watches": { lv: "Pulksteņi", ru: "Часы", en: "Watches", et: "Kellad", lt: "Laikrodžiai" },
+  "cat.cameras": { lv: "Kameras", ru: "Камеры", en: "Cameras", et: "Kaamerad", lt: "Fotoaparatai" },
+  "cat.audio": { lv: "Audio", ru: "Аудио", en: "Audio", et: "Heli", lt: "Garsas" },
+  "cat.art": { lv: "Māksla", ru: "Искусство", en: "Art", et: "Kunst", lt: "Menas" },
+  "cat.home": { lv: "Mājai", ru: "Для дома", en: "Home", et: "Kodule", lt: "Namams" },
+  "nav.quickLinks": { lv: "Ātrās saites", ru: "Быстрые ссылки", en: "Quick links", et: "Kiirlingid", lt: "Greitosios nuorodos" },
+  "nav.allCategories": { lv: "Visas kategorijas", ru: "Все категории", en: "All categories", et: "Kõik kategooriad", lt: "Visos kategorijos" },
+  "nav.results": { lv: "Izsoļu rezultāti", ru: "Результаты аукционов", en: "Auction results", et: "Oksjonite tulemused", lt: "Aukcionų rezultatai" },
+  "nav.catalogue": { lv: "Katalogs", ru: "Каталог", en: "Catalogue", et: "Kataloog", lt: "Katalogas" },
+  "nav.categories": { lv: "Kategorijas", ru: "Категории", en: "Categories", et: "Kategooriad", lt: "Kategorijos" },
+  "nav.alerts": { lv: "Brīdinājumi", ru: "Уведомления", en: "Alerts", et: "Teavitused", lt: "Pranešimai" },
+  "nav.alertsN": { lv: "{n} brīdinājumi", ru: "Уведомлений: {n}", en: "{n} alerts", et: "{n} teavitust", lt: "Pranešimų: {n}" },
+  "nav.watchlist": { lv: "Vēlmes", ru: "Избранное", en: "Watchlist", et: "Jälgimisnimekiri", lt: "Norų sąrašas" },
+  "nav.watchlistN": { lv: "{n} saglabāti loti", ru: "Сохранённых лотов: {n}", en: "{n} saved lots", et: "{n} salvestatud partiid", lt: "Išsaugotų lotų: {n}" },
+  "nav.home": { lv: "Sākums", ru: "Главная", en: "Home", et: "Avaleht", lt: "Pradžia" },
+  "nav.search": { lv: "Meklēt", ru: "Поиск", en: "Search", et: "Otsi", lt: "Ieškoti" },
+  "nav.skipToMain": { lv: "Pāriet uz galveno saturu", ru: "Перейти к основному содержимому", en: "Skip to main content", et: "Liigu põhisisu juurde", lt: "Pereiti prie pagrindinio turinio" },
+  "nav.close": { lv: "Aizvērt", ru: "Закрыть", en: "Close", et: "Sulge", lt: "Uždaryti" },
+  "nav.clear": { lv: "Notīrīt", ru: "Очистить", en: "Clear", et: "Tühjenda", lt: "Išvalyti" },
+  "nav.breadcrumb": { lv: "Navigācijas ceļš", ru: "Хлебные крошки", en: "Breadcrumb", et: "Jäljerada", lt: "Naršymo kelias" },
   "nav.auctions": { lv: "Izsoles", ru: "Аукционы", en: "Auctions", et: "Oksjonid", lt: "Aukcionai" },
   "nav.account": { lv: "Mans konts", ru: "Мой счёт", en: "My account", et: "Minu konto", lt: "Mano paskyra" },
   "nav.signin": { lv: "Ienākt", ru: "Войти", en: "Sign in", et: "Logi sisse", lt: "Prisijungti" },
@@ -183,7 +242,8 @@ interface I18n {
   setLang: (l: Lang) => void;
   /** Languages offered on the current country's domain. */
   available: Lang[];
-  t: (key: string) => string;
+  /** `t("acc.n", { n: 3 })` подставит 3 вместо `{n}`. */
+  t: (key: string, vars?: Record<string, string | number>) => string;
 }
 
 const I18nContext = createContext<I18n>({ lang: "lv", setLang: () => undefined, available: ["lv", "ru", "en"], t: (k) => k });
@@ -210,6 +270,9 @@ export function I18nProvider({
     localStorage.setItem("auction_lang", l);
     document.documentElement.lang = l;
   };
-  const t = (key: string): string => STRINGS[key]?.[lang] ?? STRINGS[key]?.en ?? key;
+  const t = (key: string, vars?: Record<string, string | number>): string => {
+    const raw = STRINGS[key]?.[lang] ?? STRINGS[key]?.en ?? key;
+    return vars ? raw.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m)) : raw;
+  };
   return <I18nContext.Provider value={{ lang, setLang, available, t }}>{children}</I18nContext.Provider>;
 }
