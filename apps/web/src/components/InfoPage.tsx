@@ -1,6 +1,9 @@
+"use client";
+
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { Icon } from "./Icon";
+import { useT } from "@/lib/i18n";
 
 /** Каркас информационной страницы: хлебные крошки, заголовок, проза
  *  и блок «остались вопросы». Все страницы подвала собраны на нём,
@@ -23,11 +26,12 @@ export function InfoPage({
   blocks: InfoBlock[];
   related?: Array<[string, string]>;
 }) {
+  const { t } = useT();
   return (
     <section className="wrap" style={{ paddingTop: 24 }}>
-      <nav className="crumbs" aria-label="Navigācijas ceļš">
+      <nav className="crumbs" aria-label={t("nav.breadcrumb")}>
         <ol>
-          <li><Link href="/">Sākums</Link></li>
+          <li><Link href="/">{t("nav.home")}</Link></li>
           <li aria-current="page">{title}</li>
         </ol>
       </nav>
@@ -37,7 +41,7 @@ export function InfoPage({
           <h1 data-hero>{title}</h1>
           {sub && <p className="cnt">{sub}</p>}
         </div>
-        <Link className="link" href="/buj">Biežākie jautājumi <Icon name="arrow" size={16} /></Link>
+        <Link className="link" href="/buj">{t("f.faq")} <Icon name="arrow" size={16} /></Link>
       </div>
 
       {lead && <p className="lead" style={{ maxWidth: "56ch", marginBottom: "var(--s5)" }}>{lead}</p>}
@@ -77,7 +81,7 @@ export function InfoPage({
       </article>
 
       {related && related.length > 0 && (
-        <nav className="f-links" aria-label="Saistītās lapas" style={{ marginTop: "var(--s6)", borderTop: 0 }}>
+        <nav className="f-links" aria-label={t("misc.relatedPages")} style={{ marginTop: "var(--s6)", borderTop: 0 }}>
           {related.map(([label, href]) => <Link key={href} href={href}>{label}</Link>)}
         </nav>
       )}
@@ -85,8 +89,8 @@ export function InfoPage({
       <div className="mybids" style={{ marginTop: "var(--s5)", marginBottom: "var(--s6)" }}>
         <span className="ic" aria-hidden="true"><Icon name="mail" /></span>
         <div className="t">
-          <h3>Palika jautājums?</h3>
-          <p>Raksti mums — atbildam vienas darba dienas laikā.</p>
+          <h3>{t("misc.stillQuestion")}</h3>
+          <p>{t("misc.writeUsReply")}</p>
         </div>
         <Link className="btn btn-dark" href="/kontakti">Sazināties</Link>
       </div>

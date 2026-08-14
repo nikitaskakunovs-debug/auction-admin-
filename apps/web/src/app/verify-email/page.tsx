@@ -7,12 +7,14 @@ import { useSearchParams } from "next/navigation";
 import { publicApi, PublicApiError } from "@/lib/api";
 import { Icon } from "@/components/Icon";
 import { VerifyNotice } from "@/components/VerifyNotice";
+import { useT } from "@/lib/i18n";
 
 type State = "checking" | "ok" | "expired" | "invalid" | "nothing";
 
 /** Страница, на которую ведёт ссылка из письма.
  *  Без токена показывает «проверь почту», с токеном — результат проверки. */
 export default function VerifyEmailPage() {
+  const { t } = useT();
   const qs = useSearchParams();
   const token = qs.get("token") ?? "";
   const email = qs.get("email") ?? "";
@@ -39,21 +41,21 @@ export default function VerifyEmailPage() {
         {state === "checking" && (
           <>
             <span className="spin" aria-hidden="true" />
-            <h1>Pārbaudām saiti…</h1>
-            <p className="note" style={{ fontSize: 15 }}>Tas aizņem pāris sekundes.</p>
+            <h1>{t("ve.checking")}</h1>
+            <p className="note" style={{ fontSize: 15 }}>{t("ve.checkingD")}</p>
           </>
         )}
 
         {state === "ok" && (
           <>
             <span className="ic-round ok" aria-hidden="true"><Icon name="check" /></span>
-            <h1>E-pasts apstiprināts</h1>
+            <h1>{t("ve.confirmed")}</h1>
             <p className="note" style={{ fontSize: 15 }}>
-              Konts ir gatavs: vari solīt, sekot lotiem un saņemt brīdinājumus par pārsolīšanu.
+              {t("ve.okD")}
             </p>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-              <Link className="btn btn-primary" href="/katalogs">Atrast pirmo lotu</Link>
-              <Link className="btn btn-outline" href="/account">Mans konts</Link>
+              <Link className="btn btn-primary" href="/katalogs">{t("sec.findFirst")}</Link>
+              <Link className="btn btn-outline" href="/account">{t("nav.account")}</Link>
             </div>
           </>
         )}
@@ -61,9 +63,9 @@ export default function VerifyEmailPage() {
         {state === "expired" && (
           <>
             <span className="ic-round warn" aria-hidden="true"><Icon name="timer" /></span>
-            <h1>Saitei beidzies termiņš</h1>
+            <h1>{t("ve.expired")}</h1>
             <p className="note" style={{ fontSize: 15 }}>
-              Apstiprinājuma saite derīga 24 stundas. Nosūtīsim jaunu — tā aizņem mirkli.
+              {t("ve.expiredD")}
             </p>
             <VerifyNotice email={email} compact />
           </>
@@ -72,14 +74,13 @@ export default function VerifyEmailPage() {
         {state === "invalid" && (
           <>
             <span className="ic-round warn" aria-hidden="true"><Icon name="x" /></span>
-            <h1>Saite nav derīga</h1>
+            <h1>{t("ve.invalid")}</h1>
             <p className="note" style={{ fontSize: 15 }}>
-              Iespējams, e-pasts jau ir apstiprināts vai saite tika nokopēta nepilnīgi.
-              Pamēģini ieiet — ja neizdodas, nosūtīsim jaunu vēstuli.
+              {t("ve.invalidD")}
             </p>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-              <Link className="btn btn-primary" href="/login">Ieiet</Link>
-              <Link className="btn btn-outline" href="/kontakti">Sazināties</Link>
+              <Link className="btn btn-primary" href="/login">{t("ve.signin")}</Link>
+              <Link className="btn btn-outline" href="/kontakti">{t("misc.contactUs")}</Link>
             </div>
           </>
         )}

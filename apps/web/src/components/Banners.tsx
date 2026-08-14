@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "./Icon";
+import { useT } from "@/lib/i18n";
 
 /** Слайды баннеров. Добавить баннер = добавить строку сюда:
  *  точки, счётчик и автопрокрутка подхватятся сами.
@@ -55,6 +56,7 @@ const SLIDES: Slide[] = [
 ];
 
 export function Banners() {
+  const { t } = useT();
   const [i, setI] = useState(0);
   const [paused, setPaused] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -77,7 +79,7 @@ export function Banners() {
   const drag = useRef(0);
 
   return (
-    <section className="section wrap" aria-label="Aktuālie piedāvājumi" style={{ paddingTop: 0 }}>
+    <section className="section wrap" aria-label={t("bn.aria")} style={{ paddingTop: 0 }}>
       <div
         className={`bslider${paused ? " is-paused" : ""}`}
         role="region" aria-roledescription="karuselis" aria-label="Piedāvājumi"
@@ -121,9 +123,9 @@ export function Banners() {
           </div>
         </div>
 
-        <button className="bnav prev" type="button" aria-label="Iepriekšējais piedāvājums"
+        <button className="bnav prev" type="button" aria-label={t("bn.prevOffer")}
                 onClick={() => go(i - 1)}><Icon name="arrow" /></button>
-        <button className="bnav next" type="button" aria-label="Nākamais piedāvājums"
+        <button className="bnav next" type="button" aria-label={t("bn.nextOffer")}
                 onClick={() => go(i + 1)}><Icon name="arrow" /></button>
 
         <div className="bbar">
