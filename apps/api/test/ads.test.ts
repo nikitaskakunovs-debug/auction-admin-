@@ -93,6 +93,55 @@ describe("реклама в ленте", () => {
     expect(rows.find((a) => a.id === off.id)!.impressions).toBe(0);
   });
 
+  it("карусель хранит кадры по порядку и не принимает меньше двух", async () => {
+    const one = await world.server.app.inject({
+      method: "POST", url: "/api/ads", headers: auth(token),
+      payload: { title: "Карусель из одного", href: "/katalogs", kind: "carousel", images: ["https://x.test/1.jpg"] },
+    });
+    expect(one.statusCode, "один кадр — не карусель").toBe(400);
+
+    const ok = await create({
+      title: "Карусель", kind: "carousel", active: true,
+      images: ["https://x.test/1.jpg", "https://x.test/2.jpg", "https://x.test/3.jpg"],
+    });
+    const found = (await world.server.app.inject({ method: "GET", url: "/api/public/ads" })).json() as {
+      ads: Array<{ id: string; kind: string; images: string[] }>;
+    };
+    const mine = found.ads.find((a) => a.id === ok.id);
+    expect(mine!.kind).toBe("carousel");
+    expect(mine!.images).toEqual(["https://x.test/1.jpg", "https://x.test/2.jpg", "https://x.test/3.jpg"]);
+  });
+
+  it("видео без ролика не принимает — и через правку тоже", async () => {
+    const bare = await world.server.app.inject({
+      method: "POST", url: "/api/ads", headers: auth(token),
+      payload: { title: "Видео без файла", href: "/katalogs", kind: "video" },
+    });
+    expect(bare.statusCode).toBe(400);
+
+    const banner = await create({ title: "Пока баннер", active: true });
+    // Правка меняет вид, не прислав ролика, — карточка стала бы сломанной.
+    const flip = await world.server.app.inject({
+      method: "PATCH", url: `/api/ads/${banner.id}`, headers: auth(token),
+      payload: { kind: "video" },
+    });
+    expect(flip.statusCode, "смена вида без ролика отклонена").toBe(400);
+
+    const withUrl = await world.server.app.inject({
+      method: "PATCH", url: `/api/ads/${banner.id}`, headers: auth(token),
+      payload: { kind: "video", videoUrl: "https://x.test/ad.mp4" },
+    });
+    expect(withUrl.statusCode).toBe(200);
+  });
+
+  it("пометку «Реклама» можно снять, и витрина это узнаёт", async () => {
+    const ad = await create({ title: "Своё промо", href: "/katalogs?category=tools", active: true, showLabel: false });
+    const pub = (await world.server.app.inject({ method: "GET", url: "/api/public/ads" })).json() as {
+      ads: Array<{ id: string; showLabel: boolean }>;
+    };
+    expect(pub.ads.find((a) => a.id === ad.id)!.showLabel).toBe(false);
+  });
+
   it("не принимает бессмысленный шаг показа", async () => {
     for (const everyN of [0, 2, 500]) {
       const res = await world.server.app.inject({

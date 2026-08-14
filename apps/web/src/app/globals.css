@@ -1574,30 +1574,47 @@ footer .f-pill{border:0;font:inherit;cursor:pointer}
 @media(max-width:400px){.logo{font-size:20px}.logo-mark{width:32px;height:32px}}
 
 /* ═══ РЕКЛАМНАЯ КАРТОЧКА В ЛЕНТЕ ═══
-   Стоит в общем потоке карточек каталога. Помечена словом «Реклама»:
-   выдавать её за лот нельзя ни по закону о рекламе, ни по совести. */
-.lot-ad{display:flex;overflow:hidden}
-/* Цвет темы задан выше, но `.lot` идёт после него и перекрывал фон — карточка
-   получалась белой. Повторяем здесь, где правило уже последнее. */
+   Три вида одного места: баннер, карусель кадров, видео. Стоит в общем
+   потоке карточек каталога. Пометка «Реклама» для чужой оплаченной рекламы
+   обязана быть видна — закон о рекламе. */
+.lot-ad{position:relative;display:flex;flex-direction:column;justify-content:flex-end;gap:10px;
+  overflow:hidden;padding:20px;min-height:320px;touch-action:pan-y}
 .lot-ad.banner-green{background:var(--accent);color:var(--on-accent)}
 .lot-ad.banner-blue{background:var(--blue);color:#0E2A2A}
 .lot-ad.banner-pink{background:var(--pink);color:#3A0E2E}
 .lot-ad.banner-yellow{background:var(--yellow);color:#332B00}
-.lot-ad .ad-face{display:flex;flex-direction:column;justify-content:flex-end;gap:10px;
-  width:100%;min-height:100%;padding:20px;position:relative;color:inherit;isolation:isolate}
-.lot-ad .ad-mark{position:absolute;top:14px;left:14px;z-index:2;
+.lot-ad .ad-mark{position:absolute;top:14px;left:14px;z-index:3;
   font-size:11px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
   padding:4px 9px;border-radius:var(--r-pill);
   background:color-mix(in srgb,var(--surface) 88%,transparent);color:var(--text-2)}
-.lot-ad .ad-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0}
-.lot-ad .ad-body{position:relative;z-index:1;display:flex;flex-direction:column;gap:8px}
-.lot-ad .ad-body b{font-size:22px;line-height:1.15;letter-spacing:-.03em}
+/* Фон карточки: картинка, кадр карусели или видео — во весь размер. */
+.lot-ad .ad-media{position:absolute;inset:0;z-index:0;width:100%;height:100%;object-fit:cover}
+.lot-ad .ad-frame{opacity:0;transition:opacity .3s var(--ease)}
+.lot-ad .ad-frame.on{opacity:1}
+@media(prefers-reduced-motion:reduce){.lot-ad .ad-frame{transition:none}}
+/* Стрелки и точки карусели — выше ссылки, работают сами. */
+.lot-ad .ad-nav{position:absolute;top:50%;translate:0 -50%;z-index:2;width:40px;height:40px;
+  border-radius:50%;display:grid;place-items:center;
+  background:color-mix(in srgb,var(--surface) 88%,transparent);color:var(--text)}
+.lot-ad .ad-nav.p{left:10px;rotate:180deg}
+.lot-ad .ad-nav.n{right:10px}
+.lot-ad .ad-nav svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:2;
+  stroke-linecap:round;stroke-linejoin:round}
+.lot-ad .ad-dots{position:relative;z-index:2;display:flex;gap:6px;justify-content:center}
+.lot-ad .ad-dots button{width:24px;height:24px;border-radius:50%;display:grid;place-items:center}
+.lot-ad .ad-dots button::after{content:"";width:8px;height:8px;border-radius:50%;
+  background:color-mix(in srgb,var(--surface) 70%,transparent)}
+.lot-ad .ad-dots button[aria-current]::after{background:var(--surface);scale:1.25}
+/* Одна ссылка: заголовок, текст и кнопка. Поверх фона — на подложке. */
+.lot-ad .ad-go{position:relative;z-index:2;display:flex;flex-direction:column;gap:8px;
+  align-items:flex-start;color:inherit}
+.lot-ad .ad-media~.ad-go{background:color-mix(in srgb,var(--surface) 90%,transparent);
+  color:var(--text);border-radius:var(--r-md);padding:14px}
+.lot-ad .ad-go b{font-size:22px;line-height:1.15;letter-spacing:-.03em}
 .lot-ad .ad-text{font-size:14.5px;line-height:1.45;opacity:.86}
-.lot-ad .ad-cta{display:inline-flex;align-items:center;gap:8px;align-self:flex-start;
+.lot-ad .ad-cta{display:inline-flex;align-items:center;gap:8px;
   min-height:44px;padding:10px 20px;border-radius:var(--r-pill);font-weight:700;font-size:15px;
   background:var(--brand);color:var(--on-brand);
   transition:background var(--fast) var(--ease)}
-.lot-ad .ad-face:hover .ad-cta{background:var(--brand-2)}
-/* Картинка перекрывает фон — текст поверх неё читаем только на подложке. */
-.lot-ad .ad-img ~ .ad-body{background:color-mix(in srgb,var(--surface) 90%,transparent);
-  border-radius:var(--r-md);padding:14px}
+.lot-ad .ad-go:hover .ad-cta{background:var(--brand-2)}
+.lot-ad .ad-cta svg{stroke:currentColor;fill:none;stroke-width:2}

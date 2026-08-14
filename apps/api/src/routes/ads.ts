@@ -25,7 +25,13 @@ const adBody = z.object({
   body: z.string().max(400).default(""),
   ctaLabel: z.string().max(40).default(""),
   href: z.string().min(1).max(500),
+  /** banner | carousel | video — три вида одного места в ленте. */
+  kind: z.enum(["banner", "carousel", "video"]).default("banner"),
   imageUrl: z.string().max(500).nullable().optional(),
+  /** Кадры карусели; у видео первый кадр — постер. */
+  images: z.array(z.string().min(1).max(500)).max(8).default([]),
+  videoUrl: z.string().max(500).nullable().optional(),
+  showLabel: z.boolean().default(true),
   theme: z.enum(["green", "blue", "pink", "yellow"]).default("green"),
   /** Пусто — во всех категориях. */
   categoryCode: z.string().max(40).nullable().optional(),
@@ -35,6 +41,14 @@ const adBody = z.object({
   startsAt: z.string().datetime().nullable().optional(),
   endsAt: z.string().datetime().nullable().optional(),
 });
+
+/** Карусель без кадров и видео без ролика — это сломанная карточка в ленте,
+ *  поэтому отклоняем на входе, а не выясняем на витрине. */
+function kindError(kind: string, images: string[], videoUrl: string | null | undefined): string | null {
+  if (kind === "carousel" && images.length < 2) return "carousel_needs_two_images";
+  if (kind === "video" && !videoUrl) return "video_needs_url";
+  return null;
+}
 
 export function registerAdRoutes(app: FastifyInstance, ctx: AppContext, perms: PermissionService): void {
   const guard = (p: Parameters<typeof requirePermission>[1]) => ({ preHandler: requirePermission(perms, p) });
@@ -61,7 +75,8 @@ export function registerAdRoutes(app: FastifyInstance, ctx: AppContext, perms: P
     return {
       ads: rows.map((a) => ({
         id: a.id, title: a.title, body: a.body, ctaLabel: a.ctaLabel,
-        href: a.href, imageUrl: a.imageUrl, theme: a.theme,
+        href: a.href, kind: a.kind, imageUrl: a.imageUrl, images: a.images,
+        videoUrl: a.videoUrl, showLabel: a.showLabel, theme: a.theme,
         categoryCode: a.categoryCode, everyN: a.everyN,
       })),
     };
@@ -90,11 +105,14 @@ export function registerAdRoutes(app: FastifyInstance, ctx: AppContext, perms: P
   app.post("/api/ads", guard("content.edit"), async (req, reply) => {
     const body = adBody.safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: body.error.flatten() });
+    const broken = kindError(body.data.kind, body.data.images, body.data.videoUrl);
+    if (broken) return reply.code(400).send({ error: broken });
     const [row] = await ctx.db
       .insert(adCards)
       .values({
         ...body.data,
         imageUrl: body.data.imageUrl ?? null,
+        videoUrl: body.data.videoUrl ?? null,
         categoryCode: body.data.categoryCode || null,
         startsAt: body.data.startsAt ? new Date(body.data.startsAt) : null,
         endsAt: body.data.endsAt ? new Date(body.data.endsAt) : null,
@@ -108,6 +126,16 @@ export function registerAdRoutes(app: FastifyInstance, ctx: AppContext, perms: P
     const { id } = req.params as { id: string };
     const body = adBody.partial().safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: "invalid_body" });
+    // Правка может сменить вид, не прислав остального, — проверяем целую
+    // карточку после слияния, а не только присланные поля.
+    const [cur] = await ctx.db.select().from(adCards).where(eq(adCards.id, id));
+    if (!cur) return reply.code(404).send({ error: "not_found" });
+    const broken = kindError(
+      body.data.kind ?? cur.kind,
+      body.data.images ?? cur.images,
+      "videoUrl" in body.data ? body.data.videoUrl : cur.videoUrl,
+    );
+    if (broken) return reply.code(400).send({ error: broken });
     const patch: Record<string, unknown> = { ...body.data, updatedAt: ctx.now() };
     if ("categoryCode" in body.data) patch.categoryCode = body.data.categoryCode || null;
     if ("startsAt" in body.data) patch.startsAt = body.data.startsAt ? new Date(body.data.startsAt) : null;

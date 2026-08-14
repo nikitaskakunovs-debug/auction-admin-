@@ -118,8 +118,16 @@ export interface AdCard {
   title: string;
   body: string;
   ctaLabel: string;
+  /** С «/» — раздел нашего сайта, с «https://» — сайт рекламодателя. */
   href: string;
+  /** banner — картинка или цвет; carousel — несколько кадров; video — ролик. */
+  kind: "banner" | "carousel" | "video";
   imageUrl: string | null;
+  /** Кадры карусели; у видео первый кадр — постер. */
+  images: string[];
+  videoUrl: string | null;
+  /** Пометка «Реклама». Для чужой оплаченной — всегда включена. */
+  showLabel: boolean;
   theme: string;
   categoryCode: string | null;
   /** Через сколько карточек лотов вставлять эту. */

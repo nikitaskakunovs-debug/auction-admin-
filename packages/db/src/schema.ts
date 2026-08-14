@@ -356,7 +356,17 @@ export const adCards = pgTable(
     body: text("body").notNull().default(""),
     ctaLabel: text("cta_label").notNull().default(""),
     href: text("href").notNull(),
+    /** banner — одна картинка или цвет темы; carousel — несколько кадров;
+     *  video — ролик с финальной ссылкой. */
+    kind: text("kind").notNull().default("banner"),
     imageUrl: text("image_url"),
+    /** Кадры карусели по порядку. У видео первый кадр — постер до запуска. */
+    images: jsonb("images").$type<string[]>().notNull().default([]),
+    videoUrl: text("video_url"),
+    /** Пометка «Реклама». Для оплаченной чужой рекламы обязана быть включена —
+     *  закон о рекламе требует, чтобы её было видно. Снимать её честно только
+     *  на собственных промо-карточках, ведущих внутрь сайта. */
+    showLabel: boolean("show_label").notNull().default(true),
     /** Оформление из палитры макета: green | blue | pink | yellow. */
     theme: text("theme").notNull().default("green"),
     /** Пусто — во всех категориях. Иначе код категории из домена. */
