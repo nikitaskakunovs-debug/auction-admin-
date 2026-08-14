@@ -21,10 +21,17 @@ test("fixed-price: browse → buy now → order appears on the account", async (
   await page.goto(`/listing/${listingId}`);
   await page.click("text=/Buy now|Pirkt tagad/");
 
+  // Spending money now takes two clicks: the button opens a dialog showing the
+  // price and the VAT before anything is charged, and only the button inside it
+  // buys. Worth the extra step, and worth the extra line here.
+  await page.click("text=/Buy and go to payment|Pirkt un pāriet uz apmaksu/");
+
   // Purchase redirects to the account, where the order shows awaiting payment.
   await expect(page).toHaveURL(/\/account$/);
   await expect(page.locator(`text=${title}`)).toBeVisible();
-  await expect(page.locator("text=/Awaiting payment|Gaida apmaksu/")).toBeVisible();
+  // The redesigned account says it twice — a section heading and a tag on the
+  // card — so take the first rather than demanding there be only one.
+  await expect(page.locator("text=/Awaiting payment|Gaida apmaksu/").first()).toBeVisible();
 
   // The listing is now sold out for the next visitor.
   await page.goto(`/listing/${listingId}`);
