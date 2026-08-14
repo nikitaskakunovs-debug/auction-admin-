@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
-import { useT } from "@/lib/i18n";
+import { dateLocale, useT } from "@/lib/i18n";
 import { useStickyBar } from "@/lib/ui";
 import { formatEur, type MyOrder, type ShippingOption } from "@/lib/types";
 import { Icon } from "./Icon";
@@ -15,8 +15,8 @@ import { say } from "./Toast";
  *  и сводка заказа справа. Данные и цены — из движка; выбор доставки
  *  пересчитывает заказ на сервере. */
 const PAY_METHODS: Array<[string, string, string, string]> = [
-  ["klix", "Karte", "Visa, Mastercard · Klix by Citadele", "card"],
-  ["inbank", "Maksā pa daļām", "Inbank · sadali maksājumu pa mēnešiem", "home"],
+  ["klix", "co.card", "co.cardD", "card"],
+  ["inbank", "co.instal", "co.instalD", "home"],
 ];
 
 export function Checkout({ orderRef }: { orderRef: string }) {
@@ -76,7 +76,7 @@ export function Checkout({ orderRef }: { orderRef: string }) {
         ...(next === "pickup" ? {} : { machineId: machine, recipientPhone: phone }),
       });
       await load();
-      say("Piegāde saglabāta");
+      say(t("co.deliverySaved"));
     } catch (err) {
       setError(err instanceof Error ? err.message : "error");
     } finally { setBusy(false); }
@@ -130,9 +130,9 @@ export function Checkout({ orderRef }: { orderRef: string }) {
       <section className="wrap" style={{ paddingTop: 24 }}>
         <div className="empty">
           <span className="ic" aria-hidden="true"><Icon name="search" /></span>
-          <h3>Pasūtījums nav atrasts</h3>
-          <p>Pārbaudi saiti vai atver sarakstu savā kontā.</p>
-          <Link className="btn btn-primary" href="/account">Mani pasūtījumi</Link>
+          <h3>{t("co.notFound")}</h3>
+          <p>{t("co.notFoundD")}</p>
+          <Link className="btn btn-primary" href="/account">{t("co.myOrders")}</Link>
         </div>
       </section>
     );
@@ -146,22 +146,21 @@ export function Checkout({ orderRef }: { orderRef: string }) {
 
   return (
     <section className="wrap" style={{ paddingTop: 24 }}>
-      <nav className="crumbs" aria-label="Navigācijas ceļš">
+      <nav className="crumbs" aria-label={t("nav.breadcrumb")}>
         <ol>
-          <li><Link href="/">Sākums</Link></li>
-          <li><Link href="/account">Mani solījumi</Link></li>
-          <li aria-current="page">Apmaksa</li>
+          <li><Link href="/">{t("nav.home")}</Link></li>
+          <li><Link href="/account">{t("co.myBids")}</Link></li>
+          <li aria-current="page">{t("co.title")}</li>
         </ol>
       </nav>
 
       <div className="page-head" hidden={paid || submitted}>
         <div>
-          <h1 data-hero>Apmaksa</h1>
+          <h1 data-hero>{t("co.title")}</h1>
           <p className="cnt">
-            Uzvarētais lots {order.itemSku}
-            {order.paymentDeadlineAt && !paid && (
-              <> · nokārto līdz {new Date(order.paymentDeadlineAt).toLocaleDateString("lv-LV")}</>
-            )}
+            {t("co.wonLot", { sku: order.itemSku })}
+            {order.paymentDeadlineAt && !paid &&
+              t("co.payBy", { date: new Date(order.paymentDeadlineAt).toLocaleDateString(dateLocale(lang)) })}
           </p>
         </div>
       </div>
@@ -169,29 +168,26 @@ export function Checkout({ orderRef }: { orderRef: string }) {
       {paid || submitted ? (
         <div className="done">
           <span className="ic" aria-hidden="true"><Icon name="check" /></span>
-          <h2>Paldies! Maksājums saņemts</h2>
-          <p className="lead">
-            Rēķinu un piegādes informāciju nosūtījām uz e-pastu.
-            Lotu izsūtīsim nākamajā darba dienā.
-          </p>
+          <h2>{t("co.thanks")}</h2>
+          <p className="lead">{t("co.thanksD")}</p>
           <div className="done-acts">
-            <Link className="btn btn-dark" href="/katalogs">Turpināt solīt</Link>
-            <Link className="btn btn-outline" href="/">Uz sākumu</Link>
+            <Link className="btn btn-dark" href="/katalogs">{t("co.keepBidding")}</Link>
+            <Link className="btn btn-outline" href="/">{t("co.toHome")}</Link>
           </div>
         </div>
       ) : (
         <form className="pay" onSubmit={(e) => {
           e.preventDefault();
-          if (!terms) { say("Lūdzu, apstiprini noteikumus"); return; }
-          if (provider && !machineId) { say("Izvēlies pakomātu"); return; }
-          say("Apstrādājam maksājumu…");
+          if (!terms) { say(t("co.confirmTerms")); return; }
+          if (provider && !machineId) { say(t("co.pickParcel")); return; }
+          say(t("co.processing"));
           // Сначала фиксируем доставку на сервере — он пересчитывает заказ,
           // и только потом уходим на оплату уже с итоговой суммой.
           void saveDelivery(method, machineId).then(() => startPayment());
         }}>
           <div className="pay-main">
             <fieldset className="card-b">
-              <legend><h2>Piegāde</h2></legend>
+              <legend><h2>{t("f.delivery")}</h2></legend>
               {options.map((o) => (
                 <label className="opt" key={o.method}>
                   <input type="radio" name="ship" value={o.method} checked={method === o.method}
@@ -199,12 +195,10 @@ export function Checkout({ orderRef }: { orderRef: string }) {
                   <span>
                     <b>{o.method === "pickup" ? t("acc.deliveryPickup")
                       : o.method === "dpd_pm" ? t("acc.deliveryDpd") : t("acc.deliveryOmniva")}</b>
-                    <small>{o.method === "pickup"
-                      ? "Brīvības iela 137, Rīga · darbdienās"
-                      : "1–2 darba dienas · izsekojams"}</small>
+                    <small>{o.method === "pickup" ? t("co.pickupAddr") : t("co.parcelEta")}</small>
                   </span>
                   <span className="opt-p tnum">
-                    {o.priceCents + o.handlingCents === 0 ? "Bez maksas" : formatEur(o.priceCents + o.handlingCents)}
+                    {o.priceCents + o.handlingCents === 0 ? t("co.free") : formatEur(o.priceCents + o.handlingCents)}
                   </span>
                 </label>
               ))}
@@ -212,20 +206,20 @@ export function Checkout({ orderRef }: { orderRef: string }) {
             </fieldset>
 
             <fieldset className="card-b">
-              <legend><h2>Saņēmējs</h2></legend>
+              <legend><h2>{t("co.recipient")}</h2></legend>
               <div className="fields">
-                <label>Vārds, uzvārds
+                <label>{t("co.fullName")}
                   <input type="text" name="name" autoComplete="name" required
                          value={name} onChange={(e) => setName(e.target.value)} /></label>
-                <label>E-pasts
+                <label>{t("auth.email")}
                   <input type="email" name="email" autoComplete="email" required
                          value={email} onChange={(e) => setEmail(e.target.value)} /></label>
-                <label>Tālrunis
+                <label>{t("co.phone")}
                   <input type="tel" name="tel" autoComplete="tel"
                          value={phone} onChange={(e) => setPhone(e.target.value)} /></label>
                 {provider && (
                   <div style={{ gridColumn: "1 / -1" }}>
-                    <span className="sr" id="parcel-lab">Pakomāts</span>
+                    <span className="sr" id="parcel-lab">{t("co.parcel")}</span>
                     <ParcelPicker provider={provider} valueId={machineId}
                                   onPick={(l) => { setMachineId(l.id); setMachineName(`${l.city} — ${l.name}`); }} />
                   </div>
@@ -234,11 +228,11 @@ export function Checkout({ orderRef }: { orderRef: string }) {
             </fieldset>
 
             <fieldset className="card-b">
-              <legend><h2>Maksājums</h2></legend>
-              {PAY_METHODS.map(([id, title, sub, icon]) => (
+              <legend><h2>{t("co.payment")}</h2></legend>
+              {PAY_METHODS.map(([id, titleKey, subKey, icon]) => (
                 <label className="opt" key={id}>
                   <input type="radio" name="pay" value={id} checked={pay === id} onChange={() => setPay(id)} />
-                  <span><b>{title}</b><small>{sub}</small></span>
+                  <span><b>{t(titleKey)}</b><small>{t(subKey)}</small></span>
                   <Icon name={icon} size={22} />
                 </label>
               ))}
@@ -250,21 +244,21 @@ export function Checkout({ orderRef }: { orderRef: string }) {
 
           <aside className="pay-side">
             <div className="card-b" ref={payBox}>
-              <h2>Pasūtījums</h2>
+              <h2>{t("co.order")}</h2>
               <div className="pay-lot">
                 <span className="ic" aria-hidden="true"><Icon name="box" /></span>
                 <span><b>{order.itemTitle}</b><small>{order.itemSku} · {order.ref}</small></span>
               </div>
               <table className="fees"><tbody>
-                <tr><th scope="row">Āmura cena</th><td className="tnum">{formatEur(order.hammerCents)}</td></tr>
-                <tr><th scope="row">Pircēja komisija ({Math.round((order.premiumCents / Math.max(order.hammerCents, 1)) * 100)} %)</th><td className="tnum">{formatEur(order.premiumCents)}</td></tr>
+                <tr><th scope="row">{t("lp.hammer")}</th><td className="tnum">{formatEur(order.hammerCents)}</td></tr>
+                <tr><th scope="row">{t("lp.premium", { n: Math.round((order.premiumCents / Math.max(order.hammerCents, 1)) * 100) })}</th><td className="tnum">{formatEur(order.premiumCents)}</td></tr>
                 <tr><th scope="row">PVN</th><td className="tnum">{formatEur(order.vatCents)}</td></tr>
                 <tr><th scope="row">Piegāde</th>
                   <td className="tnum">{shipCost === 0 ? "Bez maksas" : formatEur(shipCost)}</td></tr>
                 {machineName && (
-                  <tr><th scope="row">Pakomāts</th><td>{machineName}</td></tr>
+                  <tr><th scope="row">{t("co.parcel")}</th><td>{machineName}</td></tr>
                 )}
-                <tr className="tot"><th scope="row">Kopā</th><td className="tnum">{formatEur(total)}</td></tr>
+                <tr className="tot"><th scope="row">{t("bn.total")}</th><td className="tnum">{formatEur(total)}</td></tr>
               </tbody></table>
 
               {error && <p className="bb-status err" style={{ marginTop: 12 }}>{error}</p>}
@@ -272,16 +266,16 @@ export function Checkout({ orderRef }: { orderRef: string }) {
               <label className="terms">
                 <input type="checkbox" required checked={terms} onChange={(e) => setTerms(e.target.checked)} />
                 <span>
-                  Piekrītu <Link href="/lietosanas-noteikumi">lietošanas noteikumiem</Link> un apstiprinu,
-                  ka esmu iepazinies ar <Link href="/atteikuma-tiesibas">atteikuma tiesībām</Link>.
+                  {t("co.agree")} <Link href="/lietosanas-noteikumi">{t("f.terms")}</Link>{" "}
+                  {t("co.agreeAnd")} <Link href="/atteikuma-tiesibas">{t("f.withdrawal")}</Link>.
                 </span>
               </label>
 
               <button className="btn btn-primary btn-lg btn-block" type="submit" disabled={busy}>
-                {busy ? "Novirzām…" : <>Maksāt <span className="tnum">{formatEur(total)}</span></>}
+                {busy ? t("co.redirecting") : <>{t("co.pay")} <span className="tnum">{formatEur(total)}</span></>}
               </button>
               <p className="note" style={{ textAlign: "center", marginTop: 10 }}>
-                Droša apmaksa · Klix by Citadele
+                {t("co.securePay")}
               </p>
             </div>
           </aside>
@@ -291,17 +285,17 @@ export function Checkout({ orderRef }: { orderRef: string }) {
       {!paid && !submitted && !payVisible && (
         <div className="bidbar">
           <div className="t">
-            <span className="lab">Kopā ar piegādi</span>
+            <span className="lab">{t("co.totalWithDelivery")}</span>
             <b className="tnum">{formatEur(total)}</b>
           </div>
           <button className="btn btn-primary" type="button" disabled={busy}
                   onClick={() => {
-                    if (!terms) { say("Lūdzu, apstiprini noteikumus"); payBox.current?.scrollIntoView({ behavior: "smooth", block: "center" }); return; }
-                    if (provider && !machineId) { say("Izvēlies pakomātu"); return; }
-                    say("Apstrādājam maksājumu…");
+                    if (!terms) { say(t("co.confirmTerms")); payBox.current?.scrollIntoView({ behavior: "smooth", block: "center" }); return; }
+                    if (provider && !machineId) { say(t("co.pickParcel")); return; }
+                    say(t("co.processing"));
                     void saveDelivery(method, machineId).then(() => startPayment());
                   }}>
-            Maksāt
+            {t("co.pay")}
           </button>
         </div>
       )}

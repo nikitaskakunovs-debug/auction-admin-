@@ -11,6 +11,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
  */
 
 export type Lang = "lv" | "ru" | "en" | "et" | "lt";
+
 export const ALL_LANGS: Lang[] = ["lv", "ru", "en", "et", "lt"];
 
 /** Локаль для дат и чисел. Валюта везде евро, но разделители и порядок
@@ -59,6 +60,41 @@ const STRINGS: Record<string, Record<Lang, string>> = {
   "vn.notReceived": { lv: "Nesaņēmu vēstuli", ru: "Письмо не пришло", en: "I did not get the email", et: "Ma ei saanud kirja", lt: "Negavau laiško" },
   "vn.wrongAddress": { lv: "Nepareiza adrese?", ru: "Неверный адрес?", en: "Wrong address?", et: "Vale aadress?", lt: "Neteisingas adresas?" },
   "vn.registerAgain": { lv: "Reģistrējies vēlreiz", ru: "Зарегистрируйтесь заново", en: "Register again", et: "Registreeru uuesti", lt: "Registruokitės iš naujo" },
+  // ── ОПЛАТА ──────────────────────────────────────────────────
+  "co.title": { lv: "Apmaksa", ru: "Оплата", en: "Checkout", et: "Tasumine", lt: "Apmokėjimas" },
+  "co.notFound": { lv: "Pasūtījums nav atrasts", ru: "Заказ не найден", en: "Order not found", et: "Tellimust ei leitud", lt: "Užsakymas nerastas" },
+  "co.notFoundD": { lv: "Pārbaudi saiti vai atver sarakstu savā kontā.", ru: "Проверьте ссылку или откройте список в личном кабинете.", en: "Check the link or open the list in your account.", et: "Kontrolli linki või ava nimekiri oma kontos.", lt: "Patikrinkite nuorodą arba atverkite sąrašą paskyroje." },
+  "co.myOrders": { lv: "Mani pasūtījumi", ru: "Мои заказы", en: "My orders", et: "Minu tellimused", lt: "Mano užsakymai" },
+  "co.myBids": { lv: "Mani solījumi", ru: "Мои ставки", en: "My bids", et: "Minu pakkumised", lt: "Mano pasiūlymai" },
+  "co.thanks": { lv: "Paldies! Maksājums saņemts", ru: "Спасибо! Платёж получен", en: "Thank you! Payment received", et: "Aitäh! Makse laekus", lt: "Ačiū! Mokėjimas gautas" },
+  "co.thanksD": { lv: "Rēķinu un piegādes informāciju nosūtījām uz e-pastu. Lotu izsūtīsim nākamajā darba dienā.", ru: "Счёт и данные о доставке отправили на почту. Лот отправим на следующий рабочий день.", en: "We have emailed the invoice and delivery details. We will ship the lot on the next working day.", et: "Saatsime arve ja tarneinfo e-postiga. Saadame partii järgmisel tööpäeval.", lt: "Sąskaitą ir pristatymo informaciją išsiuntėme el. paštu. Lotą išsiųsime kitą darbo dieną." },
+  "co.keepBidding": { lv: "Turpināt solīt", ru: "Продолжить торги", en: "Keep bidding", et: "Jätka pakkumist", lt: "Toliau siūlyti" },
+  "co.toHome": { lv: "Uz sākumu", ru: "На главную", en: "To the home page", et: "Avalehele", lt: "Į pradžią" },
+  "co.recipient": { lv: "Saņēmējs", ru: "Получатель", en: "Recipient", et: "Saaja", lt: "Gavėjas" },
+  "co.parcel": { lv: "Pakomāts", ru: "Посылочный автомат", en: "Parcel machine", et: "Pakiautomaat", lt: "Siuntų automatas" },
+  "co.payment": { lv: "Maksājums", ru: "Оплата", en: "Payment", et: "Makse", lt: "Mokėjimas" },
+  "co.order": { lv: "Pasūtījums", ru: "Заказ", en: "Order", et: "Tellimus", lt: "Užsakymas" },
+  "co.fullName": { lv: "Vārds, uzvārds", ru: "Имя и фамилия", en: "Full name", et: "Ees- ja perekonnanimi", lt: "Vardas ir pavardė" },
+  "co.phone": { lv: "Tālrunis", ru: "Телефон", en: "Phone", et: "Telefon", lt: "Telefonas" },
+  "co.pickupAddr": { lv: "Brīvības iela 137, Rīga · darbdienās", ru: "Бривибас 137, Рига · по будням", en: "Brīvības iela 137, Riga · on weekdays", et: "Brīvības iela 137, Riia · tööpäeviti", lt: "Brīvības iela 137, Ryga · darbo dienomis" },
+  "co.parcelEta": { lv: "1–2 darba dienas · izsekojams", ru: "1–2 рабочих дня · с отслеживанием", en: "1–2 working days · tracked", et: "1–2 tööpäeva · jälgitav", lt: "1–2 darbo dienos · su sekimu" },
+  "co.free": { lv: "Bez maksas", ru: "Бесплатно", en: "Free", et: "Tasuta", lt: "Nemokamai" },
+  "co.card": { lv: "Karte", ru: "Карта", en: "Card", et: "Kaart", lt: "Kortelė" },
+  "co.cardD": { lv: "Visa, Mastercard · Klix by Citadele", ru: "Visa, Mastercard · Klix by Citadele", en: "Visa, Mastercard · Klix by Citadele", et: "Visa, Mastercard · Klix by Citadele", lt: "Visa, Mastercard · Klix by Citadele" },
+  "co.instal": { lv: "Maksā pa daļām", ru: "Оплата частями", en: "Pay in instalments", et: "Maksa osade kaupa", lt: "Mokėti dalimis" },
+  "co.instalD": { lv: "Inbank · sadali maksājumu pa mēnešiem", ru: "Inbank · разбейте платёж по месяцам", en: "Inbank · split the payment over months", et: "Inbank · jaga makse kuude peale", lt: "Inbank · išskaidykite mokėjimą mėnesiais" },
+  "co.deliverySaved": { lv: "Piegāde saglabāta", ru: "Доставка сохранена", en: "Delivery saved", et: "Tarne salvestatud", lt: "Pristatymas išsaugotas" },
+  "co.confirmTerms": { lv: "Lūdzu, apstiprini noteikumus", ru: "Пожалуйста, подтвердите условия", en: "Please confirm the terms", et: "Palun kinnita tingimused", lt: "Prašome patvirtinti sąlygas" },
+  "co.pickParcel": { lv: "Izvēlies pakomātu", ru: "Выберите посылочный автомат", en: "Choose a parcel machine", et: "Vali pakiautomaat", lt: "Pasirinkite siuntų automatą" },
+  "co.processing": { lv: "Apstrādājam maksājumu…", ru: "Обрабатываем платёж…", en: "Processing the payment…", et: "Töötleme makset…", lt: "Apdorojame mokėjimą…" },
+  "co.redirecting": { lv: "Novirzām…", ru: "Перенаправляем…", en: "Redirecting…", et: "Suuname…", lt: "Nukreipiame…" },
+  "co.pay": { lv: "Maksāt", ru: "Оплатить", en: "Pay", et: "Maksa", lt: "Mokėti" },
+  "co.totalWithDelivery": { lv: "Kopā ar piegādi", ru: "Итого с доставкой", en: "Total with delivery", et: "Kokku koos tarnega", lt: "Iš viso su pristatymu" },
+  "co.agree": { lv: "Piekrītu", ru: "Согласен с", en: "I agree to the", et: "Nõustun", lt: "Sutinku su" },
+  "co.agreeAnd": { lv: "un apstiprinu, ka esmu iepazinies ar", ru: "и подтверждаю, что ознакомился с", en: "and confirm I have read the", et: "ja kinnitan, et olen tutvunud", lt: "ir patvirtinu, kad susipažinau su" },
+  "co.securePay": { lv: "Droša apmaksa · Klix by Citadele", ru: "Безопасная оплата · Klix by Citadele", en: "Secure payment · Klix by Citadele", et: "Turvaline makse · Klix by Citadele", lt: "Saugus mokėjimas · Klix by Citadele" },
+  "co.wonLot": { lv: "Uzvarētais lots {sku}", ru: "Выигранный лот {sku}", en: "Winning lot {sku}", et: "Võidetud partii {sku}", lt: "Laimėtas lotas {sku}" },
+  "co.payBy": { lv: " · nokārto līdz {date}", ru: " · оплатите до {date}", en: " · pay by {date}", et: " · tasu kuni {date}", lt: " · sumokėkite iki {date}" },
   // ── КАТАЛОГ И ФИЛЬТРЫ ───────────────────────────────────────
   "cg.allActive": { lv: "Visi aktīvie loti", ru: "Все активные лоты", en: "All active lots", et: "Kõik aktiivsed partiid", lt: "Visi aktyvūs lotai" },
   "cg.collAll": { lv: "Visi", ru: "Все", en: "All", et: "Kõik", lt: "Visi" },
