@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useT } from "@/lib/i18n";
 import { Icon } from "./Icon";
 import { say } from "./Toast";
 
@@ -10,6 +11,7 @@ const KEY = "izsoli_cc_v1";
 /** Плашка согласия на cookie из макета. Выбор храним локально —
  *  до появления серверного эндпоинта согласий. */
 export function CookieBanner() {
+  const { t } = useT();
   const [shown, setShown] = useState(false);
   const [analytics, setAnalytics] = useState(false);
   const [marketing, setMarketing] = useState(false);
@@ -21,7 +23,7 @@ export function CookieBanner() {
   useEffect(() => {
     if (!shown) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close("reject", "Neobligātās sīkdatnes noraidītas");
+      if (e.key === "Escape") close("reject", t("cc.rejected"));
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -42,41 +44,38 @@ export function CookieBanner() {
   if (!shown) return null;
 
   return (
-    <section className="cc" aria-label="Sīkdatņu piekrišana">
-      <h3>Sīkdatnes</h3>
-      <p>
-        Nepieciešamās sīkdatnes uztur vietnes darbību. Pārējās ieslēdzam tikai ar tavu piekrišanu —
-        pēc noklusējuma tās ir izslēgtas.
-      </p>
+    <section className="cc" aria-label={t("cc.aria")}>
+      <h3>{t("cc.title")}</h3>
+      <p>{t("cc.intro")}</p>
       <details className="cc-tune">
-        <summary>Pielāgot izvēli <Icon name="chev" /></summary>
+        <summary>{t("cc.tune")} <Icon name="chev" /></summary>
         <div className="cc-opts">
           <div className="cc-opt">
-            <span>Nepieciešamās<small>Pieteikšanās, grozs, drošība</small></span>
+            <span>{t("cc.necessary")}<small>{t("cc.necessaryD")}</small></span>
             <span className="sw" role="switch" aria-checked="true" aria-disabled="true"
-                  aria-label="Nepieciešamās sīkdatnes — vienmēr ieslēgtas" />
+                  aria-label={t("cc.necessaryAria")} />
           </div>
           <div className="cc-opt">
-            <span>Analītika<small>Palīdz saprast, kā vietne tiek lietota</small></span>
+            <span>{t("cc.analytics")}<small>{t("cc.analyticsD")}</small></span>
             <button className="sw" type="button" role="switch" aria-checked={analytics}
-                    aria-label="Analītikas sīkdatnes" onClick={() => setAnalytics((v) => !v)} />
+                    aria-label={t("cc.analyticsAria")} onClick={() => setAnalytics((v) => !v)} />
           </div>
           <div className="cc-opt">
-            <span>Mārketings<small>Personalizēta reklāma citās vietnēs</small></span>
+            <span>{t("cc.marketing")}<small>{t("cc.marketingD")}</small></span>
             <button className="sw" type="button" role="switch" aria-checked={marketing}
-                    aria-label="Mārketinga sīkdatnes" onClick={() => setMarketing((v) => !v)} />
+                    aria-label={t("cc.marketingAria")} onClick={() => setMarketing((v) => !v)} />
           </div>
         </div>
       </details>
       <div className="cc-actions">
         <button className="btn btn-outline" type="button"
-                onClick={() => close("reject", "Neobligātās sīkdatnes noraidītas")}>Noraidīt visas</button>
+                onClick={() => close("reject", t("cc.rejected"))}>{t("cc.rejectAll")}</button>
         <button className="btn btn-outline" type="button"
-                onClick={() => close("accept", "Visas sīkdatnes pieņemtas")}>Pieņemt visas</button>
+                onClick={() => close("accept", t("cc.accepted"))}>{t("cc.acceptAll")}</button>
       </div>
       <p className="cc-more">
-        <Link href="/sikdatnes">Sīkdatņu politika</Link> ·{" "}
-        <button type="button" onClick={() => close("custom", "Izvēle saglabāta")}>Saglabāt manu izvēli</button>
+        <Link href="/sikdatnes">{t("cc.policy")}</Link> ·{" "}
+        <button type="button" onClick={() => close("custom", t("cc.saved"))}>{t("cc.saveMine")}</button>
       </p>
     </section>
   );
