@@ -128,6 +128,10 @@ const STRINGS: Record<string, Record<Lang, string>> = {
   "lp.exampleText": { lv: "Ja iestati {max}, bet konkurents apstājas pie {rival}, tu uzvari par {win}.", ru: "Если задать {max}, а соперник остановится на {rival}, вы победите за {win}.", en: "If you set {max} and a rival stops at {rival}, you win at {win}.", et: "Kui määrad {max} ja konkurent peatub {rival} juures, võidad hinnaga {win}.", lt: "Jei nustatysite {max}, o varžovas sustos ties {rival}, laimėsite už {win}." },
   "lp.finalPrice": { lv: "Gala cena", ru: "Итоговая цена", en: "Final price", et: "Lõpphind", lt: "Galutinė kaina" },
   "lp.vatN": { lv: "PVN ({n} %)", ru: "НДС ({n} %)", en: "VAT ({n}%)", et: "Käibemaks ({n} %)", lt: "PVM ({n} %)" },
+  "lp.description": { lv: "Apraksts", ru: "Описание", en: "Description", et: "Kirjeldus", lt: "Aprašymas" },
+  "lp.lotNo": { lv: "Lots", ru: "Лот", en: "Lot", et: "Partii", lt: "Lotas" },
+  "lp.market": { lv: "Tirgus", ru: "Рынок", en: "Market", et: "Turg", lt: "Rinka" },
+  "nav.cancel": { lv: "Atcelt", ru: "Отмена", en: "Cancel", et: "Tühista", lt: "Atšaukti" },
   // ── ЛОТ С ФИКСИРОВАННОЙ ЦЕНОЙ ───────────────────────────────
   "bn.lot": { lv: "Lots", ru: "Лот", en: "Lot", et: "Partii", lt: "Lotas" },
   "bn.condition": { lv: "Stāvoklis", ru: "Состояние", en: "Condition", et: "Seisukord", lt: "Būklė" },

@@ -183,7 +183,7 @@ export function LotPage({
       <nav className="crumbs" aria-label={t("nav.breadcrumb")}>
         <ol>
           <li><Link href="/">{t("nav.home")}</Link></li>
-          <li><Link href="/katalogs">Katalogs</Link></li>
+          <li><Link href="/katalogs">{t("nav.catalogue")}</Link></li>
           <li aria-current="page">{a.title}</li>
         </ol>
       </nav>
@@ -262,9 +262,9 @@ export function LotPage({
           </div>
 
           <div className="facts">
-            <div><span>Lots</span><b>{a.sku}</b></div>
+            <div><span>{t("lp.lotNo")}</span><b>{a.sku}</b></div>
             {rep.seller && <div><span>{t("lp.seller")}</span><b>{rep.seller}</b></div>}
-            <div><span>Tirgus</span><b>{a.marketCode}</b></div>
+            <div><span>{t("lp.market")}</span><b>{a.marketCode}</b></div>
           </div>
 
           <section className="report" aria-labelledby="rep-t">
@@ -340,7 +340,7 @@ export function LotPage({
             ) : null}
 
             {a.description && (
-              <div><h3>Apraksts</h3><p className="note" style={{ fontSize: 15 }}>{a.description}</p></div>
+              <div><h3>{t("lp.description")}</h3><p className="note" style={{ fontSize: 15 }}>{a.description}</p></div>
             )}
 
             {rep.specs?.length ? (
@@ -667,7 +667,7 @@ export function LotPage({
               {busy ? t("lp.sending") : t("lp.confirmBid")}
             </button>
             <button className="btn btn-outline btn-block" type="button" style={{ marginTop: 8 }}
-                    onClick={() => setConfirm(false)}>Atcelt</button>
+                    onClick={() => setConfirm(false)}>{t("nav.cancel")}</button>
             <p className="note" style={{ textAlign: "center", marginTop: 12 }}>
               {t("lp.bindingNote")}
             </p>
