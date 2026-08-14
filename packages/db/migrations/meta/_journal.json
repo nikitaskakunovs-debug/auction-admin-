@@ -204,6 +204,13 @@
       "when": 1785611281563,
       "tag": "0028_smiling_tarantula",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1786718650692,
+      "tag": "0029_bent_nomad",
+      "breakpoints": true
     }
   ]
 }

@@ -64,6 +64,15 @@ export const STRINGS: Record<string, Record<Lang, string>> = {
   "cd.ended": { lv: "Beidzies", ru: "Завершён", en: "Ended", et: "Lõppenud", lt: "Pasibaigė" },
   "cd.days": { lv: "{n} dienas", ru: "дн.: {n}", en: "{n} days", et: "{n} päeva", lt: "{n} d." },
   "cd.dayH": { lv: "1 diena {h} h", ru: "1 дн. {h} ч", en: "1 day {h} h", et: "1 päev {h} h", lt: "1 d. {h} val." },
+  "cg.kindAll": { lv: "Visi loti", ru: "Все лоты", en: "All lots", et: "Kõik partiid", lt: "Visi lotai" },
+  "cg.kindAuction": { lv: "Izsole", ru: "Аукцион", en: "Auction", et: "Oksjon", lt: "Aukcionas" },
+  "f.cookieSettings": { lv: "Sīkdatņu iestatījumi", ru: "Настройки cookie", en: "Cookie settings", et: "Küpsiste seaded", lt: "Slapukų nustatymai" },
+  "acc.marketing": { lv: "Jaunumi e-pastā", ru: "Новости на почту", en: "Email updates", et: "Uudised e-postiga", lt: "Naujienos el. paštu" },
+  "acc.marketingD": { lv: "Retas vēstules par gaidāmajām izsolēm. Atteikties var jebkurā brīdī.", ru: "Редкие письма о ближайших торгах. Отказаться можно в любой момент.", en: "Occasional emails about upcoming sales. You can opt out at any time.", et: "Harvad kirjad tulevastest oksjonitest. Loobuda saab igal ajal.", lt: "Reti laiškai apie būsimus aukcionus. Atsisakyti galima bet kada." },
+  "acc.marketingOn": { lv: "Jaunumi ieslēgti", ru: "Новости включены", en: "Updates on", et: "Uudised sees", lt: "Naujienos įjungtos" },
+  "acc.marketingFailed": { lv: "Neizdevās saglabāt. Pamēģini vēlreiz.", ru: "Не удалось сохранить. Попробуйте ещё раз.", en: "Could not save. Try again.", et: "Salvestamine ebaõnnestus. Proovi uuesti.", lt: "Nepavyko išsaugoti. Bandykite dar kartą." },
+  "acc.marketingOff": { lv: "Jaunumi izslēgti", ru: "Новости выключены", en: "Updates off", et: "Uudised väljas", lt: "Naujienos išjungtos" },
+  "reg.marketing": { lv: "Gribu saņemt jaunumus par gaidāmajām izsolēm", ru: "Хочу получать новости о ближайших торгах", en: "Send me news about upcoming sales", et: "Soovin uudiseid tulevastest oksjonitest", lt: "Noriu gauti naujienas apie būsimus aukcionus" },
   // ── ХВОСТЫ ИНТЕРФЕЙСА, ВТОРОЙ ЗАХОД ─────────────────────────
   // Подписи для незрячих (aria-label, alt) — такой же интерфейс, как кнопки,
   // и переводить их надо так же. Раньше они оставались латышскими.

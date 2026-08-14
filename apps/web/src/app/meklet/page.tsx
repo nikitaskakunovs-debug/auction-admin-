@@ -1,5 +1,5 @@
 import { API_URL } from "@/lib/config";
-import type { PublicAuction } from "@/lib/types";
+import type { FixedListing, PublicAuction } from "@/lib/types";
 import { Catalogue } from "@/components/Catalogue";
 
 export const dynamic = "force-dynamic";
@@ -17,12 +17,18 @@ export async function generateMetadata({ searchParams }: { searchParams: Promise
 export default async function SearchPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
   const { q } = await searchParams;
   let auctions: PublicAuction[] = [];
+  let listings: FixedListing[] = [];
+  const tail = `limit=100${q ? `&q=${encodeURIComponent(q)}` : ""}`;
   try {
-    const url = `${API_URL}/api/public/auctions?limit=100${q ? `&q=${encodeURIComponent(q)}` : ""}`;
-    const res = await fetch(url, { cache: "no-store" });
-    if (res.ok) auctions = ((await res.json()) as { auctions: PublicAuction[] }).auctions;
+    // Поиск тоже искал только по аукционам: лот «Купить сразу» найти было нельзя.
+    const [aRes, lRes] = await Promise.all([
+      fetch(`${API_URL}/api/public/auctions?${tail}`, { cache: "no-store" }),
+      fetch(`${API_URL}/api/public/listings?${tail}`, { cache: "no-store" }),
+    ]);
+    if (aRes.ok) auctions = ((await aRes.json()) as { auctions: PublicAuction[] }).auctions;
+    if (lRes.ok) listings = ((await lRes.json()) as { listings: FixedListing[] }).listings;
   } catch {
     // API недоступен — покажем пустую выдачу.
   }
-  return <Catalogue auctions={auctions} heading={q ? `Meklēšana: ${q}` : "Meklēšana"} />;
+  return <Catalogue auctions={auctions} listings={listings} heading={q ? `Meklēšana: ${q}` : "Meklēšana"} />;
 }

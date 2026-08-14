@@ -92,7 +92,7 @@ class PublicApi {
     return this.request<T>("POST", path, body);
   }
 
-  async register(input: { email: string; alias: string; password: string; country?: string }): Promise<Bidder> {
+  async register(input: { email: string; alias: string; password: string; country?: string; marketingOptIn?: boolean }): Promise<Bidder> {
     const r = await this.raw<Tokens & { bidder: Bidder }>("POST", "/api/public/auth/register", input);
     this.setTokens({ accessToken: r.accessToken, refreshToken: r.refreshToken });
     return r.bidder;

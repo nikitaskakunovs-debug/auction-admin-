@@ -46,6 +46,8 @@ export interface Bidder {
   /** Подтверждён ли адрес. Пока движок поля не отдаёт, считаем неподтверждённым
    *  только при явном false — иначе баннер висел бы у всех. */
   emailVerified?: boolean;
+  /** Согласие на рассылку. Кабинет показывает состояние и даёт отозвать. */
+  marketingOptIn?: boolean;
 }
 
 export interface FixedListing {

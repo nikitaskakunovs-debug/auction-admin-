@@ -6,10 +6,10 @@ import { useSearchParams } from "next/navigation";
 import { CATEGORY_CODES } from "@/lib/categories";
 import { CONDITION_CODES, conditionBadge } from "@/lib/conditions";
 import { useT } from "@/lib/i18n";
-import { formatEur, type PublicAuction } from "@/lib/types";
+import { formatEur, type FixedListing, type PublicAuction } from "@/lib/types";
 import { useRail } from "@/lib/ui";
 import { Icon } from "./Icon";
-import { LotCard, type CardLot } from "./LotCard";
+import { fixedToCard, LotCard, type CardLot } from "./LotCard";
 import { say } from "./Toast";
 
 /** Каталог утверждённого макета: коллекции, панель фильтров с поповерами,
@@ -34,6 +34,12 @@ const WHENS: Array<[string, string, number]> = [
   ["3d", "when.3d", 259_200],
 ];
 
+/** Тип лота. Каталог, поиск и избранное годами грузили только аукционы,
+ *  поэтому лоты «Купить сразу» не показывались нигде, кроме главной. */
+const KINDS: Array<[string, string]> = [
+  ["all", "cg.kindAll"], ["auction", "cg.kindAuction"], ["fixed", "buy.badge"],
+];
+
 const QUICK: Array<[string, string]> = [
   ["closing", "rail.closing"], ["nores", "rail.noReserve"], ["hot", "quick.hot"],
 ];
@@ -49,7 +55,9 @@ const PRICE_GAP = 10_000;      // минимальный зазор между �
 
 const price = (a: PublicAuction) => a.currentPriceCents ?? a.startPriceCents ?? 0;
 
-export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: string }) {
+export function Catalogue({
+  auctions, listings = [], heading,
+}: { auctions: Row[]; listings?: FixedListing[]; heading?: string }) {
   const { t } = useT();
   const qs = useSearchParams();
   const [coll, setColl] = useState("all");
@@ -61,6 +69,10 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
   const [max, setMax] = useState(PRICE_MAX);
   const [sort, setSort] = useState("ending");
   const [q] = useState(qs.get("q") ?? "");
+  const [kind, setKind] = useState(() => {
+    const v = qs.get("type");
+    return v === "fixed" || v === "auction" ? v : "all";
+  });
   const [open, setOpen] = useState<string | null>(null);
   const [sheet, setSheet] = useState(false);
   const bar = useRef<HTMLDivElement>(null);
@@ -99,34 +111,49 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
 
   const catLabel = (c: string) => (c === "all" ? t("cg.allCats") : t(`cat.${c}`));
 
+  const pool = useMemo<Row[]>(
+    () => [...auctions, ...listings.map(fixedToCard)],
+    [auctions, listings],
+  );
+
   const rows = useMemo(() => {
     const left = (a: Row) => (new Date(a.endsAt).getTime() - now) / 1000;
     const window_ = WHENS.find(([id]) => id === when)![2];
-    const out = auctions.filter((a) => {
+    // Фильтры по времени осмысленны только для аукционов: у лота с
+    // фиксированной ценой конца нет, и NaN тихо прошёл бы любое сравнение.
+    const timeFiltered = when !== "any" || quick.includes("closing") || sort === "ending";
+    const out = pool.filter((a) => {
+      const isFixed = a.kind === "fixed";
+      if (kind !== "all" && (kind === "fixed") !== isFixed) return false;
+      if (isFixed && timeFiltered && sort !== "ending") return false;
       if (coll === "highvalue") { if (!a.retailCents || a.retailCents < 100_000) return false; }
       else if (coll !== "all" && a.collection !== coll) return false;
       if (cat !== "all" && a.category !== cat) return false;
       if (grades.length && !grades.includes(a.condition)) return false;
       const p = price(a);
       if (p < min || p > max) return false;
-      if (left(a) > window_) return false;
-      if (quick.includes("closing") && left(a) > 3_600) return false;
+      if (!isFixed && left(a) > window_) return false;
+      if (!isFixed && quick.includes("closing") && left(a) > 3_600) return false;
       if (quick.includes("nores") && a.hasReserve) return false;
       if (quick.includes("hot") && !a.hot) return false;
       if (q.trim() && !a.title.toLowerCase().includes(q.trim().toLowerCase())) return false;
       return true;
     });
     const cmp: Record<string, (a: Row, b: Row) => number> = {
-      ending: (a, b) => new Date(a.endsAt).getTime() - new Date(b.endsAt).getTime(),
+      // Лоты без даты окончания идут в конец, иначе NaN рассыпает порядок.
+      ending: (a, b) => (new Date(a.endsAt).getTime() || Infinity) - (new Date(b.endsAt).getTime() || Infinity),
       low: (a, b) => price(a) - price(b),
       high: (a, b) => price(b) - price(a),
       bids: (a, b) => b.bidCount - a.bidCount,
     };
     return [...out].sort(cmp[sort]);
-  }, [auctions, coll, cat, grades, quick, when, min, max, q, sort, now]);
+  }, [pool, kind, coll, cat, grades, quick, when, min, max, q, sort, now]);
 
   type Chip = { key: string; label: string; drop: () => void };
   const active: Chip[] = [
+    ...(kind !== "all"
+      ? [{ key: "kind", label: t(KINDS.find(([k]) => k === kind)![1]), drop: () => setKind("all") }]
+      : []),
     ...(coll !== "all"
       ? [{ key: "coll", label: t(COLLS.find(([c]) => c === coll)![1]), drop: () => setColl("all") }] : []),
     ...(cat !== "all" ? [{ key: "cat", label: catLabel(cat), drop: () => setCat("all") }] : []),
@@ -196,6 +223,16 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
           <button key={id} className={`chip${coll === id ? " chip-dark" : ""}`} type="button"
                   aria-pressed={coll === id} style={{ flex: "0 0 auto" }}
                   onClick={() => setColl(id)}>{t(key)}</button>
+        ))}
+      </div>
+
+      {/* Тип лота. Макет ссылается на «?type=fixed» с главной, но каталог
+          этот параметр не читал и лоты «Купить сразу» не грузил вовсе. */}
+      <div className="hrail" style={{ gap: 8, paddingBottom: 8 }}>
+        {KINDS.map(([id, key]) => (
+          <button key={id} className={`chip${kind === id ? " chip-dark" : ""}`} type="button"
+                  aria-pressed={kind === id} style={{ flex: "0 0 auto" }}
+                  onClick={() => setKind(id)}>{t(key)}</button>
         ))}
       </div>
 

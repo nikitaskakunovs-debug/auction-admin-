@@ -23,6 +23,7 @@ import { ReceivingScreen } from "./screens/Receiving.js";
 import { WarehouseStatsScreen } from "./screens/WarehouseStats.js";
 import { BoardScreen } from "./screens/Board.js";
 import { CustomersScreen } from "./screens/Customers.js";
+import { ConsentsScreen } from "./screens/Consents.js";
 import { SettingsScreen } from "./screens/Settings.js";
 import { ActivityScreen } from "./screens/Activity.js";
 import { FinanceScreen } from "./screens/Finance.js";
@@ -82,6 +83,9 @@ const SCREENS: ScreenDef[] = [
   { id: "customers", labelKey: "sh.nav.customers", icon: "users", permission: "customers.view", render: (nav) => <CustomersScreen nav={nav} /> },
   // W6: the profit/stock-value tab answers to finance.view — Sales Manager
   // holds it without invoices.view and must still reach the screen.
+  // Согласия на cookie: доказывать их — обязанность компании, поэтому им нужно
+  // место в панели, а не только в браузере посетителя.
+  { id: "consents", labelKey: "sh.nav.consents", icon: "shield", permission: "customers.view", render: () => <ConsentsScreen /> },
   { id: "finance", labelKey: "sh.nav.finance", icon: "finance", permission: ["invoices.view", "finance.view"], render: (nav) => <FinanceScreen nav={nav} /> },
   { id: "content", labelKey: "sh.nav.content", icon: "list", permission: "content.view", render: (nav) => <ContentScreen nav={nav} /> },
   { id: "settings", labelKey: "sh.nav.settings", icon: "settings", permission: "settings.view", render: (nav) => <SettingsScreen nav={nav} /> },

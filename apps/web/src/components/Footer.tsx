@@ -7,6 +7,7 @@ import type { Country } from "@/lib/country";
 import { pickLocalized, type Localized } from "@/lib/localized";
 import { Icon } from "./Icon";
 import { COUNTRY_LABEL, LANG_NAME, RegionMenu } from "./RegionMenu";
+import { CookieSettingsLink } from "./CookieBanner";
 
 /** Подвал утверждённого макета: тёмный, четыре колонки, соцсети, юр. текст.
  *  Колонка «Uzņēmums» подмешивает страницы из CMS, если они есть. */
@@ -99,6 +100,9 @@ export function Footer({ pages, country = "LV" }: { pages: Array<{ slug: string;
         <Link href="/lietosanas-noteikumi">{t("f.terms")}</Link>
         <Link href="/privatuma-politika">{t("f.privacy")}</Link>
         <Link href="/sikdatnes">{t("f.cookies")}</Link>
+        {/* Отозвать согласие должно быть так же просто, как дать его. Раньше
+            в подвале была только ссылка на текст политики. */}
+        <CookieSettingsLink label={t("f.cookieSettings")} />
         <Link href="/sudzibas">{t("f.complaints")}</Link>
         <Link href="/pieejamiba">{t("f.accessibility")}</Link>
         <Link href="/sitemap.xml">{t("f.sitemap")}</Link>

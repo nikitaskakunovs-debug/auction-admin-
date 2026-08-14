@@ -9,7 +9,7 @@ import { useRail } from "@/lib/ui";
 import { Banners } from "./Banners";
 import { Hero } from "./Hero";
 import { Icon } from "./Icon";
-import { LotCard, LotSkeleton, type CardLot } from "./LotCard";
+import { fixedToCard, LotCard, LotSkeleton, type CardLot } from "./LotCard";
 import { Brands, Faq, LiveBand, MyBids, SecHead, SeoBlock, WhyUs } from "./Sections";
 
 const PAGE = 8;
@@ -127,21 +127,11 @@ export function HomeSections({
         <section className="section wrap">
           <SecHead title={t("home.buyNow")} sub={t("hs.buyNowSub")}
                    link={t("hs.allOffers")} href="/katalogs?type=fixed" />
+          {/* Своя разметка тут показывала иконку коробки вместо фотографии и не
+              показывала цену вообще. Общая карточка умеет и то, и другое. */}
           <div className="hrail">
             {listings.slice(0, 6).map((l) => (
-              <article className="lot" key={l.id}>
-                <div className="lot-art">
-                  <div className="gal">
-                    <span className="frame frame-1 on"><Icon name="box" className="pic" /></span>
-                  </div>
-                  <span className="lot-cat"><Icon name="box" /></span>
-                </div>
-                <div className="lot-body">
-                  <p className="lot-top"><span className="id">{l.sku}</span></p>
-                  <h3><Link href={`/listing/${l.id}`}>{l.title}</Link></h3>
-                  <Link className="btn btn-primary btn-block" href={`/listing/${l.id}`}>{t("hs.buy")}</Link>
-                </div>
-              </article>
+              <LotCard key={l.id} lot={fixedToCard(l)} />
             ))}
           </div>
         </section>

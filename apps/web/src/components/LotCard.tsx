@@ -8,7 +8,7 @@ import { conditionLabel } from "@/lib/conditions";
 import { increment } from "@/lib/fees";
 import { dateLocale, useT } from "@/lib/i18n";
 import { photoThumb } from "@/lib/photos";
-import { formatEur, type PublicAuction } from "@/lib/types";
+import { formatEur, type FixedListing, type PublicAuction } from "@/lib/types";
 import { alertStore } from "@/lib/ui";
 import { watchStore } from "@/lib/watch";
 import { Icon } from "./Icon";
@@ -31,7 +31,32 @@ export type CardLot = PublicAuction & {
   packaging?: string | null;
   categoryIcon?: string | null;
   hot?: boolean | null;
+  /** «auction» по умолчанию. «fixed» — лот с фиксированной ценой: у него нет
+   *  ни отсчёта, ни ставок, и ведёт он на /listing, а не на /auction. */
+  kind?: "auction" | "fixed";
+  soldOut?: boolean;
 };
+
+/** Лот с фиксированной ценой в виде карточки каталога.
+ *
+ *  Каталог, поиск и избранное построены вокруг аукционов, поэтому лоты
+ *  «Купить сразу» в них не попадали вообще — их можно было увидеть только в
+ *  ленте на главной. Приводим их к той же форме, чтобы они шли общим потоком. */
+export function fixedToCard(l: FixedListing): CardLot {
+  return {
+    id: l.id, title: l.title, description: l.description, sku: l.sku,
+    condition: l.condition, conditionNotes: l.conditionNotes, category: l.category,
+    photos: l.photos, marketCode: l.marketCode,
+    kind: "fixed",
+    soldOut: l.soldOut === true,
+    status: l.soldOut === true ? "sold_out" : "fixed",
+    // Отсчёта у такого лота нет: пустая дата даёт NaN, а любое сравнение с NaN
+    // ложно — карточка сама не покажет ни таймер, ни «заканчивается».
+    startsAt: "", endsAt: "",
+    startPriceCents: l.priceCents, currentPriceCents: l.priceCents,
+    bidCount: 0, leaderAlias: null, hasReserve: false, reserveMet: true,
+  };
+}
 
 const CAT_ICON: Record<string, string> = {
   electronics: "tv", appliances: "coffee", furniture: "chair", tools: "tools",
@@ -64,8 +89,10 @@ export function LotCard({ lot }: { lot: CardLot }) {
     return alertStore.subscribe(() => setAlerted(alertStore.has(lot.id)));
   }, [lot.id]);
 
+  const fixed = lot.kind === "fixed";
+  const href = fixed ? `/listing/${lot.id}` : `/auction/${lot.id}`;
   const isLive = lot.status === "live";
-  const settled = lot.status.startsWith("ended");
+  const settled = fixed ? lot.soldOut === true : lot.status.startsWith("ended");
   const shots = lot.photos.length ? lot.photos : new Array<string | null>(FRAMES).fill(null);
   const price = live?.price ?? lot.currentPriceCents ?? lot.startPriceCents ?? 0;
   const bidCount = live?.bids ?? lot.bidCount;
@@ -93,7 +120,7 @@ export function LotCard({ lot }: { lot: CardLot }) {
   const bid = async (e: React.MouseEvent) => {
     stop(e);
     if (settled || over) { say(t("lc.ended")); return; }
-    if (!publicApi.hasSession) { router.push(`/login?next=/auction/${lot.id}`); return; }
+    if (!publicApi.hasSession) { router.push(`/login?next=${href}`); return; }
     setBusy(true);
     try {
       const r = await publicApi.post<{ youLead: boolean; currentPriceCents: number; extended: boolean }>(
@@ -115,7 +142,8 @@ export function LotCard({ lot }: { lot: CardLot }) {
 
   // Строка аукционных состояний под ценой — `.chant` макета.
   const chant: [string, string] | null =
-    settled
+    fixed ? null
+    : settled
       ? (lot.hasReserve && !lot.reserveMet ? ["chant-pass", t("lc.unsoldReserve")]
         : ["chant-sold", t("lc.soldFor", { sum: formatEur(price) })])
       : live?.youLead ? ["chant-win", t("lc.youTop")]
@@ -124,7 +152,9 @@ export function LotCard({ lot }: { lot: CardLot }) {
       : isLive && left > 0 && left < 90_000 ? ["chant-go1", t("lc.first")]
       : null;
 
-  const timeLabel = settled || over
+  const timeLabel = fixed
+    ? (lot.soldOut ? t("buy.soldOut") : t("buy.badge"))
+    : settled || over
     ? (settled ? (lot.hasReserve && !lot.reserveMet ? t("lc.unsold") : t("lc.sold")) : t("lc.over"))
     : isLive ? t("lc.endsIn", { left: formatLeft(left, lang) })
     : t("lc.startsOn", { date: new Date(lot.startsAt).toLocaleDateString(dateLocale(lang)) });
@@ -177,8 +207,9 @@ export function LotCard({ lot }: { lot: CardLot }) {
 
         <div className="lot-tags">
           {lot.hot && <span className="tag tag-live">{t("lc.hot")}</span>}
-          {!lot.hasReserve && isLive && <span className="tag">{t("lr.noReserve")}</span>}
-          {lot.hasReserve && !lot.reserveMet && <span className="tag">{t("a.reserveNotMet")}</span>}
+          {fixed && <span className="tag">{t("buy.badge")}</span>}
+          {!fixed && !lot.hasReserve && isLive && <span className="tag">{t("lr.noReserve")}</span>}
+          {!fixed && lot.hasReserve && !lot.reserveMet && <span className="tag">{t("a.reserveNotMet")}</span>}
         </div>
 
         {off !== null && <span className="tag tag-off">−{off} %</span>}
@@ -204,8 +235,8 @@ export function LotCard({ lot }: { lot: CardLot }) {
         <span className="lot-cat"><Icon name={icon} /></span>
 
         {settled && (
-          <div className={`sold-ov${lot.hasReserve && !lot.reserveMet ? " passed" : ""}`}>
-            <b>{lot.hasReserve && !lot.reserveMet ? t("lc.unsold") : t("lc.sold")}</b>
+          <div className={`sold-ov${!fixed && lot.hasReserve && !lot.reserveMet ? " passed" : ""}`}>
+            <b>{fixed ? t("buy.soldOut") : lot.hasReserve && !lot.reserveMet ? t("lc.unsold") : t("lc.sold")}</b>
           </div>
         )}
       </div>
@@ -228,7 +259,7 @@ export function LotCard({ lot }: { lot: CardLot }) {
                 ].filter(Boolean).join(" ") || undefined}>{timeLabel}</time>
         </p>
 
-        <h3><Link href={`/auction/${lot.id}`}>{lot.title}</Link></h3>
+        <h3><Link href={href}>{lot.title}</Link></h3>
 
         <div className="grades">
           <span className="grade"><Icon name="shield" />{conditionLabel(lot.condition, t)}</span>
@@ -237,7 +268,9 @@ export function LotCard({ lot }: { lot: CardLot }) {
 
         <div className="price-row">
           <div>
-            <p className="price-lab">{t("lc.currentN", { n: bidCount })}<span className="sr">{t("lc.bidsSr")}</span></p>
+            <p className="price-lab">
+              {fixed ? t("buy.price") : <>{t("lc.currentN", { n: bidCount })}<span className="sr">{t("lc.bidsSr")}</span></>}
+            </p>
             <p className={`price tnum${live?.youLead ? " is-win" : ""}`}>{formatEur(price)}</p>
           </div>
           {lot.retailCents ? (
@@ -257,8 +290,12 @@ export function LotCard({ lot }: { lot: CardLot }) {
           <p className={`chant ${chant[0]}`}><i aria-hidden="true" />{chant[1]}</p>
         )}
 
-        {settled || over || !isLive ? (
-          <Link className="btn btn-outline btn-block bid-btn" href={`/auction/${lot.id}`}>
+        {fixed ? (
+          <Link className={`btn btn-block bid-btn ${lot.soldOut ? "btn-outline" : "btn-primary"}`} href={href}>
+            {lot.soldOut ? t("buy.soldOut") : t("hs.buy")}
+          </Link>
+        ) : settled || over || !isLive ? (
+          <Link className="btn btn-outline btn-block bid-btn" href={href}>
             {settled && !(lot.hasReserve && !lot.reserveMet)
               ? t("lc.soldFor", { sum: formatEur(price) })
               : t("lc.viewLot")}

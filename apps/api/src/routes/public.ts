@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import {
   auctions,
   bids,
+  cookieConsents,
   customerFees,
   customerRefreshTokens,
   customers,
@@ -99,6 +100,9 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
     password: z.string().min(8),
     name: z.string().max(120).optional(),
     country: z.enum(["LV", "EE", "LT"]).optional(),
+    /** Согласие на рассылку. Отдельная галочка, по умолчанию снятая: молчание
+     *  согласием не является, а из самого факта регистрации оно не следует. */
+    marketingOptIn: z.boolean().optional(),
     /** The storefront's active language — the one we write emails in. Latvia
      * runs a Latvian and a Russian site, and country alone cannot tell them
      * apart. Estonian and Lithuanian visitors get English until that copy
@@ -119,6 +123,9 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
         lang: body.data.lang === "lv" || body.data.lang === "ru" ? body.data.lang : body.data.lang ? "en" : null,
         marketCode: body.data.country ?? null,
         passwordHash: await hashPassword(body.data.password),
+        marketingOptIn: body.data.marketingOptIn === true,
+        marketingOptInAt: body.data.marketingOptIn === true ? ctx.now() : null,
+        marketingSource: body.data.marketingOptIn === true ? "register" : null,
       })
       .onConflictDoNothing()
       .returning({ id: customers.id, email: customers.email, alias: customers.alias });
@@ -212,7 +219,14 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
     if (!id) return;
     const [c] = await ctx.db.select().from(customers).where(eq(customers.id, id));
     if (!c || c.erasedAt !== null) return reply.code(401).send({ error: "unauthenticated" });
-    return { bidder: { id: c.id, email: c.email, alias: c.alias, country: c.country, blocked: c.blocked, strikes: c.strikes } };
+    return {
+      bidder: {
+        id: c.id, email: c.email, alias: c.alias, country: c.country,
+        blocked: c.blocked, strikes: c.strikes,
+        // Кабинет показывает состояние подписки и даёт отозвать её в один клик.
+        marketingOptIn: c.marketingOptIn,
+      },
+    };
   });
 
   // ── Browse ────────────────────────────────────────────────────────────────
@@ -333,6 +347,94 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
   });
 
   // ── My activity ───────────────────────────────────────────────────────────
+
+  /* ── СОГЛАСИЯ ──────────────────────────────────────────────────────────
+   *
+   * Раньше выбор в плашке cookie записывался только в браузер человека и не
+   * читался вообще ничем. Доказать согласие было нечем (GDPR ст. 7 п. 1),
+   * увидеть его в панели — негде, а на втором устройстве плашка спрашивала
+   * заново. Теперь каждое решение — строка в журнале.
+   */
+
+  /** Действующая редакция текста о cookie. Меняется вместе с текстом: старые
+   *  согласия остаются привязанными к той редакции, на которую соглашались. */
+  const COOKIE_POLICY_VERSION = "2026-08-14";
+
+  const consentSchema = z.object({
+    visitorId: z.string().min(8).max(64),
+    mode: z.enum(["accept", "reject", "custom"]),
+    analytics: z.boolean(),
+    marketing: z.boolean(),
+  });
+
+  app.post("/api/public/consent", async (req, reply) => {
+    const body = consentSchema.safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid_body" });
+    const [row] = await ctx.db
+      .insert(cookieConsents)
+      .values({
+        customerId: req.bidder?.sub ?? null,
+        visitorId: body.data.visitorId,
+        mode: body.data.mode,
+        analytics: body.data.analytics,
+        marketing: body.data.marketing,
+        policyVersion: COOKIE_POLICY_VERSION,
+        host: String(req.headers.host ?? ""),
+        ip: req.ip,
+        userAgent: String(req.headers["user-agent"] ?? "").slice(0, 300),
+      })
+      .returning({ id: cookieConsents.id, createdAt: cookieConsents.createdAt });
+    return { ok: true, id: row!.id, at: row!.createdAt, policyVersion: COOKIE_POLICY_VERSION };
+  });
+
+  /** Последнее решение — по посетителю или по вошедшему человеку.
+   *
+   *  Именно это избавляет от повторного вопроса на втором устройстве: если
+   *  человек вошёл, согласие едет за аккаунтом, а не за браузером. */
+  app.get("/api/public/consent", async (req) => {
+    const visitorId = (req.query as { visitorId?: string }).visitorId;
+    const me = req.bidder?.sub ?? null;
+    if (!me && !visitorId) return { consent: null, policyVersion: COOKIE_POLICY_VERSION };
+    const [row] = await ctx.db
+      .select()
+      .from(cookieConsents)
+      .where(me ? eq(cookieConsents.customerId, me) : eq(cookieConsents.visitorId, visitorId!))
+      .orderBy(desc(cookieConsents.createdAt))
+      .limit(1);
+    if (!row) return { consent: null, policyVersion: COOKIE_POLICY_VERSION };
+    return {
+      consent: {
+        mode: row.mode,
+        analytics: row.analytics,
+        marketing: row.marketing,
+        policyVersion: row.policyVersion,
+        at: row.createdAt,
+      },
+      // Текст изменился — согласие на прежнюю редакцию больше не действует.
+      stale: row.policyVersion !== COOKIE_POLICY_VERSION,
+      policyVersion: COOKIE_POLICY_VERSION,
+    };
+  });
+
+  /** Согласие на рассылку: дать и отозвать. Отзыв обязан быть так же прост,
+   *  как согласие, — поэтому это один и тот же маршрут с булевым полем. */
+  app.post("/api/public/me/marketing", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const body = z.object({ optIn: z.boolean() }).safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid_body" });
+    const now = ctx.now();
+    await ctx.db
+      .update(customers)
+      .set(
+        body.data.optIn
+          ? { marketingOptIn: true, marketingOptInAt: now, marketingSource: "account", marketingOptOutAt: null }
+          // Дату согласия не стираем: отзыв тоже нужно уметь показать.
+          : { marketingOptIn: false, marketingOptOutAt: now },
+      )
+      .where(eq(customers.id, bidderId));
+    return { optIn: body.data.optIn };
+  });
 
   app.get("/api/public/me/bids", async (req, reply) => {
     const bidderId = requireBidder(req, reply);

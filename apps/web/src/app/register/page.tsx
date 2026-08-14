@@ -14,6 +14,7 @@ export default function RegisterPage() {
   const [alias, setAlias] = useState("");
   const [password, setPassword] = useState("");
   const [country, setCountry] = useState("LV");
+  const [marketing, setMarketing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
@@ -23,7 +24,7 @@ export default function RegisterPage() {
     setBusy(true);
     setError(null);
     try {
-      await publicApi.register({ email: email.trim().toLowerCase(), alias: alias.trim(), password, country });
+      await publicApi.register({ email: email.trim().toLowerCase(), alias: alias.trim(), password, country, marketingOptIn: marketing });
       setDone(true);
     } catch (err) {
       if (err instanceof PublicApiError && err.body.error === "email_exists") setError("Email already registered.");
@@ -54,6 +55,12 @@ export default function RegisterPage() {
           <option value="EE">{t("reg.countryEE")}</option>
           <option value="LT">{t("reg.countryLT")}</option>
         </select>
+        {/* Согласие на рассылку — отдельной галочкой и по умолчанию снятой.
+            Из факта регистрации согласие на рекламу не следует. */}
+        <label className="maxrow" style={{ marginTop: 4 }}>
+          <input type="checkbox" checked={marketing} onChange={(e) => setMarketing(e.target.checked)} />
+          <span>{t("reg.marketing")}</span>
+        </label>
         {error && <div className="auth-err">{error}</div>}
         <button className="btn btn-primary btn-lg btn-block" type="submit" disabled={busy || !email || !alias || password.length < 8}>{t("auth.register")}</button>
       </form>

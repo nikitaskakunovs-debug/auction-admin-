@@ -503,7 +503,7 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
           <>
             <ATable head={[
               <input key="all" type="checkbox" checked={allSelected} onChange={toggleAll} style={checkboxStyle} aria-label={t("cust.aria.selectAll")} />,
-              t("cust.th.bidder"), t("cust.th.tags"), t("cust.th.country"), t("cust.th.strikes"), t("cust.th.feesDue"), t("c.status"), t("cust.th.joined"),
+              t("cust.th.bidder"), t("cust.th.tags"), t("cust.th.country"), t("cust.th.strikes"), t("cust.th.feesDue"), t("cust.th.marketing"), t("c.status"), t("cust.th.joined"),
             ]}>
               {rows.map((c) => {
                 const erased = c.erasedAt !== null;
@@ -549,6 +549,15 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
                       {(c.outstandingFeeCents ?? 0) > 0
                         ? <strong style={{ color: AT.danger }}>{formatEur(c.outstandingFeeCents!)}</strong>
                         : <span style={{ color: AT.inkSoft }}>—</span>}
+                    </ATd>
+                    {/* Кому законно писать рассылку. Без даты согласие ничего
+                        не стоит, поэтому она в подсказке. */}
+                    <ATd>
+                      {c.marketingOptIn
+                        ? <span title={c.marketingOptInAt ? `${formatDay(c.marketingOptInAt)} · ${c.marketingSource ?? ""}` : undefined}>
+                            <ABadge tone="ok">{t("cust.mk.yes")}</ABadge>
+                          </span>
+                        : <span style={{ color: AT.inkSoft, fontSize: 12 }}>{t("cust.mk.no")}</span>}
                     </ATd>
                     <ATd>
                       {erased ? <ABadge tone="neutral">{t("cust.st.erased")}</ABadge> : c.blocked ? <ABadge tone="danger">{t("cust.st.blocked")}</ABadge> : <ABadge tone="ok">{t("cust.st.active")}</ABadge>}
