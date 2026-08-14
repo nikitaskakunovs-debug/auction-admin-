@@ -1,6 +1,6 @@
 import { SEED_ADMIN_TOTP_SECRET } from "@auction/db";
 import { base32Decode, totp } from "@auction/domain";
-import { type APIRequestContext, expect } from "@playwright/test";
+import { type APIRequestContext, type Page, expect } from "@playwright/test";
 
 const API = "http://localhost:4000";
 
@@ -143,4 +143,21 @@ export async function markOrderPaid(request: APIRequestContext, orderRef: string
   expect(order, `order ${orderRef} awaiting payment`).toBeTruthy();
   const res = await request.post(`${API}/api/orders/${order.id}/mark-paid`, { headers: h });
   expect(res.ok(), "mark paid").toBeTruthy();
+}
+
+/**
+ * Place a bid through the redesigned lot page. Bidding is deliberately two
+ * clicks now: the button on the bid box opens a dialog that spells out the
+ * premium, the VAT and the total before any money is committed, and only the
+ * button inside that dialog actually bids.
+ *
+ * The selectors are scoped to the bid box on purpose — the page also shows a
+ * carousel of similar lots, and every one of those cards carries its own
+ * "Solīt · …" button.
+ */
+export async function bidViaUi(page: Page, amountEur: string): Promise<void> {
+  const box = page.locator(".bidbox");
+  await box.locator("#amt").fill(amountEur);
+  await box.getByRole("button", { name: /Solīt|Bid|Paku|Siūlyti|Ставка/ }).click();
+  await page.getByRole("button", { name: /Apstiprināt solījumu|Confirm bid|Подтвердить ставку/ }).click();
 }

@@ -30,3 +30,13 @@ const KNOWN = new Set<string>(CONDITION_CODES);
 export function conditionLabel(code: string, t: (key: string) => string): string {
   return KNOWN.has(code) ? t(`cond.${code}`) : code;
 }
+
+/** Короткий бейдж A+/A/A−/B/D для 16 кодов состояния — им подписаны чипы
+ *  в фильтрах каталога и в справочнике состояний. */
+export function conditionBadge(code: string): string {
+  if (code === "brand_new" || code === "new_no_package") return "A+";
+  if (code.startsWith("open_package") || code.startsWith("new_")) return "A";
+  if (code === "lightly_used" || code === "refurbished" || code === "display_model") return "A−";
+  if (code.startsWith("used") || code === "previously_assembled") return "B";
+  return "D";
+}

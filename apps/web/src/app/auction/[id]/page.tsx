@@ -5,10 +5,22 @@ import { API_URL } from "@/lib/config";
 import { resolveCountry, SITE_ORIGINS } from "@/lib/country";
 import { alternatesFor } from "@/lib/seo";
 import { jsonLdScript } from "@/lib/jsonld";
-import type { AuctionDetail } from "@/lib/types";
-import { LiveAuction } from "@/components/LiveAuction";
+import type { AuctionDetail, PublicAuction } from "@/lib/types";
+import { LotPage } from "@/components/LotPage";
 
 export const dynamic = "force-dynamic";
+
+/** Похожие лоты той же категории — блок «Vēl šajā kategorijā» из макета. */
+async function fetchRelated(category: string, exceptId: string): Promise<PublicAuction[]> {
+  try {
+    const res = await fetch(`${API_URL}/api/public/auctions`, { cache: "no-store" });
+    if (!res.ok) return [];
+    const { auctions } = (await res.json()) as { auctions: PublicAuction[] };
+    return auctions.filter((x) => x.id !== exceptId && x.category === category).slice(0, 4);
+  } catch {
+    return [];
+  }
+}
 
 async function fetchDetail(id: string): Promise<AuctionDetail | null> {
   try {
@@ -55,10 +67,12 @@ export default async function AuctionPage({ params }: { params: Promise<{ id: st
     },
   };
 
+  const related = await fetchRelated(a.category, a.id);
+
   return (
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdScript(jsonLd) }} />
-      <LiveAuction initial={detail} />
+      <LotPage initial={detail} related={related} />
     </>
   );
 }

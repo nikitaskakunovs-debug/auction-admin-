@@ -4,7 +4,8 @@ import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { publicApi } from "@/lib/api";
 import { useT } from "@/lib/i18n";
-import { AuthCard, authInput, authButton } from "@/components/authUi";
+import { AuthCard } from "@/components/authUi";
+import Link from "next/link";
 
 function ResetForm() {
   const { t } = useT();
@@ -31,25 +32,25 @@ function ResetForm() {
   if (done) {
     return (
       <AuthCard title={t("auth.resetTitle")}>
-        <p style={{ fontSize: 14, color: "#3B3B38", margin: 0 }}>{t("auth.resetDone")}</p>
-        <a href="/login" style={{ color: "#2D4BFF", fontWeight: 700, fontSize: 13 }}>{t("auth.signin")}</a>
+        <p className="note" style={{ fontSize: 15 }}>{t("auth.resetDone")}</p>
+        <Link className="btn btn-outline btn-block" href="/login">{t("auth.signin")}</Link>
       </AuthCard>
     );
   }
 
   return (
     <AuthCard title={t("auth.resetTitle")}>
-      <form onSubmit={submit} style={{ display: "grid", gap: 12 }}>
+      <form onSubmit={submit} className="fields">
         <input
-          style={authInput}
+          
           type="password"
           placeholder={t("auth.newPassword")}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           autoFocus
         />
-        {error && <div style={{ color: "#B0282C", fontSize: 12.5, fontWeight: 600 }}>{error}</div>}
-        <button style={authButton} type="submit" disabled={busy || password.length < 8 || !token}>
+        {error && <div className="auth-err">{error}</div>}
+        <button className="btn btn-primary btn-lg btn-block" type="submit" disabled={busy || password.length < 8 || !token}>
           {t("auth.resetSave")}
         </button>
       </form>

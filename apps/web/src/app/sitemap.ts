@@ -11,7 +11,19 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const origin = originForHost((await headers()).get("host"));
   const entries: MetadataRoute.Sitemap = [
     { url: origin, changeFrequency: "hourly", priority: 1 },
+    { url: `${origin}/katalogs`, changeFrequency: "hourly", priority: 0.9 },
+    { url: `${origin}/tiesraide`, changeFrequency: "hourly", priority: 0.8 },
+    { url: `${origin}/rezultati`, changeFrequency: "daily", priority: 0.6 },
+    { url: `${origin}/zimoli`, changeFrequency: "daily", priority: 0.5 },
+    { url: `${origin}/buj`, changeFrequency: "monthly", priority: 0.5 },
+    { url: `${origin}/pardod`, changeFrequency: "monthly", priority: 0.5 },
+    { url: `${origin}/kontakti`, changeFrequency: "monthly", priority: 0.4 },
     { url: `${origin}/conditions`, changeFrequency: "monthly", priority: 0.4 },
+    ...["noteikumi", "automatiskais-solitajs", "maksajumi", "piegade", "iznemsana",
+        "atteikuma-tiesibas", "bojata-prece", "pass", "lietosanas-noteikumi",
+        "privatuma-politika", "sikdatnes", "sudzibas", "pieejamiba"].map((slug) => ({
+      url: `${origin}/${slug}`, changeFrequency: "monthly" as const, priority: 0.3,
+    })),
   ];
   try {
     const [aRes, lRes] = await Promise.all([

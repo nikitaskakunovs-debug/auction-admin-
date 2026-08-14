@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { createLiveAuction, placeBidApi, registerBidderApi, uniq } from "./fixtures.js";
+import { bidViaUi, createLiveAuction, placeBidApi, registerBidderApi, uniq } from "./fixtures.js";
 
 /** Register a bidder through the storefront UI (exercises the real flow). */
 async function registerViaUi(page: Page, alias: string): Promise<void> {
@@ -25,8 +25,7 @@ test("storefront: register, bid, and take the lead", async ({ page, request }) =
   // Bid the exact minimum the API advertises (+ nothing) and expect the lead.
   const detail = await (await request.get(`http://localhost:4000/api/public/auctions/${auctionId}`)).json();
   const minEur = (detail.minNextBidCents / 100).toFixed(2);
-  await page.fill('input[inputmode="decimal"]', minEur);
-  await page.click("text=/Place bid|Solīt|ставку/");
+  await bidViaUi(page, minEur);
 
   await expect(page.locator("text=/You are leading|Jūs vadāt/").first()).toBeVisible();
 });
@@ -38,8 +37,7 @@ test("storefront: outbid updates live over WebSocket without reload", async ({ p
   await registerViaUi(page, uniq("wsA"));
   await page.goto(`/auction/${auctionId}`);
   const detail = await (await request.get(`http://localhost:4000/api/public/auctions/${auctionId}`)).json();
-  await page.fill('input[inputmode="decimal"]', (detail.minNextBidCents / 100).toFixed(2));
-  await page.click("text=/Place bid|Solīt/");
+  await bidViaUi(page, (detail.minNextBidCents / 100).toFixed(2));
   await expect(page.locator("text=/You are leading|Jūs vadāt/").first()).toBeVisible();
 
   // Bidder B outbids via the API; A's open page must reflect the change live.
@@ -51,15 +49,18 @@ test("storefront: outbid updates live over WebSocket without reload", async ({ p
   await expect(page.locator(`text=${b.alias}`).first()).toBeVisible({ timeout: 15_000 });
 });
 
-test("storefront: sad paths — below-minimum bid is rejected with the minimum shown", async ({ page, request }) => {
+test("storefront: sad paths — a below-minimum bid cannot be sent, and the minimum is shown", async ({ page, request }) => {
   const { auctionId } = await createLiveAuction(request, { startPriceCents: 5_000 });
   await registerViaUi(page, uniq("sad"));
   await page.goto(`/auction/${auctionId}`);
 
-  // €0.01 is far below the start price → the UI surfaces the minimum bid.
-  // The rejection notice includes a colon ("Minimum bid: €50.00"), which
-  // distinguishes it from the field label above the input.
-  await page.fill('input[inputmode="decimal"]', "0.01");
-  await page.click("text=/Place bid|Solīt/");
-  await expect(page.locator("text=/Minimum bid:|Minimālais solījums:/")).toBeVisible();
+  // €0.01 is far below the start price. The redesign refuses it at the button
+  // instead of sending it and reporting the server's rejection, so what we
+  // check is that the bid cannot leave the page and that the sum it would have
+  // to reach is written right underneath. (The server still refuses it too —
+  // that rejection is covered by the API tests.)
+  const box = page.locator(".bidbox");
+  await box.locator("#amt").fill("0.01");
+  await expect(box.getByRole("button", { name: /Solīt|Bid/ })).toBeDisabled();
+  await expect(box.locator("text=/Next minimum|Nākamais minimums/")).toBeVisible();
 });

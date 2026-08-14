@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { createLiveAuction, markOrderPaid, uniq } from "./fixtures.js";
+import { bidViaUi, createLiveAuction, markOrderPaid, uniq } from "./fixtures.js";
 
 async function registerViaUi(page: Page, alias: string): Promise<void> {
   await page.goto("/register");
@@ -20,8 +20,7 @@ test("full journey: register → bid → win → pay → track", async ({ page, 
 
   await page.goto(`/auction/${auctionId}`);
   const detail = await (await request.get(`http://localhost:4000/api/public/auctions/${auctionId}`)).json();
-  await page.fill('input[inputmode="decimal"]', (detail.minNextBidCents / 100).toFixed(2));
-  await page.click("text=/Place bid|Solīt/");
+  await bidViaUi(page, (detail.minNextBidCents / 100).toFixed(2));
   await expect(page.locator("text=/You are leading|Jūs vadāt/").first()).toBeVisible();
 
   // Wait for the scheduler to close the auction and create the order, then
@@ -43,7 +42,12 @@ test("full journey: register → bid → win → pay → track", async ({ page, 
   expect(refText).toMatch(/A-\d+/);
   await markOrderPaid(request, refText!.trim());
 
-  // The bidder tracks the status flipping to paid.
+  // The bidder tracks the payment landing. The redesigned account does not
+  // stop at the word "paid": a paid order moves into the collection section
+  // and shows the code the warehouse will ask for, which is the thing the
+  // customer actually needs.
   await page.reload();
-  await expect(page.locator("text=/Paid|Apmaksāts/")).toBeVisible();
+  await expect(page.locator("text=/Ready for warehouse pickup|Gatavs saņemšanai noliktavā/").first())
+    .toBeVisible();
+  await expect(page.locator("text=/Pickup code|Saņemšanas kods/").first()).toBeVisible();
 });

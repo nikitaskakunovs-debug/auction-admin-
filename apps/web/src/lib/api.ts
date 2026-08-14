@@ -114,6 +114,17 @@ class PublicApi {
     return this.raw<{ ok: true }>("POST", "/api/public/auth/reset-password", { token, newPassword });
   }
 
+  /** Подтверждение адреса по токену из письма. */
+  verifyEmail(token: string): Promise<{ ok: true }> {
+    return this.raw<{ ok: true }>("POST", "/api/public/auth/verify-email", { token });
+  }
+
+  /** Выслать письмо повторно. Без сессии — по адресу, с сессией — себе. */
+  resendVerification(email?: string): Promise<{ ok: true }> {
+    return this.request<{ ok: true }>("POST", "/api/public/auth/verify-email/resend",
+      email ? { email } : {});
+  }
+
   logout(): void {
     this.setTokens(null);
   }

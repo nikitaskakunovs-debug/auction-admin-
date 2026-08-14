@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { publicApi } from "@/lib/api";
 import { useT } from "@/lib/i18n";
-import { AuthCard, authInput, authButton } from "@/components/authUi";
+import { AuthCard } from "@/components/authUi";
+import Link from "next/link";
 
 export default function ForgotPasswordPage() {
   const { t } = useT();
@@ -26,20 +27,20 @@ export default function ForgotPasswordPage() {
   if (sent) {
     return (
       <AuthCard title={t("auth.resetTitle")}>
-        <p style={{ fontSize: 14, color: "#3B3B38", margin: 0 }}>{t("auth.resetSent")}</p>
-        <a href="/login" style={{ color: "#2D4BFF", fontWeight: 700, fontSize: 13 }}>{t("auth.signin")}</a>
+        <p className="note" style={{ fontSize: 15 }}>{t("auth.resetSent")}</p>
+        <Link className="btn btn-outline btn-block" href="/login">{t("auth.signin")}</Link>
       </AuthCard>
     );
   }
 
   return (
     <AuthCard title={t("auth.resetTitle")}>
-      <p style={{ fontSize: 13.5, color: "#6B6B68", margin: 0 }}>{t("auth.resetIntro")}</p>
-      <form onSubmit={submit} style={{ display: "grid", gap: 12 }}>
-        <input style={authInput} type="email" placeholder={t("auth.email")} value={email} onChange={(e) => setEmail(e.target.value)} autoFocus />
-        <button style={authButton} type="submit" disabled={busy || !email}>{t("auth.resetSend")}</button>
+      <p className="note" style={{ fontSize: 15 }}>{t("auth.resetIntro")}</p>
+      <form onSubmit={submit} className="fields">
+        <input type="email" placeholder={t("auth.email")} value={email} onChange={(e) => setEmail(e.target.value)} autoFocus />
+        <button className="btn btn-primary btn-lg btn-block" type="submit" disabled={busy || !email}>{t("auth.resetSend")}</button>
       </form>
-      <a href="/login" style={{ color: "#2D4BFF", fontWeight: 700, fontSize: 13 }}>{t("auth.signin")}</a>
+      <Link className="btn btn-outline btn-block" href="/login">{t("auth.signin")}</Link>
     </AuthCard>
   );
 }

@@ -3,161 +3,154 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { publicApi } from "@/lib/api";
-import { CATEGORY_CODES } from "@/lib/categories";
-import { conditionLabel } from "@/lib/conditions";
+import type { FixedListing, PublicAuction } from "@/lib/types";
 import { useT } from "@/lib/i18n";
-import { photoThumb } from "@/lib/photos";
-import { formatEur, type FixedListing, type PublicAuction } from "@/lib/types";
-import { AuctionCard } from "./AuctionCard";
+import { useRail } from "@/lib/ui";
+import { Banners } from "./Banners";
+import { Hero } from "./Hero";
+import { Icon } from "./Icon";
+import { LotCard, LotSkeleton, type CardLot } from "./LotCard";
+import { Brands, Faq, LiveBand, MyBids, SecHead, SeoBlock, WhyUs } from "./Sections";
 
-const grid: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))",
-  gap: 14,
-};
+const PAGE = 8;
 
-function FixedCard({ listing }: { listing: FixedListing }) {
+/** Главная страница утверждённого макета.
+ *  Порядок блоков менять нельзя — он и есть макет. */
+export function HomeSections({
+  auctions, listings,
+}: { auctions: PublicAuction[]; listings: FixedListing[] }) {
   const { t } = useT();
-  return (
-    <Link
-      href={`/listing/${listing.id}`}
-      style={{
-        display: "block", textDecoration: "none", color: "#0A0A0A", background: "#fff",
-        border: "1px solid rgba(10,10,10,0.10)", borderRadius: 14, padding: 18,
-      }}
-    >
-      {listing.photos[0] && (
-        <div style={{ margin: "-18px -18px 12px", background: "#F2F1EE", borderRadius: "13px 13px 0 0", overflow: "hidden" }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={photoThumb(listing.photos[0])} alt="" style={{ width: "100%", height: 150, objectFit: "cover", display: "block" }} />
-        </div>
-      )}
-      <span style={{ fontSize: 11, fontWeight: 700, color: "#2D4BFF", textTransform: "uppercase" }}>{t("home.buyNow")}</span>
-      <h3 style={{ margin: "8px 0 0", fontSize: 15.5, fontWeight: 700, lineHeight: 1.35, minHeight: 42 }}>{listing.title}</h3>
-      <div style={{ fontSize: 11.5, color: "#6B6B68", margin: "4px 0 12px" }}>{listing.sku} · {conditionLabel(listing.condition, t)}</div>
-      <div style={{ fontSize: 10.5, fontWeight: 700, color: "#6B6B68", textTransform: "uppercase", letterSpacing: "0.05em" }}>{t("buy.price")}</div>
-      <div style={{ fontSize: 21, fontWeight: 700, letterSpacing: "-0.02em" }}>{formatEur(listing.priceCents)}</div>
-    </Link>
-  );
-}
-
-const PAGE = 48; // must match the API's default page size
-
-export function HomeSections({ auctions: initialAuctions, listings: initialListings }: { auctions: PublicAuction[]; listings: FixedListing[] }) {
-  const { t } = useT();
-  const [query, setQuery] = useState("");
-  const [category, setCategory] = useState("");
-  const [auctions, setAuctions] = useState(initialAuctions);
-  const [listings, setListings] = useState(initialListings);
-  const [hasMoreA, setHasMoreA] = useState(initialAuctions.length >= PAGE);
-  const [hasMoreL, setHasMoreL] = useState(initialListings.length >= PAGE);
+  const [signedIn, setSignedIn] = useState(false);
+  const [rounds, setRounds] = useState(0);
   const [busy, setBusy] = useState(false);
-  const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const first = useRef(true);
+  const [status, setStatus] = useState("");
+  const sentinel = useRef<HTMLDivElement>(null);
+  const rail = useRail<HTMLDivElement>();
 
-  const params = (offset: number) => {
-    const p = new URLSearchParams();
-    if (query.trim().length >= 2) p.set("q", query.trim());
-    if (category) p.set("category", category);
-    if (offset > 0) p.set("offset", String(offset));
-    const s = p.toString();
-    return s ? `?${s}` : "";
-  };
+  useEffect(() => {
+    setSignedIn(publicApi.hasSession);
+    const fn = () => setSignedIn(publicApi.hasSession);
+    publicApi.listeners.add(fn);
+    return () => { publicApi.listeners.delete(fn); };
+  }, []);
 
-  const refetch = async (append: boolean) => {
+  const live = auctions.filter((a) => a.status === "live");
+  const byEnd = [...live].sort(
+    (a, b) => new Date(a.endsAt).getTime() - new Date(b.endsAt).getTime(),
+  );
+  const closing = byEnd.slice(0, 4) as CardLot[];
+  const recommended = byEnd.slice(4, 10) as CardLot[];
+  const explore = auctions.slice(0, PAGE + rounds * PAGE) as CardLot[];
+  const exhausted = explore.length >= auctions.length;
+
+  const loadMore = () => {
+    if (busy || exhausted) return;
     setBusy(true);
-    try {
-      const [a, l] = await Promise.all([
-        publicApi.get<{ auctions: PublicAuction[]; hasMore: boolean }>(`/api/public/auctions${params(append ? auctions.length : 0)}`),
-        publicApi.get<{ listings: FixedListing[]; hasMore: boolean }>(`/api/public/listings${params(append ? listings.length : 0)}`),
-      ]);
-      setAuctions(append ? [...auctions, ...a.auctions] : a.auctions);
-      setListings(append ? [...listings, ...l.listings] : l.listings);
-      setHasMoreA(a.hasMore);
-      setHasMoreL(l.hasMore);
-    } catch {
-      // keep what we have — the SSR payload is always a valid fallback
-    } finally {
+    setTimeout(() => {
+      setRounds((r) => r + 1);
       setBusy(false);
-    }
+      setStatus(`Ielādēti vēl ${PAGE} loti`);
+    }, 300);
   };
 
   useEffect(() => {
-    if (first.current) {
-      first.current = false; // the SSR payload IS the unfiltered first page
-      return;
-    }
-    if (debounce.current) clearTimeout(debounce.current);
-    debounce.current = setTimeout(() => void refetch(false), 300);
-    return () => { if (debounce.current) clearTimeout(debounce.current); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, category]);
-
-  const live = auctions.filter((a) => a.status === "live");
-  const upcoming = auctions.filter((a) => a.status === "scheduled");
-  const filtering = query.trim().length >= 2 || category !== "";
-  const empty = auctions.length === 0 && listings.length === 0;
-
-  const chip = (active: boolean): React.CSSProperties => ({
-    all: "unset", cursor: "pointer", padding: "7px 13px", borderRadius: 99, fontSize: 12.5, fontWeight: 700,
-    whiteSpace: "nowrap",
-    background: active ? "#0A0A0A" : "#fff", color: active ? "#fff" : "#454542",
-    border: active ? "1px solid #0A0A0A" : "1px solid rgba(10,10,10,0.14)",
+    const el = sentinel.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver((e) => { if (e[0]?.isIntersecting) loadMore(); },
+      { rootMargin: "320px" });
+    io.observe(el);
+    return () => io.disconnect();
   });
 
-  const moreBtn = (onClick: () => void) => (
-    <div style={{ display: "flex", justifyContent: "center", marginTop: 14 }}>
-      <button onClick={onClick} disabled={busy} style={{
-        all: "unset", cursor: busy ? "wait" : "pointer", padding: "11px 26px", borderRadius: 10,
-        border: "1.5px solid rgba(10,10,10,0.18)", fontSize: 13.5, fontWeight: 700, background: "#fff", opacity: busy ? 0.6 : 1,
-      }}>{t("catalog.loadMore")}</button>
-    </div>
-  );
+  // Пока каталог не приехал, четвёртая ячейка «Drīz noslēdzas» держит скелетон —
+  // как `[data-skel]` в макете.
+  const closingBusy = closing.length < 4;
 
   return (
-    <div style={{ display: "grid", gap: 26 }}>
-      <div style={{ display: "grid", gap: 10 }}>
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={t("catalog.search")}
-          style={{
-            boxSizing: "border-box", width: "100%", maxWidth: 480, height: 44, borderRadius: 12,
-            border: "1.5px solid rgba(10,10,10,0.14)", padding: "0 16px", fontSize: 14.5, outline: "none", background: "#fff",
-          }}
-        />
-        <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
-          <button style={chip(category === "")} onClick={() => setCategory("")}>{t("catalog.all")}</button>
-          {CATEGORY_CODES.map((c) => (
-            <button key={c} style={chip(category === c)} onClick={() => setCategory(category === c ? "" : c)}>{t(`cat.${c}`)}</button>
-          ))}
+    <>
+      <Hero />
+
+      <section className="section wrap" id="lots" style={{ paddingTop: 0 }}>
+        <SecHead icon="timer" title={t("hs.closing")} sub={t("hs.closingSub")}
+                 link={t("hs.allLotsN", { n: auctions.length })} href="/katalogs" />
+        <div className="grid-4" aria-live="polite" aria-busy={closingBusy}>
+          {closing.map((a) => <LotCard key={a.id} lot={a} />)}
+          {closingBusy && Array.from({ length: 4 - closing.length }, (_, i) => <LotSkeleton key={i} />)}
         </div>
-      </div>
-
-      {empty && filtering && <p style={{ color: "#6B6B68", fontSize: 14 }}>{t("catalog.noResults")}</p>}
-
-      <section>
-        <h1 style={{ fontSize: 22, fontWeight: 700, margin: "0 0 14px", letterSpacing: "-0.02em" }}>{t("home.live")}</h1>
-        {live.length === 0 ? (
-          <p style={{ color: "#6B6B68", fontSize: 14 }}>{filtering ? t("catalog.noResults") : t("home.empty")}</p>
-        ) : (
-          <div style={grid}>{live.map((a) => <AuctionCard key={a.id} auction={a} />)}</div>
-        )}
+        <p className="note" style={{ marginTop: 16 }}>
+          Ieteiktā cena — ražotāja ieteiktā mazumtirdzniecības cena preces izlaišanas brīdī, nevis mūsu iepriekšējā cena.
+          Taimeri rāda faktisko izsoles beigu laiku serverī; solījums pēdējā minūtē pagarina izsoli.
+        </p>
       </section>
-      {upcoming.length > 0 && (
-        <section>
-          <h2 style={{ fontSize: 18, fontWeight: 700, margin: "0 0 14px", letterSpacing: "-0.02em" }}>{t("home.upcoming")}</h2>
-          <div style={grid}>{upcoming.map((a) => <AuctionCard key={a.id} auction={a} />)}</div>
+
+      <Banners />
+
+      <MyBids signedIn={signedIn} />
+
+      {recommended.length > 0 && (
+        <section className="section wrap">
+          <SecHead title={t("hs.youMayLike")} sub={t("hs.youMayLikeSub")}
+                   link={t("hs.seeAll")} href="/katalogs" />
+          <div className="hrail" ref={rail}>
+            {recommended.map((a) => <LotCard key={a.id} lot={a} />)}
+          </div>
         </section>
       )}
-      {hasMoreA && moreBtn(() => void refetch(true))}
+
+      <LiveBand sales={[]} />
+
+      <section className="section wrap">
+        <SecHead title={t("hs.wholeCatalogue")} sub={t("hs.activeLotsN", { n: auctions.length })}
+                 link={t("lr.openCatalogue")} href="/katalogs" />
+        <div className="grid-4">
+          {explore.map((a) => <LotCard key={a.id} lot={a} />)}
+          {busy && Array.from({ length: 4 }, (_, i) => <LotSkeleton key={`s${i}`} />)}
+        </div>
+        <div className="more" ref={sentinel}>
+          {busy && <span className="spin" aria-hidden="true" />}
+          {!exhausted && !busy && (
+            <button className="btn btn-outline btn-lg" type="button" onClick={loadMore}>{t("hs.loadMore")}</button>
+          )}
+          {exhausted && (
+            <p className="end">
+              Tu esi apskatījis visus <b>{auctions.length}</b> aktīvos lotus.{" "}
+              <Link className="link" href="/katalogs" style={{ fontSize: 15 }}>
+                Atvērt pilno katalogu <Icon name="arrow" size={14} />
+              </Link>
+            </p>
+          )}
+        </div>
+        <p className="sr" role="status" aria-live="polite">{status}</p>
+      </section>
+
       {listings.length > 0 && (
-        <section>
-          <h2 style={{ fontSize: 18, fontWeight: 700, margin: "0 0 14px", letterSpacing: "-0.02em" }}>{t("home.buyNow")}</h2>
-          <div style={grid}>{listings.map((l) => <FixedCard key={l.id} listing={l} />)}</div>
-          {hasMoreL && moreBtn(() => void refetch(true))}
+        <section className="section wrap">
+          <SecHead title={t("home.buyNow")} sub={t("hs.buyNowSub")}
+                   link={t("hs.allOffers")} href="/katalogs?type=fixed" />
+          <div className="hrail">
+            {listings.slice(0, 6).map((l) => (
+              <article className="lot" key={l.id}>
+                <div className="lot-art">
+                  <div className="gal">
+                    <span className="frame frame-1 on"><Icon name="box" className="pic" /></span>
+                  </div>
+                  <span className="lot-cat"><Icon name="box" /></span>
+                </div>
+                <div className="lot-body">
+                  <p className="lot-top"><span className="id">{l.sku}</span></p>
+                  <h3><Link href={`/listing/${l.id}`}>{l.title}</Link></h3>
+                  <Link className="btn btn-primary btn-block" href={`/listing/${l.id}`}>{t("hs.buy")}</Link>
+                </div>
+              </article>
+            ))}
+          </div>
         </section>
       )}
-    </div>
+
+      <Brands />
+      <WhyUs />
+      <SeoBlock />
+      <Faq />
+    </>
   );
 }
