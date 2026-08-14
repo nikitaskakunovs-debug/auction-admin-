@@ -20,27 +20,27 @@ import { say } from "./Toast";
 type Row = CardLot & { collection?: string | null };
 
 const COLLS: Array<[string, string, string]> = [
-  ["all", "Visi", "Viss, kas šobrīd ir aktīvs"],
-  ["highvalue", "Augstvērtīgie", "Veikala cena no 1 000 €"],
-  ["overstock", "Noliktavu atlikumi", "Bez rezerves — viss tiek pārdots"],
-  ["estate", "Mantojumi un dizains", "Viena īpašnieka kolekcijas"],
-  ["signature", "Signature", "Atlasīti pulksteņi un objekti"],
+  ["all", "cg.collAll", "cg.collAllD"],
+  ["highvalue", "coll.premium", "coll.premiumD"],
+  ["overstock", "coll.stock", "coll.stockD"],
+  ["estate", "coll.estate", "coll.estateD"],
+  ["signature", "coll.signature", "coll.signatureD"],
 ];
 
 const WHENS: Array<[string, string, number]> = [
-  ["any", "Jebkurā laikā", Infinity],
-  ["1h", "Tuvākajā stundā", 3_600],
-  ["today", "Šodien", 43_200],
-  ["3d", "Tuvākajās 3 dienās", 259_200],
+  ["any", "when.any", Infinity],
+  ["1h", "when.1h", 3_600],
+  ["today", "when.today", 43_200],
+  ["3d", "when.3d", 259_200],
 ];
 
 const QUICK: Array<[string, string]> = [
-  ["closing", "Drīz beidzas"], ["nores", "Bez rezerves"], ["hot", "Karstie loti"],
+  ["closing", "rail.closing"], ["nores", "rail.noReserve"], ["hot", "quick.hot"],
 ];
 
 const SORTS: Array<[string, string]> = [
-  ["ending", "Drīzāk beidzas"], ["low", "Cena: augoša"],
-  ["high", "Cena: dilstoša"], ["bids", "Visvairāk solījumu"],
+  ["ending", "sort.ending"], ["low", "sort.low"],
+  ["high", "sort.high"], ["bids", "sort.bids"],
 ];
 
 const PRICE_MAX = 1_000_000;   // 10 000 € в центах — верх ползунка
@@ -128,31 +128,31 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
   type Chip = { key: string; label: string; drop: () => void };
   const active: Chip[] = [
     ...(coll !== "all"
-      ? [{ key: "coll", label: COLLS.find(([c]) => c === coll)![1], drop: () => setColl("all") }] : []),
+      ? [{ key: "coll", label: t(COLLS.find(([c]) => c === coll)![1]), drop: () => setColl("all") }] : []),
     ...(cat !== "all" ? [{ key: "cat", label: catLabel(cat), drop: () => setCat("all") }] : []),
     ...(when !== "any"
-      ? [{ key: "when", label: WHENS.find(([c]) => c === when)![1], drop: () => setWhen("any") }] : []),
+      ? [{ key: "when", label: t(WHENS.find(([c]) => c === when)![1]), drop: () => setWhen("any") }] : []),
     ...grades.map((g) => ({
-      key: `grade:${g}`, label: `Stāvoklis ${t(`cond.${g}`)}`,
+      key: `grade:${g}`, label: t("cg.gradeChip", { g: t(`cond.${g}`) }),
       drop: () => setGrades((x) => x.filter((y) => y !== g)),
     })),
     ...quick.map((k) => ({
-      key: `quick:${k}`, label: QUICK.find(([c]) => c === k)![1],
+      key: `quick:${k}`, label: t(QUICK.find(([c]) => c === k)![1]),
       drop: () => setQuick((x) => x.filter((y) => y !== k)),
     })),
-    ...(min > 0 ? [{ key: "min", label: `no ${formatEur(min)}`, drop: () => setMin(0) }] : []),
-    ...(max < PRICE_MAX ? [{ key: "max", label: `līdz ${formatEur(max)}`, drop: () => setMax(PRICE_MAX) }] : []),
+    ...(min > 0 ? [{ key: "min", label: t("cg.from", { sum: formatEur(min) }), drop: () => setMin(0) }] : []),
+    ...(max < PRICE_MAX ? [{ key: "max", label: t("cg.to", { sum: formatEur(max) }), drop: () => setMax(PRICE_MAX) }] : []),
   ];
 
   const clearAll = () => {
     setColl("all"); setCat("all"); setWhen("any"); setGrades([]); setQuick([]);
     setMin(0); setMax(PRICE_MAX); setSort("ending"); setOpen(null);
-    say("Filtri atiestatīti");
+    say(t("cg.resetDone"));
   };
 
   const priceLabel = min === 0 && max === PRICE_MAX
-    ? "Jebkura"
-    : `${formatEur(min)} – ${max === PRICE_MAX ? "Jebkura" : formatEur(max)}`;
+    ? t("cg.priceAny")
+    : `${formatEur(min)} – ${max === PRICE_MAX ? t("cg.priceAny") : formatEur(max)}`;
 
   const chipOn: Record<string, boolean> = {
     coll: coll !== "all", cat: cat !== "all", when: when !== "any",
@@ -174,28 +174,28 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
 
   return (
     <section className="wrap" style={{ paddingTop: 24 }}>
-      <nav className="crumbs" aria-label="Navigācijas ceļš">
+      <nav className="crumbs" aria-label={t("nav.breadcrumb")}>
         <ol>
-          <li><Link href="/">Sākums</Link></li>
-          <li aria-current="page">Katalogs</li>
+          <li><Link href="/">{t("nav.home")}</Link></li>
+          <li aria-current="page">{t("nav.catalogue")}</li>
         </ol>
       </nav>
 
       <div className="page-head">
         <div>
-          <h1 data-hero>{heading ?? "Visi aktīvie loti"}</h1>
+          <h1 data-hero>{heading ?? t("cg.allActive")}</h1>
           <p className="cnt">{rows.length} loti · atjaunojas reāllaikā</p>
         </div>
         <Link className="link" href="/tiesraide">
-          Skatīt izsoles tiešraidē <Icon name="arrow" size={16} />
+          {t("cg.watchLive")} <Icon name="arrow" size={16} />
         </Link>
       </div>
 
       <div className="hrail" style={{ gap: 8, paddingBottom: 8 }} ref={colls}>
-        {COLLS.map(([id, label]) => (
+        {COLLS.map(([id, key]) => (
           <button key={id} className={`chip${coll === id ? " chip-dark" : ""}`} type="button"
                   aria-pressed={coll === id} style={{ flex: "0 0 auto" }}
-                  onClick={() => setColl(id)}>{label}</button>
+                  onClick={() => setColl(id)}>{t(key)}</button>
         ))}
       </div>
 
@@ -204,17 +204,17 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
       <div className="fbar-mob">
         <button className="fchip fchip-dark" type="button" aria-haspopup="dialog"
                 onClick={() => setSheet(true)}>
-          <Icon name="sliders" size={16} />Filtri
+          <Icon name="sliders" size={16} />{t("cg.filters")}
           {active.length > 0 && <span className="n">{active.length}</span>}
         </button>
         <button className={`fchip${chipOn.sort ? " on" : ""}`} type="button" aria-haspopup="dialog"
                 onClick={() => setSheet(true)}>
-          Kārtot <span className="val">{SORTS.find(([c]) => c === sort)![1]}</span>
+          {t("cg.sort")} <span className="val">{t(SORTS.find(([c]) => c === sort)![1])}</span>
           <Icon name="chev" className="chev" size={14} />
         </button>
       </div>
 
-      <div className="fbar" role="group" aria-label="Filtri" ref={bar}>
+      <div className="fbar" role="group" aria-label={t("cg.filters")} ref={bar}>
         <button className="fchip fchip-dark" type="button" aria-haspopup="dialog" aria-expanded={sheet}
                 onClick={() => setSheet(true)}>
           <Icon name="sliders" size={16} />Visi filtri
@@ -223,12 +223,12 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
 
         {chip("coll", "Kolekcija", COLLS.find(([c]) => c === coll)![1],
           <>
-            {COLLS.map(([id, label, sub]) => (
+            {COLLS.map(([id, key, subKey]) => (
               <button key={id} type="button" role="option" aria-selected={coll === id}
                       onClick={() => { setColl(id); setOpen(null); }}>
                 <span className="nm">
-                  <b style={{ display: "block", fontSize: 15 }}>{label}</b>
-                  <small style={{ color: "var(--text-3)", fontWeight: 600 }}>{sub}</small>
+                  <b style={{ display: "block", fontSize: 15 }}>{t(key)}</b>
+                  <small style={{ color: "var(--text-3)", fontWeight: 600 }}>{t(subKey)}</small>
                 </span>
               </button>
             ))}
@@ -238,7 +238,7 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
           <>
             <button type="button" role="option" aria-selected={cat === "all"}
                     onClick={() => { setCat("all"); setOpen(null); }}>
-              <span className="nm">Visas kategorijas</span>
+              <span className="nm">{t("nav.allCategories")}</span>
               <span className="c">{auctions.length}</span>
             </button>
             {CATEGORY_CODES.map((c) => (
@@ -250,20 +250,20 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
             ))}
           </>)}
 
-        {chip("when", "Beidzas", WHENS.find(([c]) => c === when)![1],
+        {chip("when", t("cg.ends"), t(WHENS.find(([c]) => c === when)![1]),
           <>
-            {WHENS.map(([id, label]) => (
+            {WHENS.map(([id, key]) => (
               <button key={id} type="button" role="option" aria-selected={when === id}
                       onClick={() => { setWhen(id); setOpen(null); }}>
-                <span className="nm">{label}</span>
+                <span className="nm">{t(key)}</span>
               </button>
             ))}
           </>)}
 
-        {chip("grade", "Stāvoklis",
-          grades.length ? grades.map((g) => t(`cond.${g}`)).join(" · ") : "Jebkurš",
+        {chip("grade", t("cg.condition"),
+          grades.length ? grades.map((g) => t(`cond.${g}`)).join(" · ") : t("cg.conditionAny"),
           <>
-            <b>Stāvoklis</b>
+            <b>{t("cg.condition")}</b>
             {CONDITION_CODES.map((g) => (
               <button key={g} type="button" aria-pressed={grades.includes(g)}
                       onClick={() => setGrades((x) => x.includes(g) ? x.filter((y) => y !== g) : [...x, g])}>
@@ -276,16 +276,16 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
           <div className="rng">
             <p className="row">
               <span>{formatEur(min)}</span>
-              <span>{max === PRICE_MAX ? "Jebkura" : formatEur(max)}</span>
+              <span>{max === PRICE_MAX ? t("cg.priceAny") : formatEur(max)}</span>
             </p>
-            <label className="sr" htmlFor="pmin">Cena no</label>
+            <label className="sr" htmlFor="pmin">{t("cg.priceFrom")}</label>
             <input id="pmin" type="range" min={0} max={PRICE_MAX} step={PRICE_STEP} value={min}
                    onChange={(e) => {
                      const v = +e.target.value;
                      setMin(v);
                      if (v > max - PRICE_GAP) setMax(Math.min(PRICE_MAX, v + PRICE_GAP));
                    }} />
-            <label className="sr" htmlFor="pmax">Cena līdz</label>
+            <label className="sr" htmlFor="pmax">{t("cg.priceTo")}</label>
             <input id="pmax" type="range" min={PRICE_STEP} max={PRICE_MAX} step={PRICE_STEP} value={max}
                    onChange={(e) => {
                      const v = +e.target.value;
@@ -294,14 +294,14 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
                    }} />
           </div>)}
 
-        {chip("quick", "Rādīt tikai",
-          quick.length ? quick.map((k) => QUICK.find(([c]) => c === k)![1]).join(" · ") : "Visu",
+        {chip("quick", t("cg.showOnly"),
+          quick.length ? quick.map((k) => t(QUICK.find(([c]) => c === k)![1])).join(" · ") : t("cg.showAll"),
           <>
-            <b>Rādīt tikai</b>
-            {QUICK.map(([id, label]) => (
+            <b>{t("cg.showOnly")}</b>
+            {QUICK.map(([id, key]) => (
               <button key={id} type="button" aria-pressed={quick.includes(id)}
                       onClick={() => setQuick((x) => x.includes(id) ? x.filter((y) => y !== id) : [...x, id])}>
-                <span className="nm">{label}</span>
+                <span className="nm">{t(key)}</span>
               </button>
             ))}
           </>)}
@@ -309,15 +309,15 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
         <div className="sortwrap" style={{ position: "relative" }}>
           <button className={`fchip${chipOn.sort ? " on" : ""}`} type="button" aria-expanded={open === "sort"}
                   onClick={() => setOpen(open === "sort" ? null : "sort")}>
-            Kārtot <span className="val">{SORTS.find(([c]) => c === sort)![1]}</span>
+            {t("cg.sort")} <span className="val">{t(SORTS.find(([c]) => c === sort)![1])}</span>
             <Icon name="chev" className="chev" size={14} />
           </button>
           {open === "sort" && (
-            <div className="pop right" role="listbox" aria-label="Kārtot">
-              {SORTS.map(([id, label]) => (
+            <div className="pop right" role="listbox" aria-label={t("cg.sort")}>
+              {SORTS.map(([id, key]) => (
                 <button key={id} type="button" role="option" aria-selected={sort === id}
                         onClick={() => { setSort(id); setOpen(null); }}>
-                  <span className="nm">{label}</span>
+                  <span className="nm">{t(key)}</span>
                 </button>
               ))}
             </div>
@@ -329,10 +329,10 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
         <div className="active-f">
           {active.map((f) => (
             <button key={f.key} className="af" type="button" onClick={f.drop}>
-              {f.label}<b aria-hidden="true">×</b><span className="sr">Noņemt filtru</span>
+              {f.label}<b aria-hidden="true">×</b><span className="sr">{t("cg.dropFilter")}</span>
             </button>
           ))}
-          <button className="clear-all" type="button" onClick={clearAll}>Notīrīt visu</button>
+          <button className="clear-all" type="button" onClick={clearAll}>{t("cg.clearAll")}</button>
         </div>
       )}
 
@@ -342,39 +342,39 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
           <div className="modal-card sheet-card">
             <div className="modal-head">
               <div>
-                <span className="kicker">{rows.length} loti</span>
-                <h3 id="fsheet-t">Visi filtri</h3>
+                <span className="kicker">{t("cg.lotsN", { n: rows.length })}</span>
+                <h3 id="fsheet-t">{t("cg.allFilters")}</h3>
               </div>
-              <button className="modal-x" type="button" aria-label="Aizvērt"
+              <button className="modal-x" type="button" aria-label={t("nav.close")}
                       onClick={() => setSheet(false)}><Icon name="x" /></button>
             </div>
 
             <div className="sheet-body">
               <section>
-                <h4>Kārtot</h4>
+                <h4>{t("cg.sort")}</h4>
                 <div className="sheet-chips">
-                  {SORTS.map(([id, label]) => (
+                  {SORTS.map(([id, key]) => (
                     <button key={id} className={`chip${sort === id ? " chip-dark" : ""}`} type="button"
-                            aria-pressed={sort === id} onClick={() => setSort(id)}>{label}</button>
+                            aria-pressed={sort === id} onClick={() => setSort(id)}>{t(key)}</button>
                   ))}
                 </div>
               </section>
 
               <section>
-                <h4>Kolekcija</h4>
+                <h4>{t("cg.collection")}</h4>
                 <div className="sheet-chips">
-                  {COLLS.map(([id, label]) => (
+                  {COLLS.map(([id, key]) => (
                     <button key={id} className={`chip${coll === id ? " chip-dark" : ""}`} type="button"
-                            aria-pressed={coll === id} onClick={() => setColl(id)}>{label}</button>
+                            aria-pressed={coll === id} onClick={() => setColl(id)}>{t(key)}</button>
                   ))}
                 </div>
               </section>
 
               <section>
-                <h4>Kategorija</h4>
+                <h4>{t("cg.category")}</h4>
                 <div className="sheet-chips">
                   <button className={`chip${cat === "all" ? " chip-dark" : ""}`} type="button"
-                          aria-pressed={cat === "all"} onClick={() => setCat("all")}>Visas</button>
+                          aria-pressed={cat === "all"} onClick={() => setCat("all")}>{t("cg.categoryAll")}</button>
                   {CATEGORY_CODES.map((c) => (
                     <button key={c} className={`chip${cat === c ? " chip-dark" : ""}`} type="button"
                             aria-pressed={cat === c} onClick={() => setCat(c)}>
@@ -385,17 +385,17 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
               </section>
 
               <section>
-                <h4>Beidzas</h4>
+                <h4>{t("cg.ends")}</h4>
                 <div className="sheet-chips">
-                  {WHENS.map(([id, label]) => (
+                  {WHENS.map(([id, key]) => (
                     <button key={id} className={`chip${when === id ? " chip-dark" : ""}`} type="button"
-                            aria-pressed={when === id} onClick={() => setWhen(id)}>{label}</button>
+                            aria-pressed={when === id} onClick={() => setWhen(id)}>{t(key)}</button>
                   ))}
                 </div>
               </section>
 
               <section>
-                <h4>Stāvoklis</h4>
+                <h4>{t("cg.condition")}</h4>
                 <div className="sheet-chips">
                   {CONDITION_CODES.map((g) => (
                     <button key={g} className={`chip${grades.includes(g) ? " chip-dark" : ""}`} type="button"
@@ -408,19 +408,19 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
               </section>
 
               <section>
-                <h4>Cena</h4>
+                <h4>{t("cg.price")}</h4>
                 <div className="rng" style={{ padding: 0 }}>
                   <p className="row">
                     <span>{formatEur(min)}</span>
-                    <span>{max === PRICE_MAX ? "Jebkura" : formatEur(max)}</span>
+                    <span>{max === PRICE_MAX ? t("cg.priceAny") : formatEur(max)}</span>
                   </p>
-                  <label className="sr" htmlFor="s-pmin">Cena no</label>
+                  <label className="sr" htmlFor="s-pmin">{t("cg.priceFrom")}</label>
                   <input id="s-pmin" type="range" min={0} max={PRICE_MAX} step={PRICE_STEP} value={min}
                          onChange={(e) => {
                            const v = +e.target.value; setMin(v);
                            if (v > max - PRICE_GAP) setMax(Math.min(PRICE_MAX, v + PRICE_GAP));
                          }} />
-                  <label className="sr" htmlFor="s-pmax">Cena līdz</label>
+                  <label className="sr" htmlFor="s-pmax">{t("cg.priceTo")}</label>
                   <input id="s-pmax" type="range" min={PRICE_STEP} max={PRICE_MAX} step={PRICE_STEP} value={max}
                          onChange={(e) => {
                            const v = +e.target.value; setMax(v);
@@ -430,13 +430,13 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
               </section>
 
               <section>
-                <h4>Rādīt tikai</h4>
+                <h4>{t("cg.showOnly")}</h4>
                 <div className="sheet-chips">
-                  {QUICK.map(([id, label]) => (
+                  {QUICK.map(([id, key]) => (
                     <button key={id} className={`chip${quick.includes(id) ? " chip-dark" : ""}`} type="button"
                             aria-pressed={quick.includes(id)}
                             onClick={() => setQuick((x) => x.includes(id) ? x.filter((y) => y !== id) : [...x, id])}>
-                      {label}
+                      {t(key)}
                     </button>
                   ))}
                 </div>
@@ -445,16 +445,16 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
             </div>
 
             <div className="sheet-foot">
-              <button className="btn btn-outline" type="button" onClick={clearAll}>Atiestatīt</button>
+              <button className="btn btn-outline" type="button" onClick={clearAll}>{t("cg.reset")}</button>
               <button className="btn btn-primary" type="button" onClick={() => setSheet(false)}>
-                Rādīt {rows.length} lotus
+                {t("cg.showN", { n: rows.length })}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      <p className="sr" role="status" aria-live="polite">{rows.length} loti atbilst filtriem</p>
+      <p className="sr" role="status" aria-live="polite">{t("cg.matchN", { n: rows.length })}</p>
 
       {rows.length > 0 ? (
         <div className="results">
@@ -463,9 +463,9 @@ export function Catalogue({ auctions, heading }: { auctions: Row[]; heading?: st
       ) : (
         <div className="empty">
           <span className="ic" aria-hidden="true"><Icon name="search" /></span>
-          <h3>Neviens lots neatbilst filtriem</h3>
-          <p>Atlaid vienu vai divus filtrus — kopā katalogā ir {auctions.length} aktīvi loti.</p>
-          <button className="btn btn-primary" type="button" onClick={clearAll}>Atiestatīt filtrus</button>
+          <h3>{t("cg.nothingMatches")}</h3>
+          <p>{t("cg.dropOne", { n: auctions.length })}</p>
+          <button className="btn btn-primary" type="button" onClick={clearAll}>{t("cg.resetFilters")}</button>
         </div>
       )}
 
