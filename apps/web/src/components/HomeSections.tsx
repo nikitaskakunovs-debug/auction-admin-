@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { publicApi } from "@/lib/api";
 import type { FixedListing, PublicAuction } from "@/lib/types";
+import { useT } from "@/lib/i18n";
 import { useRail } from "@/lib/ui";
 import { Banners } from "./Banners";
 import { Hero } from "./Hero";
@@ -18,6 +19,7 @@ const PAGE = 8;
 export function HomeSections({
   auctions, listings,
 }: { auctions: PublicAuction[]; listings: FixedListing[] }) {
+  const { t } = useT();
   const [signedIn, setSignedIn] = useState(false);
   const [rounds, setRounds] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -69,8 +71,8 @@ export function HomeSections({
       <Hero />
 
       <section className="section wrap" id="lots" style={{ paddingTop: 0 }}>
-        <SecHead icon="timer" title="Drīz noslēdzas" sub="Loti, kuriem atlikušas dažas stundas"
-                 link={`Visi ${auctions.length} loti`} href="/katalogs" />
+        <SecHead icon="timer" title={t("hs.closing")} sub={t("hs.closingSub")}
+                 link={t("hs.allLotsN", { n: auctions.length })} href="/katalogs" />
         <div className="grid-4" aria-live="polite" aria-busy={closingBusy}>
           {closing.map((a) => <LotCard key={a.id} lot={a} />)}
           {closingBusy && Array.from({ length: 4 - closing.length }, (_, i) => <LotSkeleton key={i} />)}
@@ -87,8 +89,8 @@ export function HomeSections({
 
       {recommended.length > 0 && (
         <section className="section wrap">
-          <SecHead title="Tev varētu patikt" sub="Pēc skatītajām kategorijām"
-                   link="Skatīt visu" href="/katalogs" />
+          <SecHead title={t("hs.youMayLike")} sub={t("hs.youMayLikeSub")}
+                   link={t("hs.seeAll")} href="/katalogs" />
           <div className="hrail" ref={rail}>
             {recommended.map((a) => <LotCard key={a.id} lot={a} />)}
           </div>
@@ -98,8 +100,8 @@ export function HomeSections({
       <LiveBand sales={[]} />
 
       <section className="section wrap">
-        <SecHead title="Viss katalogs" sub={`${auctions.length} aktīvi loti`}
-                 link="Atvērt katalogu" href="/katalogs" />
+        <SecHead title={t("hs.wholeCatalogue")} sub={t("hs.activeLotsN", { n: auctions.length })}
+                 link={t("lr.openCatalogue")} href="/katalogs" />
         <div className="grid-4">
           {explore.map((a) => <LotCard key={a.id} lot={a} />)}
           {busy && Array.from({ length: 4 }, (_, i) => <LotSkeleton key={`s${i}`} />)}
@@ -107,7 +109,7 @@ export function HomeSections({
         <div className="more" ref={sentinel}>
           {busy && <span className="spin" aria-hidden="true" />}
           {!exhausted && !busy && (
-            <button className="btn btn-outline btn-lg" type="button" onClick={loadMore}>Rādīt vēl lotus</button>
+            <button className="btn btn-outline btn-lg" type="button" onClick={loadMore}>{t("hs.loadMore")}</button>
           )}
           {exhausted && (
             <p className="end">
@@ -123,8 +125,8 @@ export function HomeSections({
 
       {listings.length > 0 && (
         <section className="section wrap">
-          <SecHead title="Pērc uzreiz" sub="Fiksēta cena, bez solīšanas"
-                   link="Visi piedāvājumi" href="/katalogs?type=fixed" />
+          <SecHead title={t("home.buyNow")} sub={t("hs.buyNowSub")}
+                   link={t("hs.allOffers")} href="/katalogs?type=fixed" />
           <div className="hrail">
             {listings.slice(0, 6).map((l) => (
               <article className="lot" key={l.id}>
@@ -137,7 +139,7 @@ export function HomeSections({
                 <div className="lot-body">
                   <p className="lot-top"><span className="id">{l.sku}</span></p>
                   <h3><Link href={`/listing/${l.id}`}>{l.title}</Link></h3>
-                  <Link className="btn btn-primary btn-block" href={`/listing/${l.id}`}>Pirkt</Link>
+                  <Link className="btn btn-primary btn-block" href={`/listing/${l.id}`}>{t("hs.buy")}</Link>
                 </div>
               </article>
             ))}

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
+import { useT } from "@/lib/i18n";
 import { useRail } from "@/lib/ui";
 import { Icon } from "./Icon";
 
@@ -24,15 +25,17 @@ export function SecHead({
 
 /** Пустое состояние «твои ставки». */
 export function MyBids({ signedIn }: { signedIn: boolean }) {
+  const { t } = useT();
+  void signedIn;
   return (
     <section className="wrap">
       <div className="mybids">
         <span className="ic" aria-hidden="true"><Icon name="gavel" /></span>
         <div className="t">
-          <h3>{signedIn ? "Vēl neesi solījis" : "Vēl neesi solījis"}</h3>
-          <p>Kad būsi solījis, šeit redzēsi aktīvos solījumus, pārsolīšanas brīdinājumus un uzvarētos lotus.</p>
+          <h3>{t("sec.noBidsYet")}</h3>
+          <p>{t("sec.noBidsYetD")}</p>
         </div>
-        <Link className="btn btn-dark" href="/katalogs">Atrast pirmo lotu</Link>
+        <Link className="btn btn-dark" href="/katalogs">{t("sec.findFirst")}</Link>
       </div>
     </section>
   );
@@ -40,6 +43,7 @@ export function MyBids({ signedIn }: { signedIn: boolean }) {
 
 /** Полоса живых торгов. */
 export function LiveBand({ sales }: { sales: Array<{ id: string; title: string; text: string }> }) {
+  const { t } = useT();
   const rows = sales.length ? sales : [
     { id: "live", title: "Friday Signature Sale", text: "Pulksteņi, kameras un dizaina objekti — kolekcija no viena īpašnieka." },
     { id: "live", title: "Overstock & Returns — bez rezerves", text: "Simtiem atvērtu un noliktavas lotu. Viss tiek pārdots." },
@@ -49,15 +53,15 @@ export function LiveBand({ sales }: { sales: Array<{ id: string; title: string; 
       <div className="live-band">
         <div className="lb-head">
           <span className="lb-live"><i aria-hidden="true" />Live</span>
-          <h2>Notiek tieši tagad</h2>
-          <span className="sub">Lotus izsauc pa vienam · solī pret zāli</span>
+          <h2>{t("sec.rightNow")}</h2>
+          <span className="sub">{t("sec.rightNowD")}</span>
         </div>
         <div className="lb-grid">
           {rows.map((s, i) => (
             <div className="lb-item" key={i}>
               <div className="t"><h3>{s.title}</h3><p>{s.text}</p></div>
               <Link className="btn btn-primary" href="/tiesraide">
-                <Icon name="bolt" size={18} />Pievienoties
+                <Icon name="bolt" size={18} />{t("sec.join")}
               </Link>
             </div>
           ))}
@@ -73,9 +77,10 @@ const BRANDS: Array<[string, number]> = [
 ];
 
 export function Brands() {
+  const { t } = useT();
   return (
     <section className="section wrap">
-      <SecHead id="brands" title="Meklē pēc zīmola" link="Visi zīmoli" href="/zimoli" />
+      <SecHead id="brands" title={t("sec.byBrand")} link={t("sec.allBrands")} href="/zimoli" />
       <div className="brands">
         {BRANDS.map(([n, c]) => (
           <Link className="brand" key={n} href={`/meklet?q=${encodeURIComponent(n)}`}>
@@ -89,26 +94,27 @@ export function Brands() {
 
 /** «Почему мы»: сравнение цен + три шага. */
 export function WhyUs() {
+  const { t } = useT();
   const bars: Array<[string, string, number, boolean]> = [
-    ["Veikalā", "4 200 €", 100, false],
-    ["Citas izsoļu platformas", "2 950 €", 70, false],
-    ["Izsoli.lv — pašreizējais solījums", "1 900 €", 45, true],
+    [t("sec.barShop"), "4 200 €", 100, false],
+    [t("sec.barOther"), "2 950 €", 70, false],
+    [t("sec.barUs"), "1 900 €", 45, true],
   ];
   const steps: Array<[string, string]> = [
-    ["Izvēlies lotu", "Reāli foto, godīgs stāvokļa apraksts pēc skalas A–D un ieteiktā cena salīdzinājumam."],
-    ["Ievadi maksimumu", "Sistēma solī tavā vietā līdz norādītajai summai. Pārsolīšanas gadījumā saņem paziņojumu."],
-    ["Samaksā un saņem", "Karte vai bankas saite. Izsūtām nākamajā darba dienā, pakomātā esi pēc 48 stundām."],
+    [t("sec.step1"), t("sec.step1D")],
+    [t("sec.step2"), t("sec.step2D")],
+    [t("sec.step3"), t("sec.step3D")],
   ];
   return (
     <section className="section wrap" id="save">
       <div className="why">
         <div className="cmp">
           <div>
-            <h2 data-reveal>Tā pati prece.<br />Cena, ko nosaka tirgus.</h2>
+            <h2 data-reveal>{t("sec.sameGoods")}<br />{t("sec.marketPrice")}</h2>
             <p className="lead" data-reveal style={{ margin: "16px 0 24px", maxWidth: "40ch" }}>
-              Mēs pērkam noliktavu atlikumus un kolekcijas veselos apjomos. Tu maksā par preci, nevis par plauktu veikalā.
+              {t("sec.whyLead")}
             </p>
-            <Link className="btn btn-dark" data-reveal href="/katalogs?closing=1d">Skatīt, kas beidzas šodien</Link>
+            <Link className="btn btn-dark" data-reveal href="/katalogs?closing=1d">{t("sec.endingToday")}</Link>
           </div>
           <div className="bars" data-bars>
             {bars.map(([who, amt, w, win]) => (
@@ -122,7 +128,7 @@ export function WhyUs() {
                 </div>
               </div>
             ))}
-            <p className="note">Vidējā uzvarējušā solījuma cena šajā kategorijā pēdējās 90 dienās. Cenas ar PVN.</p>
+            <p className="note">{t("sec.barNote")}</p>
           </div>
         </div>
 
@@ -141,27 +147,27 @@ export function WhyUs() {
 
 /** SEO-блок: индексируемые внутренние ссылки. */
 export function SeoBlock() {
+  const { t } = useT();
   return (
-    <section className="section wrap" aria-label="Par Izsoli.lv izsolēm">
+    <section className="section wrap" aria-label={t("sec.seoAria")}>
       <div className="seo">
-        <div><h2>Online izsoles Latvijā — sāc solīt ar 1 EUR</h2></div>
+        <div><h2>{t("sec.seoH")}</h2></div>
         <div className="seo-t">
           <p>
-            Izsoli.lv ir online izsoļu platforma Rīgā. Katrs lots sākas ar zemu sākumcenu, un gala cenu nosaka
-            solītāji. Apskati <Link href="/katalogs">pilno katalogu</Link>, pievienojies{" "}
-            <Link href="/tiesraide">izsolei tiešraidē</Link> vai sāc ar{" "}
-            <Link href="/katalogs?category=jewellery_watches">pulksteņiem un rotaslietām</Link>.
+            {t("sec.seoP1a")} <Link href="/katalogs">{t("sec.seoFullCat")}</Link>, {t("sec.seoJoin")}{" "}
+            <Link href="/tiesraide">{t("sec.seoLiveAuction")}</Link> {t("sec.seoOrStart")}{" "}
+            <Link href="/katalogs?category=jewellery_watches">{t("sec.seoWatches")}</Link>.
           </p>
           <p>
-            Populārākās kategorijas: <Link href="/katalogs?category=electronics">elektronika</Link>,{" "}
-            <Link href="/katalogs?category=electronics">kameras un optika</Link>,{" "}
-            <Link href="/katalogs?category=electronics">audio tehnika</Link>,{" "}
-            <Link href="/katalogs?category=tools">instrumenti</Link> un{" "}
-            <Link href="/katalogs?category=home_garden">mājai un dizainam</Link>.
-            Var meklēt arī <Link href="/zimoli">pēc zīmola</Link>, izlasīt{" "}
-            <Link href="/noteikumi">solīšanas noteikumus</Link> vai apskatīt{" "}
-            <Link href="/rezultati">iepriekšējo izsoļu rezultātus</Link>.
-            Visas cenas ar PVN, piegāde uz pakomātu 48 stundās.
+            {t("sec.seoPopular")} <Link href="/katalogs?category=electronics">{t("cat.electronics")}</Link>,{" "}
+            <Link href="/katalogs?category=electronics">{t("sec.seoCameras")}</Link>,{" "}
+            <Link href="/katalogs?category=electronics">{t("sec.seoAudio")}</Link>,{" "}
+            <Link href="/katalogs?category=tools">{t("cat.tools")}</Link>,{" "}
+            <Link href="/katalogs?category=home_garden">{t("sec.seoHome")}</Link>.{" "}
+            {t("sec.seoAlsoBrand")} <Link href="/zimoli">{t("sec.seoByBrand")}</Link>, {t("sec.seoRead")}{" "}
+            <Link href="/noteikumi">{t("sec.seoRules")}</Link> {t("sec.seoOrSee")}{" "}
+            <Link href="/rezultati">{t("sec.seoPastResults")}</Link>.{" "}
+            {t("sec.seoTail")}
           </p>
         </div>
       </div>
@@ -169,47 +175,38 @@ export function SeoBlock() {
   );
 }
 
-const FAQ: Array<[string, ReactNode, boolean]> = [
-  ["Kāpēc preces ir lētākas nekā veikalā?",
-   "Mēs pērkam noliktavu atlikumus, klientu atgriezumus un vienas īpašnieka kolekcijas veselos apjomos. " +
-   "Preces ir jaunas vai gandrīz jaunas, bet tirgotājs tās vairs nevar pārdot kā jaunas — visbiežāk tāpēc, " +
-   "ka iepakojums ir atvērts.", true],
-  ["Kas notiek, ja mani pārsola?",
-   "Saņem paziņojumu e-pastā un lietotnē. Ja esi norādījis maksimālo summu, sistēma automātiski pārsola " +
-   "pretinieku par vienu soli, kamēr vien nepārsniedz tavu limitu.", false],
-  ["Vai varu atgriezt preci?",
-   "Jā. Patērētājam ir 14 dienu atteikuma tiesības saskaņā ar Patērētāju tiesību aizsardzības likumu un " +
-   "ES Direktīvu 2011/83/ES. Preci atgriež oriģinālajā stāvoklī; atgriešanas izmaksas sedz pircējs, " +
-   "ja vien prece nav bojāta vai neatbilst aprakstam.", false],
-  ["Cik maksā piegāde?",
-   "3,90 € uz pakomātu visā Latvijā neatkarīgi no lotu skaita, ja tos apmaksā vienā pasūtījumā. " +
-   "Lotus var arī izņemt klātienē Rīgā bez maksas.", false],
+const FAQ: Array<[string, string, boolean]> = [
+  ["faq.q1", "faq.a1", true],
+  ["faq.q2", "faq.a2", false],
+  ["faq.q3", "faq.a3", false],
+  ["faq.q4", "faq.a4", false],
 ];
 
 export function Faq() {
+  const { t } = useT();
   return (
     <section className="section wrap" id="faq">
       <div className="faq-grid">
         <div className="faq-aside" data-reveal>
-          <h2>Biežākie jautājumi</h2>
+          <h2>{t("f.faq")}</h2>
           <p className="lead" style={{ marginTop: 12 }}>
-            Solīšana, piegāde, atgriešana un stāvokļa skala — īsi un bez juridiskās miglas.
+            {t("sec.faqIntro")}
           </p>
           <Link className="btn btn-dark" href="/buj" style={{ marginTop: 24 }}>
-            Skatīt visus BUJ <Icon name="arrow" size={18} />
+            {t("sec.allFaq")} <Icon name="arrow" size={18} />
           </Link>
           <p className="note" style={{ marginTop: 16 }}>
-            Neatradi atbildi?{" "}
+            {t("sec.noAnswer")}{" "}
             <Link href="/kontakti" style={{ color: "var(--text)", borderBottom: "2px solid var(--accent)", fontWeight: 700 }}>
-              Raksti mums
-            </Link> — atbildam 1 darba dienas laikā.
+              {t("sec.writeUs")}
+            </Link>{t("sec.replyIn")}
           </p>
         </div>
         <div className="faq">
           {FAQ.map(([q, a, open]) => (
             <details className="q" key={q} open={open}>
-              <summary>{q}<span className="chev" aria-hidden="true"><Icon name="plus" size={14} /></span></summary>
-              <p className="a">{a}</p>
+              <summary>{t(q)}<span className="chev" aria-hidden="true"><Icon name="plus" size={14} /></span></summary>
+              <p className="a">{t(a)}</p>
             </details>
           ))}
         </div>
