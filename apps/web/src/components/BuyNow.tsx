@@ -45,7 +45,7 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
       } else if (err instanceof PublicApiError && err.body.code === "BIDDER_BLOCKED") {
         setError(t("buy.blocked"));
       } else if (err instanceof PublicApiError && err.body.code === "EMAIL_NOT_VERIFIED") {
-        setError("Vispirms apstiprini e-pastu — saite nosūtīta uz tavu adresi");
+        setError(t("lc.verifyFirst"));
       } else if (err instanceof PublicApiError && err.body.code === "FEES_OUTSTANDING") {
         setError(t("fees.blockedShort"));
       } else {
@@ -58,10 +58,10 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
 
   return (
     <section className="wrap" style={{ paddingTop: 24 }}>
-      <nav className="crumbs" aria-label="Navigācijas ceļš">
+      <nav className="crumbs" aria-label={t("nav.breadcrumb")}>
         <ol>
-          <li><Link href="/">Sākums</Link></li>
-          <li><Link href="/katalogs?type=fixed">Pērc uzreiz</Link></li>
+          <li><Link href="/">{t("nav.home")}</Link></li>
+          <li><Link href="/katalogs?type=fixed">{t("buy.badge")}</Link></li>
           <li aria-current="page">{listing.title}</li>
         </ol>
       </nav>
@@ -94,14 +94,14 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
           </div>
 
           <div className="facts">
-            <div><span>Lots</span><b>{listing.sku}</b></div>
-            <div><span>Stāvoklis</span><b>{conditionLabel(listing.condition, t)}</b></div>
-            <div><span>Tirgus</span><b>{listing.marketCode}</b></div>
+            <div><span>{t("bn.lot")}</span><b>{listing.sku}</b></div>
+            <div><span>{t("bn.condition")}</span><b>{conditionLabel(listing.condition, t)}</b></div>
+            <div><span>{t("bn.market")}</span><b>{listing.marketCode}</b></div>
           </div>
 
           {(listing.conditionNotes || listing.description) && (
             <section className="report">
-              <div className="rep-head"><h2>Par preci</h2></div>
+              <div className="rep-head"><h2>{t("bn.about")}</h2></div>
               {listing.conditionNotes && (
                 <div className="rep-strip">
                   <span className="ic" aria-hidden="true"><Icon name="shield" /></span>
@@ -121,7 +121,7 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
           <h1 data-hero>{listing.title}</h1>
 
           <div className="lacts">
-            <button type="button" aria-haspopup="dialog" aria-label="Dalīties"
+            <button type="button" aria-haspopup="dialog" aria-label={t("bn.share")}
                     onClick={() => openShare({ id: listing.id, sku: listing.sku, title: listing.title })}
             ><Icon name="share" /></button>
           </div>
@@ -152,7 +152,7 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
               </div>
             ) : null}
 
-            <p className="fine">Fiksētas cenas pirkumam pircēja komisija netiek piemērota.</p>
+            <p className="fine">{t("bn.noPremium")}</p>
           </div>
         </div>
       </div>
@@ -164,10 +164,10 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
           <div className="modal-card">
             <div className="modal-head">
               <div>
-                <span className="kicker">Apstiprini pirkumu · {listing.sku}</span>
+                <span className="kicker">{t("bn.confirmKicker")} · {listing.sku}</span>
                 <h3 id="m-buy-t">{listing.title}</h3>
               </div>
-              <button className="modal-x" type="button" aria-label="Aizvērt"
+              <button className="modal-x" type="button" aria-label={t("nav.close")}
                       onClick={() => setConfirm(false)}><Icon name="x" /></button>
             </div>
             <div className="sum">
@@ -176,12 +176,12 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
               <p className="note">{t("buy.vatNote")}</p>
             </div>
             <table className="fees"><tbody>
-              <tr><th scope="row">Prece</th><td className="tnum">{formatEur(listing.priceCents)}</td></tr>
+              <tr><th scope="row">{t("bn.item")}</th><td className="tnum">{formatEur(listing.priceCents)}</td></tr>
               {listing.estimatedTotalCents ? (
                 <>
-                  <tr><th scope="row">PVN</th>
+                  <tr><th scope="row">{t("bn.vat")}</th>
                     <td className="tnum">{formatEur(listing.estimatedTotalCents - listing.priceCents)}</td></tr>
-                  <tr className="tot"><th scope="row">Kopā</th>
+                  <tr className="tot"><th scope="row">{t("bn.total")}</th>
                     <td className="tnum">{formatEur(listing.estimatedTotalCents)}</td></tr>
                 </>
               ) : null}
@@ -189,12 +189,12 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
             {error && <p className="bb-status out">{error}</p>}
             <button className="btn btn-primary btn-block" type="button" disabled={busy}
                     onClick={() => void buy()}>
-              {busy ? "Noformējam…" : "Pirkt un pāriet uz apmaksu"}
+              {busy ? t("bn.processing") : t("bn.buyAndPay")}
             </button>
             <button className="btn btn-outline btn-block" type="button" style={{ marginTop: 8 }}
-                    onClick={() => setConfirm(false)}>Atcelt</button>
+                    onClick={() => setConfirm(false)}>{t("bn.cancel")}</button>
             <p className="note" style={{ textAlign: "center", marginTop: 12 }}>
-              Fiksētas cenas pirkumam pircēja komisija netiek piemērota
+              {t("bn.noPremium")}
             </p>
           </div>
         </div>

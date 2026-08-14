@@ -4,12 +4,14 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { PublicAuction } from "@/lib/types";
 import { watchStore } from "@/lib/watch";
+import { useT } from "@/lib/i18n";
 import { Icon } from "./Icon";
 import { LotCard, type CardLot } from "./LotCard";
 
 /** Вэлмес — сохранённые лоты. Список ID живёт локально (в движке пока нет
  *  вотчлиста), сами лоты приходят из каталога. */
 export function Watchlist({ auctions }: { auctions: PublicAuction[] }) {
+  const { t } = useT();
   const [ids, setIds] = useState<string[] | null>(null);
 
   useEffect(() => {
@@ -23,22 +25,22 @@ export function Watchlist({ auctions }: { auctions: PublicAuction[] }) {
 
   return (
     <section className="wrap" style={{ paddingTop: 24 }}>
-      <nav className="crumbs" aria-label="Navigācijas ceļš">
-        <ol><li><Link href="/">Sākums</Link></li><li aria-current="page">Vēlmju saraksts</li></ol>
+      <nav className="crumbs" aria-label={t("nav.breadcrumb")}>
+        <ol><li><Link href="/">{t("nav.home")}</Link></li><li aria-current="page">{t("wl.title")}</li></ol>
       </nav>
 
       <div className="page-head">
         <div>
-          <h1 data-hero>Vēlmju saraksts</h1>
+          <h1 data-hero>{t("wl.title")}</h1>
           <p className="cnt">
-            {ids === null ? "Ielādē…" : `${rows.length} aktīvi loti`}
-            {missing > 0 && ` · ${missing} jau noslēgušies`}
+            {ids === null ? t("wl.loading") : t("wl.activeN", { n: rows.length })}
+            {missing > 0 && t("wl.closedN", { n: missing })}
           </p>
         </div>
         {rows.length > 0 && (
           <button className="btn btn-outline btn-sm" type="button"
                   onClick={() => rows.forEach((r) => watchStore.toggle(r.id))}>
-            Notīrīt sarakstu
+            {t("wl.clear")}
           </button>
         )}
       </div>
@@ -46,9 +48,9 @@ export function Watchlist({ auctions }: { auctions: PublicAuction[] }) {
       {ids !== null && rows.length === 0 ? (
         <div className="empty">
           <span className="ic" aria-hidden="true"><Icon name="heart" /></span>
-          <h3>Saraksts ir tukšs</h3>
-          <p>Nospied sirsniņu uz jebkura lota — tas parādīsies šeit, un mēs brīdināsim pirms beigām.</p>
-          <Link className="btn btn-primary" href="/katalogs">Atrast lotus</Link>
+          <h3>{t("wl.emptyTitle")}</h3>
+          <p>{t("wl.emptyText")}</p>
+          <Link className="btn btn-primary" href="/katalogs">{t("catalog.all")}</Link>
         </div>
       ) : (
         <div className="results">
@@ -57,7 +59,7 @@ export function Watchlist({ auctions }: { auctions: PublicAuction[] }) {
       )}
 
       <p className="note" style={{ marginTop: "var(--s5)" }}>
-        Saraksts glabājas šajā pārlūkā. Pēc pieteikšanās tas tiks piesaistīts kontam.
+        {t("wl.localNote")}
       </p>
     </section>
   );

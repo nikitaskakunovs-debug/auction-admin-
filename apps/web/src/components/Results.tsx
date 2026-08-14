@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { conditionLabel } from "@/lib/conditions";
-import { useT } from "@/lib/i18n";
+import { dateLocale, useT } from "@/lib/i18n";
 import { photoThumb } from "@/lib/photos";
 import { formatEur, type PublicAuction } from "@/lib/types";
 import { Icon } from "./Icon";
@@ -11,7 +11,7 @@ import { Icon } from "./Icon";
 /** Результаты прошедших изсоле: что продано, за сколько и сколько было ставок.
  *  Индексируемая страница — на неё ссылается утилити-полоса и SEO-блок. */
 export function Results({ auctions }: { auctions: PublicAuction[] }) {
-  const { t } = useT();
+  const { t, lang } = useT();
   const [cat, setCat] = useState("all");
   const [only, setOnly] = useState<"all" | "sold" | "unsold">("all");
 
@@ -19,9 +19,9 @@ export function Results({ auctions }: { auctions: PublicAuction[] }) {
   const sold = (a: PublicAuction) => a.status === "ended_won";
   // Движок различает три причины закрытия — показываем их, а не одно слово.
   const unsoldLabel = (st: string) =>
-    st === "ended_reserve_not_met" ? "Rezerve nav sasniegta"
-      : st === "ended_no_bids" ? "Bez solījumiem"
-        : st === "cancelled" ? "Atcelts" : "Nepārdots";
+    st === "ended_reserve_not_met" ? t("rs.reserveNotMet")
+      : st === "ended_no_bids" ? t("rs.noBids")
+        : st === "cancelled" ? t("rs.cancelled") : t("lc.unsold");
 
   const rows = auctions.filter((a) => {
     if (cat !== "all" && a.category !== cat) return false;
@@ -34,30 +34,30 @@ export function Results({ auctions }: { auctions: PublicAuction[] }) {
 
   return (
     <section className="wrap" style={{ paddingTop: 24 }}>
-      <nav className="crumbs" aria-label="Navigācijas ceļš">
-        <ol><li><Link href="/">Sākums</Link></li><li aria-current="page">Izsoļu rezultāti</li></ol>
+      <nav className="crumbs" aria-label={t("nav.breadcrumb")}>
+        <ol><li><Link href="/">{t("nav.home")}</Link></li><li aria-current="page">{t("nav.results")}</li></ol>
       </nav>
 
       <div className="page-head">
         <div>
-          <h1 data-hero>Izsoļu rezultāti</h1>
+          <h1 data-hero>{t("nav.results")}</h1>
           <p className="cnt">
-            {rows.length} noslēgti loti · pārdošanas summa {formatEur(total)}
+            {t("rs.closedN", { n: rows.length, sum: formatEur(total) })}
           </p>
         </div>
-        <Link className="link" href="/katalogs">Aktīvie loti <Icon name="arrow" size={16} /></Link>
+        <Link className="link" href="/katalogs">{t("rs.activeLots")} <Icon name="arrow" size={16} /></Link>
       </div>
 
       <div className="hrail" style={{ gap: 8, paddingBottom: 8 }}>
-        {([["all", "Visi"], ["sold", "Pārdotie"], ["unsold", "Nepārdotie"]] as const).map(([id, label]) => (
+        {([["all", "rs.all"], ["sold", "rs.soldOnly"], ["unsold", "rs.unsoldOnly"]] as const).map(([id, label]) => (
           <button key={id} className={`chip${only === id ? " chip-dark" : ""}`} type="button"
                   aria-pressed={only === id} style={{ flex: "0 0 auto" }}
-                  onClick={() => setOnly(id)}>{label}</button>
+                  onClick={() => setOnly(id)}>{t(label)}</button>
         ))}
         <span style={{ flex: "0 0 8px" }} aria-hidden="true" />
         <button className={`chip${cat === "all" ? " chip-dark" : ""}`} type="button"
                 aria-pressed={cat === "all"} style={{ flex: "0 0 auto" }}
-                onClick={() => setCat("all")}>Visas kategorijas</button>
+                onClick={() => setCat("all")}>{t("nav.allCategories")}</button>
         {cats.map((c) => (
           <button key={c} className={`chip${cat === c ? " chip-dark" : ""}`} type="button"
                   aria-pressed={cat === c} style={{ flex: "0 0 auto" }}
@@ -68,19 +68,19 @@ export function Results({ auctions }: { auctions: PublicAuction[] }) {
       {rows.length === 0 ? (
         <div className="empty">
           <span className="ic" aria-hidden="true"><Icon name="search" /></span>
-          <h3>Rezultātu vēl nav</h3>
-          <p>Kad pirmās izsoles noslēgsies, tās parādīsies šeit.</p>
-          <Link className="btn btn-primary" href="/katalogs">Skatīt aktīvos lotus</Link>
+          <h3>{t("rs.emptyTitle")}</h3>
+          <p>{t("rs.emptyText")}</p>
+          <Link className="btn btn-primary" href="/katalogs">{t("rs.seeActive")}</Link>
         </div>
       ) : (
         <table className="rslt">
           <thead>
             <tr>
-              <th scope="col">Lots</th>
-              <th scope="col">Stāvoklis</th>
-              <th scope="col">Solījumi</th>
-              <th scope="col">Rezultāts</th>
-              <th scope="col">Beidzās</th>
+              <th scope="col">{t("bn.lot")}</th>
+              <th scope="col">{t("bn.condition")}</th>
+              <th scope="col">{t("rs.colBids")}</th>
+              <th scope="col">{t("rs.colResult")}</th>
+              <th scope="col">{t("rs.colEnded")}</th>
             </tr>
           </thead>
           <tbody>
@@ -105,7 +105,7 @@ export function Results({ auctions }: { auctions: PublicAuction[] }) {
                     : <span className="tag">{unsoldLabel(a.status)}</span>}
                 </td>
                 <td className="tnum" suppressHydrationWarning>
-                  {new Date(a.endsAt).toLocaleDateString("lv-LV")}
+                  {new Date(a.endsAt).toLocaleDateString(dateLocale(lang))}
                 </td>
               </tr>
             ))}
@@ -114,8 +114,7 @@ export function Results({ auctions }: { auctions: PublicAuction[] }) {
       )}
 
       <p className="note" style={{ marginTop: "var(--s5)" }}>
-        Rezultāti rāda āmura cenu bez pircēja komisijas un PVN.
-        Nepārdotie loti ir tie, kuriem netika sasniegta rezerves cena.
+        {t("rs.note")}
       </p>
     </section>
   );
