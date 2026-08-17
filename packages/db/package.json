@@ -22,13 +22,13 @@
   "dependencies": {
     "@auction/domain": "workspace:*",
     "@opentelemetry/api": "^1.9.0",
-    "drizzle-orm": "^0.44.2",
-    "pg": "^8.13.1"
+    "drizzle-orm": "^0.45.2",
+    "pg": "^8.23.0"
   },
   "devDependencies": {
-    "@types/pg": "^8.11.10",
+    "@types/pg": "^8.21.0",
     "drizzle-kit": "^0.31.1",
-    "tsx": "^4.19.2",
+    "tsx": "^4.23.12",
     "typescript": "^5.7.3"
   }
 }
