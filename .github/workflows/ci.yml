@@ -8,6 +8,8 @@ on:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    # Обычный прогон — 5–8 минут; без таймаута зависший раннер висит часами.
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:16-alpine
@@ -51,6 +53,7 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:16-alpine
@@ -101,6 +104,7 @@ jobs:
   # api.slack.com/apps → Incoming Webhooks → pick the channel).
   notify:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs: [ci, e2e]
     if: always()
     steps:
