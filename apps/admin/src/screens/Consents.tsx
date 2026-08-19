@@ -2,8 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../api.js";
 import { formatDate } from "../format.js";
 import { useT } from "../i18n.js";
+import { useDebounced } from "../powerkit.js";
 import { AT } from "../theme.js";
-import { ABadge, ABtn, ACard, AEmpty, AInput, APills, ATable, ATd, ATr, useToast } from "../ui.js";
+import { ABadge, ABtn, ACard, AEmpty, AInput, APills, ATable, ATd, ATr } from "../ui.js";
 
 interface ConsentRow {
   id: string;
@@ -41,18 +42,28 @@ const PAGE = 100;
  */
 export function ConsentsScreen() {
   const { t } = useT();
-  const toast = useToast();
   const [rows, setRows] = useState<ConsentRow[]>([]);
   const [total, setTotal] = useState(0);
   const [mode, setMode] = useState("");
+  const [qInput, setQInput] = useState("");
   const [q, setQ] = useState("");
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
+  useDebounced(qInput, setQ);
+
+  /* В зависимостях нет t и toast — useT() отдаёт новую функцию на каждой
+   * перерисовке. С ними load пересоздавался каждый рендер, эффект видел
+   * «новую» функцию и стрелял загрузкой снова: бесконечный цикл запросов,
+   * который на проде упирался в ограничитель частоты и превращался в стену
+   * тостов «Neizdevās ielādēt piekrišanas». Ошибка теперь показывается один
+   * раз и по месту, вместе с причиной от сервера. */
   const load = useCallback(
     (nextOffset: number, append: boolean) => {
       setLoading(true);
+      setError(null);
       const p = new URLSearchParams({ limit: String(PAGE), offset: String(nextOffset) });
       if (mode) p.set("mode", mode);
       if (q.trim().length >= 2) p.set("q", q.trim());
@@ -63,10 +74,10 @@ export function ConsentsScreen() {
           setHasMore(r.hasMore);
           setTotal(r.total);
         })
-        .catch(() => toast(t("cons.loadFailed"), "danger"))
+        .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
         .finally(() => setLoading(false));
     },
-    [mode, q, t, toast],
+    [mode, q],
   );
 
   useEffect(() => {
@@ -94,11 +105,18 @@ export function ConsentsScreen() {
           value={mode}
           onChange={setMode}
         />
-        <AInput value={q} onChange={setQ} placeholder={t("cons.search")} />
+        <AInput value={qInput} onChange={setQInput} placeholder={t("cons.search")} />
       </div>
 
       <ACard>
-        {rows.length === 0 && !loading ? (
+        {error !== null ? (
+          <div style={{ display: "grid", gap: 10, justifyItems: "start", padding: 18 }}>
+            <span style={{ fontFamily: AT.body, fontSize: 13.5, color: AT.danger }}>
+              {t("cons.loadFailed")}: {error}
+            </span>
+            <ABtn kind="ghost" onClick={() => load(0, false)}>{t("c.refresh")}</ABtn>
+          </div>
+        ) : rows.length === 0 && !loading ? (
           <AEmpty text={`${t("cons.empty")} — ${t("cons.emptyHint")}`} />
         ) : (
           <>
