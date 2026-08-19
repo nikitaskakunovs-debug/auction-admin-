@@ -70,11 +70,21 @@ export function AdsScreen() {
 
   const set = (patch: Partial<Form>) => setForm((f) => ({ ...f, ...patch }));
 
-  const load = useCallback(() => {
-    void api.get<{ ads: Ad[] }>("/api/ads").then((r) => setAds(r.ads)).catch(() => toast(t("ads.loadFailed"), "danger"));
-  }, [t, toast]);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  useEffect(load, [load]);
+  /* Без t и toast в зависимостях: useT() отдаёт новую функцию на каждой
+   * перерисовке, и с ними эффект стрелял загрузкой бесконечно — тот же цикл,
+   * что заваливал экран согласий тостами. Ошибка загрузки — по месту и один
+   * раз, тосты остаются действиям пользователя. */
+  const load = useCallback(() => {
+    setLoadError(null);
+    void api
+      .get<{ ads: Ad[] }>("/api/ads")
+      .then((r) => setAds(r.ads))
+      .catch((e: unknown) => setLoadError(e instanceof Error ? e.message : String(e)));
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
 
   const openNew = () => { setForm(empty); setEditing(null); setCreating(true); };
   const openEdit = (a: Ad) => {
@@ -139,7 +149,14 @@ export function AdsScreen() {
       </p>
 
       <ACard>
-        {ads.length === 0 ? (
+        {loadError !== null ? (
+          <div style={{ display: "grid", gap: 10, justifyItems: "start", padding: 18 }}>
+            <span style={{ fontFamily: AT.body, fontSize: 13.5, color: AT.danger }}>
+              {t("ads.loadFailed")}: {loadError}
+            </span>
+            <ABtn kind="ghost" onClick={load}>{t("c.refresh")}</ABtn>
+          </div>
+        ) : ads.length === 0 ? (
           <AEmpty text={t("ads.empty")} />
         ) : (
           <ATable head={[t("ads.th.title"), t("ads.th.kind"), t("ads.th.advertiser"), t("ads.th.category"), t("ads.th.every"), t("ads.th.shown"), t("ads.th.period"), t("c.status")]}>

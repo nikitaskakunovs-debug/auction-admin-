@@ -92,6 +92,39 @@ describe("public catalog browse", () => {
     expect((none.json() as { auctions: unknown[] }).auctions).toHaveLength(0);
   });
 
+  it("отдаёт завершённые торги свежими вперёд", async () => {
+    // Страница результатов живёт этой выдачей: при сортировке от старых к
+    // новым свежие торги выпадали, как только завершённых становилось больше
+    // лимита страницы.
+    const app = world.server.app;
+    const { auctions, items, listings } = await import("@auction/db");
+    const now = Date.now();
+    for (const [sku, endedHoursAgo] of [["END-OLD", 200], ["END-NEW", 1]] as const) {
+      const [item] = await world.ctx.db
+        .insert(items)
+        .values({ sku, title: `Ended ${sku}`, marketCode: "LV", status: "unsold", category: "other", description: "", photos: [] })
+        .returning({ id: items.id });
+      const [listing] = await world.ctx.db
+        .insert(listings)
+        .values({ itemId: item!.id, type: "auction", title: `Ended ${sku}`, marketCode: "LV", startPriceCents: 1_000, status: "published" })
+        .returning({ id: listings.id });
+      await world.ctx.db.insert(auctions).values({
+        listingId: listing!.id, status: "ended_no_bids",
+        startsAt: new Date(now - (endedHoursAgo + 24) * 3_600_000),
+        endsAt: new Date(now - endedHoursAgo * 3_600_000),
+        closedAt: new Date(now - endedHoursAgo * 3_600_000),
+        bidCount: 0, reserveMet: false,
+      });
+    }
+    const res = await app.inject({ method: "GET", url: "/api/public/auctions?status=ended&limit=100" });
+    const rows = (res.json() as { auctions: Array<{ sku: string; endsAt: string }> }).auctions;
+    const iNew = rows.findIndex((a) => a.sku === "END-NEW");
+    const iOld = rows.findIndex((a) => a.sku === "END-OLD");
+    expect(iNew, "свежий в выдаче").toBeGreaterThanOrEqual(0);
+    expect(iOld, "старый в выдаче").toBeGreaterThanOrEqual(0);
+    expect(iNew, "свежий раньше старого").toBeLessThan(iOld);
+  });
+
   /**
    * Каждая из двенадцати категорий должна быть проходимой насквозь: предмет
    * заводится с кодом, лот публикуется, витрина находит его по этому коду и не

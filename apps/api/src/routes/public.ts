@@ -245,6 +245,11 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
     if (q.category) conditions.push(eq(items.category, q.category));
     if (q.q && q.q.trim().length >= 2) conditions.push(ilike(listings.title, `%${q.q.trim()}%`));
     const { limit, offset } = pageParams(q);
+    // Живым — ближайший конец первым; завершённым наоборот: страница
+    // результатов показывает свежие торги, а не археологию. Со старым asc
+    // новые результаты выпадали из выдачи, как только завершённых
+    // становилось больше лимита страницы.
+    const order = q.status === "ended" ? desc(auctions.endsAt) : asc(auctions.endsAt);
     const rows = await ctx.db
       .select({ auction: auctions, listing: listings, item: items, leaderAlias: customers.alias })
       .from(auctions)
@@ -252,7 +257,7 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
       .innerJoin(items, eq(listings.itemId, items.id))
       .leftJoin(customers, eq(auctions.leaderCustomerId, customers.id))
       .where(and(...conditions))
-      .orderBy(asc(auctions.endsAt))
+      .orderBy(order)
       .limit(limit + 1)
       .offset(offset);
     return { auctions: rows.slice(0, limit).map(publicAuction), hasMore: rows.length > limit };
