@@ -20,6 +20,16 @@ import { SocialAuthError, facebookExchange, googleExchange, telegramVerify, type
  * Токены уходят в витрину фрагментом ссылки (#…) — фрагмент не попадает
  * ни в серверные логи, ни в Referer.
  */
+/** Дружелюбный случайный сегвардс: латышское слово + зверь + число, без
+ *  диакритики (правило сегварда — латиница/цифры). ~13 тыс. сочетаний;
+ *  редкое совпадение решает повторная попытка вставки. */
+const ALIAS_ADJ = ["Zelta", "Sudraba", "Veikls", "Gudrs", "Modrs", "Varens", "Ziemas", "Vasaras", "Vakara", "Kluss", "Straujs", "Lielais"];
+const ALIAS_NOUN = ["Vanags", "Vilks", "Alnis", "Ezis", "Strazds", "Dzenis", "Zvirbulis", "Bebrs", "Lasis", "Teteris", "Rubenis", "Stirna"];
+function randomAlias(): string {
+  const pick = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)]!;
+  return `${pick(ALIAS_ADJ)}${pick(ALIAS_NOUN)}${Math.floor(Math.random() * 90) + 10}`;
+}
+
 export function registerSocialAuthRoutes(
   app: FastifyInstance,
   ctx: AppContext,
@@ -128,31 +138,32 @@ export function registerSocialAuthRoutes(
     }
 
     // Новый аккаунт. Без адреса от провайдера — служебный, до «Pabeidz profilu».
+    // Сегвардс — случайный и дружелюбный, а не огрызок вида telegram.224d.
+    // Настоящее имя из соцсети в публичный сегвардс не попадает: его видят
+    // все в истории ставок. Поменять можно в настройках в любой момент.
     const email = profile.email ?? `tg${profile.sub}@nav.izsoli.lv`;
-    const aliasBase = (profile.name ?? profile.provider)
-      .toLowerCase()
-      .replace(/[^a-z0-9_.-]+/g, ".")
-      .replace(/^\.+|\.+$/g, "")
-      .slice(0, 16) || profile.provider;
-    const alias = `${aliasBase}.${randomBytes(2).toString("hex")}`;
-    const [row] = await ctx.db
-      .insert(customers)
-      .values({
-        email,
-        alias,
-        name: profile.name,
-        marketCode: "LV",
-        country: "LV",
-        passwordHash: null,
-        emailVerifiedAt: profile.email && profile.emailVerified ? ctx.now() : null,
-        ...(profile.provider === "google" ? { googleId: profile.sub } : {}),
-        ...(profile.provider === "facebook" ? { facebookId: profile.sub } : {}),
-        ...(profile.provider === "telegram" ? { telegramId: profile.sub } : {}),
-      })
-      .onConflictDoNothing()
-      .returning();
-    if (!row) throw new SocialAuthError("account already exists for this address", 409);
-    return row;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const [row] = await ctx.db
+        .insert(customers)
+        .values({
+          email,
+          alias: randomAlias(),
+          name: profile.name,
+          marketCode: "LV",
+          country: "LV",
+          passwordHash: null,
+          emailVerifiedAt: profile.email && profile.emailVerified ? ctx.now() : null,
+          ...(profile.provider === "google" ? { googleId: profile.sub } : {}),
+          ...(profile.provider === "facebook" ? { facebookId: profile.sub } : {}),
+          ...(profile.provider === "telegram" ? { telegramId: profile.sub } : {}),
+        })
+        .onConflictDoNothing()
+        .returning();
+      if (row) return row;
+      // Пусто — конфликт: либо редкое совпадение сегварда (пробуем другой),
+      // либо адрес уже занят — тогда и шестая попытка кончится тем же 409.
+    }
+    throw new SocialAuthError("account already exists for this address", 409);
   }
 
   async function finish(profile: SocialProfile, target: string, req: FastifyRequest, reply: FastifyReply) {
