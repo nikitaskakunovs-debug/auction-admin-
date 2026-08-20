@@ -166,6 +166,33 @@ export const CUSTOMERS = {
   "cust.fees.waived": { lv: "Maksa atlaista", ru: "Сбор списан", en: "Fee waived" },
   "cust.fees.actionFailed": { lv: "Darbība neizdevās", ru: "Действие не удалось", en: "Action failed" },
 
+  // ── Verification & social sign-in ─────────────────────────────────────────
+  "cust.verif.title": { lv: "E-pasts un ienākšana", ru: "Почта и вход", en: "Email & sign-in" },
+  "cust.verif.ok": { lv: "E-pasts apstiprināts", ru: "Почта подтверждена", en: "Email verified" },
+  "cust.verif.no": { lv: "E-pasts nav apstiprināts", ru: "Почта не подтверждена", en: "Email not verified" },
+  "cust.verif.pending": { lv: "Pagaidu adrese (Telegram)", ru: "Временный адрес (Telegram)", en: "Placeholder address (Telegram)" },
+  "cust.social.none": { lv: "Tikai e-pasts un parole", ru: "Только почта и пароль", en: "Email and password only" },
+
+  // ── Credit / avanss ───────────────────────────────────────────────────────
+  "cust.credit.title": { lv: "Avanss (konta atlikums)", ru: "Аванс (баланс счёта)", en: "Credit (account balance)" },
+  "cust.credit.balance": { lv: "Atlikums", ru: "Баланс", en: "Balance" },
+  "cust.credit.amount": { lv: "Summa €", ru: "Сумма €", en: "Amount €" },
+  "cust.credit.amountHint": { lv: "Pozitīva — ieskaitīt, negatīva — norakstīt", ru: "Положительная — начислить, отрицательная — списать", en: "Positive adds, negative removes" },
+  "cust.credit.kind": { lv: "Veids", ru: "Тип", en: "Kind" },
+  "cust.credit.note": { lv: "Piezīme", ru: "Примечание", en: "Note" },
+  "cust.credit.apply": { lv: "Veikt kustību", ru: "Провести движение", en: "Post movement" },
+  "cust.credit.done": { lv: "Kustība veikta", ru: "Движение проведено", en: "Movement posted" },
+  "cust.credit.insufficient": { lv: "Nepietiek atlikuma", ru: "Недостаточно баланса", en: "Insufficient balance" },
+  "cust.credit.failed": { lv: "Kustība neizdevās", ru: "Движение не удалось", en: "Movement failed" },
+  "cust.credit.when": { lv: "Kad", ru: "Когда", en: "When" },
+  "cust.credit.who": { lv: "Kas", ru: "Кто", en: "By" },
+  "cust.credit.k.grant": { lv: "piešķīrums", ru: "начисление", en: "grant" },
+  "cust.credit.k.overpay": { lv: "pārmaksa", ru: "переплата", en: "overpayment" },
+  "cust.credit.k.refund_to_credit": { lv: "atmaksa avansā", ru: "возврат в аванс", en: "refund to credit" },
+  "cust.credit.k.used_for_order": { lv: "izmantots pasūtījumam", ru: "зачтён в заказ", en: "used for order" },
+  "cust.credit.k.withdrawn": { lv: "izmaksāts", ru: "выведен", en: "withdrawn" },
+  "cust.credit.k.expired": { lv: "noildzis", ru: "истёк", en: "expired" },
+
   // ── Orders section ─────────────────────────────────────────────────────────
   "cust.orders.title": { lv: "Pasūtījumi", ru: "Заказы", en: "Orders" },
   "cust.orders.ref": { lv: "Nr.", ru: "Реф.", en: "Ref" },

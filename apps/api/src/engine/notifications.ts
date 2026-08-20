@@ -104,6 +104,8 @@ export async function enqueueNotification(
     .from(customers)
     .where(eq(customers.id, args.customerId));
   if (!recipient || recipient.erasedAt !== null) return;
+  // Служебный адрес соцвхода почты не принимает — не пишем и не шлём.
+  if (recipient.email.endsWith("@nav.izsoli.lv")) return;
 
   // Матрица уведомлений: необязательные события человек может выключить.
   // Юридически обязательные (won, счёт, оплата, выдача) сюда не входят —

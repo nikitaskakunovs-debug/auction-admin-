@@ -2421,6 +2421,9 @@ footer .f-pill{border:0;font:inherit;cursor:pointer}
 .danger ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px;font-size:13px}
 .danger li.ok{color:var(--text-2);text-decoration:line-through}
 .danger .btn{align-self:flex-start}
+.danger .acts{display:flex;gap:10px;flex-wrap:wrap}
+.btn-del{border-color:var(--live);color:var(--live)}
+.btn-del:hover{background:var(--live);border-color:var(--live);color:#fff}
 .wish-grid{margin-top:4px}
 
 /* ── Мобильный: боковое меню → профиль строкой + лента чипов ── */

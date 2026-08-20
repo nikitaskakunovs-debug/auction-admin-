@@ -194,6 +194,15 @@ export default function AccountPage() {
 
       {payBanner && <p className={`bb-status ${bannerTone(payBanner)}`}>{bannerText[payBanner]}</p>}
 
+      {/* № 50 «Pabeidz profilu»: после входа через Telegram адреса ещё нет —
+          без него не работают письма, а значит и ставки. */}
+      {me?.emailPending && (
+        <p className="bb-status info">
+          {t("kb.pabeidzBanner")}{" "}
+          <a href="/account?tab=iestatijumi&s=profils">{t("kb.pabeidzGo")}</a>
+        </p>
+      )}
+
       <div className="acwrap">
         <aside className="acnav" aria-label={t("ac.sections")}>
           {userCard}
@@ -234,7 +243,7 @@ export default function AccountPage() {
                 setTab("izsoles"); setHistoryLot(id);
                 window.history.replaceState(null, "", `/account?tab=izsoles&lot=${id}`);
               }}
-              verifyBlock={showVerif && me?.emailVerified === false ? <VerifyNotice email={me?.email ?? ""} compact /> : null}
+              verifyBlock={showVerif && me?.emailVerified === false && !me?.emailPending ? <VerifyNotice email={me?.email ?? ""} compact /> : null}
             />
           )}
 
@@ -382,6 +391,13 @@ export default function AccountPage() {
                   <span className="ic on" aria-hidden="true"><Ph name="check" size={22} /></span>
                   <h3>{t("kb.verifOk")}</h3>
                   <p>{me?.email}</p>
+                </div>
+              ) : me?.emailPending ? (
+                /* № 50: адреса ещё нет — письмо слать некуда, зовём вписать его. */
+                <div className="empty">
+                  <span className="ic" aria-hidden="true"><Ph name="envelope-simple" size={22} /></span>
+                  <h3>{t("kb.pabeidzBanner")}</h3>
+                  <p><a className="btn btn-primary" href="/account?tab=iestatijumi&s=profils">{t("kb.pabeidzGo")}</a></p>
                 </div>
               ) : (
                 <VerifyNotice email={me?.email ?? ""} />

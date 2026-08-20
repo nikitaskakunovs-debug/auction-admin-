@@ -12,6 +12,7 @@ import { CookieBanner } from "@/components/CookieBanner";
 import { Dock } from "@/components/Dock";
 import { Footer } from "@/components/Footer";
 import { Modals } from "@/components/Modals";
+import { SocialCatch } from "@/components/SocialCatch";
 import { Toast } from "@/components/Toast";
 import "./globals.css";
 
@@ -106,6 +107,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           <Footer pages={footerPages} country={country.code} />
           <Dock />
           <Modals />
+          <SocialCatch />
           <CookieBanner />
           <Toast />
         </I18nProvider>

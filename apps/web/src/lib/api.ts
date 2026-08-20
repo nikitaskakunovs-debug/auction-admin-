@@ -125,6 +125,12 @@ class PublicApi {
       email ? { email } : {});
   }
 
+  /** Токены после соцвхода: сервер отдаёт их фрагментом ссылки (#a=…&r=…),
+   *  SocialCatch подбирает и кладёт сюда — дальше всё как при обычном входе. */
+  adoptTokens(accessToken: string, refreshToken: string): void {
+    this.setTokens({ accessToken, refreshToken });
+  }
+
   logout(): void {
     this.setTokens(null);
   }

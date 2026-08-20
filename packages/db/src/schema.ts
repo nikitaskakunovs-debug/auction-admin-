@@ -339,6 +339,11 @@ export const customers = pgTable(
     emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
     emailVerifyTokenHash: text("email_verify_token_hash"),
     emailVerifySentAt: timestamp("email_verify_sent_at", { withTimezone: true }),
+    /** Соцвход (№ 50/52–54): id у провайдера. Пароль может отсутствовать —
+     * тогда вход только через соцсеть, пока человек не создаст пароль. */
+    googleId: text("google_id"),
+    facebookId: text("facebook_id"),
+    telegramId: text("telegram_id"),
     erasedAt: timestamp("erased_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },

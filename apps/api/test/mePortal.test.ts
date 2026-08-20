@@ -48,7 +48,9 @@ describe("кабинет: уведомления, посылки, талон", (
     });
     expect(res.statusCode).toBe(200);
     const list = (res.json() as { notifications: Array<{ subject: string; body: string }> }).notifications;
-    expect(list.length).toBe(2);
+    // Две вставленные плюс письмо подтверждения почты с регистрации — оно
+    // тоже настоящее уведомление и в ленте должно быть.
+    expect(list.length).toBe(3);
     expect(list.map((n) => n.subject)).not.toContain("ČUŽOJE");
     // Краткий текст — первая непустая строка письма, без остального.
     const outbid = list.find((n) => n.subject === "Tevi pārsolīja")!;

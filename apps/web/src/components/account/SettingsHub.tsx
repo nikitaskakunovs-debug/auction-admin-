@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { publicApi } from "@/lib/api";
+import { publicApi, PublicApiError } from "@/lib/api";
 import { PUBLIC_API_URL } from "@/lib/config";
 import { ALL_LANGS, dateLocale, useT, type Lang } from "@/lib/i18n";
 import type { MyOrder } from "@/lib/types";
@@ -84,7 +84,8 @@ export function SettingsHub({
 
       <p className="g-lbl">{t("kb.gProfile")}</p>
       <div className="hubgrid">
-        {tile("profils", "gear", t("kb.gProfile"), t("kb.hProfileSub"), me ? `${me.alias} · ${me.email}` : undefined)}
+        {tile("profils", "gear", t("kb.gProfile"), t("kb.hProfileSub"),
+          me ? `${me.alias} · ${me.emailPending ? t("kb.emailNone") : me.email}` : undefined)}
         {tile("rekviziti", "file-text", t("kb.hRekv"), t("kb.hRekvSub"), t("kb.stPerson"))}
       </div>
 
@@ -128,10 +129,50 @@ function Back({ onBack, label }: { onBack: () => void; label: string }) {
 function ProfilePage({ me, onAlias, onBack }: { me: Me | null; onAlias: (a: string) => Promise<boolean>; onBack: () => void }) {
   const { t } = useT();
   const [draft, setDraft] = useState<string | null>(null);
+  const [emailDraft, setEmailDraft] = useState<string | null>(null);
+  const [pwDraft, setPwDraft] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  // № 50: после Telegram адрес служебный — показываем «не указан» и
+  // сразу открываем поле, а не светим tg…@nav.izsoli.lv.
+  const pending = me?.emailPending === true;
+  useEffect(() => {
+    if (pending) setEmailDraft("");
+  }, [pending]);
+
+  const saveEmail = async () => {
+    const email = (emailDraft ?? "").trim().toLowerCase();
+    if (!email) return;
+    setBusy(true);
+    try {
+      await publicApi.request("PATCH", "/api/public/me", { email });
+      say(t("kb.emailSent2", { email }));
+      setEmailDraft(null);
+      window.dispatchEvent(new Event("izsoli:me-refresh"));
+    } catch (err) {
+      say(err instanceof Error && err.message === "email_exists" ? t("kb.emailTaken") : t("err.generic"));
+    }
+    setBusy(false);
+  };
+
+  const savePassword = async () => {
+    const password = pwDraft ?? "";
+    if (password.length < 8) { say(t("kb.pwShort")); return; }
+    setBusy(true);
+    try {
+      await publicApi.post("/api/public/auth/password/set", { password });
+      say(t("kb.pwCreated"));
+      setPwDraft(null);
+      window.dispatchEvent(new Event("izsoli:me-refresh"));
+    } catch { say(t("err.generic")); }
+    setBusy(false);
+  };
+
   return (
     <div className="acct">
       <Back onBack={onBack} label={t("ac.settings")} />
       <div className="page-head"><h1 data-hero>{t("kb.gProfile")}</h1></div>
+      {pending && <p className="bb-status info">{t("kb.pabeidzBanner")}</p>}
       <section className="card-b">
         <div className={`prow${draft !== null ? " editing" : ""}`}>
           <span className="t">
@@ -150,20 +191,53 @@ function ProfilePage({ me, onAlias, onBack }: { me: Me | null; onAlias: (a: stri
             </span>
           )}
         </div>
-        <div className="prow">
+        <div className={`prow${emailDraft !== null ? " editing" : ""}`}>
           <span className="t">
             <span className="k">{t("kb.email")}</span>
-            <span className="v">{me?.email ?? "—"}</span>
+            {emailDraft === null && <span className="v">{pending ? t("kb.emailNone") : me?.email ?? "—"}</span>}
           </span>
+          {emailDraft === null ? (
+            <button className="btn btn-outline btn-sm" type="button" onClick={() => setEmailDraft(pending ? "" : me?.email ?? "")}>{t("ac.change")}</button>
+          ) : (
+            <span className="edit">
+              <input value={emailDraft} type="email" inputMode="email" aria-label={t("kb.email")}
+                     placeholder="epasts@piemers.lv" onChange={(e) => setEmailDraft(e.target.value)} />
+              <button className="btn btn-primary btn-sm" type="button" disabled={busy} onClick={() => void saveEmail()}>{t("ac.save")}</button>
+            </span>
+          )}
         </div>
-        <div className="prow">
-          <span className="t">
-            <span className="k">{t("kb.password")}</span>
-            <span className="v">••••••••</span>
-          </span>
-          <Link className="btn btn-outline btn-sm" href="/forgot-password">{t("ac.change")}</Link>
-        </div>
-        <p className="note">{t("kb.passwordNote")}</p>
+        <p className="note">{t("kb.emailChangeNote")}</p>
+        {me?.hasPassword === false ? (
+          <>
+            <div className={`prow${pwDraft !== null ? " editing" : ""}`}>
+              <span className="t">
+                <span className="k">{t("kb.password")}</span>
+                {pwDraft === null && <span className="v">{t("kb.pwNone")}</span>}
+              </span>
+              {pwDraft === null ? (
+                <button className="btn btn-outline btn-sm" type="button" onClick={() => setPwDraft("")}>{t("kb.pwCreate")}</button>
+              ) : (
+                <span className="edit">
+                  <input value={pwDraft} type="password" minLength={8} aria-label={t("kb.password")}
+                         placeholder="••••••••" onChange={(e) => setPwDraft(e.target.value)} />
+                  <button className="btn btn-primary btn-sm" type="button" disabled={busy} onClick={() => void savePassword()}>{t("ac.save")}</button>
+                </span>
+              )}
+            </div>
+            <p className="note">{t("kb.pwCreateNote")}</p>
+          </>
+        ) : (
+          <>
+            <div className="prow">
+              <span className="t">
+                <span className="k">{t("kb.password")}</span>
+                <span className="v">••••••••</span>
+              </span>
+              <Link className="btn btn-outline btn-sm" href="/forgot-password">{t("ac.change")}</Link>
+            </div>
+            <p className="note">{t("kb.passwordNote")}</p>
+          </>
+        )}
       </section>
     </div>
   );
@@ -433,8 +507,8 @@ function CookiesPage({ onBack }: { onBack: () => void }) {
   );
 }
 
-/** Konts un dati (№ 58): согласия и удаление. Проверки удаления считаются
- *  из живых данных; сам запрос идёт через поддержку, пока нет этапа GDPR. */
+/** Konts un dati (№ 58): согласия, выгрузка и удаление. Блокеры считает
+ *  сервер; здесь — предварительная сверка по уже загруженным данным. */
 function DataPage({
   bids, orders, pickupCount, marketing, onMarketing, onBack,
 }: {
@@ -448,6 +522,46 @@ function DataPage({
   const { t } = useT();
   const liveBids = bids.filter((b) => b.status === "live").length;
   const unpaid = orders.filter((o) => o.status === "awaiting_payment").length;
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [serverBlockers, setServerBlockers] = useState<{ liveBids: number; unpaidOrders: number; uncollected: number; creditCents: number } | null>(null);
+
+  const exportData = async () => {
+    setBusy(true);
+    try {
+      const res = await fetch(`${PUBLIC_API_URL}/api/public/me/export`, {
+        headers: publicApi.accessToken ? { authorization: `Bearer ${publicApi.accessToken}` } : {},
+      });
+      if (!res.ok) throw new Error(String(res.status));
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "izsoli-mani-dati.json";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch { say(t("err.generic")); }
+    setBusy(false);
+  };
+
+  const remove = async () => {
+    setBusy(true);
+    try {
+      await publicApi.post("/api/public/me/delete");
+      // Аккаунт обезличен, сессии отозваны — токены больше не действуют.
+      publicApi.logout();
+      say(t("kb.deletedBye"));
+      window.location.assign("/");
+    } catch (err) {
+      const body = err instanceof PublicApiError ? err.body : null;
+      const blockers = body && typeof body.blockers === "object"
+        ? (body.blockers as { liveBids: number; unpaidOrders: number; uncollected: number; creditCents: number })
+        : null;
+      if (blockers) { setServerBlockers(blockers); setConfirming(false); }
+      else say(t("err.generic"));
+      setBusy(false);
+    }
+  };
 
   return (
     <div className="acct">
@@ -479,25 +593,55 @@ function DataPage({
         </div>
         <p className="note">{t("kb.consentNote")}</p>
 
+        <p className="g-lbl">{t("kb.exportHead")}</p>
+        <div className="prow">
+          <span className="t">
+            <span className="k">{t("kb.exportRow")}</span>
+            <span className="v">{t("kb.exportSub")}</span>
+          </span>
+          <button className="btn btn-outline btn-sm" type="button" disabled={busy} onClick={() => void exportData()}>
+            {t("kb.exportBtn")}
+          </button>
+        </div>
+
         <div className="danger">
           <b>{t("kb.deleteHead")}</b>
           <p>{t("kb.deleteIntro")}</p>
           <ul>
-            <li className={liveBids === 0 ? "ok" : ""}>
-              {liveBids === 0 ? t("kb.delBidsOk") : t("kb.delBids", { n: liveBids })}
+            <li className={(serverBlockers ? serverBlockers.liveBids : liveBids) === 0 ? "ok" : ""}>
+              {(serverBlockers ? serverBlockers.liveBids : liveBids) === 0
+                ? t("kb.delBidsOk") : t("kb.delBids", { n: serverBlockers ? serverBlockers.liveBids : liveBids })}
             </li>
-            <li className={unpaid === 0 ? "ok" : ""}>
-              {unpaid === 0 ? t("kb.delUnpaidOk") : t("kb.delUnpaid", { n: unpaid })}
+            <li className={(serverBlockers ? serverBlockers.unpaidOrders : unpaid) === 0 ? "ok" : ""}>
+              {(serverBlockers ? serverBlockers.unpaidOrders : unpaid) === 0
+                ? t("kb.delUnpaidOk") : t("kb.delUnpaid", { n: serverBlockers ? serverBlockers.unpaidOrders : unpaid })}
             </li>
-            <li className={pickupCount === 0 ? "ok" : ""}>
-              {pickupCount === 0 ? t("kb.delPickupOk") : t("kb.delPickup", { n: pickupCount })}
+            <li className={(serverBlockers ? serverBlockers.uncollected : pickupCount) === 0 ? "ok" : ""}>
+              {(serverBlockers ? serverBlockers.uncollected : pickupCount) === 0
+                ? t("kb.delPickupOk") : t("kb.delPickup", { n: serverBlockers ? serverBlockers.uncollected : pickupCount })}
             </li>
+            {serverBlockers && serverBlockers.creditCents > 0 && (
+              <li>{t("kb.delCredit", { sum: (serverBlockers.creditCents / 100).toFixed(2) })}</li>
+            )}
           </ul>
           <p>{t("kb.deleteLaw")}</p>
-          <p>{t("kb.deleteVia")}</p>
-          <a className="btn btn-outline" href="mailto:atbalsts@izsoli.lv?subject=Konta%20dz%C4%93%C5%A1ana">
-            {t("kb.writeSupport")}
-          </a>
+          {confirming ? (
+            <>
+              <p><b>{t("kb.deleteSure")}</b></p>
+              <div className="acts">
+                <button className="btn btn-outline btn-del" type="button" disabled={busy} onClick={() => void remove()}>
+                  {t("kb.deleteConfirm")}
+                </button>
+                <button className="btn btn-outline" type="button" onClick={() => setConfirming(false)}>
+                  {t("ac.cancel")}
+                </button>
+              </div>
+            </>
+          ) : (
+            <button className="btn btn-outline" type="button" disabled={busy} onClick={() => setConfirming(true)}>
+              {t("kb.deleteBtn")}
+            </button>
+          )}
         </div>
       </section>
     </div>

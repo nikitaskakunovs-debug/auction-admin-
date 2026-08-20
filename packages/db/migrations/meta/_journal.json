@@ -239,6 +239,13 @@
       "when": 1787246947320,
       "tag": "0033_burly_jamie_braddock",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1787249975981,
+      "tag": "0034_known_lizard",
+      "breakpoints": true
     }
   ]
 }

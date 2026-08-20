@@ -1,4 +1,4 @@
-import { bids, cookieConsents, customerFees, customers, customerTagDefs, orders } from "@auction/db";
+import { bids, cookieConsents, creditEntries, credits, customerFees, customers, customerTagDefs, orders } from "@auction/db";
 import { and, asc, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -34,6 +34,12 @@ const customerCols = {
    * обязанность компании, а не человека: без даты и источника оно ничего не
    * стоит (GDPR ст. 7 п. 1). */
   marketingOptIn: customers.marketingOptIn,
+  /* Подтверждена ли почта и есть ли соцвход — кабинет клиента это показывает,
+   * панель должна видеть то же самое при разборе обращений. */
+  emailVerifiedAt: customers.emailVerifiedAt,
+  googleId: customers.googleId,
+  facebookId: customers.facebookId,
+  telegramId: customers.telegramId,
   marketingOptInAt: customers.marketingOptInAt,
   marketingSource: customers.marketingSource,
   marketingOptOutAt: customers.marketingOptOutAt,
@@ -314,12 +320,23 @@ export function registerCustomerRoutes(app: FastifyInstance, ctx: AppContext, pe
       .where(eq(customerFees.customerId, id))
       .orderBy(desc(customerFees.createdAt))
       .limit(100);
+    // Аванс: баланс и последние движения — рядом с заказами и сборами.
+    const [creditRow] = await ctx.db.select().from(credits).where(eq(credits.customerId, id));
+    const creditRows = creditRow
+      ? await ctx.db
+          .select({ kind: creditEntries.kind, amountCents: creditEntries.amountCents, orderRef: creditEntries.orderRef, note: creditEntries.note, actorLabel: creditEntries.actorLabel, createdAt: creditEntries.createdAt })
+          .from(creditEntries)
+          .where(eq(creditEntries.creditId, creditRow.id))
+          .orderBy(desc(creditEntries.createdAt))
+          .limit(50)
+      : [];
     return {
       customer: row,
       orders: orderRows,
       bidStats: { totalBids: Number(bidStats!.total), auctionsBidOn: Number(bidStats!.auctions) },
       fees: feeRows,
       outstandingFeeCents: feeRows.filter((f) => f.status === "outstanding").reduce((s, f) => s + f.amountCents, 0),
+      credit: { balanceCents: creditRow?.balanceCents ?? 0, entries: creditRows },
     };
   });
 

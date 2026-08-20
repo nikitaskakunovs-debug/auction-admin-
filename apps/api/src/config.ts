@@ -97,6 +97,11 @@ export interface ApiConfig {
   } | null;
   /** Storefront origin used for post-checkout redirects (success/failure/cancel). */
   storefrontBaseUrl: string;
+  /** Соцвход (№ 52–54). off — кнопки в витрине отвечают «drīzumā». */
+  socialMode: "off" | "live" | "simulate";
+  google: { clientId: string; clientSecret: string } | null;
+  facebook: { appId: string; appSecret: string } | null;
+  telegram: { botToken: string; botName: string } | null;
   /** Пускать к ставкам только подтверждённую почту (макет № 15). Выключатель
    *  существует для тестовых миров; в проде всегда включено. */
   requireVerifiedEmail: boolean;
@@ -232,6 +237,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     throw new Error("DPD_API_TOKEN must be set when DPD_MODE=live");
   }
 
+  const socialMode: "off" | "live" | "simulate" =
+    env.SOCIAL_MODE === "live" ? "live" : env.SOCIAL_MODE === "simulate" ? "simulate" : "off";
+
   const jiraMode: "off" | "live" | "simulate" =
     env.JIRA_MODE === "live" ? "live" : env.JIRA_MODE === "simulate" ? "simulate" : "off";
   if (jiraMode === "live") {
@@ -334,6 +342,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     // dev falls back to the Next.js storefront.
     storefrontBaseUrl: (env.STOREFRONT_BASE_URL ?? "http://localhost:3000").replace(/\/$/, ""),
     requireVerifiedEmail: env.REQUIRE_VERIFIED_EMAIL !== "0",
+    socialMode,
+    // Провайдер включается своей парой ключей; без неё кнопка честно молчит.
+    google: env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET
+      ? { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET }
+      : socialMode === "simulate" ? { clientId: "sim", clientSecret: "sim" } : null,
+    facebook: env.FACEBOOK_APP_ID && env.FACEBOOK_APP_SECRET
+      ? { appId: env.FACEBOOK_APP_ID, appSecret: env.FACEBOOK_APP_SECRET }
+      : socialMode === "simulate" ? { appId: "sim", appSecret: "sim" } : null,
+    telegram: env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_BOT_NAME
+      ? { botToken: env.TELEGRAM_BOT_TOKEN, botName: env.TELEGRAM_BOT_NAME }
+      : null,
     emailBrand: {
       companyName: env.COMPANY_NAME ?? "Izsoli.lv",
       legalName: env.COMPANY_LEGAL_NAME ?? "SIA Izsoli",

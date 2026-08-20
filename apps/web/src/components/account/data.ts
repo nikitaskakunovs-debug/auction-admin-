@@ -17,6 +17,10 @@ export interface Me {
   blocked: boolean;
   emailVerified?: boolean;
   marketingOptIn?: boolean;
+  /** false — аккаунт из соцсети без пароля: предлагаем «Izveidot paroli» (№ 54). */
+  hasPassword?: boolean;
+  /** true — служебный адрес после входа через Telegram: «Pabeidz profilu» (№ 50). */
+  emailPending?: boolean;
 }
 
 export interface MyNotification {
@@ -83,6 +87,19 @@ export function useAccountData() {
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  // Подэкраны меняют профиль (почта, пароль) — просят перечитать me событием.
+  // А после соцвхода SocialCatch кладёт токены уже ПОСЛЕ первого рендера —
+  // подписка на клиент API переспрашивает сессию, когда токены появились.
+  useEffect(() => {
+    const on = () => refresh();
+    window.addEventListener("izsoli:me-refresh", on);
+    publicApi.listeners.add(on);
+    return () => {
+      window.removeEventListener("izsoli:me-refresh", on);
+      publicApi.listeners.delete(on);
+    };
+  }, [refresh]);
 
   useEffect(() => {
     const sync = () => { setWatchIds(watchStore.list()); setAlertIds(alertStore.list()); };

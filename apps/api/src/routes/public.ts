@@ -37,6 +37,7 @@ import { InsufficientCreditError, getOrCreateCredit, moveCredit } from "../engin
 import { renderInvoiceHtml, type InvoiceData } from "../engine/invoices.js";
 import { renderInvoicePdf } from "../engine/invoicePdf.js";
 import { enqueueNotification } from "../engine/notifications.js";
+import { registerSocialAuthRoutes } from "./socialAuth.js";
 import { buyNow } from "../engine/purchase.js";
 
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -135,6 +136,8 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
     void reply.code(403).send({ ok: false, code: "EMAIL_NOT_VERIFIED" });
     return false;
   }
+
+  registerSocialAuthRoutes(app, ctx, { issueTokens });
 
   const registerSchema = z.object({
     email: z.string().email(),
@@ -277,6 +280,10 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
         name: c.name, company: c.company, vatNo: c.vatNo,
         // Verifikācija (№ 14/15): без подтверждения ставки и покупки закрыты.
         emailVerified: c.emailVerifiedAt !== null,
+        // № 54: без пароля кабинет предлагает его создать.
+        hasPassword: c.passwordHash !== null,
+        // № 50: Telegram адреса не даёт — до настоящего адреса стоит служебный.
+        emailPending: c.email.endsWith("@nav.izsoli.lv"),
       },
     };
   });
@@ -509,6 +516,9 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
           .regex(/^[a-zA-Z0-9_.-]+$/, "alias may contain letters, digits, _ . -")
           .optional(),
         marketingOptIn: z.boolean().optional(),
+        /** Смена адреса (№ 50): новый адрес сначала подтверждается письмом —
+         *  до этого ставки снова закрыты. */
+        email: z.string().email().optional(),
         // Реквизиты для счетов: имя и — при счёте на SIA — название фирмы с
         // номером PVN. Пустая строка стирает значение: человек вернулся к
         // счетам на своё имя.
@@ -536,13 +546,26 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
         patch.marketingOptOutAt = now;
       }
     }
+    let emailChanged = false;
+    if (body.data.email !== undefined) {
+      const nextEmail = body.data.email.toLowerCase();
+      const [current] = await ctx.db.select().from(customers).where(eq(customers.id, bidderId));
+      if (current && current.email !== nextEmail) {
+        const [taken] = await ctx.db.select({ id: customers.id }).from(customers).where(eq(customers.email, nextEmail));
+        if (taken) return reply.code(409).send({ error: "email_exists" });
+        patch.email = nextEmail;
+        patch.emailVerifiedAt = null;
+        emailChanged = true;
+      }
+    }
     if (Object.keys(patch).length === 0) return reply.code(400).send({ error: "empty_patch" });
     const [row] = await ctx.db
       .update(customers)
       .set(patch)
       .where(eq(customers.id, bidderId))
-      .returning({ alias: customers.alias, marketingOptIn: customers.marketingOptIn });
+      .returning({ id: customers.id, email: customers.email, alias: customers.alias, marketingOptIn: customers.marketingOptIn });
     if (!row) return reply.code(401).send({ error: "unauthenticated" });
+    if (emailChanged) await sendVerificationEmail({ id: row.id, email: row.email });
     return { ok: true, alias: row.alias, marketingOptIn: row.marketingOptIn };
   });
 
@@ -985,6 +1008,112 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
         .where(inArray(customerRefreshTokens.id, toRevoke));
     }
     return { ok: true, revoked: toRevoke.length };
+  });
+
+
+  // ═══ КОНТС УН ДАТИ (№ 58): ВЫГРУЗКА И УДАЛЕНИЕ ══════════════════════════
+
+  /** Свои данные одним файлом. Спецификация хочет ZIP на почту со ссылкой на
+   *  7 дней; пока файл отдаётся сразу — это честнее, чем ждать этап с
+   *  файловым хранилищем. */
+  app.get("/api/public/me/export", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const [profile] = await ctx.db.select().from(customers).where(eq(customers.id, bidderId));
+    if (!profile) return reply.code(401).send({ error: "unauthenticated" });
+    const myBids = await ctx.db
+      .select({ amountCents: bids.amountCents, maxCents: bids.maxCents, auto: bids.auto, outbid: bids.outbid, createdAt: bids.createdAt, auctionId: bids.auctionId })
+      .from(bids)
+      .where(eq(bids.customerId, bidderId));
+    const myOrders = await ctx.db.select().from(orders).where(eq(orders.customerId, bidderId));
+    const myConsents = await ctx.db.select().from(cookieConsents).where(eq(cookieConsents.customerId, bidderId));
+    const myNotifications = await ctx.db
+      .select({ type: notifications.type, subject: notifications.subject, createdAt: notifications.createdAt })
+      .from(notifications)
+      .where(eq(notifications.customerId, bidderId));
+    const data = {
+      exportedAt: ctx.now().toISOString(),
+      profile: {
+        email: profile.email, alias: profile.alias, name: profile.name, country: profile.country,
+        company: profile.company, vatNo: profile.vatNo,
+        marketingOptIn: profile.marketingOptIn, marketingOptInAt: profile.marketingOptInAt,
+        emailVerifiedAt: profile.emailVerifiedAt, createdAt: profile.createdAt,
+      },
+      bids: myBids,
+      orders: myOrders.map((o) => ({
+        ref: o.ref, status: o.status, totalCents: o.totalCents, hammerCents: o.hammerCents,
+        premiumCents: o.premiumCents, vatCents: o.vatCents, shippingCents: o.shippingCents,
+        creditAppliedCents: o.creditAppliedCents, createdAt: o.createdAt, paidAt: o.paidAt,
+      })),
+      cookieConsents: myConsents,
+      notifications: myNotifications,
+    };
+    return reply
+      .type("application/json")
+      .header("content-disposition", 'attachment; filename="izsoli-mani-dati.json"')
+      .send(JSON.stringify(data, null, 2));
+  });
+
+  /** Удаление аккаунта (№ 58). Блокеры считаются по живым данным; сам
+   *  профиль обезличивается — счета и сделки закон велит хранить 5 лет,
+   *  и у заказов для этого есть снимки customerAlias/customerEmail. */
+  app.post("/api/public/me/delete", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+
+    const liveBidRows = await ctx.db
+      .select({ id: bids.id })
+      .from(bids)
+      .innerJoin(auctions, eq(bids.auctionId, auctions.id))
+      .where(and(eq(bids.customerId, bidderId), eq(auctions.status, "live"), isNull(bids.voidedAt)));
+    const unpaidRows = await ctx.db
+      .select({ id: orders.id })
+      .from(orders)
+      .where(and(eq(orders.customerId, bidderId), eq(orders.status, "awaiting_payment")));
+    const uncollectedRows = await ctx.db
+      .select({ id: orders.id })
+      .from(orders)
+      .innerJoin(items, eq(orders.itemId, items.id))
+      .where(and(eq(orders.customerId, bidderId), eq(orders.status, "paid"), inArray(items.status, ["paid", "picking"])));
+    const credit = await getOrCreateCredit(ctx.db, bidderId);
+
+    const blockers = {
+      liveBids: liveBidRows.length,
+      unpaidOrders: unpaidRows.length,
+      uncollected: uncollectedRows.length,
+      creditCents: credit.balanceCents,
+    };
+    if (blockers.liveBids > 0 || blockers.unpaidOrders > 0 || blockers.uncollected > 0 || blockers.creditCents > 0) {
+      return reply.code(409).send({ error: "deletion_blocked", blockers });
+    }
+
+    const shortId = bidderId.slice(0, 8);
+    await ctx.db.transaction(async (tx) => {
+      await tx
+        .update(customers)
+        .set({
+          alias: `dzests-${shortId}`,
+          email: `erased-${shortId}@izsoli.invalid`,
+          name: null,
+          company: null,
+          vatNo: null,
+          passwordHash: null,
+          googleId: null,
+          facebookId: null,
+          telegramId: null,
+          marketingOptIn: false,
+          marketingOptOutAt: ctx.now(),
+          emailVerifiedAt: null,
+          emailVerifyTokenHash: null,
+          erasedAt: ctx.now(),
+        })
+        .where(eq(customers.id, bidderId));
+      await tx
+        .update(customerRefreshTokens)
+        .set({ revokedAt: ctx.now() })
+        .where(eq(customerRefreshTokens.customerId, bidderId));
+    });
+    return { ok: true };
   });
 
   // ═══ МАТРИЦА УВЕДОМЛЕНИЙ (№ 60) ══════════════════════════════════════════

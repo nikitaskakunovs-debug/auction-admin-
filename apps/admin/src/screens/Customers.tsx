@@ -26,12 +26,22 @@ interface CustomerFee {
   createdAt: string;
 }
 
+interface CreditEntry {
+  kind: "overpay" | "refund_to_credit" | "used_for_order" | "withdrawn" | "expired" | "grant";
+  amountCents: number;
+  orderRef: string | null;
+  note: string;
+  actorLabel: string | null;
+  createdAt: string;
+}
+
 interface CustomerDetail {
   customer: Customer;
   orders: Order[];
   bidStats: { totalBids: number; auctionsBidOn: number };
   fees: CustomerFee[];
   outstandingFeeCents: number;
+  credit: { balanceCents: number; entries: CreditEntry[] };
 }
 
 interface ListResponse {
@@ -92,6 +102,15 @@ const FEE_STATUS_KEY: Record<CustomerFee["status"], TKey> = {
   waived: "cust.fees.st.waived",
 };
 
+const CREDIT_KIND_KEY: Record<CreditEntry["kind"], TKey> = {
+  grant: "cust.credit.k.grant",
+  overpay: "cust.credit.k.overpay",
+  refund_to_credit: "cust.credit.k.refund_to_credit",
+  used_for_order: "cust.credit.k.used_for_order",
+  withdrawn: "cust.credit.k.withdrawn",
+  expired: "cust.credit.k.expired",
+};
+
 function buildQuery(f: Filters, limit: number, offset: number): string {
   const p = new URLSearchParams();
   if (f.status !== "all") p.set("status", f.status);
@@ -125,6 +144,7 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
   const [detail, setDetail] = useState<CustomerDetail | null>(null);
   const [form, setForm] = useState({ email: "", alias: "", name: "", country: "LV", company: "", vatNo: "" });
   const [edit, setEdit] = useState({ alias: "", name: "", notes: "" });
+  const [creditForm, setCreditForm] = useState({ amount: "", kind: "grant", note: "" });
   const seq = useRef(0);
 
   useDebounced(qInput, (v) => setFilters((f) => (f.q === v ? f : { ...f, q: v })));
@@ -351,6 +371,27 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
       openDetail(detail.customer.id);
     } catch (err) {
       toast(err instanceof ApiError ? err.message : t("cust.fees.actionFailed"), "danger");
+    }
+  };
+
+  /** Ручное движение аванса: переплата по перечислению, компенсация,
+   *  исправление. Сумма в форме — в евро, знак задаёт направление. */
+  const creditMove = async () => {
+    if (!detail) return;
+    const amountCents = Math.round(Number(creditForm.amount.replace(",", ".")) * 100);
+    if (!Number.isFinite(amountCents) || amountCents === 0) return;
+    try {
+      await api.post(`/api/customers/${detail.customer.id}/credit`, {
+        amountCents,
+        kind: creditForm.kind,
+        note: creditForm.note,
+      });
+      toast(t("cust.credit.done"), "ok");
+      setCreditForm({ amount: "", kind: "grant", note: "" });
+      openDetail(detail.customer.id);
+    } catch (err) {
+      if (err instanceof ApiError && err.message === "insufficient_credit") toast(t("cust.credit.insufficient"), "danger");
+      else toast(err instanceof ApiError ? err.message : t("cust.credit.failed"), "danger");
     }
   };
 
@@ -709,6 +750,22 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
               </div>
             )}
 
+            {/* Как человек входит: почта (подтверждена или нет) и соцсети. */}
+            <div style={{ background: AT.surfaceAlt, borderRadius: AT.radiusSm, padding: "10px 12px", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span style={{ fontFamily: AT.body, fontSize: 12, fontWeight: 700, flex: 1 }}>{t("cust.verif.title")}</span>
+              {detail.customer.email.endsWith("@nav.izsoli.lv")
+                ? <ABadge tone="warn">{t("cust.verif.pending")}</ABadge>
+                : detail.customer.emailVerifiedAt
+                  ? <span title={formatDay(detail.customer.emailVerifiedAt)}><ABadge tone="ok">{t("cust.verif.ok")}</ABadge></span>
+                  : <ABadge tone="warn">{t("cust.verif.no")}</ABadge>}
+              {detail.customer.googleId && <ABadge tone="neutral">Google</ABadge>}
+              {detail.customer.facebookId && <ABadge tone="neutral">Facebook</ABadge>}
+              {detail.customer.telegramId && <ABadge tone="neutral">Telegram</ABadge>}
+              {!detail.customer.googleId && !detail.customer.facebookId && !detail.customer.telegramId && (
+                <span style={{ fontFamily: AT.body, fontSize: 12, color: AT.inkSoft }}>{t("cust.social.none")}</span>
+              )}
+            </div>
+
             {!detail.customer.erasedAt && can("customers.edit") && (
               <>
                 <AField label={t("cust.f.alias")}><AInput value={edit.alias} onChange={(v) => setEdit({ ...edit, alias: v })} /></AField>
@@ -738,6 +795,43 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
                   <ABtn kind="danger" size="sm" onClick={() => void ban()}>{t("cust.ban.confirm")}</ABtn>
                 </div>
               )
+            )}
+
+            {/* Аванс: баланс, движения и ручная кустība (№ 69b, 71–73).
+                Право то же, что у «отметить оплаченным» — оба признают деньги. */}
+            {(detail.credit.balanceCents !== 0 || detail.credit.entries.length > 0 || (!detail.customer.erasedAt && can("orders.mark_paid"))) && (
+              <ACard title={`${t("cust.credit.title")} · ${formatEur(detail.credit.balanceCents)}`} pad={false}>
+                {detail.credit.entries.length > 0 && (
+                  <ATable head={[t("cust.credit.when"), t("cust.credit.kind"), t("cust.credit.amount"), t("cust.credit.note"), t("cust.credit.who")]}>
+                    {detail.credit.entries.map((e, i) => (
+                      <ATr key={i}>
+                        <ATd>{formatDay(e.createdAt)}</ATd>
+                        <ATd>{t(CREDIT_KIND_KEY[e.kind])}{e.orderRef ? ` · ${e.orderRef}` : ""}</ATd>
+                        <ATd mono right>
+                          <span style={{ color: e.amountCents < 0 ? AT.danger : AT.ink }}>{formatEur(e.amountCents)}</span>
+                        </ATd>
+                        <ATd>{e.note || "—"}</ATd>
+                        <ATd>{e.actorLabel ?? "—"}</ATd>
+                      </ATr>
+                    ))}
+                  </ATable>
+                )}
+                {!detail.customer.erasedAt && can("orders.mark_paid") && (
+                  <div style={{ padding: 12, display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap", borderTop: `1px solid ${AT.ruleSoft}` }}>
+                    <AField label={t("cust.credit.amount")} hint={t("cust.credit.amountHint")}>
+                      <AInput value={creditForm.amount} onChange={(v) => setCreditForm({ ...creditForm, amount: v })} placeholder="10.00" />
+                    </AField>
+                    <AField label={t("cust.credit.kind")}>
+                      <ASelect value={creditForm.kind} onChange={(v) => setCreditForm({ ...creditForm, kind: v })}
+                        options={(["grant", "overpay", "refund_to_credit", "withdrawn", "expired"] as const).map((k) => ({ value: k, label: t(CREDIT_KIND_KEY[k]) }))} />
+                    </AField>
+                    <AField label={t("cust.credit.note")}>
+                      <AInput value={creditForm.note} onChange={(v) => setCreditForm({ ...creditForm, note: v })} />
+                    </AField>
+                    <ABtn size="sm" onClick={() => void creditMove()} disabled={!creditForm.amount.trim()}>{t("cust.credit.apply")}</ABtn>
+                  </div>
+                )}
+              </ACard>
             )}
 
             {detail.fees.length > 0 && (

@@ -175,6 +175,11 @@ export interface Customer {
   marketingOptInAt?: string | null;
   marketingSource?: string | null;
   marketingOptOutAt?: string | null;
+  /** Подтверждение почты и привязанные соцсети — видно, как человек входит. */
+  emailVerifiedAt?: string | null;
+  googleId?: string | null;
+  facebookId?: string | null;
+  telegramId?: string | null;
   createdAt: string;
   /** Present on the A3 power list response. */
   outstandingFeeCents?: number;
