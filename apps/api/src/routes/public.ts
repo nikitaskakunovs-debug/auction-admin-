@@ -448,6 +448,9 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
       .selectDistinctOn([bids.auctionId], {
         auctionId: bids.auctionId,
         myLastBidAt: bids.createdAt,
+        // Свой максимум показываем в кабинете строкой «tavs maksimums» —
+        // это личные данные, поэтому только своему владельцу.
+        myMaxCents: bids.maxCents,
       })
       .from(bids)
       .where(eq(bids.customerId, bidderId))
@@ -460,10 +463,12 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
       .innerJoin(items, eq(listings.itemId, items.id))
       .leftJoin(customers, eq(auctions.leaderCustomerId, customers.id))
       .where(inArray(auctions.id, rows.map((r) => r.auctionId)));
+    const myMax = new Map(rows.map((r) => [r.auctionId, r.myMaxCents]));
     return {
       bids: auctionRows.map((r) => ({
         ...publicAuction(r),
         youLead: r.auction.leaderCustomerId === bidderId,
+        myMaxCents: myMax.get(r.auction.id) ?? null,
       })),
     };
   });

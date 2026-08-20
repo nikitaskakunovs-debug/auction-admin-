@@ -1,6 +1,6 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { translate, type Lang } from "@/lib/strings";
 
 /* ═══ ОДНИ ЧАСЫ НА ВСЁ ПРИЛОЖЕНИЕ ═══
@@ -62,6 +62,43 @@ function subscribe(fn: () => void): () => void {
 export function useNow(intervalMs = 1000): number {
   const snap = (): number => Math.floor(now / intervalMs) * intervalMs;
   return useSyncExternalStore(subscribe, snap, snap);
+}
+
+/** То же, но подписка живёт только пока элемент виден на экране.
+ *  Карточки, уехавшие за пределы окна, перестают перерисовываться. */
+export function useNowVisible(ref: RefObject<HTMLElement | null>): number {
+  const [vis, setVis] = useState(() => now);
+  const off = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    // Без IntersectionObserver ведём себя как раньше — тикаем всегда.
+    if (!el || typeof IntersectionObserver === "undefined") {
+      return subscribe(() => setVis(now));
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        const e = entries[0];
+        if (!e) return;
+        if (e.isIntersecting && !off.current) {
+          setVis(now);
+          off.current = subscribe(() => setVis(now));
+        } else if (!e.isIntersecting && off.current) {
+          off.current();
+          off.current = null;
+        }
+      },
+      { rootMargin: "200px" },
+    );
+    io.observe(el);
+    return () => {
+      io.disconnect();
+      off.current?.();
+      off.current = null;
+    };
+  }, [ref]);
+
+  return vis;
 }
 
 /** Латышский формат: «3 dienas» → «1 diena 5 h» → «6:59:12» → «11:54» → «Beidzies».

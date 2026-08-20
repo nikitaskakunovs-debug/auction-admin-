@@ -12,7 +12,7 @@ import { formatEur, type FixedListing, type PublicAuction } from "@/lib/types";
 import { alertStore } from "@/lib/ui";
 import { watchStore } from "@/lib/watch";
 import { Icon } from "./Icon";
-import { useNow, formatLeft } from "./Countdown";
+import { useNowVisible, formatLeft } from "./Countdown";
 import { openScale, openShare } from "./Modals";
 import { say } from "./Toast";
 
@@ -70,7 +70,8 @@ const FRAMES = 4;
 export function LotCard({ lot }: { lot: CardLot }) {
   const { t, lang } = useT();
   const router = useRouter();
-  const now = useNow();
+  const root = useRef<HTMLElement>(null);
+  const now = useNowVisible(root);
   const [frame, setFrame] = useState(0);
   const [touched, setTouched] = useState(false);
   const [watched, setWatched] = useState(false);
@@ -161,6 +162,7 @@ export function LotCard({ lot }: { lot: CardLot }) {
 
   return (
     <article
+      ref={root}
       className={`lot${settled ? " is-settled" : ""}`}
       data-lot data-id={lot.sku}
       onKeyDown={(e) => {

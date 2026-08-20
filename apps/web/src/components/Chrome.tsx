@@ -33,7 +33,6 @@ export function Chrome({ country = "LV" }: { country?: Country }) {
   const { lang, t } = useT();
   const [signedIn, setSignedIn] = useState(false);
   const [watched, setWatched] = useState(0);
-  const [compact, setCompact] = useState(false);
   const [region, setRegion] = useState(false);
   const [search, setSearch] = useState(false);
   const [alerts, setAlerts] = useState(0);
@@ -62,14 +61,19 @@ export function Chrome({ country = "LV" }: { country?: Country }) {
   }, []);
 
 
-  /* Высота панели. Её меряет ResizeObserver — он срабатывает ровно тогда,
-   * когда высота действительно изменилась.
+  /* Высота верхней панели постоянна.
    *
-   * Раньше здесь на каждом кадре скролла стоял `setTimeout(measure, 360)`.
-   * Каждый такой вызов читал offsetHeight (браузер вынужден пересчитать
-   * раскладку немедленно) и записывал переменную в :root, обесценивая стили
-   * всей страницы. За пять секунд прокрутки набегало три сотни таких пар —
-   * это и был главный источник рывков. */
+   *  Раньше при скролле ниже 56 px панель складывалась, а через 360 мс JS
+   *  переписывал `--chrome-h`, из которого считается `body{padding-top}`.
+   *  На телефоне 390×844 это давало мгновенный сдвиг всей страницы на 195 px —
+   *  четверть экрана — вверх при прокрутке вниз и обратно вниз при прокрутке
+   *  вверх. Именно это читается как «экран дёргается».
+   *
+   *  Теперь панель не складывается, а лента категорий на телефоне свёрнута до
+   *  одной строки чипов (см. globals.css). Высоту меряет ResizeObserver —
+   *  он срабатывает ровно тогда, когда она действительно изменилась;
+   *  на скролл не реагируем вообще.
+   */
   useEffect(() => {
     const el = document.querySelector<HTMLElement>("[data-chrome]");
     const head = document.querySelector<HTMLElement>(".head");
@@ -91,31 +95,8 @@ export function Chrome({ country = "LV" }: { country?: Country }) {
     return () => ro.disconnect();
   }, []);
 
-  /* Сворачивание панели — по направлению прокрутки, как в Instagram:
-   * листаешь вниз — панель ужимается и освобождает экран, ведёшь вверх —
-   * возвращается сразу, не дожидаясь, пока доскроллишь до самого верха.
-   *
-   * Порог в 8 пикселей гасит дрожание пальца, иначе панель будет моргать. */
-  useEffect(() => {
-    let last = window.scrollY, raf = 0;
-    const read = () => {
-      raf = 0;
-      const y = window.scrollY;
-      if (y <= 56) setCompact(false);
-      else if (y > last + 8) setCompact(true);
-      else if (y < last - 8) setCompact(false);
-      last = y;
-    };
-    const onScroll = () => { if (!raf) raf = requestAnimationFrame(read); };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      window.removeEventListener("scroll", onScroll);
-      if (raf) cancelAnimationFrame(raf);
-    };
-  }, []);
-
   return (
-    <div className={`topchrome${compact ? " is-compact" : ""}`} data-chrome>
+    <div className="topchrome" data-chrome>
       <div className="util">
         <div className="wrap">
           <span className="util-l">
