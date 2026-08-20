@@ -17,6 +17,11 @@ import "./globals.css";
 
 // Шрифт лежит в репозитории и не тянется из сети ни в рантайме, ни на сборке:
 // сборка не должна падать из-за недоступного fonts.googleapis.com.
+//
+// Файлы — слитые подмножества latin + latin-ext (fontTools Merger из
+// @fontsource/figtree). До этого здесь лежал только latin-ext: 136 глифов
+// с диакритикой, но без a–z и цифр — слово «Rēķins» рисовалось двумя
+// гарнитурами сразу.
 const figtree = localFont({
   src: [
     { path: "./fonts/figtree-400.woff2", weight: "400", style: "normal" },
@@ -27,6 +32,21 @@ const figtree = localFont({
   ],
   display: "swap",
   variable: "--font-figtree",
+});
+
+// Кириллицы в Figtree не существует в природе — русская версия сайта падала
+// в системный шрифт. Manrope стоит вторым семейством: браузер берёт из него
+// только те символы, которых нет в Figtree.
+const manrope = localFont({
+  src: [
+    { path: "./fonts/manrope-400.woff2", weight: "400", style: "normal" },
+    { path: "./fonts/manrope-500.woff2", weight: "500", style: "normal" },
+    { path: "./fonts/manrope-600.woff2", weight: "600", style: "normal" },
+    { path: "./fonts/manrope-700.woff2", weight: "700", style: "normal" },
+    { path: "./fonts/manrope-800.woff2", weight: "800", style: "normal" },
+  ],
+  display: "swap",
+  variable: "--font-manrope",
 });
 
 export const viewport: Viewport = {
@@ -70,7 +90,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   const country = resolveCountry(host);
   const footerPages = await fetchFooterPages();
   return (
-    <html lang={country.defaultLang} className={`${figtree.variable} no-js`}>
+    <html lang={country.defaultLang} className={`${figtree.variable} ${manrope.variable} no-js`}>
       <head>
         {/* Снимаем no-js до первой отрисовки: правила фолбэка в globals.css
             рассчитаны на то, что с JS их не видно. */}

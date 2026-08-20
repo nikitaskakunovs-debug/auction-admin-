@@ -7,7 +7,9 @@ import { useT } from "@/lib/i18n";
 import type { Country } from "@/lib/country";
 import { alertStore, useRail, useReveal } from "@/lib/ui";
 import { watchStore } from "@/lib/watch";
+import { markAlertsSeen, relTime, type MyNotification } from "./account/data";
 import { CatalogMenu } from "./CatalogMenu";
+import { Ph } from "./Ph";
 import { COUNTRY_LABEL, LANG_NAME, RegionMenu } from "./RegionMenu";
 import { SearchOverlay } from "./SearchOverlay";
 import { Icon } from "./Icon";
@@ -138,15 +140,19 @@ export function Chrome({ country = "LV" }: { country?: Country }) {
           </button>
 
           <div className="head-act">
-            <Link className="icon-link" href="/account?tab=alerts">
-              <Icon name="bell" size={22} />{t("nav.alerts")}
-              {alerts > 0 && (
-                <>
-                  <span className="n" aria-hidden="true">{alerts}</span>
-                  <span className="sr">{t("nav.alertsN", { n: alerts })}</span>
-                </>
-              )}
-            </Link>
+            {signedIn ? (
+              <BellMenu alerts={alerts} />
+            ) : (
+              <Link className="icon-link" href="/account?tab=bridinajumi">
+                <Icon name="bell" size={22} />{t("nav.alerts")}
+                {alerts > 0 && (
+                  <>
+                    <span className="n" aria-hidden="true">{alerts}</span>
+                    <span className="sr">{t("nav.alertsN", { n: alerts })}</span>
+                  </>
+                )}
+              </Link>
+            )}
             <Link className="icon-link" href="/velmes">
               <Icon name="heart" size={22} />{t("nav.watchlist")}
               {watched > 0 && (
@@ -159,10 +165,7 @@ export function Chrome({ country = "LV" }: { country?: Country }) {
             {/* На телефоне видна только primary-кнопка, поэтому главным
                 действием стоит вход и кабинет, а не выход. */}
             {signedIn ? (
-              <>
-                <button className="btn btn-outline btn-sm" onClick={() => publicApi.logout()}>{t("nav.signout")}</button>
-                <Link className="btn btn-primary btn-sm" href="/account">{t("nav.account")}</Link>
-              </>
+              <UserMenu />
             ) : (
               <>
                 <Link className="btn btn-outline btn-sm keep" href="/login">{t("nav.signin")}</Link>
@@ -198,5 +201,148 @@ export function Chrome({ country = "LV" }: { country?: Country }) {
       <RegionMenu open={region} onClose={() => setRegion(false)} country={country} />
       <SearchOverlay open={search} onClose={() => setSearch(false)} />
     </div>
+  );
+}
+
+
+/** Выпадающее меню уведомлений в шапке (макет № 11). Список подтягивается
+ *  при открытии — шапка не делает лишних запросов на каждой странице. */
+function BellMenu({ alerts }: { alerts: number }) {
+  const { t } = useT();
+  const [open, setOpen] = useState(false);
+  const [rows, setRows] = useState<MyNotification[] | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement).closest(".ddwrap")) setOpen(false);
+    };
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [open]);
+
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    if (next && rows === null) {
+      void publicApi
+        .get<{ notifications: MyNotification[] }>("/api/public/me/notifications")
+        .then((r) => setRows(r.notifications))
+        .catch(() => setRows([]));
+    }
+    if (next) markAlertsSeen();
+  };
+
+  return (
+    <span className="ddwrap">
+      <button className="icon-link" type="button" aria-haspopup="menu" aria-expanded={open} onClick={toggle}>
+        <Icon name="bell" size={22} />{t("nav.alerts")}
+        {alerts > 0 && <span className="n" aria-hidden="true">{alerts}</span>}
+      </button>
+      {open && (
+        <div className="ddown" role="menu" aria-label={t("nav.alerts")}>
+          <div className="dd-h">
+            <b>{t("nav.alerts")}</b>
+          </div>
+          {(rows ?? []).slice(0, 4).map((n) => (
+            <div className="dd-row" key={n.id}>
+              <span className="ic" aria-hidden="true">
+                <Ph name={n.type === "outbid" ? "gavel" : n.type === "won" ? "check" : "bell"} size={14} />
+              </span>
+              <span className="t">
+                <b>{n.subject}</b>
+                <small>{n.body}</small>
+              </span>
+              <small className="when">{relTime(n.createdAt, t)}</small>
+            </div>
+          ))}
+          {rows !== null && rows.length === 0 && <p className="dd-empty">{t("kb.emptyAlertsT")}</p>}
+          <Link className="dd-all" href="/account?tab=bridinajumi" onClick={() => setOpen(false)}>
+            {t("kb.allAlerts")}
+          </Link>
+        </div>
+      )}
+    </span>
+  );
+}
+
+/** Меню аккаунта в шапке (макет № 11): разделы кабинета со счётчиками. */
+function UserMenu() {
+  const { t } = useT();
+  const [open, setOpen] = useState(false);
+  const [me, setMe] = useState<{ alias: string; email: string } | null>(null);
+  const [counts, setCounts] = useState<{ bids: number; orders: number; pickup: number } | null>(null);
+
+  // Буква на аватаре видна сразу, а не после первого клика.
+  useEffect(() => {
+    void publicApi
+      .get<{ bidder: { alias: string; email: string } }>("/api/public/auth/me")
+      .then((r) => setMe(r.bidder))
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement).closest(".ddwrap")) setOpen(false);
+    };
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [open]);
+
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    if (next && counts === null) {
+      void Promise.all([
+        publicApi.get<{ bids: Array<{ status: string }> }>("/api/public/me/bids").catch(() => ({ bids: [] })),
+        publicApi.get<{ orders: Array<{ status: string }> }>("/api/public/me/orders").catch(() => ({ orders: [] })),
+        publicApi.get<{ pickup: unknown[] }>("/api/public/me/pickup").catch(() => ({ pickup: [] })),
+      ]).then(([b, o, p]) =>
+        setCounts({
+          bids: b.bids.filter((x) => x.status === "live").length,
+          orders: o.orders.length,
+          pickup: p.pickup.length,
+        }),
+      );
+    }
+  };
+
+  const rows: Array<[string, string, number]> = [
+    ["parskats", "ac.overview", 0],
+    ["izsoles", "acc.myBids", counts?.bids ?? 0],
+    ["pirkumi", "kb.purchases", counts?.orders ?? 0],
+    ["velmes", "nav.watchlist", watchStore.list().length],
+    ["bridinajumi", "nav.alerts", 0],
+    ["iznemsana", "ac.pickup", counts?.pickup ?? 0],
+    ["iestatijumi", "ac.settings", 0],
+  ];
+
+  return (
+    <span className="ddwrap">
+      <button className="ava-btn" type="button" aria-haspopup="menu" aria-expanded={open}
+              aria-label={t("kb.accountMenu")} onClick={toggle}>
+        {(me?.alias ?? "•").slice(0, 1).toUpperCase()}
+      </button>
+      {open && (
+        <div className="ddown" role="menu" aria-label={t("kb.accountMenu")}>
+          <div className="dd-h">
+            <b>{me?.alias ?? ""}</b>
+            <small>{me?.email ?? ""}</small>
+          </div>
+          {rows.map(([tab, key, n]) => (
+            <Link className="dd-nav" key={tab} role="menuitem" onClick={() => setOpen(false)}
+                  href={tab === "parskats" ? "/account" : `/account?tab=${tab}`}>
+              <span>{t(key)}</span>
+              {n > 0 && <span className="n">{n}</span>}
+            </Link>
+          ))}
+          <button className="dd-nav out" type="button" role="menuitem"
+                  onClick={() => { publicApi.logout(); window.location.href = "/"; }}>
+            <Ph name="sign-out" size={15} /> {t("ac.signOutFull")}
+          </button>
+        </div>
+      )}
+    </span>
   );
 }

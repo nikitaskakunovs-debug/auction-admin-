@@ -7,7 +7,8 @@ async function registerViaUi(page: Page, alias: string): Promise<void> {
   await page.fill('input[placeholder*="Alias"], input[placeholder*="Segvārds"]', alias);
   await page.fill('input[type="password"]', "Bidder123!");
   await page.click('button[type="submit"]');
-  await expect(page.locator("text=/Mans konts|My account/")).toBeVisible();
+  // После входа в шапке вместо кнопки «Mans konts» — аватар-меню (макет № 11).
+  await expect(page.locator(".ava-btn")).toBeVisible();
 }
 
 test("full journey: register → bid → win → pay → track", async ({ page, request }) => {
@@ -29,7 +30,7 @@ test("full journey: register → bid → win → pay → track", async ({ page, 
   await expect
     .poll(
       async () => {
-        await page.goto("/account?tab=orders");
+        await page.goto("/account?tab=pirkumi");
         // The orders arrive by an async fetch after hydration: an instant
         // count() right after goto samples the page before the data lands and
         // never sees it. Give each visit a moment for the list to render.
@@ -55,7 +56,7 @@ test("full journey: register → bid → win → pay → track", async ({ page, 
   // The bidder tracks the payment landing. The redesigned account does not
   // stop at the word "paid": a paid order moves to the pickup tab with the
   // code the warehouse will ask for, which is the thing the customer needs.
-  await page.goto("/account?tab=pickup");
+  await page.goto("/account?tab=iznemsana");
   await expect(page.locator("text=/Ready for warehouse pickup|Gatavs saņemšanai noliktavā/").first())
     .toBeVisible();
   await expect(page.locator("text=/Pickup code|Saņemšanas kods/").first()).toBeVisible();

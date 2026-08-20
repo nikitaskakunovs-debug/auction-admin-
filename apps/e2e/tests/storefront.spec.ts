@@ -9,7 +9,8 @@ async function registerViaUi(page: Page, alias: string): Promise<void> {
   await page.fill('input[type="password"]', "Bidder123!");
   await page.click('button[type="submit"]');
   // Redirects home; header switches to the signed-in state.
-  await expect(page.locator("text=/Mans konts|My account|Мой счёт/")).toBeVisible();
+  // После входа в шапке вместо кнопки «Mans konts» — аватар-меню (макет № 11).
+  await expect(page.locator(".ava-btn")).toBeVisible();
 }
 
 test("storefront: register, bid, and take the lead", async ({ page, request }) => {

@@ -71,6 +71,9 @@ export interface MyOrder {
   ref: string;
   itemTitle: string;
   itemSku: string;
+  /** Категория и состояние лота — строка «Lots» и «Atrast līdzīgus». */
+  itemCategory?: string | null;
+  itemCondition?: string | null;
   hammerCents: number;
   premiumCents: number;
   vatCents: number;
@@ -80,6 +83,8 @@ export interface MyOrder {
   status: string;
   paymentDeadlineAt: string | null;
   createdAt: string;
+  /** Дата оплаты — шаг «Apmaksāts» в хронологии покупки. */
+  paidAt?: string | null;
   /** pickup | omniva_pm */
   fulfilment: string;
   shippingTo: { provider: string; machineId: string; name: string; zip: string; country: string; address?: string } | null;

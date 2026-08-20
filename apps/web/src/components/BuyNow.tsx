@@ -40,7 +40,7 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
       say(t("buy.now"));
       // Сразу на вкладку заказов: новый заказ ждёт оплаты именно там,
       // на обзоре его карточки нет.
-      router.push("/account?tab=orders");
+      router.push("/account?tab=pirkumi");
     } catch (err) {
       if (err instanceof PublicApiError && err.body.code === "NOT_AVAILABLE") {
         setSoldOut(true); setError(t("buy.soldOut"));

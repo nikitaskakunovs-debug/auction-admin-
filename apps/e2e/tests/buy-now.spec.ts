@@ -7,7 +7,8 @@ async function registerViaUi(page: Page, alias: string): Promise<void> {
   await page.fill('input[placeholder*="Alias"], input[placeholder*="Segvārds"]', alias);
   await page.fill('input[type="password"]', "Bidder123!");
   await page.click('button[type="submit"]');
-  await expect(page.locator("text=/Mans konts|My account/")).toBeVisible();
+  // После входа в шапке вместо кнопки «Mans konts» — аватар-меню (макет № 11).
+  await expect(page.locator(".ava-btn")).toBeVisible();
 }
 
 test("fixed-price: browse → buy now → order appears on the account", async ({ page, request }) => {
@@ -28,7 +29,7 @@ test("fixed-price: browse → buy now → order appears on the account", async (
 
   // Purchase redirects straight to the orders tab, where the new order
   // shows awaiting payment (the overview has no card for it).
-  await expect(page).toHaveURL(/\/account\?tab=orders$/);
+  await expect(page).toHaveURL(/\/account\?tab=pirkumi$/);
   await expect(page.locator(`text=${title}`)).toBeVisible();
   // The redesigned account says it twice — a section heading and a tag on the
   // card — so take the first rather than demanding there be only one.

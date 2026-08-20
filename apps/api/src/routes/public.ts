@@ -9,11 +9,13 @@ import {
   hashPassword,
   items,
   listings,
+  notifications,
   orders,
+  pickupTickets,
   shipments,
   verifyPassword,
 } from "@auction/db";
-import { and, asc, desc, eq, gt, ilike, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, gt, ilike, inArray, isNull, lt } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { signAccessToken } from "../auth/jwt.js";
@@ -225,6 +227,8 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
         blocked: c.blocked, strikes: c.strikes,
         // Кабинет показывает состояние подписки и даёт отозвать её в один клик.
         marketingOptIn: c.marketingOptIn,
+        // Реквизиты для страницы настроек — что сейчас пойдёт в счёт.
+        name: c.name, company: c.company, vatNo: c.vatNo,
       },
     };
   });
@@ -456,11 +460,20 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
           .regex(/^[a-zA-Z0-9_.-]+$/, "alias may contain letters, digits, _ . -")
           .optional(),
         marketingOptIn: z.boolean().optional(),
+        // Реквизиты для счетов: имя и — при счёте на SIA — название фирмы с
+        // номером PVN. Пустая строка стирает значение: человек вернулся к
+        // счетам на своё имя.
+        name: z.string().max(120).optional(),
+        company: z.string().max(160).optional(),
+        vatNo: z.string().max(24).optional(),
       })
       .safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: body.error.flatten() });
     const patch: Partial<typeof customers.$inferInsert> = {};
     if (body.data.alias !== undefined) patch.alias = body.data.alias;
+    if (body.data.name !== undefined) patch.name = body.data.name.trim() || null;
+    if (body.data.company !== undefined) patch.company = body.data.company.trim() || null;
+    if (body.data.vatNo !== undefined) patch.vatNo = body.data.vatNo.trim() || null;
     if (body.data.marketingOptIn !== undefined) {
       const now = ctx.now();
       if (body.data.marketingOptIn) {
@@ -520,7 +533,7 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
     const bidderId = requireBidder(req, reply);
     if (!bidderId) return;
     const rows = await ctx.db
-      .select({ order: orders, itemTitle: items.title, itemSku: items.sku })
+      .select({ order: orders, itemTitle: items.title, itemSku: items.sku, itemCategory: items.category, itemCondition: items.condition })
       .from(orders)
       .innerJoin(items, eq(orders.itemId, items.id))
       .where(eq(orders.customerId, bidderId))
@@ -549,6 +562,10 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
           ref: r.order.ref,
           itemTitle: r.itemTitle,
           itemSku: r.itemSku,
+          // Категория и состояние — для строки «Lots» и кнопки «Atrast
+          // līdzīgus» в раскрытой карточке покупки.
+          itemCategory: r.itemCategory,
+          itemCondition: r.itemCondition,
           hammerCents: r.order.hammerCents,
           premiumCents: r.order.premiumCents,
           vatCents: r.order.vatCents,
@@ -558,6 +575,8 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
           status: r.order.status,
           paymentDeadlineAt: r.order.paymentDeadlineAt,
           createdAt: r.order.createdAt,
+          // Даты шагов «Uzvarēts → Apmaksāts» в хронологии покупки.
+          paidAt: r.order.paidAt,
           fulfilment: r.order.fulfilment,
           shippingTo: r.order.shippingTo,
           shipment: shipment ? { barcode: shipment.barcode, status: shipment.status } : null,
@@ -599,6 +618,36 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
       .where(and(eq(orders.customerId, bidderId), eq(orders.status, "paid")))
       .orderBy(desc(orders.paidAt))
       .limit(50);
+    // Талон очереди: экран «Izņemšana» показывает номер на табло и шаг
+    // склада, если человек уже отметился в киоске сегодня.
+    const dayKey = ctx.now().toISOString().slice(0, 10);
+    const [ticket] = await ctx.db
+      .select({ number: pickupTickets.number, status: pickupTickets.status, checkedInAt: pickupTickets.checkedInAt })
+      .from(pickupTickets)
+      .where(
+        and(
+          eq(pickupTickets.customerId, bidderId),
+          eq(pickupTickets.dayKey, dayKey),
+          inArray(pickupTickets.status, ["waiting", "picking", "delivering"]),
+        ),
+      )
+      .orderBy(desc(pickupTickets.checkedInAt))
+      .limit(1);
+    let queueAhead = 0;
+    if (ticket && ticket.status === "waiting") {
+      const ahead = await ctx.db
+        .select({ id: pickupTickets.id })
+        .from(pickupTickets)
+        .where(
+          and(
+            eq(pickupTickets.dayKey, dayKey),
+            eq(pickupTickets.status, "waiting"),
+            lt(pickupTickets.number, ticket.number),
+          ),
+        );
+      queueAhead = ahead.length;
+    }
+
     return {
       pickup: rows
         .filter((r) => r.itemStatus === "paid" || r.itemStatus === "picking")
@@ -609,6 +658,65 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
           pickupDeadlineAt: r.order.pickupDeadlineAt,
           collecting: r.itemStatus === "picking",
         })),
+      ticket: ticket ? { number: ticket.number, status: ticket.status, queueAhead } : null,
+    };
+  });
+
+  /** Лента «Brīdinājumi»: собственные уведомления солиста — что и когда мы
+   *  ему отправляли (перебит ставкой, выиграл, счёт, напоминание). Только
+   *  чтение: это журнал, а не настройка. */
+  app.get("/api/public/me/notifications", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const rows = await ctx.db
+      .select({
+        id: notifications.id,
+        type: notifications.type,
+        subject: notifications.subject,
+        body: notifications.body,
+        status: notifications.status,
+        createdAt: notifications.createdAt,
+      })
+      .from(notifications)
+      .where(eq(notifications.customerId, bidderId))
+      .orderBy(desc(notifications.createdAt))
+      .limit(50);
+    return {
+      notifications: rows.map((n) => ({
+        id: n.id,
+        type: n.type,
+        subject: n.subject,
+        // Первая строка письма — как краткий текст в ленте.
+        body: n.body.split("\n").find((l) => l.trim().length > 0) ?? "",
+        createdAt: n.createdAt,
+      })),
+    };
+  });
+
+  /** «Manas piegādes» на экране izņemšanas: посылки человека по перевозчикам
+   *  с последним событием — едет, ждёт в пакомате, забрана, вернулась. */
+  app.get("/api/public/me/shipments", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const rows = await ctx.db
+      .select({ shipment: shipments, orderRef: orders.ref, itemTitle: items.title })
+      .from(shipments)
+      .innerJoin(orders, eq(shipments.orderId, orders.id))
+      .innerJoin(items, eq(orders.itemId, items.id))
+      .where(eq(orders.customerId, bidderId))
+      .orderBy(desc(shipments.createdAt))
+      .limit(50);
+    return {
+      shipments: rows.map((r) => ({
+        ref: r.orderRef,
+        itemTitle: r.itemTitle,
+        provider: r.shipment.provider,
+        barcode: r.shipment.barcode,
+        status: r.shipment.status,
+        providerStatus: r.shipment.providerStatus,
+        lastEvent: r.shipment.events[0] ?? null,
+        createdAt: r.shipment.createdAt,
+      })),
     };
   });
 
