@@ -230,7 +230,7 @@ export function LotCard({ lot }: { lot: CardLot }) {
                     say(alertStore.has(lot.id) ? t("lc.alertOn") : t("lc.alertOff"));
                   }}><Icon name="bell" /></button>
           <button type="button" aria-haspopup="dialog" aria-label={t("lc.shareAria", { title: lot.title })}
-                  onClick={(e) => { stop(e); openShare({ id: lot.id, sku: lot.sku, title: lot.title, icon }); }}
+                  onClick={(e) => { stop(e); openShare({ id: lot.id, sku: lot.sku, title: lot.title, icon, kind: fixed ? "fixed" : "auction" }); }}
           ><Icon name="share" /></button>
         </div>
 

@@ -9,7 +9,10 @@ import { say } from "./Toast";
 /** Модалки макета: шкала состояния и «Поделиться».
  *  Открываются из любой карточки — состояние держим в модуле, чтобы не тащить
  *  контекст через всё дерево. */
-type ShareLot = { id: string; sku: string; title: string; icon?: string };
+/** kind решает путь ссылки: аукцион живёт на /auction/<id>, товар с фиксированной
+ *  ценой — на /listing/<id>. Раньше всё уходило на /auction/, и ссылка на
+ *  «Pirkt tagad»-товар вела в «Šādas lapas nav». */
+type ShareLot = { id: string; sku: string; title: string; icon?: string; kind?: "auction" | "fixed" };
 type State = { scale: string | null; share: ShareLot | null };
 
 let setState: ((s: State) => void) | null = null;
@@ -94,8 +97,9 @@ export function Modals() {
   }
 
   if (state.share) {
+    const path = state.share.kind === "fixed" ? "listing" : "auction";
     const url = typeof location !== "undefined"
-      ? `${location.origin}/auction/${state.share.id}` : `https://izsoli.lv/auction/${state.share.id}`;
+      ? `${location.origin}/${path}/${state.share.id}` : `https://izsoli.lv/${path}/${state.share.id}`;
     const u = encodeURIComponent(url);
     const txt = encodeURIComponent(`${state.share.title} — Izsoli.lv`);
     const channels: Array<[string, string, string]> = [

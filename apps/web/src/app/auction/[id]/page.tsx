@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { API_URL } from "@/lib/config";
 import { resolveCountry, SITE_ORIGINS } from "@/lib/country";
 import { alternatesFor } from "@/lib/seo";
@@ -37,17 +37,45 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const [detail, host] = await Promise.all([fetchDetail(id), headers().then((h) => h.get("host"))]);
   if (!detail) return { title: "Auction" };
   const country = resolveCountry(host);
+  const a = detail.auction;
+  const origin = SITE_ORIGINS[country.code];
+  const price = ((a.currentPriceCents ?? a.startPriceCents ?? 0) / 100).toFixed(2);
+  const description = `€${price} · ${a.description.slice(0, 140) || a.title}`;
   return {
-    title: detail.auction.title,
-    description: detail.auction.description.slice(0, 160) || `Live auction: ${detail.auction.title}`,
+    title: a.title,
+    description,
     alternates: alternatesFor(country, `/auction/${id}`),
+    // Превью в мессенджерах и соцсетях: фото лота, цена, название (№ 05).
+    openGraph: {
+      title: a.title,
+      description,
+      url: `${origin}/auction/${id}`,
+      siteName: "Izsoli.lv",
+      type: "website",
+      ...(a.photos[0] ? { images: [{ url: a.photos[0], width: 1200, height: 900, alt: a.title }] } : {}),
+    },
+    twitter: {
+      card: a.photos[0] ? "summary_large_image" : "summary",
+      title: a.title,
+      description,
+      ...(a.photos[0] ? { images: [a.photos[0]] } : {}),
+    },
   };
 }
 
 export default async function AuctionPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const [detail, host] = await Promise.all([fetchDetail(id), headers().then((h) => h.get("host"))]);
-  if (!detail) notFound();
+  if (!detail) {
+    // Старые разосланные ссылки: кнопка «далīties» до исправления собирала
+    // /auction/<id> и для товаров «Pirkt tagad». Если такой товар существует —
+    // молча ведём на его настоящий адрес, а не в «Šādas lapas nav».
+    const asListing = await fetch(`${API_URL}/api/public/listings/${id}`, { cache: "no-store" })
+      .then((r) => (r.ok ? r : null))
+      .catch(() => null);
+    if (asListing) redirect(`/listing/${id}`);
+    notFound();
+  }
   const origin = SITE_ORIGINS[resolveCountry(host).code];
 
   const a = detail.auction;

@@ -124,7 +124,7 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
 
           <div className="lacts">
             <button type="button" aria-haspopup="dialog" aria-label={t("bn.share")}
-                    onClick={() => openShare({ id: listing.id, sku: listing.sku, title: listing.title })}
+                    onClick={() => openShare({ id: listing.id, sku: listing.sku, title: listing.title, kind: "fixed" })}
             ><Icon name="share" /></button>
           </div>
 
