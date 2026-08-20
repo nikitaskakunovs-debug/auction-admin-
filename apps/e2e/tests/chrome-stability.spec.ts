@@ -100,8 +100,13 @@ test("карточка вне экрана не перерисовывается
   const stamp = card.locator("time").first();
   await page.waitForTimeout(600);
 
-  // Уводим карточку далеко вверх за пределы окна.
-  await page.evaluate(() => window.scrollTo(0, 0));
+  // Уводим карточку за пределы окна. К нулю крутить нельзя: первая карточка
+  // каталога начинается выше низа экрана и там осталась бы видимой (и честно
+  // тикала бы). Крутим вниз, пока её нижний край не окажется над окном.
+  await page.evaluate(() => {
+    const r = document.querySelector(".lot")!.getBoundingClientRect();
+    window.scrollTo(0, r.bottom + window.scrollY + 120);
+  });
   await page.waitForTimeout(400);
   const parked = await stamp.textContent();
   await page.waitForTimeout(3000);

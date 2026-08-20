@@ -441,6 +441,49 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
     return { optIn: body.data.optIn };
   });
 
+  /** Правка своего профиля из кабинета. Поля независимы: пришло только то,
+   *  что человек менял. Рассылка проходит через ту же запись дат согласия,
+   *  что и остальные её входы, — иначе отзыв было бы нечем доказать. */
+  app.patch("/api/public/me", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const body = z
+      .object({
+        alias: z
+          .string()
+          .min(3)
+          .max(24)
+          .regex(/^[a-zA-Z0-9_.-]+$/, "alias may contain letters, digits, _ . -")
+          .optional(),
+        marketingOptIn: z.boolean().optional(),
+      })
+      .safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: body.error.flatten() });
+    const patch: Partial<typeof customers.$inferInsert> = {};
+    if (body.data.alias !== undefined) patch.alias = body.data.alias;
+    if (body.data.marketingOptIn !== undefined) {
+      const now = ctx.now();
+      if (body.data.marketingOptIn) {
+        patch.marketingOptIn = true;
+        patch.marketingOptInAt = now;
+        patch.marketingSource = "account";
+        patch.marketingOptOutAt = null;
+      } else {
+        // Дату согласия не стираем: отзыв тоже нужно уметь показать.
+        patch.marketingOptIn = false;
+        patch.marketingOptOutAt = now;
+      }
+    }
+    if (Object.keys(patch).length === 0) return reply.code(400).send({ error: "empty_patch" });
+    const [row] = await ctx.db
+      .update(customers)
+      .set(patch)
+      .where(eq(customers.id, bidderId))
+      .returning({ alias: customers.alias, marketingOptIn: customers.marketingOptIn });
+    if (!row) return reply.code(401).send({ error: "unauthenticated" });
+    return { ok: true, alias: row.alias, marketingOptIn: row.marketingOptIn };
+  });
+
   app.get("/api/public/me/bids", async (req, reply) => {
     const bidderId = requireBidder(req, reply);
     if (!bidderId) return;

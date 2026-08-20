@@ -76,20 +76,20 @@ export function useNowVisible(ref: RefObject<HTMLElement | null>): number {
     if (!el || typeof IntersectionObserver === "undefined") {
       return subscribe(() => setVis(now));
     }
-    const io = new IntersectionObserver(
-      (entries) => {
-        const e = entries[0];
-        if (!e) return;
-        if (e.isIntersecting && !off.current) {
-          setVis(now);
-          off.current = subscribe(() => setVis(now));
-        } else if (!e.isIntersecting && off.current) {
-          off.current();
-          off.current = null;
-        }
-      },
-      { rootMargin: "200px" },
-    );
+    /* Запас по краям не нужен: при входе в окно подписка сразу берёт время из
+     * общих часов, отставшего кадра человек не увидит. Зато без запаса
+     * карточка за краем гарантированно молчит. */
+    const io = new IntersectionObserver((entries) => {
+      const e = entries[0];
+      if (!e) return;
+      if (e.isIntersecting && !off.current) {
+        setVis(now);
+        off.current = subscribe(() => setVis(now));
+      } else if (!e.isIntersecting && off.current) {
+        off.current();
+        off.current = null;
+      }
+    });
     io.observe(el);
     return () => {
       io.disconnect();

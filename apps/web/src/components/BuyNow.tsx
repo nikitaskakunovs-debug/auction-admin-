@@ -38,7 +38,9 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
       await publicApi.post(`/api/public/listings/${listing.id}/buy`);
       setConfirm(false);
       say(t("buy.now"));
-      router.push("/account");
+      // Сразу на вкладку заказов: новый заказ ждёт оплаты именно там,
+      // на обзоре его карточки нет.
+      router.push("/account?tab=orders");
     } catch (err) {
       if (err instanceof PublicApiError && err.body.code === "NOT_AVAILABLE") {
         setSoldOut(true); setError(t("buy.soldOut"));

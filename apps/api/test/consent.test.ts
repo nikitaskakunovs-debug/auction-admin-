@@ -158,6 +158,68 @@ describe("согласия", () => {
     expect((me.json() as { bidder: { marketingOptIn: boolean } }).bidder.marketingOptIn).toBe(false);
   });
 
+  it("правит профиль через PATCH /me: ник и рассылку, с теми же датами согласия", async () => {
+    const { accessToken, bidder } = await register("consent.patchme@test.lv");
+
+    // Ник: кабинет шлёт только то, что менялось.
+    const alias = await world.server.app.inject({
+      method: "PATCH",
+      url: "/api/public/me",
+      headers: { authorization: `Bearer ${accessToken}` },
+      payload: { alias: "jauns.niks" },
+    });
+    expect(alias.statusCode).toBe(200);
+    expect((alias.json() as { alias: string }).alias).toBe("jauns.niks");
+
+    // Рассылка тем же маршрутом обязана оставлять тот же след, что и остальные входы.
+    const on = await world.server.app.inject({
+      method: "PATCH",
+      url: "/api/public/me",
+      headers: { authorization: `Bearer ${accessToken}` },
+      payload: { marketingOptIn: true },
+    });
+    expect(on.statusCode).toBe(200);
+    let [row] = await world.ctx.db.select().from(customers).where(eq(customers.id, bidder.id));
+    expect(row!.alias).toBe("jauns.niks");
+    expect(row!.marketingOptIn).toBe(true);
+    expect(row!.marketingOptInAt, "без даты согласие ничего не стоит").toBeTruthy();
+    expect(row!.marketingSource).toBe("account");
+
+    const off = await world.server.app.inject({
+      method: "PATCH",
+      url: "/api/public/me",
+      headers: { authorization: `Bearer ${accessToken}` },
+      payload: { marketingOptIn: false },
+    });
+    expect(off.statusCode).toBe(200);
+    [row] = await world.ctx.db.select().from(customers).where(eq(customers.id, bidder.id));
+    expect(row!.marketingOptIn).toBe(false);
+    expect(row!.marketingOptOutAt, "отзыв тоже нужно уметь показать").toBeTruthy();
+    expect(row!.marketingOptInAt, "дату согласия не стираем").toBeTruthy();
+
+    // Пустой запрос и кривой ник — отказ, без записи.
+    const empty = await world.server.app.inject({
+      method: "PATCH",
+      url: "/api/public/me",
+      headers: { authorization: `Bearer ${accessToken}` },
+      payload: {},
+    });
+    expect(empty.statusCode).toBe(400);
+    const bad = await world.server.app.inject({
+      method: "PATCH",
+      url: "/api/public/me",
+      headers: { authorization: `Bearer ${accessToken}` },
+      payload: { alias: "x" },
+    });
+    expect(bad.statusCode).toBe(400);
+    const anon = await world.server.app.inject({
+      method: "PATCH",
+      url: "/api/public/me",
+      payload: { alias: "kadscits" },
+    });
+    expect(anon.statusCode).toBe(401);
+  });
+
   it("показывает согласие в списке клиентов и умеет отобрать согласившихся", async () => {
     await register("consent.listed@test.lv", true);
     const res = await world.server.app.inject({

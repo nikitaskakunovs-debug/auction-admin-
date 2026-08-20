@@ -26,8 +26,9 @@ test("fixed-price: browse → buy now → order appears on the account", async (
   // buys. Worth the extra step, and worth the extra line here.
   await page.click("text=/Buy and go to payment|Pirkt un pāriet uz apmaksu/");
 
-  // Purchase redirects to the account, where the order shows awaiting payment.
-  await expect(page).toHaveURL(/\/account$/);
+  // Purchase redirects straight to the orders tab, where the new order
+  // shows awaiting payment (the overview has no card for it).
+  await expect(page).toHaveURL(/\/account\?tab=orders$/);
   await expect(page.locator(`text=${title}`)).toBeVisible();
   // The redesigned account says it twice — a section heading and a tag on the
   // card — so take the first rather than demanding there be only one.
