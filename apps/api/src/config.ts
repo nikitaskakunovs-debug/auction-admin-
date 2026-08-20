@@ -97,6 +97,9 @@ export interface ApiConfig {
   } | null;
   /** Storefront origin used for post-checkout redirects (success/failure/cancel). */
   storefrontBaseUrl: string;
+  /** Пускать к ставкам только подтверждённую почту (макет № 15). Выключатель
+   *  существует для тестовых миров; в проде всегда включено. */
+  requireVerifiedEmail: boolean;
   /**
    * What the customer emails print about us: the footer block, the pickup
    * address and hours, and the optional header illustration. Deploy settings,
@@ -330,6 +333,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     // Post-checkout redirect target. Production compose sets https://<DOMAIN>;
     // dev falls back to the Next.js storefront.
     storefrontBaseUrl: (env.STOREFRONT_BASE_URL ?? "http://localhost:3000").replace(/\/$/, ""),
+    requireVerifiedEmail: env.REQUIRE_VERIFIED_EMAIL !== "0",
     emailBrand: {
       companyName: env.COMPANY_NAME ?? "Izsoli.lv",
       legalName: env.COMPANY_LEGAL_NAME ?? "SIA Izsoli",

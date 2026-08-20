@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { bidViaUi, createLiveAuction, markOrderPaid, uniq } from "./fixtures.js";
+import { bidViaUi, createLiveAuction, markOrderPaid, uniq, verifyEmailDb } from "./fixtures.js";
 
 async function registerViaUi(page: Page, alias: string): Promise<void> {
   await page.goto("/register");
@@ -9,6 +9,8 @@ async function registerViaUi(page: Page, alias: string): Promise<void> {
   await page.click('button[type="submit"]');
   // После входа в шапке вместо кнопки «Mans konts» — аватар-меню (макет № 11).
   await expect(page.locator(".ava-btn")).toBeVisible();
+  // Почту подтверждаем в базе: без этого ставки и покупка закрыты.
+  await verifyEmailDb(`${alias}@e2e.test`);
 }
 
 test("full journey: register → bid → win → pay → track", async ({ page, request }) => {

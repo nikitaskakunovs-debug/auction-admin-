@@ -3,6 +3,7 @@ import { and, asc, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { writeAudit } from "../audit.js";
+import { InsufficientCreditError, moveCredit } from "../engine/credits.js";
 import type { AppContext } from "../context.js";
 import { requirePermission, type PermissionService } from "../auth/rbac.js";
 
@@ -257,6 +258,45 @@ export function registerCustomerRoutes(app: FastifyInstance, ctx: AppContext, pe
       updated++;
     }
     return { updated, matched: rows.length };
+  });
+
+  /** Начислить или списать аванс клиенту вручную: переплата по перечислению,
+   *  компенсация, исправление. Право то же, что у «отметить оплаченным» —
+   *  оба движения признают деньги. */
+  app.post("/api/customers/:id/credit", guard("orders.mark_paid"), async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = z
+      .object({
+        amountCents: z.number().int().refine((v) => v !== 0, "zero move"),
+        kind: z.enum(["overpay", "refund_to_credit", "grant", "withdrawn", "expired"]).default("grant"),
+        note: z.string().max(300).default(""),
+        orderRef: z.string().max(40).optional(),
+      })
+      .safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: body.error.flatten() });
+    const [customer] = await ctx.db.select().from(customers).where(eq(customers.id, id));
+    if (!customer) return reply.code(404).send({ error: "not_found" });
+    try {
+      const result = await ctx.db.transaction(async (tx) => {
+        const moved = await moveCredit(tx, id, {
+          kind: body.data.kind,
+          amountCents: body.data.amountCents,
+          orderRef: body.data.orderRef ?? null,
+          note: body.data.note,
+          actorLabel: actor(req).label,
+        }, ctx.now());
+        return moved;
+      });
+      await writeAudit(ctx.db, actor(req), "customer", "credit_move", id, {
+        kind: body.data.kind, amountCents: body.data.amountCents, note: body.data.note,
+      });
+      return { ok: true, balanceCents: result.balanceCents };
+    } catch (err) {
+      if (err instanceof InsufficientCreditError) {
+        return reply.code(409).send({ error: "insufficient_credit", balanceCents: err.balanceCents });
+      }
+      throw err;
+    }
   });
 
   app.get("/api/customers/:id", guard("customers.view"), async (req, reply) => {

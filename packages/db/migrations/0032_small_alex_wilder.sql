@@ -1,0 +1,1 @@
+ALTER TABLE "orders" ADD COLUMN "credit_applied_cents" integer DEFAULT 0 NOT NULL;

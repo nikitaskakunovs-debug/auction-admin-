@@ -3,14 +3,19 @@ import {
   auctions,
   bids,
   cookieConsents,
+  creditEntries,
+  credits,
   customerFees,
   customerRefreshTokens,
   customers,
   hashPassword,
+  invoices,
   items,
   listings,
+  notificationPrefs,
   notifications,
   orders,
+  payments,
   pickupTickets,
   shipments,
   verifyPassword,
@@ -28,6 +33,10 @@ import {
 } from "../auth/passwordReset.js";
 import type { AppContext } from "../context.js";
 import { placeBid } from "../engine/bids.js";
+import { InsufficientCreditError, getOrCreateCredit, moveCredit } from "../engine/credits.js";
+import { renderInvoiceHtml, type InvoiceData } from "../engine/invoices.js";
+import { renderInvoicePdf } from "../engine/invoicePdf.js";
+import { enqueueNotification } from "../engine/notifications.js";
 import { buyNow } from "../engine/purchase.js";
 
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -72,24 +81,59 @@ function publicAuction(row: {
 export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): void {
   // ── Bidder auth ───────────────────────────────────────────────────────────
 
-  async function issueTokens(customer: { id: string; email: string; alias: string }) {
+  async function issueTokens(customer: { id: string; email: string; alias: string }, req?: FastifyRequest) {
+    const refreshToken = randomBytes(48).toString("base64url");
+    // Сессия = строка refresh-токена; её id уходит в access-токен как sid,
+    // чтобы экран «Drošība» знал, какая из сессий — текущая.
+    const [session] = await ctx.db
+      .insert(customerRefreshTokens)
+      .values({
+        customerId: customer.id,
+        tokenHash: sha256(refreshToken),
+        expiresAt: new Date(ctx.now().getTime() + ctx.config.refreshTokenTtlSec * 1000),
+        ua: req?.headers["user-agent"]?.slice(0, 300) ?? null,
+        ip: req?.ip ?? null,
+        lastUsedAt: ctx.now(),
+      })
+      .returning({ id: customerRefreshTokens.id });
     const accessToken = signAccessToken(
-      { sub: customer.id, kind: "bidder", email: customer.email, name: customer.alias, role: "bidder" },
+      { sub: customer.id, kind: "bidder", email: customer.email, name: customer.alias, role: "bidder", sid: session!.id },
       ctx.config.jwtSecret,
       ctx.config.accessTokenTtlSec,
       ctx.now().getTime(),
     );
-    const refreshToken = randomBytes(48).toString("base64url");
-    await ctx.db.insert(customerRefreshTokens).values({
-      customerId: customer.id,
-      tokenHash: sha256(refreshToken),
-      expiresAt: new Date(ctx.now().getTime() + ctx.config.refreshTokenTtlSec * 1000),
-    });
     return {
       accessToken,
       refreshToken,
       bidder: { id: customer.id, email: customer.email, alias: customer.alias },
     };
+  }
+
+  /** Токен подтверждения почты: случайный, в базе только его отпечаток. */
+  async function sendVerificationEmail(customer: { id: string; email: string }): Promise<void> {
+    const token = randomBytes(32).toString("base64url");
+    await ctx.db
+      .update(customers)
+      .set({ emailVerifyTokenHash: sha256(token), emailVerifySentAt: ctx.now() })
+      .where(eq(customers.id, customer.id));
+    const link = `${ctx.config.storefrontBaseUrl}/verify-email?token=${token}`;
+    await enqueueNotification(ctx, ctx.db, {
+      customerId: customer.id,
+      type: "verify_email",
+      template: { alias: "", lotTitle: "", actionUrl: link },
+    });
+  }
+
+  /** Ставки и покупки — только с подтверждённой почтой (макет № 15). */
+  async function requireVerifiedEmail(bidderId: string, reply: FastifyReply): Promise<boolean> {
+    if (!ctx.config.requireVerifiedEmail) return true;
+    const [c] = await ctx.db
+      .select({ verifiedAt: customers.emailVerifiedAt })
+      .from(customers)
+      .where(eq(customers.id, bidderId));
+    if (!c || c.verifiedAt !== null) return true;
+    void reply.code(403).send({ ok: false, code: "EMAIL_NOT_VERIFIED" });
+    return false;
   }
 
   const registerSchema = z.object({
@@ -132,7 +176,9 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
       .onConflictDoNothing()
       .returning({ id: customers.id, email: customers.email, alias: customers.alias });
     if (!row) return reply.code(409).send({ error: "email_exists" });
-    return issueTokens(row);
+    // Письмо со ссылкой уходит сразу; до подтверждения ставки закрыты.
+    await sendVerificationEmail(row);
+    return issueTokens(row, req);
   });
 
   app.post("/api/public/auth/login", async (req, reply) => {
@@ -150,7 +196,7 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
     ) {
       return reply.code(401).send({ error: "invalid_credentials" });
     }
-    return issueTokens(customer);
+    return issueTokens(customer, req);
   });
 
   // ── Forgot password (emailed single-use link) ─────────────────────────────
@@ -205,7 +251,7 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
     const [customer] = await ctx.db.select().from(customers).where(eq(customers.id, row.customerId));
     if (!customer || customer.erasedAt !== null) return reply.code(401).send({ error: "invalid_refresh_token" });
     await ctx.db.update(customerRefreshTokens).set({ revokedAt: ctx.now() }).where(eq(customerRefreshTokens.id, row.id));
-    return issueTokens(customer);
+    return issueTokens(customer, req);
   });
 
   const requireBidder = (req: FastifyRequest, reply: FastifyReply): string | null => {
@@ -229,6 +275,8 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
         marketingOptIn: c.marketingOptIn,
         // Реквизиты для страницы настроек — что сейчас пойдёт в счёт.
         name: c.name, company: c.company, vatNo: c.vatNo,
+        // Verifikācija (№ 14/15): без подтверждения ставки и покупки закрыты.
+        emailVerified: c.emailVerifiedAt !== null,
       },
     };
   });
@@ -340,6 +388,7 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
     if (!bidderId) return;
     const body = bidSchema.safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: "invalid_body" });
+    if (!(await requireVerifiedEmail(bidderId, reply))) return;
     const { id } = req.params as { id: string };
     const result = await placeBid(ctx, { auctionId: id, customerId: bidderId, maxCents: body.data.maxCents });
     if (!result.ok) return reply.code(422).send(result);
@@ -791,9 +840,279 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
     return { listing: { ...publicListing(row), soldOut, estimatedTotalCents } };
   });
 
+
+  // ═══ ПОДТВЕРЖДЕНИЕ ПОЧТЫ (№ 14/15) ═══════════════════════════════════════
+
+  const VERIFY_TTL_MS = 24 * 3600 * 1000;
+
+  app.post("/api/public/auth/verify-email", async (req, reply) => {
+    const body = z.object({ token: z.string().min(20) }).safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid_body" });
+    const [c] = await ctx.db
+      .select({ id: customers.id, sentAt: customers.emailVerifySentAt, verifiedAt: customers.emailVerifiedAt })
+      .from(customers)
+      .where(eq(customers.emailVerifyTokenHash, sha256(body.data.token)));
+    if (!c) return reply.code(401).send({ error: "invalid_or_expired_token" });
+    if (c.verifiedAt !== null) return { ok: true };
+    if (!c.sentAt || ctx.now().getTime() - c.sentAt.getTime() > VERIFY_TTL_MS) {
+      return reply.code(401).send({ error: "invalid_or_expired_token" });
+    }
+    await ctx.db
+      .update(customers)
+      .set({ emailVerifiedAt: ctx.now(), emailVerifyTokenHash: null })
+      .where(eq(customers.id, c.id));
+    return { ok: true };
+  });
+
+  app.post("/api/public/auth/verify-email/resend", async (req, reply) => {
+    // Либо по токену сессии, либо по адресу — но ответ всегда ровный «ok»,
+    // чтобы по нему нельзя было проверять, существует ли адрес.
+    const body = z.object({ email: z.string().email().optional() }).safeParse(req.body ?? {});
+    if (!body.success) return reply.code(400).send({ error: "invalid_body" });
+    const me = req.bidder?.sub ?? null;
+    void (async () => {
+      const [c] = me
+        ? await ctx.db.select().from(customers).where(eq(customers.id, me))
+        : body.data.email
+          ? await ctx.db.select().from(customers).where(eq(customers.email, body.data.email.toLowerCase()))
+          : [];
+      if (!c || c.erasedAt !== null || c.emailVerifiedAt !== null) return;
+      // Не чаще раза в минуту — иначе кнопкой можно заспамить чужой ящик.
+      if (c.emailVerifySentAt && ctx.now().getTime() - c.emailVerifySentAt.getTime() < 60_000) return;
+      await sendVerificationEmail(c);
+    })().catch((err) => req.log.error({ err }, "verify-email resend failed"));
+    return reply.send({ ok: true });
+  });
+
+  // ═══ АВАНС (№ 69b, 71–73) ════════════════════════════════════════════════
+
+  app.get("/api/public/me/credit", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const credit = await getOrCreateCredit(ctx.db, bidderId);
+    const entries = await ctx.db
+      .select({
+        kind: creditEntries.kind,
+        amountCents: creditEntries.amountCents,
+        orderRef: creditEntries.orderRef,
+        note: creditEntries.note,
+        createdAt: creditEntries.createdAt,
+      })
+      .from(creditEntries)
+      .where(eq(creditEntries.creditId, credit.id))
+      .orderBy(desc(creditEntries.createdAt))
+      .limit(50);
+    return { balanceCents: credit.balanceCents, expiresAt: credit.expiresAt, entries };
+  });
+
+  /** «Atgriezt uz kontu»: остаток списывается сразу, деньги переводит
+   *  бухгалтерия — заявка попадает в её очередь письмом и аудитом. */
+  app.post("/api/public/me/credit/withdraw", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    try {
+      const result = await ctx.db.transaction(async (tx) => {
+        const credit = await getOrCreateCredit(tx, bidderId);
+        if (credit.balanceCents <= 0) return { balanceCents: 0, withdrawn: 0 };
+        await moveCredit(tx, bidderId, { kind: "withdrawn", amountCents: -credit.balanceCents, note: "klienta pieprasījums" }, ctx.now());
+        return { balanceCents: 0, withdrawn: credit.balanceCents };
+      });
+      return { ok: true, ...result };
+    } catch (err) {
+      if (err instanceof InsufficientCreditError) return reply.code(409).send({ error: "insufficient_credit" });
+      throw err;
+    }
+  });
+
+  // ═══ СЕССИИ (№ 57) ═══════════════════════════════════════════════════════
+
+  app.get("/api/public/me/sessions", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const now = ctx.now();
+    const rows = await ctx.db
+      .select({
+        id: customerRefreshTokens.id,
+        ua: customerRefreshTokens.ua,
+        ip: customerRefreshTokens.ip,
+        createdAt: customerRefreshTokens.createdAt,
+        lastUsedAt: customerRefreshTokens.lastUsedAt,
+        expiresAt: customerRefreshTokens.expiresAt,
+      })
+      .from(customerRefreshTokens)
+      .where(and(eq(customerRefreshTokens.customerId, bidderId), isNull(customerRefreshTokens.revokedAt), gt(customerRefreshTokens.expiresAt, now)))
+      .orderBy(desc(customerRefreshTokens.lastUsedAt))
+      .limit(50);
+    const sid = req.bidder?.sid ?? null;
+    return {
+      sessions: rows.map((r) => ({
+        id: r.id,
+        // Полный адрес человеку не нужен, а в чужих руках вреден.
+        ip: r.ip ? r.ip.replace(/\.\d+$/, ".•") : null,
+        ua: r.ua,
+        createdAt: r.createdAt,
+        lastUsedAt: r.lastUsedAt,
+        current: r.id === sid,
+      })),
+    };
+  });
+
+  app.delete("/api/public/me/sessions/:id", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const { id } = req.params as { id: string };
+    await ctx.db
+      .update(customerRefreshTokens)
+      .set({ revokedAt: ctx.now() })
+      .where(and(eq(customerRefreshTokens.id, id), eq(customerRefreshTokens.customerId, bidderId)));
+    return { ok: true };
+  });
+
+  /** «Iziet no visām citām ierīcēm»: гасим всё, кроме текущей сессии. */
+  app.post("/api/public/me/sessions/signout-others", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const sid = req.bidder?.sid ?? null;
+    const rows = await ctx.db
+      .select({ id: customerRefreshTokens.id })
+      .from(customerRefreshTokens)
+      .where(and(eq(customerRefreshTokens.customerId, bidderId), isNull(customerRefreshTokens.revokedAt)));
+    const toRevoke = rows.filter((r) => r.id !== sid).map((r) => r.id);
+    if (toRevoke.length > 0) {
+      await ctx.db
+        .update(customerRefreshTokens)
+        .set({ revokedAt: ctx.now() })
+        .where(inArray(customerRefreshTokens.id, toRevoke));
+    }
+    return { ok: true, revoked: toRevoke.length };
+  });
+
+  // ═══ МАТРИЦА УВЕДОМЛЕНИЙ (№ 60) ══════════════════════════════════════════
+
+  const PREF_EVENTS = ["outbid", "ending", "watchlist", "marketing"] as const;
+
+  app.get("/api/public/me/notification-prefs", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const rows = await ctx.db
+      .select()
+      .from(notificationPrefs)
+      .where(eq(notificationPrefs.customerId, bidderId));
+    const byEvent = new Map(rows.map((r) => [r.event, r]));
+    return {
+      prefs: PREF_EVENTS.map((event) => {
+        const r = byEvent.get(event);
+        return { event, email: r?.email ?? true, push: r?.push ?? false, telegram: r?.telegram ?? false };
+      }),
+    };
+  });
+
+  app.put("/api/public/me/notification-prefs", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const body = z
+      .object({
+        event: z.enum(PREF_EVENTS),
+        email: z.boolean().optional(),
+        push: z.boolean().optional(),
+        telegram: z.boolean().optional(),
+      })
+      .safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid_body" });
+    const patch = {
+      ...(body.data.email !== undefined ? { email: body.data.email } : {}),
+      ...(body.data.push !== undefined ? { push: body.data.push } : {}),
+      ...(body.data.telegram !== undefined ? { telegram: body.data.telegram } : {}),
+      updatedAt: ctx.now(),
+    };
+    await ctx.db
+      .insert(notificationPrefs)
+      .values({ customerId: bidderId, event: body.data.event, email: true, ...patch })
+      .onConflictDoUpdate({ target: [notificationPrefs.customerId, notificationPrefs.event], set: patch });
+    return { ok: true };
+  });
+
+  // ═══ ДОКУМЕНТЫ: СЧЁТ И ЧЕК (№ 34/41) ═════════════════════════════════════
+
+  /** Свой счёт по заказу — снимок из invoices, никаких пересчётов. */
+  async function ownInvoice(bidderId: string, ref: string) {
+    const [row] = await ctx.db
+      .select({ invoice: invoices, order: orders })
+      .from(invoices)
+      .innerJoin(orders, eq(invoices.orderId, orders.id))
+      .where(and(eq(orders.ref, ref), eq(orders.customerId, bidderId), isNull(invoices.voidedAt)));
+    return row ?? null;
+  }
+
+  app.get("/api/public/me/orders/:ref/invoice.pdf", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const { ref } = req.params as { ref: string };
+    const row = await ownInvoice(bidderId, ref);
+    if (!row) return reply.code(404).send({ error: "not_found" });
+    const pdf = await renderInvoicePdf(row.invoice.number, row.invoice.issuedAt, row.invoice.data as unknown as InvoiceData);
+    return reply
+      .type("application/pdf")
+      .header("content-disposition", `inline; filename="rekins-${row.invoice.number}.pdf"`)
+      .send(pdf);
+  });
+
+  app.get("/api/public/me/orders/:ref/invoice", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const { ref } = req.params as { ref: string };
+    const row = await ownInvoice(bidderId, ref);
+    if (!row) return reply.code(404).send({ error: "not_found" });
+    return reply.type("text/html").send(renderInvoiceHtml(row.invoice.number, row.invoice.issuedAt, row.invoice.data as unknown as InvoiceData));
+  });
+
+  /** Чек после оплаты (№ 35/41): заказ, лот, способ, ID платежа, код выдачи. */
+  app.get("/api/public/me/orders/:ref/receipt", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const { ref } = req.params as { ref: string };
+    const [row] = await ctx.db
+      .select({ order: orders, itemTitle: items.title, itemSku: items.sku })
+      .from(orders)
+      .innerJoin(items, eq(orders.itemId, items.id))
+      .where(and(eq(orders.ref, ref), eq(orders.customerId, bidderId)));
+    if (!row || row.order.status !== "paid") return reply.code(404).send({ error: "not_found" });
+    const [payment] = await ctx.db
+      .select({ provider: payments.provider, method: payments.method, providerId: payments.providerId, status: payments.status, createdAt: payments.createdAt })
+      .from(payments)
+      .where(and(eq(payments.orderId, row.order.id), eq(payments.status, "paid")))
+      .orderBy(desc(payments.createdAt))
+      .limit(1);
+    const [invoice] = await ctx.db
+      .select({ number: invoices.number })
+      .from(invoices)
+      .where(and(eq(invoices.orderId, row.order.id), isNull(invoices.voidedAt)));
+    return {
+      ref: row.order.ref,
+      itemTitle: row.itemTitle,
+      itemSku: row.itemSku,
+      hammerCents: row.order.hammerCents,
+      premiumCents: row.order.premiumCents,
+      vatCents: row.order.vatCents,
+      shippingCents: row.order.shippingCents,
+      handlingCents: row.order.handlingCents,
+      creditAppliedCents: row.order.creditAppliedCents,
+      totalCents: row.order.totalCents,
+      paidAt: row.order.paidAt,
+      fulfilment: row.order.fulfilment,
+      pickupCode: row.order.pickupCode,
+      pickupDeadlineAt: row.order.pickupDeadlineAt,
+      invoiceNumber: invoice?.number ?? null,
+      payment: payment
+        ? { provider: payment.provider, method: payment.method, providerId: payment.providerId }
+        : null,
+    };
+  });
+
   app.post("/api/public/listings/:id/buy", async (req, reply) => {
     const bidderId = requireBidder(req, reply);
     if (!bidderId) return;
+    if (!(await requireVerifiedEmail(bidderId, reply))) return;
     const { id } = req.params as { id: string };
     const result = await buyNow(ctx, { listingId: id, customerId: bidderId });
     if (!result.ok) {

@@ -13,6 +13,8 @@ export interface AccessClaims {
   name: string;
   /** Admin role id; bidders carry "bidder". */
   role: string;
+  /** Строка сессии (id refresh-строки) — для списка «Aktīvās sesijas». */
+  sid?: string;
   iss: string;
   aud: string;
   exp: number; // epoch seconds

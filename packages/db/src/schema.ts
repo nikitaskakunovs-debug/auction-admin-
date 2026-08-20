@@ -264,6 +264,10 @@ export const customerRefreshTokens = pgTable(
     tokenHash: text("token_hash").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    /** Экран «Drošība»: устройство, адрес и последняя активность сессии. */
+    ua: text("ua"),
+    ip: text("ip"),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("customer_refresh_tokens_customer_idx").on(t.customerId)],
@@ -329,6 +333,12 @@ export const customers = pgTable(
     marketingSource: text("marketing_source"),
     /** Когда согласие отозвали. Строку не чистим — отзыв тоже надо доказывать. */
     marketingOptOutAt: timestamp("marketing_opt_out_at", { withTimezone: true }),
+    /** Подтверждение почты. У существующих клиентов заполняется миграцией —
+     * они уже торговали, запирать их задним числом нельзя. Null = новый
+     * аккаунт, письму ещё не поверили: ставки и покупки закрыты. */
+    emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
+    emailVerifyTokenHash: text("email_verify_token_hash"),
+    emailVerifySentAt: timestamp("email_verify_sent_at", { withTimezone: true }),
     erasedAt: timestamp("erased_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -735,6 +745,8 @@ export const orders = pgTable(
     recipientPhone: text("recipient_phone"),
     /** Retained no-show restock fee (5% of total by default). */
     restockFeeCents: integer("restock_fee_cents"),
+    /** Аванс, зачтённый в этот заказ: провайдеру ушла сумма за вычетом его. */
+    creditAppliedCents: integer("credit_applied_cents").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("orders_ref_idx").on(t.ref), index("orders_status_idx").on(t.status)],
@@ -1293,4 +1305,66 @@ export const auditLog = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("audit_log_type_idx").on(t.type, t.createdAt)],
+);
+
+
+/**
+ * Аванс клиента: переплаты и возвраты, оставленные «на счету». Одна строка
+ * на клиента; каждое движение — отдельная запись в credit_entries, баланс
+ * меняется только вместе с записью.
+ */
+export const credits = pgTable(
+  "credits",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    balanceCents: integer("balance_cents").notNull().default(0),
+    /** Неиспользованный аванс возвращаем автоматически после этого срока. */
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("credits_customer_idx").on(t.customerId)],
+);
+
+export const creditEntries = pgTable(
+  "credit_entries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    creditId: uuid("credit_id")
+      .notNull()
+      .references(() => credits.id, { onDelete: "cascade" }),
+    /** overpay | refund_to_credit | used_for_order | withdrawn | expired | grant */
+    kind: text("kind").notNull(),
+    /** Плюс — пополнение, минус — списание. */
+    amountCents: integer("amount_cents").notNull(),
+    orderRef: text("order_ref"),
+    note: text("note").notNull().default(""),
+    actorLabel: text("actor_label"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("credit_entries_credit_idx").on(t.creditId)],
+);
+
+/**
+ * Матрица уведомлений «событие × канал». Строк нет — действует умолчание
+ * движка; юридически обязательные письма (won, invoice, payment) каналом
+ * e-mail не отключаются вовсе и в таблицу не пишутся.
+ */
+export const notificationPrefs = pgTable(
+  "notification_prefs",
+  {
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    /** outbid | ending | watchlist | marketing */
+    event: text("event").notNull(),
+    email: boolean("email").notNull().default(true),
+    push: boolean("push").notNull().default(false),
+    telegram: boolean("telegram").notNull().default(false),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("notification_prefs_pk").on(t.customerId, t.event)],
 );

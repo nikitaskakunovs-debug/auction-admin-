@@ -37,6 +37,10 @@ export function Checkout({ orderRef }: { orderRef: string }) {
   const payBox = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Аванс (№ 72): остаток на счету и переключатель «использовать».
+  const [creditCents, setCreditCents] = useState(0);
+  const [useCredit, setUseCredit] = useState(true);
+  const [meWho, setMeWho] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -58,6 +62,16 @@ export function Checkout({ orderRef }: { orderRef: string }) {
   }, []);
 
   useEffect(() => { if (signedIn) void load(); }, [signedIn, load]);
+
+  useEffect(() => {
+    if (!signedIn) return;
+    void publicApi.get<{ balanceCents: number }>("/api/public/me/credit")
+      .then((r) => setCreditCents(r.balanceCents))
+      .catch(() => undefined);
+    void publicApi.get<{ bidder: { alias: string; email: string; name: string | null; company: string | null } }>("/api/public/auth/me")
+      .then((r) => setMeWho(r.bidder.company ?? r.bidder.name ?? r.bidder.alias))
+      .catch(() => undefined);
+  }, [signedIn]);
 
   useEffect(() => {
     void publicApi.get<{ options: ShippingOption[] }>("/api/public/shipping/options?market=LV")
@@ -85,12 +99,14 @@ export function Checkout({ orderRef }: { orderRef: string }) {
   const startPayment = async () => {
     setBusy(true); setError(null);
     try {
-      const r = await publicApi.post<{ checkoutUrl: string }>(
+      const r = await publicApi.post<{ checkoutUrl?: string; paid?: boolean }>(
         `/api/public/orders/${encodeURIComponent(orderRef)}/pay`,
-        { language: lang, provider: pay },
+        { language: lang, provider: pay, ...(creditCents > 0 && useCredit ? { useCredit: true } : {}) },
       );
       setSubmitted(true);
-      window.location.assign(r.checkoutUrl);
+      // Аванс покрыл всё — провайдер не нужен, сразу чек.
+      if (r.paid) { window.location.assign(`/account?tab=pirkumi&cek=${encodeURIComponent(orderRef)}`); return; }
+      window.location.assign(r.checkoutUrl!);
     } catch (err) {
       setBusy(false);
       setError(err instanceof PublicApiError && err.status === 503
@@ -142,7 +158,9 @@ export function Checkout({ orderRef }: { orderRef: string }) {
   // а не ждём сохранения на сервере — как в макете.
   const chosen = options.find((o) => o.method === method);
   const shipCost = chosen ? chosen.priceCents + chosen.handlingCents : order.shippingCents + order.handlingCents;
-  const total = order.hammerCents + order.premiumCents + order.vatCents + shipCost;
+  const gross = order.hammerCents + order.premiumCents + order.vatCents + shipCost;
+  const creditApplied = creditCents > 0 && useCredit ? Math.min(creditCents, gross) : 0;
+  const total = gross - creditApplied;
 
   return (
     <section className="wrap" style={{ paddingTop: 24 }}>
@@ -205,8 +223,27 @@ export function Checkout({ orderRef }: { orderRef: string }) {
 
             </fieldset>
 
+            {creditCents > 0 && (
+              <fieldset className="card-b">
+                <legend><h2>{t("kb.credit")}</h2></legend>
+                <label className="opt credit">
+                  <input type="checkbox" checked={useCredit} onChange={(e) => setUseCredit(e.target.checked)} />
+                  <span>
+                    <b>{t("kb.creditUse", { sum: formatEur(Math.min(creditCents, gross)) })}</b>
+                    <small>{t("kb.creditNote")}</small>
+                  </span>
+                </label>
+              </fieldset>
+            )}
+
             <fieldset className="card-b">
               <legend><h2>{t("co.recipient")}</h2></legend>
+              {meWho && (
+                <p className="note" style={{ marginBottom: 10 }}>
+                  {t("kb.invoiceTo", { who: meWho })}{" "}
+                  <Link href="/account?tab=iestatijumi&s=rekviziti">{t("kb.invoiceToSia")}</Link>
+                </p>
+              )}
               <div className="fields">
                 <label>{t("co.fullName")}
                   <input type="text" name="name" autoComplete="name" required
@@ -257,6 +294,9 @@ export function Checkout({ orderRef }: { orderRef: string }) {
                   <td className="tnum">{shipCost === 0 ? "Bez maksas" : formatEur(shipCost)}</td></tr>
                 {machineName && (
                   <tr><th scope="row">{t("co.parcel")}</th><td>{machineName}</td></tr>
+                )}
+                {creditApplied > 0 && (
+                  <tr><th scope="row">{t("kb.creditRow")}</th><td className="tnum">−{formatEur(creditApplied)}</td></tr>
                 )}
                 <tr className="tot"><th scope="row">{t("bn.total")}</th><td className="tnum">{formatEur(total)}</td></tr>
               </tbody></table>

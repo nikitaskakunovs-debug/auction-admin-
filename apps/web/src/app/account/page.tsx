@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { BidHistory } from "@/components/account/BidHistory";
 import { Console } from "@/components/account/Console";
 import { relTime, useAccountData, type MyBidAuction } from "@/components/account/data";
+import { CreditBoard, InvoicePdfButton, Receipt } from "@/components/account/Money";
 import { Pickup } from "@/components/account/Pickup";
 import { SettingsHub } from "@/components/account/SettingsHub";
 import { Countdown } from "@/components/Countdown";
@@ -536,6 +537,21 @@ function Purchases({ orders, lang }: { orders: MyOrder[]; lang: Lang }) {
   const { t } = useT();
   const [filter, setFilter] = useState<"all" | "topay" | "paid">("all");
   const [open, setOpen] = useState<string | null>(null);
+  const [receiptRef, setReceiptRef] = useState<string | null>(null);
+
+  useEffect(() => {
+    const cek = new URLSearchParams(window.location.search).get("cek");
+    if (cek) setReceiptRef(cek);
+  }, []);
+
+  if (receiptRef) {
+    return (
+      <Receipt
+        orderRef={receiptRef}
+        onBack={() => { setReceiptRef(null); window.history.replaceState(null, "", "/account?tab=pirkumi"); }}
+      />
+    );
+  }
 
   const unpaid = orders.filter((o) => o.status === "awaiting_payment");
   const paidRows = orders.filter((o) => o.status === "paid");
@@ -560,6 +576,7 @@ function Purchases({ orders, lang }: { orders: MyOrder[]; lang: Lang }) {
           <p className="cnt">{t("kb.purchSub")}</p>
         </div>
       </div>
+      <CreditBoard />
       <div className="subpills" role="tablist">
         {([["all", t("kb.fAll"), orders.length], ["topay", t("kb.fToPay"), unpaid.length], ["paid", t("kb.fPaid"), paidRows.length]] as const).map(([id, label, n]) => (
           <button key={id} type="button" role="tab" aria-selected={filter === id}
@@ -637,6 +654,13 @@ function Purchases({ orders, lang }: { orders: MyOrder[]; lang: Lang }) {
                   )}
                   {awaiting && o.paymentDeadlineAt && (
                     <span className="note">{t("kb.until")} {short(o.paymentDeadlineAt)}</span>
+                  )}
+                  {!awaiting && !cancelled && <InvoicePdfButton orderRef={o.ref} />}
+                  {o.status === "paid" && (
+                    <button className="btn btn-outline" type="button"
+                            onClick={() => { setReceiptRef(o.ref); window.history.replaceState(null, "", `/account?tab=pirkumi&cek=${o.ref}`); }}>
+                      <Ph name="check" size={16} /> {t("kb.receipt")}
+                    </button>
                   )}
                   {o.itemCategory && (
                     <Link className="btn btn-outline" href={`/katalogs?cat=${encodeURIComponent(o.itemCategory)}`}>

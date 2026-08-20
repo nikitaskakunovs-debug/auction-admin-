@@ -6,6 +6,7 @@ import { verifyPayLinkToken } from "../auth/jwt.js";
 import type { AppContext } from "../context.js";
 import { InbankError } from "../engine/inbank.js";
 import { KlixError } from "../engine/klix.js";
+import { getOrCreateCredit, moveCredit } from "../engine/credits.js";
 import { settleOrderPaid } from "../engine/settlement.js";
 
 /**
@@ -139,6 +140,8 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
     channel: "web" | "email",
     language: string,
   ): Promise<{ ok: true; checkoutUrl: string } | { ok: false; status: number; error: string }> {
+    // Провайдеру уходит остаток после зачёта аванса — не полный итог.
+    const chargeCents = row.order.totalCents - row.order.creditAppliedCents;
     if ((provider === "klix" && !ctx.klix) || (provider === "inbank" && !ctx.inbank)) {
       return { ok: false, status: 503, error: "payments_unavailable" };
     }
@@ -153,7 +156,7 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
       existing.provider === provider &&
       // A fulfilment change reprices the order — a checkout carrying a stale
       // amount must never be reused, only superseded.
-      existing.amountCents === row.order.totalCents &&
+      existing.amountCents === chargeCents &&
       ctx.now().getTime() - existing.createdAt.getTime() < CHECKOUT_REUSE_MS
     ) {
       return { ok: true, checkoutUrl: existing.checkoutUrl };
@@ -185,7 +188,7 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
     const ref = encodeURIComponent(row.order.ref);
     const [payment] = await ctx.db
       .insert(payments)
-      .values({ orderId: row.order.id, provider, channel, amountCents: row.order.totalCents })
+      .values({ orderId: row.order.id, provider, channel, amountCents: chargeCents })
       .returning();
     const callbackUrl = `${ctx.config.publicBaseUrl}/api/public/payments/${provider}/callback?payment=${payment!.id}`;
     try {
@@ -194,7 +197,7 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
       let providerStatus: string;
       if (provider === "inbank") {
         const session = await ctx.inbank!.createSession({
-          amountCents: row.order.totalCents,
+          amountCents: chargeCents,
           reference: row.order.ref,
           redirectUrl: `${accountUrl}?paid=1&order=${ref}`,
           cancelUrl: `${accountUrl}?paid=cancel&order=${ref}`,
@@ -205,7 +208,7 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
         providerStatus = session.status;
       } else {
         const purchase = await ctx.klix!.createPurchase({
-          amountCents: row.order.totalCents,
+          amountCents: chargeCents,
           name: `${row.order.ref} — ${row.itemTitle}`.slice(0, 250),
           reference: row.order.ref,
           clientEmail: row.order.customerEmail,
@@ -261,6 +264,9 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
   const paySchema = z.object({
     language: z.enum(["lv", "ru", "en", "et", "lt"]).optional(),
     provider: z.enum(["klix", "inbank"]).optional(),
+    /** Зачесть аванс (№ 72): остаток уходит провайдеру; если аванс покрывает
+     *  всё — заказ оплачивается сразу, без провайдера. */
+    useCredit: z.boolean().optional(),
   });
 
   /** Start (or resume) checkout for the bidder's own unpaid order. */
@@ -269,12 +275,38 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
     if (!bidderId) return;
     const body = paySchema.safeParse(req.body ?? {});
     if (!body.success) return reply.code(400).send({ error: "invalid_body" });
-    const provider = body.data.provider ?? defaultProvider();
-    if (!provider) return reply.code(503).send({ error: "payments_unavailable" });
     const { ref } = req.params as { ref: string };
-    const row = await ownOrderByRef(ref, bidderId);
+    let row = await ownOrderByRef(ref, bidderId);
     if (!row) return reply.code(404).send({ error: "not_found" });
     if (row.order.status !== "awaiting_payment") return reply.code(409).send({ error: "order_not_awaiting_payment" });
+
+    if (body.data.useCredit) {
+      // Аванс списывается до похода к провайдеру, одной транзакцией с заказом.
+      await ctx.db.transaction(async (tx) => {
+        const [locked] = await tx.select().from(orders).where(eq(orders.id, row!.order.id)).for("update");
+        if (!locked || locked.status !== "awaiting_payment") return;
+        const remaining = locked.totalCents - locked.creditAppliedCents;
+        if (remaining <= 0) return;
+        const credit = await getOrCreateCredit(tx, bidderId);
+        const apply = Math.min(credit.balanceCents, remaining);
+        if (apply <= 0) return;
+        await moveCredit(tx, bidderId, { kind: "used_for_order", amountCents: -apply, orderRef: locked.ref }, ctx.now());
+        await tx
+          .update(orders)
+          .set({ creditAppliedCents: locked.creditAppliedCents + apply })
+          .where(eq(orders.id, locked.id));
+      });
+      row = await ownOrderByRef(ref, bidderId);
+      if (!row) return reply.code(404).send({ error: "not_found" });
+      if (row.order.totalCents - row.order.creditAppliedCents <= 0) {
+        // Аванс покрыл всё — деньги уже у нас, провайдер не нужен.
+        await settleOrderPaid(ctx, row.order.id, { id: null, label: "avanss" }, { creditAppliedCents: row.order.creditAppliedCents });
+        return { paid: true };
+      }
+    }
+
+    const provider = body.data.provider ?? defaultProvider();
+    if (!provider) return reply.code(503).send({ error: "payments_unavailable" });
     const language = body.data.language ?? MARKET_LANGUAGE[row.order.marketCode] ?? "en";
     const result = await openCheckout(row, provider, "web", language);
     if (!result.ok) return reply.code(result.status).send({ error: result.error });

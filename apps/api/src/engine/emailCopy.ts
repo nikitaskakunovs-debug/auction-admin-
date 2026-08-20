@@ -18,6 +18,7 @@ export type Lang = "lv" | "ru" | "en";
 export const LANGS: Lang[] = ["lv", "ru", "en"];
 
 export type NotificationType =
+  | "verify_email"
   | "outbid"
   | "won"
   | "purchased"
@@ -32,7 +33,7 @@ export type NotificationType =
   | "checked_in";
 
 export const NOTIFICATION_TYPES: NotificationType[] = [
-  "outbid", "won", "purchased", "payment_reminder", "order_paid",
+  "verify_email", "outbid", "won", "purchased", "payment_reminder", "order_paid",
   "pickup_ready", "pickup_reminder", "no_pickup_cancelled", "unpaid_cancelled",
   "shipped", "refunded", "checked_in",
 ];
@@ -62,6 +63,8 @@ export interface TemplateInput {
   ticketNumber?: number | undefined;
   /** How many items that ticket bundles. */
   lineCount?: number | undefined;
+  /** Ссылка действия письма — подтверждение почты. */
+  actionUrl?: string | undefined;
 }
 
 /** Links and addresses the copy needs; supplied by config, never hard-coded. */
@@ -244,6 +247,41 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
   const labels = labelsFor(lang);
 
   switch (type) {
+    // ── Подтверди почту ─────────────────────────────────────────────────────
+    case "verify_email": {
+      const subject = {
+        lv: "Apstiprini savu e-pastu — Izsoli.lv",
+        ru: "Подтвердите свою почту — Izsoli.lv",
+        en: "Confirm your e-mail — Izsoli.lv",
+      }[lang];
+      const text = {
+        lv: `Sveiki, ${i.alias}!\n\nApstiprini savu e-pastu, lai varētu solīt un pirkt: ${i.actionUrl}\nSaite derīga 24 stundas. Ja kontu neveidoji tu — vienkārši ignorē šo vēstuli.\n\n[verify_email]`,
+        ru: `Здравствуйте, ${i.alias}!\n\nПодтвердите почту, чтобы делать ставки и покупать: ${i.actionUrl}\nСсылка действует 24 часа. Если аккаунт создавали не вы — просто игнорируйте письмо.\n\n[verify_email]`,
+        en: `Hi ${i.alias},\n\nConfirm your e-mail to bid and buy: ${i.actionUrl}\nThe link is valid for 24 hours. If you did not create this account, just ignore this message.\n\n[verify_email]`,
+      }[lang];
+      return {
+        subject,
+        text,
+        spec: {
+          preheader: { lv: "Saite derīga 24 stundas", ru: "Ссылка действует 24 часа", en: "The link is valid for 24 hours" }[lang],
+          headline: { lv: "APSTIPRINI E-PASTU", ru: "ПОДТВЕРДИТЕ ПОЧТУ", en: "CONFIRM YOUR E-MAIL" }[lang],
+          headlineTone: "accent",
+          greeting: hi,
+          intro: {
+            lv: "Bez apstiprināta e-pasta solīšana un pirkšana ir slēgta — mēs nevarētu tev atsūtīt ne rēķinu, ne brīdinājumu par pārsolīšanu.",
+            ru: "Без подтверждённой почты ставки и покупки закрыты — мы не сможем прислать ни счёт, ни уведомление о перебитой ставке.",
+            en: "Bidding and buying stay locked until your e-mail is confirmed — we could not send you an invoice or an outbid alert otherwise.",
+          }[lang],
+          facts: [],
+          cta: {
+            label: { lv: "Apstiprināt e-pastu", ru: "Подтвердить почту", en: "Confirm e-mail" }[lang],
+            url: i.actionUrl ?? ctx.siteUrl,
+          },
+          labels,
+        },
+      };
+    }
+
     // ── Someone bid over you ────────────────────────────────────────────────
     case "outbid": {
       const subject = {
@@ -710,6 +748,8 @@ export function sampleInput(type: NotificationType, opts: { online?: boolean } =
     deadline: inFiveDays,
   };
   switch (type) {
+    case "verify_email":
+      return { ...base, actionUrl: "https://izsoli.lv/verify-email?token=sample", orderRef: undefined, totalCents: undefined };
     case "outbid":
       return { ...base, amountCents: 21_000, orderRef: undefined, totalCents: undefined };
     case "pickup_ready":

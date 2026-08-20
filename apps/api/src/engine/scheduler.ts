@@ -4,6 +4,7 @@ import { and, eq, gt, inArray, lte, sql } from "drizzle-orm";
 import { writeAudit, SYSTEM_ACTOR } from "../audit.js";
 import type { AppContext } from "../context.js";
 import { closeAuction, openAuction } from "./close.js";
+import { moveCredit } from "./credits.js";
 import { recordFee } from "./fees.js";
 import { cancelNoShowDue, remindPickupDue } from "./noShow.js";
 import { dispatchNotifications, enqueueNotification, reminderDedupeKey } from "./notifications.js";
@@ -201,6 +202,16 @@ export class AuctionScheduler {
           .set({ status: "cancelled", cancelledAt: now, cancelReason: "unpaid", restockFeeCents: feeCents })
           .where(eq(orders.id, order.id));
         await tx.update(items).set({ status: "unpaid_cancelled", updatedAt: now }).where(eq(items.id, item!.id));
+        // Зачтённый аванс не сгорает вместе с заказом — возвращается на счёт.
+        if (order.creditAppliedCents > 0) {
+          await moveCredit(tx, order.customerId, {
+            kind: "refund_to_credit",
+            amountCents: order.creditAppliedCents,
+            orderRef: order.ref,
+            note: "pasūtījums atcelts — avanss atgriezts",
+          }, now);
+          await tx.update(orders).set({ creditAppliedCents: 0 }).where(eq(orders.id, order.id));
+        }
         await tx
           .update(customers)
           .set({ strikes: sql`${customers.strikes} + 1` })

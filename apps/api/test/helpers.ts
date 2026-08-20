@@ -55,7 +55,7 @@ async function ensureTestDatabase(): Promise<void> {
   }
 }
 
-export async function createWorld(): Promise<TestWorld> {
+export async function createWorld(extraEnv: Record<string, string> = {}): Promise<TestWorld> {
   await ensureTestDatabase();
   const handle = createDb(TEST_URL);
   await migrate(handle.db, { migrationsFolder });
@@ -70,7 +70,7 @@ export async function createWorld(): Promise<TestWorld> {
       app_settings, condition_presets, item_comments, item_comment_reads,
       customer_tag_defs, bug_reports, bug_report_comments, bug_report_reads,
       suppliers, supplier_invoices, supplier_payments, return_cases,
-      stock_counts, stock_count_scans cascade
+      stock_counts, stock_count_scans, credits, credit_entries, notification_prefs cascade
   `);
   await seedDatabase(handle.db, { demoData: false });
 
@@ -95,6 +95,10 @@ export async function createWorld(): Promise<TestWorld> {
     JIRA_MODE: "simulate",
     SLACK_MODE: "simulate",
     JIRA_WEBHOOK_SECRET: "whsec-test",
+    // Проверку почты включает только её собственный тест — остальным мирам
+    // регистрация сразу даёт право солить, как раньше.
+    REQUIRE_VERIFIED_EMAIL: "0",
+    ...extraEnv,
   });
   const email = new CapturingEmailAdapter();
   const ctx: AppContext = {

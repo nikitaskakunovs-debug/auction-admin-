@@ -1,4 +1,4 @@
-import { customers, notifications, type Db } from "@auction/db";
+import { customers, notificationPrefs, notifications, type Db } from "@auction/db";
 import { and, asc, eq, lte, sql } from "drizzle-orm";
 import type { AppContext } from "../context.js";
 import {
@@ -85,6 +85,9 @@ type Tx = Pick<Db, "select" | "insert">;
  * language snapshot. Skips silently for erased/missing recipients. `dedupeKey`
  * (when given) makes the enqueue idempotent via the unique index.
  */
+/** События, которые человек вправе выключить (экран «Paziņojumi»). */
+const OPTIONAL_EVENTS = new Set<string>(["outbid"]);
+
 export async function enqueueNotification(
   ctx: AppContext,
   tx: Tx,
@@ -101,6 +104,17 @@ export async function enqueueNotification(
     .from(customers)
     .where(eq(customers.id, args.customerId));
   if (!recipient || recipient.erasedAt !== null) return;
+
+  // Матрица уведомлений: необязательные события человек может выключить.
+  // Юридически обязательные (won, счёт, оплата, выдача) сюда не входят —
+  // их выключателя нет ни в интерфейсе, ни здесь.
+  if (OPTIONAL_EVENTS.has(args.type)) {
+    const [pref] = await tx
+      .select({ email: notificationPrefs.email })
+      .from(notificationPrefs)
+      .where(and(eq(notificationPrefs.customerId, args.customerId), eq(notificationPrefs.event, args.type)));
+    if (pref && !pref.email) return;
+  }
 
   const lang = langFor(recipient.lang, recipient.country);
   // The greeting name always comes from the current record, never the caller.

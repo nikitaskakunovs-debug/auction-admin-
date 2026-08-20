@@ -16,7 +16,7 @@ import type { Me, MyBidAuction } from "./data";
  *  предпочтения, матрица уведомлений, сессии), появятся вместе с ними —
  *  плитка без страницы обманывает.
  */
-type Sub = "hub" | "profils" | "rekviziti" | "valoda" | "dokumenti" | "sikdatnes" | "dati";
+type Sub = "hub" | "profils" | "rekviziti" | "valoda" | "dokumenti" | "sikdatnes" | "dati" | "pazinojumi" | "drosiba";
 
 const LANG_NAMES: Record<Lang, string> = { lv: "Latviešu", ru: "Русский", en: "English", et: "Eesti", lt: "Lietuvių" };
 
@@ -51,6 +51,8 @@ export function SettingsHub({
   if (sub === "valoda") return <LangPage onBack={() => go("hub")} />;
   if (sub === "dokumenti") return <DocsPage marketing={marketing} onBack={() => go("hub")} />;
   if (sub === "sikdatnes") return <CookiesPage onBack={() => go("hub")} />;
+  if (sub === "pazinojumi") return <NotifPrefsPage onBack={() => go("hub")} />;
+  if (sub === "drosiba") return <SecurityPage me={me} onBack={() => go("hub")} />;
   if (sub === "dati")
     return (
       <DataPage
@@ -84,6 +86,12 @@ export function SettingsHub({
       <div className="hubgrid">
         {tile("profils", "gear", t("kb.gProfile"), t("kb.hProfileSub"), me ? `${me.alias} · ${me.email}` : undefined)}
         {tile("rekviziti", "file-text", t("kb.hRekv"), t("kb.hRekvSub"), t("kb.stPerson"))}
+      </div>
+
+      <p className="g-lbl">{t("kb.gOrders")}</p>
+      <div className="hubgrid">
+        {tile("pazinojumi", "bell", t("kb.hNotifs"), t("kb.hNotifsSub"))}
+        {tile("drosiba", "shield-check", t("kb.hSecurity"), t("kb.hSecuritySub"))}
       </div>
 
       <p className="g-lbl">{t("kb.gSecurity")}</p>
@@ -491,6 +499,153 @@ function DataPage({
             {t("kb.writeSupport")}
           </a>
         </div>
+      </section>
+    </div>
+  );
+}
+
+
+/** Paziņojumi (№ 60): матрица «событие × канал». Сегодня доставляется только
+ *  e-pasts; push и Telegram появятся со своими интеграциями — их слēdži
+ *  выключены и подписаны честно. */
+function NotifPrefsPage({ onBack }: { onBack: () => void }) {
+  const { t } = useT();
+  const [prefs, setPrefs] = useState<Array<{ event: string; email: boolean }>>([]);
+
+  useEffect(() => {
+    void publicApi
+      .get<{ prefs: Array<{ event: string; email: boolean }> }>("/api/public/me/notification-prefs")
+      .then((r) => setPrefs(r.prefs))
+      .catch(() => undefined);
+  }, []);
+
+  const set = (event: string, email: boolean) => {
+    setPrefs((cur) => cur.map((p) => (p.event === event ? { ...p, email } : p)));
+    void publicApi.request("PUT", "/api/public/me/notification-prefs", { event, email })
+      .then(() => say(t("kb.saved")))
+      .catch(() => say(t("err.generic")));
+  };
+
+  const EVENTS: Array<[string, string, string, boolean]> = [
+    ["outbid", t("kb.evOutbid"), t("kb.evOutbidD"), true],
+    ["ending", t("kb.evEnding"), t("kb.evEndingD"), true],
+    ["watchlist", t("kb.evWatch"), t("kb.evWatchD"), true],
+    ["marketing", t("kb.evMarketing"), t("kb.evMarketingD"), true],
+  ];
+  const MANDATORY: Array<[string, string]> = [
+    [t("kb.fWon"), t("acc.awaiting")],
+  ];
+  void MANDATORY;
+
+  const row = (event: string, title: string, subT: string) => {
+    const p = prefs.find((x) => x.event === event);
+    return (
+      <div className="ckrow" key={event}>
+        <span className="t">
+          <b>{title}</b>
+          <small>{subT}</small>
+          <small className="ex">{t("kb.chPush")} · {t("kb.chTg")} — {t("kb.chSoon")}</small>
+        </span>
+        <button
+          className={`sw${(p?.email ?? true) ? " on" : ""}`} type="button" role="switch"
+          aria-checked={p?.email ?? true} aria-label={`${title} — ${t("kb.chEmail")}`}
+          onClick={() => set(event, !(p?.email ?? true))}
+        />
+      </div>
+    );
+  };
+
+  return (
+    <div className="acct">
+      <Back onBack={onBack} label={t("ac.settings")} />
+      <div className="page-head" style={{ alignItems: "flex-start" }}>
+        <div>
+          <h1 data-hero>{t("kb.hNotifs")}</h1>
+          <p className="cnt">{t("kb.notifSub")}</p>
+        </div>
+      </div>
+      <section className="card-b">
+        <p className="g-lbl">{t("kb.channels")} · {t("kb.chEmail")}</p>
+        {EVENTS.map(([event, title, subT]) => row(event, title, subT))}
+        <div className="ckrow">
+          <span className="t">
+            <b>{t("kb.fWon")} · {t("kb.invoiceRecipient")} · {t("ac.pickup")}</b>
+            <small>{t("kb.mandatoryNote")}</small>
+          </span>
+          <span className="sw on fixed" role="switch" aria-checked="true" aria-disabled="true"
+                aria-label={t("kb.mandatoryNote")} />
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/** Drošība (№ 57): способы входа и активные сессии. */
+function SecurityPage({ me, onBack }: { me: Me | null; onBack: () => void }) {
+  const { t, lang } = useT();
+  const [sessions, setSessions] = useState<Array<{ id: string; ua: string | null; ip: string | null; lastUsedAt: string | null; createdAt: string; current: boolean }>>([]);
+
+  const load = () =>
+    void publicApi
+      .get<{ sessions: typeof sessions }>("/api/public/me/sessions")
+      .then((r) => setSessions(r.sessions))
+      .catch(() => undefined);
+  useEffect(load, []);
+
+  const device = (ua: string | null) => {
+    if (!ua) return "—";
+    const os = /iPhone|iPad/.test(ua) ? "iPhone" : /Android/.test(ua) ? "Android" : /Mac OS/.test(ua) ? "Mac" : /Windows/.test(ua) ? "Windows" : /Linux/.test(ua) ? "Linux" : "";
+    const br = /Edg\//.test(ua) ? "Edge" : /OPR\//.test(ua) ? "Opera" : /Firefox\//.test(ua) ? "Firefox" : /Chrome\//.test(ua) ? "Chrome" : /Safari\//.test(ua) ? "Safari" : "";
+    return [os, br].filter(Boolean).join(" · ") || ua.slice(0, 40);
+  };
+  const when = (iso: string | null) =>
+    iso ? new Date(iso).toLocaleString(dateLocale(lang), { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
+
+  return (
+    <div className="acct">
+      <Back onBack={onBack} label={t("ac.settings")} />
+      <div className="page-head" style={{ alignItems: "flex-start" }}>
+        <div>
+          <h1 data-hero>{t("kb.hSecurity")}</h1>
+          <p className="cnt">{t("kb.secSub")}</p>
+        </div>
+      </div>
+      <section className="card-b">
+        <p className="g-lbl">{t("kb.loginWays")}</p>
+        <div className="prow">
+          <span className="t"><span className="k">{t("kb.email")}</span><span className="v">{me?.email ?? "—"}</span></span>
+        </div>
+        <div className="prow">
+          <span className="t"><span className="k">{t("kb.password")}</span><span className="v">••••••••</span></span>
+          <Link className="btn btn-outline btn-sm" href="/forgot-password">{t("ac.change")}</Link>
+        </div>
+
+        <p className="g-lbl">{t("kb.activeSessions")}</p>
+        {sessions.map((sn) => (
+          <div className="ckrow" key={sn.id}>
+            <span className="t">
+              <b>{device(sn.ua)} {sn.current && <i className="tag-lead">{t("kb.thisDevice")}</i>}</b>
+              <small>
+                {sn.ip ?? "—"} · {sn.current ? t("kb.activeNow") : when(sn.lastUsedAt ?? sn.createdAt)}
+              </small>
+            </span>
+            {!sn.current && (
+              <button
+                className="btn btn-outline btn-sm" type="button"
+                onClick={() => void publicApi.request("DELETE", `/api/public/me/sessions/${sn.id}`).then(load).catch(() => say(t("err.generic")))}
+              >{t("kb.endSession")}</button>
+            )}
+          </div>
+        ))}
+        {sessions.filter((sn) => !sn.current).length > 0 && (
+          <div className="acts">
+            <button
+              className="btn btn-outline" type="button"
+              onClick={() => void publicApi.post("/api/public/me/sessions/signout-others").then(() => { say(t("kb.saved")); load(); }).catch(() => say(t("err.generic")))}
+            >{t("kb.signOutAll")}</button>
+          </div>
+        )}
+        <p className="note">{t("kb.sessionsNote")}</p>
       </section>
     </div>
   );

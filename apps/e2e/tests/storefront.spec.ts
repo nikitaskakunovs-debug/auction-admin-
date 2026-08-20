@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { bidViaUi, createLiveAuction, placeBidApi, registerBidderApi, uniq } from "./fixtures.js";
+import { bidViaUi, createLiveAuction, placeBidApi, registerBidderApi, uniq, verifyEmailDb } from "./fixtures.js";
 
 /** Register a bidder through the storefront UI (exercises the real flow). */
 async function registerViaUi(page: Page, alias: string): Promise<void> {
@@ -11,6 +11,8 @@ async function registerViaUi(page: Page, alias: string): Promise<void> {
   // Redirects home; header switches to the signed-in state.
   // После входа в шапке вместо кнопки «Mans konts» — аватар-меню (макет № 11).
   await expect(page.locator(".ava-btn")).toBeVisible();
+  // Почту подтверждаем в базе: без этого ставки и покупка закрыты.
+  await verifyEmailDb(`${alias}@e2e.test`);
 }
 
 test("storefront: register, bid, and take the lead", async ({ page, request }) => {

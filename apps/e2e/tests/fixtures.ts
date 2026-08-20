@@ -1,4 +1,5 @@
-import { SEED_ADMIN_TOTP_SECRET } from "@auction/db";
+import { SEED_ADMIN_TOTP_SECRET, createDb, customers } from "@auction/db";
+import { eq } from "drizzle-orm";
 import { base32Decode, totp } from "@auction/domain";
 import { type APIRequestContext, type Page, expect } from "@playwright/test";
 
@@ -96,7 +97,16 @@ export async function registerBidderApi(
   });
   expect(res.ok(), `register bidder ${alias}`).toBeTruthy();
   const body = await res.json();
+  await verifyEmailDb(`${alias}@e2e.test`);
   return { token: body.accessToken, id: body.bidder.id, alias: body.bidder.alias };
+}
+
+/** Подтвердить почту напрямую в базе — e2e не читает почтовый ящик, а
+ *  проверка при этом остаётся включённой, как в проде. */
+export async function verifyEmailDb(email: string): Promise<void> {
+  const { db, pool } = createDb(process.env.DATABASE_URL ?? "postgres://auction:auction@localhost:5432/auction");
+  await db.update(customers).set({ emailVerifiedAt: new Date() }).where(eq(customers.email, email.toLowerCase()));
+  await pool.end();
 }
 
 export async function placeBidApi(
