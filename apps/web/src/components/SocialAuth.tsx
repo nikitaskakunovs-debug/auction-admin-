@@ -52,16 +52,23 @@ export function SocialAuth({ next = "/" }: { next?: string }) {
     const url = `${PUBLIC_API_URL}/api/public/auth/oauth/${id}/start`
       + `?redirect=${encodeURIComponent(`${location.origin}${next}`)}`;
     try {
-      // Проверяем, поднят ли провайдер, чтобы не увести человека в 404.
-      const res = await fetch(url, { method: "HEAD" });
-      if (res.status === 404 || res.status === 501) {
+      // Включён ли провайдер, спрашиваем у /oauth/config: это обычный JSON.
+      // Пробный запрос к самому /start нельзя — при включённом провайдере он
+      // отвечает переадресацией на чужой домен, и браузер режет её по CORS,
+      // из-за чего настроенная кнопка выглядела «не подключённой».
+      const res = await fetch(`${PUBLIC_API_URL}/api/public/auth/oauth/config`);
+      if (!res.ok) throw new Error(String(res.status));
+      const cfg = (await res.json()) as { google?: boolean; facebook?: boolean; telegram?: string | null };
+      const on = id === "telegram" ? Boolean(cfg.telegram) : cfg[id as "google" | "facebook"] === true;
+      if (!on) {
         say(t("sa.soon", { provider: label }));
         setBusy(null);
         return;
       }
+      // Полноценный переход (не fetch) — тут CORS уже ни при чём.
       location.assign(url);
     } catch {
-      say(`${label} pieteikšanās vēl tiek pieslēgta`);
+      say(t("sa.soon", { provider: label }));
       setBusy(null);
     }
   };
