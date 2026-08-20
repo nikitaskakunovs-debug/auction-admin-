@@ -20,14 +20,47 @@ import { SocialAuthError, facebookExchange, googleExchange, telegramVerify, type
  * Токены уходят в витрину фрагментом ссылки (#…) — фрагмент не попадает
  * ни в серверные логи, ни в Referer.
  */
-/** Дружелюбный случайный сегвардс: латышское слово + зверь + число, без
- *  диакритики (правило сегварда — латиница/цифры). ~13 тыс. сочетаний;
- *  редкое совпадение решает повторная попытка вставки. */
-const ALIAS_ADJ = ["Zelta", "Sudraba", "Veikls", "Gudrs", "Modrs", "Varens", "Ziemas", "Vasaras", "Vakara", "Kluss", "Straujs", "Lielais"];
-const ALIAS_NOUN = ["Vanags", "Vilks", "Alnis", "Ezis", "Strazds", "Dzenis", "Zvirbulis", "Bebrs", "Lasis", "Teteris", "Rubenis", "Stirna"];
+/** Дружелюбный случайный сегвардс: «чьё» (город, река, время года, материал)
+ *  + «кто/что» (зверь, птица, рыба, дерево, символ) + число 10–999.
+ *  ~55 × 55 × 990 ≈ 3 млн сочетаний — на сотни тысяч клиентов без частых
+ *  повторов; редкое совпадение решает повторная попытка вставки.
+ *  Правило сегварда — латиница без диакритики, поэтому слова в привычной
+ *  ASCII-записи (Rīgas → Rigas), как в доменах и адресах. */
+const ALIAS_PREFIX = [
+  // Города и места (родительный падеж)
+  "Rigas", "Jurmalas", "Liepajas", "Ventspils", "Jelgavas", "Valmieras",
+  "Siguldas", "Cesu", "Kuldigas", "Talsu", "Tukuma", "Bauskas", "Ogres",
+  "Saldus", "Dobeles", "Madonas", "Gulbenes", "Ludzas", "Rezeknes",
+  "Daugavpils", "Jekabpils", "Aizkraukles", "Smiltenes", "Kokneses",
+  "Kandavas", "Sabiles", "Rojas", "Kolkas", "Engures", "Ikskiles",
+  // Реки и вода
+  "Gaujas", "Daugavas", "Ventas", "Lielupes", "Salacas", "Abavas",
+  "Amatas", "Juras", "Ezera", "Upes",
+  // Природа и время
+  "Ziemas", "Vasaras", "Rudens", "Pavasara", "Vakara", "Nakts", "Ausmas",
+  "Saules", "Zvaigznes", "Kalna", "Sila", "Lauka", "Krasta", "Salas",
+  // Материалы
+  "Zelta", "Sudraba", "Dzintara", "Vara",
+];
+const ALIAS_NOUN = [
+  // Птицы
+  "Vanags", "Gulbis", "Gailis", "Dzenis", "Strazds", "Zvirbulis",
+  "Teteris", "Rubenis", "Cielava", "Grieze", "Sloka", "Kaija", "Zoss", "Pile",
+  // Звери
+  "Vilks", "Lapsa", "Alnis", "Briedis", "Stirna", "Ezis", "Bebrs",
+  "Caune", "Sesks", "Susuris", "Zirgs",
+  // Рыбы
+  "Lasis", "Asaris", "Plaudis", "Karpa", "Menca", "Zutis", "Salaka",
+  "Vimba", "Rauda", "Linis", "Sams",
+  // Деревья и цветы
+  "Ozols", "Liepa", "Priede", "Egle", "Osis", "Kastanis", "Magone", "Pienene",
+  // Латышские символы и вещи
+  "Namejs", "Sakta", "Kokle", "Vainags", "Dzintars", "Auseklis", "Laima",
+  "Zvaigzne", "Staburags", "Akmens", "Gaisma", "Ausma", "Karogs", "Pastala",
+];
 function randomAlias(): string {
   const pick = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)]!;
-  return `${pick(ALIAS_ADJ)}${pick(ALIAS_NOUN)}${Math.floor(Math.random() * 90) + 10}`;
+  return `${pick(ALIAS_PREFIX)}${pick(ALIAS_NOUN)}${Math.floor(Math.random() * 990) + 10}`;
 }
 
 export function registerSocialAuthRoutes(
