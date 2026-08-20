@@ -86,11 +86,19 @@ export function registerSocialAuthRoutes(
       // У Telegram нет OAuth-кода — виджет постит подписанные поля на
       // data-auth-url. Отдаём страницу с виджетом.
       const cb = `${apiCallbackUrl(req, "telegram")}?state=${encodeURIComponent(state)}`;
-      return reply.type("text/html").send(`<!doctype html><html><head><meta charset="utf-8"><title>Telegram</title></head>
-<body style="display:grid;place-items:center;min-height:100vh;font-family:sans-serif">
-<script async src="https://telegram.org/js/telegram-widget.js?22"
-  data-telegram-login="${ctx.config.telegram.botName}" data-size="large"
-  data-auth-url="${cb}" data-request-access="write"></script>
+      // Без meta viewport телефон рисует страницу «в миниатюре» и кнопка
+      // виджета выглядит потерянной точкой — человек решает, что всё зависло.
+      return reply.type("text/html").send(`<!doctype html><html lang="lv"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Telegram · Izsoli.lv</title></head>
+<body style="margin:0;display:grid;place-items:center;min-height:100vh;background:#F7F5F0;font-family:system-ui,sans-serif">
+<div style="text-align:center;padding:24px;max-width:340px">
+  <p style="font-size:22px;font-weight:800;color:#163300;margin:0 0 6px">Izsoli.lv</p>
+  <p style="font-size:15px;color:#3d4a38;line-height:1.5;margin:0 0 22px">Nospied pogu, lai ienāktu ar Telegram — apstiprināsi ieeju lietotnē.</p>
+  <script async src="https://telegram.org/js/telegram-widget.js?22"
+    data-telegram-login="${ctx.config.telegram.botName}" data-size="large"
+    data-auth-url="${cb}" data-request-access="write"></script>
+</div>
 </body></html>`);
     }
     return reply.code(501).send({ error: "provider_not_configured" });
