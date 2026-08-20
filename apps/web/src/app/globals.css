@@ -2424,6 +2424,11 @@ footer .f-pill{border:0;font:inherit;cursor:pointer}
 .danger .acts{display:flex;gap:10px;flex-wrap:wrap}
 .btn-del{border-color:var(--live);color:var(--live)}
 .btn-del:hover{background:var(--live);border-color:var(--live);color:#fff}
+
+/* Ienākšana ar Telegram (№ 52): шаги под виджетом */
+.tg-steps{margin:14px 0 4px;padding-left:22px;display:flex;flex-direction:column;gap:8px;
+  font-size:14px;line-height:1.5;color:var(--text-2)}
+.tg-steps li::marker{font-weight:800;color:var(--text)}
 .wish-grid{margin-top:4px}
 
 /* ── Мобильный: боковое меню → профиль строкой + лента чипов ── */

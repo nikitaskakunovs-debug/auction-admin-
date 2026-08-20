@@ -65,8 +65,9 @@ export function SocialAuth({ next = "/" }: { next?: string }) {
         setBusy(null);
         return;
       }
-      // Полноценный переход (не fetch) — тут CORS уже ни при чём.
-      location.assign(url);
+      // Полноценный переход (не fetch) — тут CORS уже ни при чём. Telegram
+      // ведём на свою страницу с виджетом (/telegram) в дизайне сайта.
+      location.assign(id === "telegram" ? `/telegram?next=${encodeURIComponent(next)}` : url);
     } catch {
       say(t("sa.soon", { provider: label }));
       setBusy(null);

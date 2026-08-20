@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { publicApi } from "@/lib/api";
+import { PUBLIC_API_URL } from "@/lib/config";
 import { useT } from "@/lib/i18n";
 import { say } from "./Toast";
 
@@ -18,6 +19,25 @@ export function SocialCatch() {
     const raw = window.location.hash.replace(/^#/, "");
     if (!raw) return;
     const params = new URLSearchParams(raw);
+
+    // Мобильный Telegram после подтверждения в приложении возвращает не на
+    // страницу с виджетом, а на корень домена с #tgAuthResult=<base64 json>.
+    // API-домен переадресует на витрину, фрагмент выживает — доводим вход:
+    // отправляем подписанные поля на проверку, дальше обычный путь #a=&r=.
+    const tg = params.get("tgAuthResult");
+    if (tg) {
+      try {
+        const fields = JSON.parse(atob(tg.replace(/-/g, "+").replace(/_/g, "/"))) as Record<string, string | number>;
+        const q = new URLSearchParams();
+        for (const [k, v] of Object.entries(fields)) q.set(k, String(v));
+        q.set("redirect", `${window.location.origin}/account`);
+        window.location.replace(`${PUBLIC_API_URL}/api/public/auth/oauth/telegram/callback?${q.toString()}`);
+      } catch {
+        say(t("sa.error"));
+        history.replaceState(null, "", window.location.pathname + window.location.search);
+      }
+      return;
+    }
     const a = params.get("a");
     const r = params.get("r");
     if (a && r) {

@@ -35,6 +35,13 @@ export function registerSocialAuthRoutes(
 
   app.get("/api/public/auth/oauth/config", async () => enabled());
 
+  // Мобильный Telegram после подтверждения возвращает человека на КОРЕНЬ
+  // домена виджета с фрагментом #tgAuthResult=… — а не на страницу-источник.
+  // Голый API отвечал здесь 404, и вход обрывался. Отдаём переадресацию на
+  // витрину: фрагмент по правилам HTTP переживает redirect, и SocialCatch
+  // на витрине доведёт вход до конца.
+  app.get("/", async (_req, reply) => reply.redirect(ctx.config.storefrontBaseUrl));
+
   const apiCallbackUrl = (req: FastifyRequest, provider: string) =>
     `${req.protocol}://${req.headers.host}/api/public/auth/oauth/${provider}/callback`;
 
@@ -83,23 +90,10 @@ export function registerSocialAuthRoutes(
       return reply.redirect(url.toString());
     }
     if (provider === "telegram" && ctx.config.telegram) {
-      // У Telegram нет OAuth-кода — виджет постит подписанные поля на
-      // data-auth-url. Отдаём страницу с виджетом.
-      const cb = `${apiCallbackUrl(req, "telegram")}?state=${encodeURIComponent(state)}`;
-      // Без meta viewport телефон рисует страницу «в миниатюре» и кнопка
-      // виджета выглядит потерянной точкой — человек решает, что всё зависло.
-      return reply.type("text/html").send(`<!doctype html><html lang="lv"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Telegram · Izsoli.lv</title></head>
-<body style="margin:0;display:grid;place-items:center;min-height:100vh;background:#F7F5F0;font-family:system-ui,sans-serif">
-<div style="text-align:center;padding:24px;max-width:340px">
-  <p style="font-size:22px;font-weight:800;color:#163300;margin:0 0 6px">Izsoli.lv</p>
-  <p style="font-size:15px;color:#3d4a38;line-height:1.5;margin:0 0 22px">Nospied pogu, lai ienāktu ar Telegram — apstiprināsi ieeju lietotnē.</p>
-  <script async src="https://telegram.org/js/telegram-widget.js?22"
-    data-telegram-login="${ctx.config.telegram.botName}" data-size="large"
-    data-auth-url="${cb}" data-request-access="write"></script>
-</div>
-</body></html>`);
+      // У Telegram нет OAuth-кода — виджет живёт на странице витрины в её
+      // дизайне (/telegram), а сюда кнопка попадает только по старой памяти.
+      const path = target.slice(ctx.config.storefrontBaseUrl.length) || "/account";
+      return reply.redirect(`${ctx.config.storefrontBaseUrl}/telegram?next=${encodeURIComponent(path)}`);
     }
     return reply.code(501).send({ error: "provider_not_configured" });
   });
@@ -161,12 +155,10 @@ export function registerSocialAuthRoutes(
     return row;
   }
 
-  async function finish(profile: SocialProfile, state: string | undefined, req: FastifyRequest, reply: FastifyReply) {
+  async function finish(profile: SocialProfile, target: string, req: FastifyRequest, reply: FastifyReply) {
     const customer = await upsert(profile);
     const tokens = await deps.issueTokens(customer, req);
-    const target = unpackState(state);
-    const sep = "#";
-    return reply.redirect(`${target}${sep}a=${tokens.accessToken}&r=${tokens.refreshToken}`);
+    return reply.redirect(`${target}#a=${tokens.accessToken}&r=${tokens.refreshToken}`);
   }
 
   const failure = (reply: FastifyReply, err: unknown) => {
@@ -181,7 +173,7 @@ export function registerSocialAuthRoutes(
     if (!q.code) return failure(reply, new SocialAuthError(q.error ?? "no code"));
     try {
       const profile = await googleExchange(ctx.config, q.code, apiCallbackUrl(req, "google"));
-      return await finish(profile, q.state, req, reply);
+      return await finish(profile, unpackState(q.state), req, reply);
     } catch (err) {
       req.log.warn({ err }, "google oauth failed");
       return failure(reply, err);
@@ -193,7 +185,7 @@ export function registerSocialAuthRoutes(
     if (!q.code) return failure(reply, new SocialAuthError(q.error ?? "no code"));
     try {
       const profile = await facebookExchange(ctx.config, q.code, apiCallbackUrl(req, "facebook"));
-      return await finish(profile, q.state, req, reply);
+      return await finish(profile, unpackState(q.state), req, reply);
     } catch (err) {
       req.log.warn({ err }, "facebook oauth failed");
       return failure(reply, err);
@@ -201,10 +193,16 @@ export function registerSocialAuthRoutes(
   });
 
   app.get("/api/public/auth/oauth/telegram/callback", async (req, reply) => {
-    const { state, ...params } = req.query as Record<string, string>;
+    // redirect добавляет страница витрины (не Telegram) — поэтому он не входит
+    // в подписанные поля и обязан быть вырезан до проверки HMAC. Чужой адрес
+    // не пройдёт: принимаем только свою витрину.
+    const { state, redirect, ...params } = req.query as Record<string, string>;
     try {
       const profile = telegramVerify(ctx.config, params, ctx.now().getTime());
-      return await finish(profile, state, req, reply);
+      const target = redirect && redirect.startsWith(ctx.config.storefrontBaseUrl)
+        ? redirect
+        : unpackState(state);
+      return await finish(profile, target, req, reply);
     } catch (err) {
       req.log.warn({ err }, "telegram oauth failed");
       return failure(reply, err);
