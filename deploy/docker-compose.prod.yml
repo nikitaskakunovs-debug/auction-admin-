@@ -109,6 +109,16 @@ services:
       DPD_API_URL: ${DPD_API_URL:-}
       DPD_API_TOKEN: ${DPD_API_TOKEN:-}
       DPD_SERVICE_ALIAS: ${DPD_SERVICE_ALIAS:-}
+      # Social sign-in (№ 50, 52–54). Each provider switches on by its own key
+      # pair from deploy/.env; a provider without keys shows an honest
+      # "still being connected" toast instead of a broken button.
+      SOCIAL_MODE: ${SOCIAL_MODE:-off}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      FACEBOOK_APP_ID: ${FACEBOOK_APP_ID:-}
+      FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_BOT_NAME: ${TELEGRAM_BOT_NAME:-}
       # Jira problem reports (off until the integration account token; then JIRA_MODE=live).
       JIRA_MODE: ${JIRA_MODE:-off}
       JIRA_BASE_URL: ${JIRA_BASE_URL:-}
