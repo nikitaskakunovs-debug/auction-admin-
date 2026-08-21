@@ -18,12 +18,16 @@ const dl = (): DataLayer | null => {
   return (window as unknown as { dataLayer?: DataLayer }).dataLayer ?? null;
 };
 
+/** События, у которых GA4 читает товары из ключа ecommerce. Перед КАЖДЫМ
+ *  таким событием ключ обнуляется — даже если карточка товара не собралась:
+ *  иначе GTM рекурсивно домешает товар из прошлого события (парка вместо
+ *  зāģis — реальный случай с теста). */
+const ECOM_EVENTS = new Set(["view_item", "add_to_cart", "view_cart", "begin_checkout", "purchase"]);
+
 export function track(event: string, params: Record<string, unknown> = {}): void {
-  // ecommerce GA4 читает из отдельного ключа; перед событием его надо
-  // обнулить, иначе параметры прошлой покупки подмешиваются в следующую.
   const layer = dl();
   if (!layer) return;
-  if ("ecommerce" in params) layer.push({ ecommerce: null });
+  if ("ecommerce" in params || ECOM_EVENTS.has(event)) layer.push({ ecommerce: null });
   layer.push({ event, ...params });
 }
 

@@ -12,6 +12,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
 import { useT } from "@/lib/i18n";
+import { gaItem, track } from "@/lib/track";
 import { formatEur, type MyOrder } from "@/lib/types";
 import { Ph } from "./Ph";
 import { say } from "./Toast";
@@ -30,6 +31,17 @@ export function Cart() {
         setOrders(unpaid);
         // По умолчанию отмечено всё: чаще всего человек платит за всё сразу.
         setPicked(new Set(unpaid.map((o) => o.ref)));
+        // Аналитика (GTM): просмотр корзины со всеми неоплаченными лотами.
+        if (unpaid.length > 0) {
+          track("view_cart", {
+            value: unpaid.reduce((s, o) => s + o.totalCents, 0) / 100, currency: "EUR",
+            ecommerce: {
+              currency: "EUR",
+              value: unpaid.reduce((s, o) => s + o.totalCents, 0) / 100,
+              items: unpaid.map((o) => gaItem({ id: o.itemSku, name: o.itemTitle, category: o.itemCategory, priceCents: o.totalCents })),
+            },
+          });
+        }
       })
       .catch(() => setOrders([]));
   }, []);
@@ -45,7 +57,20 @@ export function Cart() {
   const toggle = (ref: string) => {
     const next = new Set(picked);
     if (next.has(ref)) next.delete(ref);
-    else next.add(ref);
+    else {
+      next.add(ref);
+      // Аналитика (GTM): лот добавлен к общей оплате.
+      const o = orders.find((x) => x.ref === ref);
+      if (o) {
+        track("add_to_cart", {
+          value: o.totalCents / 100, currency: "EUR",
+          ecommerce: {
+            currency: "EUR", value: o.totalCents / 100,
+            items: [gaItem({ id: o.itemSku, name: o.itemTitle, category: o.itemCategory, priceCents: o.totalCents })],
+          },
+        });
+      }
+    }
     setPicked(next);
   };
 
@@ -55,6 +80,14 @@ export function Cart() {
     // Один лот — обычная оплата: незачем городить группу из одного.
     if (refs.length === 1) { window.location.assign(`/apmaksa/${encodeURIComponent(refs[0]!)}`); return; }
     setBusy(true);
+    // Аналитика (GTM): оплата корзины началась — вся сумма и все лоты.
+    track("begin_checkout", {
+      value: totalCents / 100, currency: "EUR", cart_size: refs.length,
+      ecommerce: {
+        currency: "EUR", value: totalCents / 100,
+        items: chosen.map((o) => gaItem({ id: o.itemSku, name: o.itemTitle, category: o.itemCategory, priceCents: o.totalCents })),
+      },
+    });
     void publicApi
       .post<{ checkoutUrl: string }>("/api/public/orders/pay-group", { refs, language: lang })
       .then((r) => window.location.assign(r.checkoutUrl))
