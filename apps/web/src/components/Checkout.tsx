@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { BrandMark } from "@/components/BrandMark";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
 import { dateLocale, useT } from "@/lib/i18n";
@@ -19,6 +20,33 @@ const PAY_METHODS: Array<[string, string, string, string]> = [
   ["inbank", "co.instal", "co.instalD", "home"],
 ];
 
+/**
+ * Шаг оформления. На компьютере — обычная карточка, как раньше.
+ * На телефоне заполненный шаг сворачивается в строку с выбранным значением
+ * и ссылкой «Mainīt»: на 390 px открытым остаётся только текущий шаг.
+ */
+function PayStep({ n, label, value, done, open, onOpen, editLabel, children }: {
+  n: number; label: string; value?: string; done: boolean;
+  open: boolean; onOpen: () => void; editLabel: string; children: React.ReactNode;
+}) {
+  const collapsed = done && !open;
+  return (
+    <section className={`pay-step${collapsed ? " is-done" : ""}`}>
+      <header className="pay-head">
+        <span className="pay-num" aria-hidden="true">{done ? <Icon name="check" size={14} /> : n}</span>
+        <span className="t">
+          <small>{label}</small>
+          <b>{collapsed && value ? value : label}</b>
+        </span>
+        {collapsed && (
+          <button className="pay-edit" type="button" onClick={onOpen}>{editLabel}</button>
+        )}
+      </header>
+      <div className="pay-body">{children}</div>
+    </section>
+  );
+}
+
 export function Checkout({ orderRef }: { orderRef: string }) {
   const { t, lang } = useT();
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
@@ -30,6 +58,8 @@ export function Checkout({ orderRef }: { orderRef: string }) {
   const [pay, setPay] = useState("klix");
   const [phone, setPhone] = useState("");
   const [terms, setTerms] = useState(false);
+  /** Какой шаг раскрыт вручную на телефоне; null — автоматически. */
+  const [openStep, setOpenStep] = useState<number | null>(null);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [submitted, setSubmitted] = useState(false);
@@ -162,6 +192,14 @@ export function Checkout({ orderRef }: { orderRef: string }) {
   const creditApplied = creditCents > 0 && useCredit ? Math.min(creditCents, gross) : 0;
   const total = gross - creditApplied;
 
+  // Шаги оформления: заполненный сворачивается на телефоне (веб не меняется).
+  const deliveryReady = Boolean(method) && (!provider || Boolean(machineId));
+  const recipientReady = Boolean(name.trim()) && Boolean(email.trim());
+  const deliveryName = chosen ? (chosen.method === "pickup" ? t("acc.deliveryPickup")
+    : chosen.method === "dpd_pm" ? t("acc.deliveryDpd") : t("acc.deliveryOmniva")) : "";
+  const deliveryValue = shipCost === 0 ? deliveryName : `${deliveryName} · ${formatEur(shipCost)}`;
+  const recipientValue = [name.trim(), email.trim()].filter(Boolean).join(" · ");
+
   return (
     <section className="wrap" style={{ paddingTop: 24 }}>
       <nav className="crumbs" aria-label={t("nav.breadcrumb")}>
@@ -204,6 +242,14 @@ export function Checkout({ orderRef }: { orderRef: string }) {
           void saveDelivery(method, machineId).then(() => startPayment());
         }}>
           <div className="pay-main">
+            <div className="pay-sum" aria-hidden="true">
+              <span className="ic"><Icon name="box" /></span>
+              <span className="t"><small>{t("co.order")} {order.ref}</small><b>{order.itemTitle}</b></span>
+              <span className="sum tnum">{formatEur(total)}</span>
+            </div>
+
+            <PayStep n={1} label={t("f.delivery")} value={deliveryValue} done={deliveryReady}
+                     open={openStep === 1} onOpen={() => setOpenStep(1)} editLabel={t("ac.change")}>
             <fieldset className="card-b">
               <legend><h2>{t("f.delivery")}</h2></legend>
               {options.map((o) => (
@@ -211,8 +257,12 @@ export function Checkout({ orderRef }: { orderRef: string }) {
                   <input type="radio" name="ship" value={o.method} checked={method === o.method}
                          onChange={() => setMethod(o.method)} />
                   <span>
-                    <b>{o.method === "pickup" ? t("acc.deliveryPickup")
-                      : o.method === "dpd_pm" ? t("acc.deliveryDpd") : t("acc.deliveryOmniva")}</b>
+                    <b className="pay-opt-t">
+                      {o.method === "omniva_pm" && <BrandMark name="omniva" h={16} />}
+                      {o.method === "dpd_pm" && <BrandMark name="dpd" h={16} />}
+                      {o.method === "pickup" ? t("acc.deliveryPickup")
+                        : o.method === "dpd_pm" ? t("acc.deliveryDpd") : t("acc.deliveryOmniva")}
+                    </b>
                     <small>{o.method === "pickup" ? t("co.pickupAddr") : t("co.parcelEta")}</small>
                   </span>
                   <span className="opt-p tnum">
@@ -222,6 +272,7 @@ export function Checkout({ orderRef }: { orderRef: string }) {
               ))}
 
             </fieldset>
+            </PayStep>
 
             {creditCents > 0 && (
               <fieldset className="card-b">
@@ -236,6 +287,8 @@ export function Checkout({ orderRef }: { orderRef: string }) {
               </fieldset>
             )}
 
+            <PayStep n={2} label={t("co.recipient")} value={recipientValue} done={recipientReady}
+                     open={openStep === 2} onOpen={() => setOpenStep(2)} editLabel={t("ac.change")}>
             <fieldset className="card-b">
               <legend><h2>{t("co.recipient")}</h2></legend>
               {meWho && (
@@ -264,6 +317,10 @@ export function Checkout({ orderRef }: { orderRef: string }) {
               </div>
             </fieldset>
 
+            </PayStep>
+
+            <PayStep n={3} label={t("co.payment")} done={false}
+                     open onOpen={() => setOpenStep(3)} editLabel={t("ac.change")}>
             <fieldset className="card-b">
               <legend><h2>{t("co.payment")}</h2></legend>
               {PAY_METHODS.map(([id, titleKey, subKey, icon]) => (
@@ -276,7 +333,14 @@ export function Checkout({ orderRef }: { orderRef: string }) {
               <div style={{ marginTop: 12 }}>
                 <KlixPayLater amountCents={order.totalCents} view="checkout" />
               </div>
+              <p className="pay-marks" aria-hidden="true">
+                <BrandMark name="swedbank" h={16} /><BrandMark name="seb" h={16} />
+                <BrandMark name="citadele" h={16} /><BrandMark name="luminor" h={16} />
+                <BrandMark name="revolut" h={16} /><BrandMark name="visa" h={16} />
+                <BrandMark name="mastercard" h={16} />
+              </p>
             </fieldset>
+            </PayStep>
           </div>
 
           <aside className="pay-side">

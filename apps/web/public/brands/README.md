@@ -1,26 +1,55 @@
 # Brand marks (banks, carriers, payment methods)
 
-Официальные логотипы партнёров. Файлы кладутся сюда как есть — из брендбука,
-без перекраски и без изменения пропорций.
+Официальные знаки партнёров. Кладутся сюда как есть из брендбука: не перекрашиваем,
+не растягиваем, не обводим, не добавляем тени. Оригиналы, как их прислал партнёр,
+лежат в `src/`, в корне — версии, подготовленные под веб (обрезаны поля, высота 96 px).
 
-Ожидаемые имена (SVG, горизонтальный вариант, прозрачный фон):
+## Что уже есть
 
-  swedbank.svg      Swedbank            https://www.swedbank.com/newsroom/logotype.html
-  seb.svg           SEB                 https://designlibrary.sebgroup.com/foundation/digital-design/visual-identity/logotype/
-  citadele.svg      Citadele            https://www.cblgroup.com/en/media/images/logo/
-  luminor.svg       Luminor             brand guidelines
-  revolut.svg       Revolut             press kit
-  industra.svg      Industra Bank       press kit
-  klix.svg          Klix by Citadele    https://developers.klix.app/static-assets/
-  klix-pay-later.svg Klix Pay Later     https://developers.klix.app/static-assets/  (logo_LV.svg)
-  inbank.svg        Inbank              press kit
-  omniva.svg        Omniva              https://www.omniva.ee/brandbook/logo/
-  dpd.svg           DPD                 https://www.dpd.com/pl/en/o-dpd/dpd-brand-center/
-  visa.svg          Visa                (из набора Klix: VISA_MC_CtP.svg)
-  mastercard.svg    Mastercard          (из набора Klix)
+| файл                     | что это                              | на каком фоне       |
+|--------------------------|--------------------------------------|---------------------|
+| `dpd.png`                | основной знак: красный градиент + 90 % чёрные буквы | светлый |
+| `dpd-black.png`          | чёрная версия (90 % чёрный)          | светлый             |
+| `dpd-white.png`          | белая версия                         | тёмный              |
+| `dpd-on-red.png`         | белый знак для красной плашки        | #DC0032             |
+| `dpd-pickup.png`         | DPD Pickup, цветной                  | светлый             |
+| `dpd-pickup-dark.png`    | DPD Pickup, тёмно-серый              | светлый             |
+| `dpd-pickup-white.png`   | DPD Pickup, белый                    | тёмный              |
+| `dpd-pickup-sticker.png` | наклейка Pickup (квадрат)            | для точек выдачи    |
+| `dpd-automat-sticker.png`| наклейка DPD Automat (квадрат)       | для постаматов      |
+| `swedbank.png`           | Swedbank, горизонтальный             | светлый             |
+| `citadele.png`           | Citadele, белый на красном           | собственная плашка  |
 
-Правила, которые уже заложены в компонент BrandMark:
-  * логотип не перекрашивается (никаких fill/currentColor), только масштаб;
-  * фиксированная высота: 20px в чипе банка, 24px в строке доставки, 28px в модалке;
-  * вокруг логотипа охранное поле — padding не меньше половины высоты знака;
-  * alt = название компании, чтобы читалка не молчала.
+## Правила DPD (из `docs/brand/dpd/dpd-logo-guidelines-en.pdf`, V 1.0)
+
+* минимальная **ширина** знака — 60 px, меньше не уменьшать;
+* охранное поле — половина ширины «кубика» с каждой стороны, внутрь ничего не заходит;
+* разрешены только четыре цветовые версии из таблицы выше;
+* нельзя: использовать кубик отдельно, буквы отдельно, менять пропорции и взаимное
+  положение элементов, поворачивать, наклонять, добавлять тень или обводку,
+  дописывать слова рядом со знаком;
+* цвета RGB: красный `220/0/50` (#DC0032), тёмно-серый `65/64/66` (#414042);
+* вопросы по знаку: marketing@dpd.com.pl
+
+## Банки, платежи, карты и соцсети
+
+`swedbank`, `seb`, `citadele`, `luminor`, `revolut` — банклинк;
+`klix`, `inbank` — рассрочка; `applepay`, `googlepay`, `visa`, `mastercard` — оплата;
+`omniva` (оранжевый, чёрный, белый), `dpd` — доставка;
+`googlemaps`, `applemaps`, `waze` — навигация до склада;
+`telegram`, `google`, `facebook`, `instagram`, `x-twitter`, `tiktok`, `gmail` —
+вход через соцсети и ссылки в подвале.
+
+Industra не используем — банка нет в списке.
+Знак Waze пришёл глифом Font Awesome и покрашен в фирменный #33CCFF;
+если появится файл из брендбука, заменить.
+
+## Как подключать в коде
+
+Компонент `BrandMark` даёт фиксированную высоту и охранное поле, знак не перекрашивается:
+
+```tsx
+<BrandMark name="dpd" h={24} />          // строка доставки
+<BrandMark name="swedbank" h={20} />     // чип банка
+<BrandMark name="dpd-pickup" h={28} />   // модалка выбора пункта
+```

@@ -2534,3 +2534,62 @@ footer .f-pill{border:0;font:inherit;cursor:pointer}
 .cb-row .pos{color:var(--brand)}
 .opt.credit input[type="checkbox"]{appearance:auto;-webkit-appearance:checkbox;width:18px;height:18px;
   min-height:0;flex:0 0 18px;accent-color:var(--brand)}
+
+/* ═══════════════════════════════════════════════════════════════
+   ОПЛАТА: ШАГИ НА ТЕЛЕФОНЕ (макет № 28b / 46b / 46c / 48b)
+   На компьютере раскладка не меняется — карточки как были.
+   На ≤700px заполненный шаг сворачивается в строку с выбранным
+   значением и ссылкой «Mainīt»: открытым остаётся текущий шаг,
+   сводка заказа переезжает наверх строкой.
+   ═══════════════════════════════════════════════════════════════ */
+.pay-step{display:block}
+.pay-head{display:none}
+.pay-sum{display:none}
+.pay-marks{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:14px 0 0;
+  padding-top:12px;border-top:1px solid var(--border)}
+.pay-marks img{display:block;height:16px;width:auto}
+.opt .pay-opt-t{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.opt .pay-opt-t img{display:block;height:16px;width:auto;flex:none}
+
+@media (max-width:700px){
+  .pay-sum{display:flex;align-items:center;gap:12px;padding:12px 14px;margin-bottom:12px;
+    background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);
+    box-shadow:var(--shadow-1)}
+  .pay-sum .ic{flex:none;color:var(--brand);display:grid;place-items:center}
+  .pay-sum .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+  .pay-sum .t small{font-size:11.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
+    color:var(--text-3)}
+  .pay-sum .t b{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pay-sum .sum{flex:none;font-size:17px;font-weight:800;letter-spacing:-.02em}
+
+  .pay-step{margin-bottom:10px}
+  .pay-head{display:flex;align-items:center;gap:12px}
+  .pay-step.is-done .pay-head{padding:13px 14px;background:color-mix(in srgb,var(--accent) 14%,var(--surface));
+    border:1px solid var(--border);border-radius:var(--r-lg)}
+  .pay-step:not(.is-done) .pay-head{display:none}
+  .pay-num{flex:none;width:24px;height:24px;border-radius:50%;background:var(--accent);color:var(--brand);
+    display:grid;place-items:center;font-size:12px;font-weight:800}
+  .pay-head .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+  .pay-head .t small{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--text-3)}
+  .pay-head .t b{font-size:14px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pay-edit{flex:none;font-size:13px;font-weight:800;color:var(--brand);
+    text-decoration:underline;text-underline-offset:2px}
+  .pay-step.is-done .pay-body{display:none}
+
+  /* Сводка заказа внизу не нужна — она уже строкой сверху. */
+  .pay-side{display:none}
+  /* Знаки платёжных систем в один ряд с переносом. */
+  .pay-marks{gap:10px}
+}
+
+/* ── Кабинет: правки по замечаниям к макету ────────────────────*/
+/* Пустая полоса над H1 на вкладках кабинета: заголовок уже внутри
+   панели, верхний отступ страницы дублировался. */
+.acpanel>.page-head{margin-top:0}
+/* «Vēlmes» показывает компактные карточки, а не крупные каталожные. */
+.wish-grid{grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:14px}
+@media (max-width:700px){.wish-grid{grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:10px}}
+.wish-grid .lot-body{padding:12px}
+.wish-grid .lot h3{font-size:15px}
+.wish-grid .price{font-size:21px}
