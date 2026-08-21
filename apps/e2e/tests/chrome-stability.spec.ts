@@ -81,7 +81,8 @@ test("все пять подписей дока видны", async ({ page }) =>
 test("таймер идёт на видимой карточке", async ({ page }) => {
   await openCatalogue(page);
   await page.waitForSelector(".lot", { timeout: 20_000 });
-  const card = page.locator(".lot").first();
+  // Именно аукционная карточка: у «Pērc uzreiz» время не тикает по замыслу.
+  const card = page.locator(".lot:has(a[href^='/auction/'])").first();
   await card.scrollIntoViewIfNeeded();
   const stamp = card.locator("time").first();
   await expect(stamp).toBeVisible();
@@ -95,7 +96,8 @@ test("таймер идёт на видимой карточке", async ({ page
 test("карточка вне экрана не перерисовывается, но досчитывает при возврате", async ({ page }) => {
   await openCatalogue(page);
   await page.waitForSelector(".lot", { timeout: 20_000 });
-  const card = page.locator(".lot").first();
+  // Именно аукционная карточка: у «Pērc uzreiz» время не тикает по замыслу.
+  const card = page.locator(".lot:has(a[href^='/auction/'])").first();
   await card.scrollIntoViewIfNeeded();
   const stamp = card.locator("time").first();
   await page.waitForTimeout(600);
@@ -103,8 +105,8 @@ test("карточка вне экрана не перерисовывается
   // Уводим карточку за пределы окна. К нулю крутить нельзя: первая карточка
   // каталога начинается выше низа экрана и там осталась бы видимой (и честно
   // тикала бы). Крутим вниз, пока её нижний край не окажется над окном.
-  await page.evaluate(() => {
-    const r = document.querySelector(".lot")!.getBoundingClientRect();
+  await card.evaluate((el) => {
+    const r = el.getBoundingClientRect();
     window.scrollTo(0, r.bottom + window.scrollY + 120);
   });
   await page.waitForTimeout(400);

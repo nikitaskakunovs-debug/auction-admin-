@@ -79,6 +79,10 @@ describe("delivery options + machine list", () => {
         { method: "pickup", priceCents: 0, handlingCents: 0 },
         { method: "omniva_pm", priceCents: 399, handlingCents: 200 },
         { method: "dpd_pm", priceCents: 399, handlingCents: 200 },
+        // Курьер и негабарит (макеты № 74, 75): у негабарита цены нет —
+        // смету выставляет менеджер письмом.
+        { method: "courier", priceCents: 690, handlingCents: 200 },
+        { method: "freight", priceCents: 0, handlingCents: 200 },
       ],
     });
     const locs = await world.server.app.inject({ method: "GET", url: "/api/public/shipping/locations?country=LV&q=ogre" });

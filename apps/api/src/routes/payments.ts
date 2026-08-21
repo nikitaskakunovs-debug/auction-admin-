@@ -339,7 +339,10 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
     if (!bidderId) return;
     const body = z
       .object({
-        refs: z.array(z.string().min(1)).min(2).max(20),
+        // Повторы отсекаем: ["A-1","A-1"] удвоил бы сумму у провайдера,
+        // а погасился бы заказ один раз.
+        refs: z.array(z.string().min(1)).min(2).max(20)
+          .refine((r) => new Set(r).size === r.length, "duplicate refs"),
         language: z.enum(["lv", "ru", "en", "et", "lt"]).optional(),
         provider: z.enum(["klix", "inbank"]).optional(),
       })
