@@ -104,17 +104,16 @@ describe("fulfilment selection (before payment)", () => {
 
     const res = await chooseOmniva(ref, buyer.accessToken);
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ shippingCents: 399, handlingCents: 200, totalCents: 13_909 });
+    expect(res.json()).toMatchObject({ shippingCents: 399, handlingCents: 200, totalCents: 11_599 });
 
     const [order] = await world.ctx.db.select().from(orders).where(eq(orders.id, orderId));
     expect(order!.fulfilment).toBe("omniva_pm");
-    expect(order!.totalCents).toBe(13_909);
+    expect(order!.totalCents).toBe(11_599);
     expect(order!.handlingCents).toBe(200);
-    // The 10% buyer premium NEVER touches shipping or handling: it stays
-    // exactly 10% of the hammer price (fixed-price buys carry 0 premium),
-    // and VAT stays computed on the goods only.
-    expect(order!.premiumCents).toBe(0);
-    expect(order!.vatCents).toBe(2_310); // 21% of the 11000 goods price
+    // Комиссия и НДС разложены из финальных €110 и доставкой не трогаются:
+    // shipping + handling — плоские добавки поверх товарной части.
+    expect(order!.premiumCents).toBe(826);
+    expect(order!.vatCents).toBe(1_909);
     expect(order!.totalCents).toBe(order!.hammerCents + order!.premiumCents + order!.vatCents + order!.shippingCents + order!.handlingCents);
     expect(order!.shippingTo).toMatchObject({ provider: "omniva", machineId: "9910", zip: "9910" });
     expect(order!.recipientPhone).toBe("+371 26123456");
@@ -125,7 +124,7 @@ describe("fulfilment selection (before payment)", () => {
     const active = allInvoices.find((i) => i.voidedAt === null)!;
     const voided = allInvoices.find((i) => i.voidedAt !== null)!;
     expect(voided.id).toBe(invBefore!.id);
-    expect((active.data as { totalCents: number; handlingCents: number }).totalCents).toBe(13_909);
+    expect((active.data as { totalCents: number; handlingCents: number }).totalCents).toBe(11_599);
     expect((active.data as { handlingCents: number }).handlingCents).toBe(200);
 
     // Switching back to pickup reprices to the goods total again.
@@ -136,7 +135,7 @@ describe("fulfilment selection (before payment)", () => {
       payload: { method: "pickup" },
     });
     expect(back.statusCode).toBe(200);
-    expect(back.json()).toMatchObject({ shippingCents: 0, handlingCents: 0, totalCents: 13_310 });
+    expect(back.json()).toMatchObject({ shippingCents: 0, handlingCents: 0, totalCents: 11_000 });
   });
 
   it("the 10% buyer premium is untouched by shipping — auction-shaped order", async () => {
@@ -175,7 +174,7 @@ describe("fulfilment selection (before payment)", () => {
       const buyer = await registerBidder("ship_fee_edit");
       const { ref } = await unpaidOrder(buyer.accessToken);
       const res = await chooseOmniva(ref, buyer.accessToken);
-      expect(res.json()).toMatchObject({ shippingCents: 399, handlingCents: 350, totalCents: 13_310 + 399 + 350 });
+      expect(res.json()).toMatchObject({ shippingCents: 399, handlingCents: 350, totalCents: 11_000 + 399 + 350 });
     } finally {
       await world.server.app.inject({
         method: "PATCH",
@@ -199,7 +198,7 @@ describe("fulfilment selection (before payment)", () => {
 
     await chooseOmniva(ref, buyer.accessToken);
     const rows = await world.ctx.db.select().from(payments).where(eq(payments.orderId, orderId));
-    expect(rows.find((r) => r.amountCents === 13_310)!.status).toBe("expired");
+    expect(rows.find((r) => r.amountCents === 11_000)!.status).toBe("expired");
 
     const pay2 = await world.server.app.inject({
       method: "POST",
@@ -210,7 +209,7 @@ describe("fulfilment selection (before payment)", () => {
     expect(pay2.statusCode).toBe(200);
     const rows2 = await world.ctx.db.select().from(payments).where(eq(payments.orderId, orderId));
     const open = rows2.find((r) => r.status === "created")!;
-    expect(open.amountCents).toBe(13_909);
+    expect(open.amountCents).toBe(11_599);
   });
 
   it("validates: unknown machine 404, missing phone 400, foreign order 404, paid order 409", async () => {
@@ -409,7 +408,7 @@ describe("DPD lockers (second carrier on the same seam)", () => {
     const { orderId, ref } = await unpaidOrder(buyer.accessToken);
     const res = await chooseDpd(ref, buyer.accessToken);
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ shippingCents: 399, handlingCents: 200, totalCents: 13_909 });
+    expect(res.json()).toMatchObject({ shippingCents: 399, handlingCents: 200, totalCents: 11_599 });
     const [order] = await world.ctx.db.select().from(orders).where(eq(orders.id, orderId));
     expect(order!.fulfilment).toBe("dpd_pm");
     expect(order!.shippingTo).toMatchObject({ provider: "dpd", machineId: "LV90005" });

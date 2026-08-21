@@ -63,12 +63,14 @@ describe("fixed-price buy it now", () => {
     });
     expect(res.statusCode).toBe(200);
     const body = res.json() as { orderRef: string; totalCents: number };
-    // €100 + 0 premium + 21% VAT = €121.00 (no buyer's premium on fixed price).
-    expect(body.totalCents).toBe(12_100);
+    // Цена — финальная: клиент платит ровно витринные €100, внутри
+    // выделяются комиссия и НДС.
+    expect(body.totalCents).toBe(10_000);
 
     const [order] = await world.ctx.db.select().from(orders).where(eq(orders.ref, body.orderRef));
-    expect(order!.premiumCents).toBe(0);
-    expect(order!.vatCents).toBe(2_100);
+    expect(order!.vatCents).toBe(1_736);
+    expect(order!.premiumCents).toBe(751);
+    expect(order!.hammerCents + order!.premiumCents + order!.vatCents).toBe(10_000);
     expect(order!.status).toBe("awaiting_payment");
 
     const [inv] = await world.ctx.db.select().from(invoices).where(eq(invoices.orderId, order!.id));
@@ -138,7 +140,9 @@ describe("fixed-price buy it now", () => {
     const [order] = await world.ctx.db.select().from(orders).where(eq(orders.ref, (res.json() as { orderRef: string }).orderRef));
     expect(order!.reverseCharge).toBe(true);
     expect(order!.vatCents).toBe(0);
-    expect(order!.totalCents).toBe(10_000);
+    // Reverse charge: юрлицо платит минус НДС-часть от финальных €100.
+    expect(order!.totalCents).toBe(8_264);
+    expect(order!.hammerCents + order!.premiumCents).toBe(8_264);
   });
 
   it("cannot buy an auction-type listing through the fixed-price endpoint", async () => {

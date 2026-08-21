@@ -64,11 +64,13 @@ describe("auction close via the scheduler", () => {
 
     const [order] = await world.ctx.db.select().from(orders).where(eq(orders.auctionId, auctionId));
     expect(order).toBeDefined();
-    // €100 hammer + 10% premium + 21% VAT = €133.10 (doc worked example)
-    expect(order!.hammerCents).toBe(10_000);
-    expect(order!.premiumCents).toBe(1_000);
-    expect(order!.vatCents).toBe(2_310);
-    expect(order!.totalCents).toBe(13_310);
+    // Ставка — финальная цена: €100 раскладывается на молоток, комиссию и
+    // НДС, а к оплате идёт ровно €100.
+    expect(order!.totalCents).toBe(10_000);
+    expect(order!.vatCents).toBe(1_736);
+    expect(order!.premiumCents).toBe(751);
+    expect(order!.hammerCents).toBe(7_513);
+    expect(order!.hammerCents + order!.premiumCents + order!.vatCents).toBe(10_000);
     expect(order!.status).toBe("awaiting_payment");
     expect(order!.paymentDeadlineAt).not.toBeNull();
     expect(order!.ref).toMatch(/^A-\d+$/);

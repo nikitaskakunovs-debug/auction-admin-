@@ -52,8 +52,9 @@ describe("invoice issuing", () => {
     expect(invB!.number).toBe(`LV-${year}-00002`);
 
     const data = invA!.data as { totalCents: number; hammerCents: number; seller: { legalName: string } };
-    expect(data.hammerCents).toBe(10_000);
-    expect(data.totalCents).toBe(13_310); // €100 + 10% + 21% VAT
+    // Ставка финальная: €100 к оплате, молоток выделяется внутри.
+    expect(data.hammerCents).toBe(7_513);
+    expect(data.totalCents).toBe(10_000);
     expect(data.seller.legalName).toBe("Skakunov’s SIA");
   });
 
@@ -90,7 +91,7 @@ describe("invoice issuing", () => {
     expect(viaHeader.statusCode).toBe(200);
     expect(viaHeader.headers["content-type"]).toContain("text/html");
     expect(viaHeader.body).toContain(inv!.number);
-    expect(viaHeader.body).toContain("€133.10");
+    expect(viaHeader.body).toContain("€100.00");
     expect(viaHeader.body).toContain("Buyer&#039;s premium".replace("&#039;", "'")); // premium line present
 
     const fin = await loginAs(world, "finance@auction.test");
@@ -128,7 +129,8 @@ describe("invoice issuing", () => {
     });
     expect(order.reverseCharge).toBe(true);
     expect(order.vatCents).toBe(0);
-    expect(order.totalCents).toBe(11_000);
+    // Reverse charge: минус НДС-часть от финальных €100.
+    expect(order.totalCents).toBe(8_264);
 
     const [inv] = await world.ctx.db.select().from(invoices).where(eq(invoices.orderId, order.id));
     const html = await world.server.app.inject({

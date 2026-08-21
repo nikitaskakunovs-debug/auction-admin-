@@ -74,8 +74,9 @@ export async function closeAuction(
         buyerVies: winner!.vies ?? null,
         nowMs: now.getTime(),
       });
+      // Ставка — финальная цена: победитель платит ровно то, что ставил.
       const inv = computeInvoice({
-        hammerCents: auction.currentPriceCents,
+        grossCents: auction.currentPriceCents,
         buyerPremiumBp: market!.buyerPremiumBp,
         vatRateBp: market!.vatRateBp,
         reverseCharge,

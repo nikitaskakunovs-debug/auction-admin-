@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
 import { conditionLabel } from "@/lib/conditions";
 import { useT } from "@/lib/i18n";
-import { marketFees } from "@/lib/fees";
+import { computeInvoice, marketFees } from "@/lib/fees";
 import { photoWeb, photoThumb } from "@/lib/photos";
 import { gaItem, track } from "@/lib/track";
 import { formatEur, type FixedListing } from "@/lib/types";
@@ -34,21 +34,21 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
     return () => { publicApi.listeners.delete(fn); };
   }, []);
 
-  // Аналитика (GTM): просмотр товара «Pērc uzreiz». Комиссии у фикс-цены
-  // нет; итог с НДС приходит из движка (estimatedTotalCents).
+  // Аналитика (GTM): просмотр товара «Pērc uzreiz». Цена финальная —
+  // раскладываем той же арифметикой, что движок (комиссия и НДС внутри).
   useEffect(() => {
-    const netCents = listing.priceCents;
-    const grossCents = listing.estimatedTotalCents ?? netCents;
+    const inv = computeInvoice(listing.priceCents, listing.marketCode);
+    const netCents = inv.hammerCents + inv.premiumCents;
     track("view_item", {
       item_id: listing.sku, listing_id: listing.id, item_name: listing.title, item_category: listing.category,
       value: netCents / 100, currency: "EUR",
-      gross_total: grossCents / 100, commission_value: 0, vat_scheme: "standard",
+      gross_total: inv.totalCents / 100, commission_value: inv.premiumCents / 100, vat_scheme: "standard",
       ecommerce: {
         currency: "EUR", value: netCents / 100,
         items: [gaItem({
           sku: listing.sku, listingId: listing.id, name: listing.title, category: listing.category,
-          netCents, hammerCents: netCents, feeCents: 0,
-          vatRateBp: marketFees(listing.marketCode).vatRateBp, grossCents,
+          netCents, hammerCents: inv.hammerCents, feeCents: inv.premiumCents,
+          vatRateBp: marketFees(listing.marketCode).vatRateBp, grossCents: inv.totalCents,
         })],
       },
     });

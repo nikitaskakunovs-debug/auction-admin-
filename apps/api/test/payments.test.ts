@@ -86,7 +86,7 @@ describe("checkout creation", () => {
     const [p] = await paymentRow(orderId);
     expect(p!.status).toBe("created");
     expect(p!.channel).toBe("web");
-    expect(p!.amountCents).toBe(13_310); // 11000 + 10% premium + 21% VAT
+    expect(p!.amountCents).toBe(11_000); // ставка финальная — к оплате ровно она
     expect(p!.providerId).toBeTruthy();
     expect(p!.checkoutUrl).toBe(checkoutUrl);
   });
@@ -333,11 +333,11 @@ describe("refunds through the provider", () => {
       method: "POST",
       url: `/api/orders/${orderId}/refund`,
       headers: auth(adminToken),
-      payload: { amountCents: 13_310, reason: "item damaged in storage" },
+      payload: { amountCents: 11_000, reason: "item damaged in storage" },
     });
     expect(res.statusCode).toBe(200);
     // The simulated provider actually moved the money back.
-    expect(klix.inspect(providerId)!.refundedCents).toBe(13_310);
+    expect(klix.inspect(providerId)!.refundedCents).toBe(11_000);
     expect(klix.inspect(providerId)!.status).toBe("refunded");
     const [order] = await world.ctx.db.select().from(orders).where(eq(orders.id, orderId));
     expect(order!.status).toBe("refunded");
@@ -392,7 +392,7 @@ describe("refunds through the provider", () => {
       method: "POST",
       url: `/api/orders/${orderId}/refund`,
       headers: auth(adminToken),
-      payload: { amountCents: 13_310, reason: "refunded in the Klix portal", viaProvider: false },
+      payload: { amountCents: 11_000, reason: "refunded in the Klix portal", viaProvider: false },
     });
     expect(res.statusCode).toBe(200);
     expect(klix.inspect(providerId)!.refundedCents).toBe(0);
@@ -447,7 +447,7 @@ describe("Inbank BNPL (e-POS sessions)", () => {
     expect(p!.provider).toBe("inbank");
     expect(p!.channel).toBe("web");
     expect(p!.status).toBe("created");
-    expect(p!.amountCents).toBe(13_310);
+    expect(p!.amountCents).toBe(11_000);
     // Inbank receives the reference + our callback URL.
     const input = inbank.inspect(p!.providerId!)!.input;
     expect(input.reference).toBe(ref);
@@ -541,7 +541,7 @@ describe("Inbank BNPL (e-POS sessions)", () => {
       method: "POST",
       url: `/api/orders/${orderId}/refund`,
       headers: auth(adminToken),
-      payload: { amountCents: 13_310, reason: "customer returned the item" },
+      payload: { amountCents: 11_000, reason: "customer returned the item" },
     });
     expect(auto.statusCode).toBe(409);
     expect((auto.json() as { error: string }).error).toBe("provider_refund_unsupported");
@@ -552,7 +552,7 @@ describe("Inbank BNPL (e-POS sessions)", () => {
       method: "POST",
       url: `/api/orders/${orderId}/refund`,
       headers: auth(adminToken),
-      payload: { amountCents: 13_310, reason: "credited in Inbank portal", viaProvider: false },
+      payload: { amountCents: 11_000, reason: "credited in Inbank portal", viaProvider: false },
     });
     expect(manual.statusCode).toBe(200);
     const [order] = await world.ctx.db.select().from(orders).where(eq(orders.id, orderId));
@@ -631,7 +631,7 @@ describe("Pay Later calculator support", () => {
     const listingId = (listing.json() as { listing: { id: string } }).listing.id;
     await app.inject({ method: "POST", url: `/api/listings/${listingId}/publish`, headers: auth(adminToken) });
     const detail = await app.inject({ method: "GET", url: `/api/public/listings/${listingId}` });
-    expect((detail.json() as { listing: { estimatedTotalCents: number } }).listing.estimatedTotalCents).toBe(13_310);
+    expect((detail.json() as { listing: { estimatedTotalCents: number } }).listing.estimatedTotalCents).toBe(11_000);
   });
 });
 

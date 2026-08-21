@@ -62,10 +62,11 @@ export async function buyNow(
       buyerVies: buyer.vies ?? null,
       nowMs: now.getTime(),
     });
-    // Fixed-price: the listed price is the goods value; no buyer's premium.
+    // Цена «Pirkt tagad» — финальная: комиссия и НДС уже внутри, счёт её
+    // раскладывает, а не увеличивает.
     const inv = computeInvoice({
-      hammerCents: listing.priceCents,
-      buyerPremiumBp: 0,
+      grossCents: listing.priceCents,
+      buyerPremiumBp: market!.buyerPremiumBp,
       vatRateBp: market!.vatRateBp,
       reverseCharge,
     });

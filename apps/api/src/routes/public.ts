@@ -385,13 +385,10 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
     return row.auction.currentPriceCents + incrementAt(row.auction.currentPriceCents, market!.incrementTable);
   }
 
-  /** Full cost of the current price: hammer + buyer premium + VAT. */
+  /** Итог по текущей цене. Цена — финальная (комиссия и НДС внутри),
+   *  поэтому итог и есть текущая цена: чекаут её только раскладывает. */
   async function estimatedTotal(row: { auction: typeof auctions.$inferSelect; listing: typeof listings.$inferSelect }) {
-    const { computeInvoice } = await import("@auction/domain");
-    const { markets } = await import("@auction/db");
-    const hammer = row.auction.currentPriceCents ?? row.listing.startPriceCents ?? 0;
-    const [market] = await ctx.db.select().from(markets).where(eq(markets.code, row.listing.marketCode));
-    return computeInvoice({ hammerCents: hammer, buyerPremiumBp: market!.buyerPremiumBp, vatRateBp: market!.vatRateBp }).totalCents;
+    return row.auction.currentPriceCents ?? row.listing.startPriceCents ?? 0;
   }
 
   // ── The real bid path ─────────────────────────────────────────────────────
@@ -861,16 +858,8 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
       return reply.code(404).send({ error: "not_found" });
     }
     const soldOut = row.listing.status !== "published" || row.item.status !== "listed";
-    // Checkout total for fixed-price buys: price + VAT (no buyer premium,
-    // mirroring engine/purchase.ts). Drives the Pay Later calculator.
-    const { computeInvoice } = await import("@auction/domain");
-    const { markets } = await import("@auction/db");
-    const [market] = await ctx.db.select().from(markets).where(eq(markets.code, row.listing.marketCode));
-    const estimatedTotalCents = computeInvoice({
-      hammerCents: row.listing.priceCents ?? 0,
-      buyerPremiumBp: 0,
-      vatRateBp: market!.vatRateBp,
-    }).totalCents;
+    // Цена — финальная: комиссия и НДС внутри, итог равен витринной цене.
+    const estimatedTotalCents = row.listing.priceCents ?? 0;
     return { listing: { ...publicListing(row), soldOut, estimatedTotalCents } };
   });
 

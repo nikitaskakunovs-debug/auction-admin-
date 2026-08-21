@@ -316,7 +316,7 @@ describe("stock count + cost hardening", () => {
       await app().inject({ method: "GET", url, headers: auth(financeToken) }),
     ).summary;
     expect(after.soldCount, "a refunded order is not a sale").toBe(before.soldCount - 1);
-    expect(after.profitCents, "and its profit goes with it").toBe(before.profitCents - (2_000 - 500));
+    expect(after.profitCents, "and its profit goes with it").toBe(before.profitCents - (1_503 - 500)); // молоток из финальных 2000
 
     void noCost;
   });
@@ -357,9 +357,10 @@ describe("stock count + cost hardening", () => {
     expect(stillPaid!.status, "a partial refund leaves the order paid — that is the trap").toBe("paid");
 
     const after = await read();
-    // Half the order total came back, so half the hammer's share goes with it.
-    expect(after.revenueCents).toBe(before.revenueCents - 1_000);
-    expect(after.profitCents).toBe(before.profitCents - 1_000);
+    // Вернулась половина кассы — уходит половина молотковой доли
+    // (молоток 1503 из финальных 2000, половина с округлением — 752).
+    expect(after.revenueCents).toBe(before.revenueCents - 752);
+    expect(after.profitCents).toBe(before.profitCents - 752);
   });
 
   it("counts a delivery's received units once, however many times they sold", async () => {
