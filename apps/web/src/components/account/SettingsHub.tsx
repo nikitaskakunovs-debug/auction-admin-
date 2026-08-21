@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
 import { PUBLIC_API_URL } from "@/lib/config";
+import { consentUpdate } from "@/lib/track";
 import { ALL_LANGS, dateLocale, useT, type Lang } from "@/lib/i18n";
 import type { MyOrder } from "@/lib/types";
 import { Ph } from "../Ph";
@@ -584,6 +585,7 @@ function CookiesPage({ onBack }: { onBack: () => void }) {
         policyVersion: body.policyVersion, at: new Date().toISOString(),
       }));
       say(t("cc.saved"));
+      consentUpdate(nextAnalytics, nextMarketing);
     } catch { say(t("err.generic")); }
   };
 

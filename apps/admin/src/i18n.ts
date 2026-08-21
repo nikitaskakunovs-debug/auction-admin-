@@ -15,6 +15,7 @@ import { POWERKIT } from "./i18n/powerkit.js";
 import { RECEIVING } from "./i18n/receiving.js";
 import { SETTINGS } from "./i18n/settings.js";
 import { SHELL } from "./i18n/shell.js";
+import { MARKETING } from "./i18n/marketing.js";
 import { WHSTATS } from "./i18n/whstats.js";
 
 /**
@@ -365,6 +366,7 @@ const ALL = {
   ...RECEIVING,
   ...PICKUP,
   ...WHSTATS,
+  ...MARKETING,
   ...CUSTOMERS,
   ...FINANCE,
   ...FRONTDESK,

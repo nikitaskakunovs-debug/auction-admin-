@@ -50,6 +50,28 @@ const manrope = localFont({
   variable: "--font-manrope",
 });
 
+/** Google Tag Manager. Включается только когда сборке передан контейнер
+ *  (NEXT_PUBLIC_GTM_ID) — dev и предпросмотры живут без внешних тегов.
+ *
+ *  Порядок внутри скрипта важен: сначала Consent Mode запрещает всё по
+ *  умолчанию, затем проигрывается сохранённое решение из нашей плашки
+ *  (izsoli_cc_v1), и только после этого грузится сам GTM — ни один тег не
+ *  успевает выстрелить до согласия. Свежие решения плашка шлёт через
+ *  consentUpdate() из lib/track.ts. */
+const GTM_ID = /^GTM-[A-Z0-9]+$/.test(process.env.NEXT_PUBLIC_GTM_ID ?? "")
+  ? process.env.NEXT_PUBLIC_GTM_ID!
+  : null;
+const gtmBootstrap = GTM_ID && `
+window.dataLayer=window.dataLayer||[];
+function gtag(){dataLayer.push(arguments);}
+gtag('consent','default',{ad_storage:'denied',ad_user_data:'denied',ad_personalization:'denied',analytics_storage:'denied',wait_for_update:500});
+try{var c=JSON.parse(localStorage.getItem('izsoli_cc_v1')||'null');
+if(c){gtag('consent','update',{analytics_storage:c.analytics?'granted':'denied',ad_storage:c.marketing?'granted':'denied',ad_user_data:c.marketing?'granted':'denied',ad_personalization:c.marketing?'granted':'denied'});}}catch(e){}
+(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});
+var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';
+j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+})(window,document,'script','dataLayer','${GTM_ID}');`;
+
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
@@ -96,8 +118,15 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         {/* Снимаем no-js до первой отрисовки: правила фолбэка в globals.css
             рассчитаны на то, что с JS их не видно. */}
         <script dangerouslySetInnerHTML={{ __html: "document.documentElement.classList.remove('no-js')" }} />
+        {gtmBootstrap && <script dangerouslySetInnerHTML={{ __html: gtmBootstrap }} />}
       </head>
       <body>
+        {GTM_ID && (
+          <noscript>
+            <iframe src={`https://www.googletagmanager.com/ns.html?id=${GTM_ID}`}
+                    height="0" width="0" style={{ display: "none", visibility: "hidden" }} title="gtm" />
+          </noscript>
+        )}
         <I18nProvider initialLang={country.defaultLang} available={country.languages}>
           {/* Внутри провайдера: снаружи <T /> получал пустой контекст и выводил
               сам ключ — на экране стояло «nav.skipToMain». */}

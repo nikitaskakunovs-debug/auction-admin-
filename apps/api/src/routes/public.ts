@@ -1023,6 +1023,31 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
   /** Свои данные одним файлом. Спецификация хочет ZIP на почту со ссылкой на
    *  7 дней; пока файл отдаётся сразу — это честнее, чем ждать этап с
    *  файловым хранилищем. */
+  /** Откуда пришёл клиент (первое касание): utm-метки, реферер, посадочная.
+   *  Пишется один раз — повторные вызовы и попытки переписать игнорируются,
+   *  первое касание переписать нельзя по определению. Панель по этим меткам
+   *  считает регистрации, заказы и выручку на кампанию. */
+  app.post("/api/public/me/attribution", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const short = z.string().max(120).optional();
+    const body = z
+      .object({
+        source: short, medium: short, campaign: short, content: short, term: short,
+        referrer: z.string().max(400).optional(),
+        landing: z.string().max(400).optional(),
+      })
+      .safeParse(req.body ?? {});
+    if (!body.success) return reply.code(400).send({ error: "invalid_body" });
+    const clean = Object.fromEntries(Object.entries(body.data).filter(([, v]) => v));
+    if (Object.keys(clean).length === 0) return { ok: true };
+    await ctx.db
+      .update(customers)
+      .set({ attribution: { ...clean, at: ctx.now().toISOString() } })
+      .where(and(eq(customers.id, bidderId), isNull(customers.attribution)));
+    return { ok: true };
+  });
+
   app.get("/api/public/me/export", async (req, reply) => {
     const bidderId = requireBidder(req, reply);
     if (!bidderId) return;

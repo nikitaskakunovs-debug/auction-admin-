@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { publicApi } from "@/lib/api";
+import { captureAttribution, submitAttribution } from "@/lib/attr";
 import { useT } from "@/lib/i18n";
 import type { Country } from "@/lib/country";
 import { alertStore, useRail, useReveal } from "@/lib/ui";
@@ -45,7 +46,11 @@ export function Chrome({ country = "LV" }: { country?: Country }) {
 
   useEffect(() => {
     setSignedIn(publicApi.hasSession);
-    const fn = () => setSignedIn(publicApi.hasSession);
+    // Первое касание рекламы запоминаем на любом входе на сайт; как только
+    // появляется аккаунт — один раз отдаём движку (для отчёта по кампаниям).
+    captureAttribution();
+    submitAttribution();
+    const fn = () => { setSignedIn(publicApi.hasSession); submitAttribution(); };
     publicApi.listeners.add(fn);
     return () => { publicApi.listeners.delete(fn); };
   }, []);

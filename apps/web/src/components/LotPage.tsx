@@ -9,6 +9,7 @@ import { computeInvoice, increment, marketFees } from "@/lib/fees";
 import { dateLocale, useT } from "@/lib/i18n";
 import { photoWeb, photoThumb } from "@/lib/photos";
 import { formatEur, type AuctionDetail, type PublicAuction } from "@/lib/types";
+import { track } from "@/lib/track";
 import { useStickyBar } from "@/lib/ui";
 import { watchStore } from "@/lib/watch";
 import { KlixPayLater } from "./KlixPayLater";
@@ -52,6 +53,16 @@ export function LotPage({
   const [notice, setNotice] = useState<{ text: string; tone: "win" | "out" } | null>(null);
 
   const a = detail.auction;
+
+  // Аналитика (GTM): просмотр лота — раз на заход, не на каждый опрос цены.
+  useEffect(() => {
+    track("view_item", {
+      item_id: a.id, item_name: a.title, item_category: a.category,
+      value: (a.currentPriceCents ?? a.startPriceCents ?? 0) / 100, currency: "EUR",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [a.id]);
+
   const rep = (a as PublicAuction & { report?: LotReport }).report ?? {};
   const live = a.status === "live";
   const settled = a.status.startsWith("ended");
@@ -181,6 +192,7 @@ export function LotPage({
         : { text: `${t("a.outbid")} — ${formatEur(r.currentPriceCents)}`, tone: "out" });
       say(r.youLead ? t("a.youLead") : t("a.outbid"));
       if (r.extended) say(t("a.extended"));
+      track("place_bid", { item_id: a.id, value: amount / 100, currency: "EUR", lead: r.youLead });
       await reload();
     } catch (err) {
       if (err instanceof PublicApiError && err.body.code === "EMAIL_NOT_VERIFIED") {

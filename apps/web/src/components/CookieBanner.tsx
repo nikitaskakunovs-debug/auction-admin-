@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { publicApi } from "@/lib/api";
 import { useT } from "@/lib/i18n";
+import { consentUpdate } from "@/lib/track";
 import { Icon } from "./Icon";
 import { say } from "./Toast";
 
@@ -106,6 +107,8 @@ export function CookieBanner() {
     } catch { /* приватный режим — просто прячем плашку */ }
     setShown(false);
     say(message);
+    // Consent Mode узнаёт о решении сразу — теги ждут именно этого сигнала.
+    consentUpdate(a, m);
     // Запись в журнал — то, чем согласие доказывается. Молча падать нельзя,
     // но и держать человека перед плашкой из-за сети тоже нельзя.
     void publicApi

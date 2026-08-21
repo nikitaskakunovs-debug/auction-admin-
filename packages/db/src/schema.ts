@@ -353,6 +353,13 @@ export const customers = pgTable(
     googleId: text("google_id"),
     facebookId: text("facebook_id"),
     telegramId: text("telegram_id"),
+    /** Откуда человек пришёл (первое касание): utm-метки и реферер первого
+     * визита. Пишется один раз при регистрации — по нему панель считает
+     * отдачу рекламы. Не персональные данные: только метки кампаний. */
+    attribution: jsonb("attribution").$type<{
+      source?: string; medium?: string; campaign?: string; content?: string;
+      term?: string; referrer?: string; landing?: string; at?: string;
+    }>(),
     erasedAt: timestamp("erased_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -786,6 +793,12 @@ export const orders = pgTable(
     } | null>(),
     /** Аванс, зачтённый в этот заказ: провайдеру ушла сумма за вычетом его. */
     creditAppliedCents: integer("credit_applied_cents").notNull().default(0),
+    /** Снимок атрибуции клиента на момент создания заказа — панель считает
+     * выручку по кампаниям, даже если клиент потом удалит аккаунт. */
+    attribution: jsonb("attribution").$type<{
+      source?: string; medium?: string; campaign?: string; content?: string;
+      term?: string; referrer?: string; landing?: string; at?: string;
+    }>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("orders_ref_idx").on(t.ref), index("orders_status_idx").on(t.status)],

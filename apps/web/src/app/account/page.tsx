@@ -16,6 +16,7 @@ import { say } from "@/components/Toast";
 import { VerifyNotice } from "@/components/VerifyNotice";
 import { publicApi } from "@/lib/api";
 import { dateLocale, useT, type Lang } from "@/lib/i18n";
+import { track } from "@/lib/track";
 import { photoThumb } from "@/lib/photos";
 import { formatEur, type MyOrder } from "@/lib/types";
 
@@ -88,7 +89,32 @@ export default function AccountPage() {
         const r = await publicApi.get<{ orderStatus: string; paymentStatus: string | null }>(
           `/api/public/orders/${encodeURIComponent(ref)}/payment`,
         );
-        if (r.orderStatus === "paid") { setPayBanner("success"); data.refresh(); return; }
+        if (r.orderStatus === "paid") {
+          setPayBanner("success");
+          data.refresh();
+          // Аналитика (GTM): покупка подтверждена движком. event_id = номер
+          // заказа — та же метка пойдёт в серверный Meta CAPI, дубль не
+          // засчитается. Сумму берём из свежего списка заказов.
+          void publicApi.get<{ orders: MyOrder[] }>("/api/public/me/orders")
+            .then((res) => {
+              const paid = res.orders.find((o) => o.ref === ref);
+              track("purchase", {
+                transaction_id: ref, event_id: ref, currency: "EUR", payment_status: "paid",
+                ...(paid
+                  ? {
+                      value: paid.totalCents / 100,
+                      // Доход площадки (комиссия) отдельно от кассы — отчёты
+                      // считают и оборот, и собственную выручку с кампании.
+                      commission_value: paid.premiumCents / 100,
+                      vat_value: paid.vatCents / 100,
+                      shipping_value: paid.shippingCents / 100,
+                    }
+                  : {}),
+              });
+            })
+            .catch(() => track("purchase", { transaction_id: ref, event_id: ref, currency: "EUR", payment_status: "paid" }));
+          return;
+        }
         if (r.paymentStatus === "failed" || r.paymentStatus === "expired") { setPayBanner("failed"); return; }
         stillInFlight = r.paymentStatus === "created";
       } catch { /* сеть мигнула — следующий заход */ }

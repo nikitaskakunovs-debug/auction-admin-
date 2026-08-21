@@ -108,6 +108,8 @@ export async function closeAuction(
         reverseCharge,
         status: "awaiting_payment",
         paymentDeadlineAt,
+        // Снимок «откуда пришёл клиент» — для отчёта по рекламе в панели.
+        attribution: winner!.attribution ?? null,
       }).returning({ id: orders.id });
 
       // The invoice is the request for payment — issue it with the order,

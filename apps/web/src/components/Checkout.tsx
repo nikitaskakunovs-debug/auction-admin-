@@ -5,6 +5,7 @@ import { BrandMark } from "@/components/BrandMark";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
 import { dateLocale, useT } from "@/lib/i18n";
+import { track } from "@/lib/track";
 import { useStickyBar } from "@/lib/ui";
 import { formatEur, type MyOrder, type ShippingOption } from "@/lib/types";
 import { Icon } from "./Icon";
@@ -110,6 +111,19 @@ export function Checkout({ orderRef }: { orderRef: string }) {
     } catch { setOrder(null); }
   }, [orderRef]);
 
+  // Аналитика (GTM): человек дошёл до оплаты. Один раз на заказ; в параметрах
+  // сумма и разбивка — комиссия площадки (buyer premium) отдельно, чтобы в
+  // отчётах считалась не только касса, но и наш собственный доход.
+  const beganRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!order || beganRef.current === order.ref) return;
+    beganRef.current = order.ref;
+    track("begin_checkout", {
+      transaction_id: order.ref, value: order.totalCents / 100, currency: "EUR",
+      commission_value: order.premiumCents / 100,
+    });
+  }, [order]);
+
   useEffect(() => {
     setSignedIn(publicApi.hasSession);
     const fn = () => setSignedIn(publicApi.hasSession);
@@ -169,6 +183,7 @@ export function Checkout({ orderRef }: { orderRef: string }) {
       });
       await load();
       say(t("co.deliverySaved"));
+      track("add_shipping_info", { transaction_id: orderRef, shipping_tier: next });
     } catch (err) {
       setError(err instanceof Error ? err.message : "error");
     } finally { setBusy(false); }
@@ -191,8 +206,24 @@ export function Checkout({ orderRef }: { orderRef: string }) {
         { language: lang, provider: pay, ...(creditCents > 0 && useCredit ? { useCredit: true } : {}) },
       );
       setSubmitted(true);
-      // Аванс покрыл всё — провайдер не нужен, сразу чек.
-      if (r.paid) { window.location.assign(`/account?tab=pirkumi&cek=${encodeURIComponent(orderRef)}`); return; }
+      track("add_payment_info", {
+        transaction_id: orderRef, payment_type: pay,
+        value: (order?.totalCents ?? 0) / 100, currency: "EUR",
+      });
+      // Аванс покрыл всё — провайдер не нужен, сразу чек. event_id = номер
+      // заказа: серверный Meta CAPI пришлёт такой же, дубль не засчитается.
+      if (r.paid) {
+        track("purchase", {
+          transaction_id: orderRef, event_id: orderRef,
+          value: (order?.totalCents ?? 0) / 100, currency: "EUR",
+          commission_value: (order?.premiumCents ?? 0) / 100,
+          vat_value: (order?.vatCents ?? 0) / 100,
+          shipping_value: (order?.shippingCents ?? 0) / 100,
+          payment_status: "paid", payment_type: "avanss",
+        });
+        window.location.assign(`/account?tab=pirkumi&cek=${encodeURIComponent(orderRef)}`);
+        return;
+      }
       window.location.assign(r.checkoutUrl!);
     } catch (err) {
       setBusy(false);

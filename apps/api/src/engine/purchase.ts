@@ -97,6 +97,8 @@ export async function buyNow(
         reverseCharge,
         status: "awaiting_payment",
         paymentDeadlineAt,
+        // Снимок «откуда пришёл клиент» — для отчёта по рекламе в панели.
+        attribution: buyer.attribution ?? null,
       })
       .returning({ id: orders.id });
 

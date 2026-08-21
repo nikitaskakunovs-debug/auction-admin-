@@ -7,6 +7,7 @@ import { publicApi, PublicApiError } from "@/lib/api";
 import { conditionLabel } from "@/lib/conditions";
 import { useT } from "@/lib/i18n";
 import { photoWeb, photoThumb } from "@/lib/photos";
+import { track } from "@/lib/track";
 import { formatEur, type FixedListing } from "@/lib/types";
 import { KlixPayLater } from "@/components/KlixPayLater";
 import { Icon } from "./Icon";
@@ -31,6 +32,15 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
     publicApi.listeners.add(fn);
     return () => { publicApi.listeners.delete(fn); };
   }, []);
+
+  // Аналитика (GTM): просмотр товара «Pērc uzreiz».
+  useEffect(() => {
+    track("view_item", {
+      item_id: listing.id, item_name: listing.title, item_category: listing.category,
+      value: listing.priceCents / 100, currency: "EUR",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listing.id]);
 
   const buy = async () => {
     setBusy(true); setError(null);

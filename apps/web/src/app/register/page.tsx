@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
 import { useT } from "@/lib/i18n";
+import { track } from "@/lib/track";
 import { AuthCard } from "@/components/authUi";
 import { SocialAuth } from "@/components/SocialAuth";
 import { VerifyNotice } from "@/components/VerifyNotice";
@@ -25,6 +26,7 @@ export default function RegisterPage() {
     setError(null);
     try {
       await publicApi.register({ email: email.trim().toLowerCase(), alias: alias.trim(), password, country, marketingOptIn: marketing });
+      track("sign_up", { method: "email" });
       setDone(true);
     } catch (err) {
       if (err instanceof PublicApiError && err.body.error === "email_exists") setError("Email already registered.");

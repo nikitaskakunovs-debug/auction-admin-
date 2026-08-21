@@ -24,6 +24,7 @@ import { WarehouseStatsScreen } from "./screens/WarehouseStats.js";
 import { BoardScreen } from "./screens/Board.js";
 import { CustomersScreen } from "./screens/Customers.js";
 import { ConsentsScreen } from "./screens/Consents.js";
+import { MarketingScreen } from "./screens/Marketing.js";
 import { AdsScreen } from "./screens/Ads.js";
 import { SettingsScreen } from "./screens/Settings.js";
 import { ActivityScreen } from "./screens/Activity.js";
@@ -87,6 +88,8 @@ const SCREENS: ScreenDef[] = [
   // Согласия на cookie: доказывать их — обязанность компании, поэтому им нужно
   // место в панели, а не только в браузере посетителя.
   { id: "consents", labelKey: "sh.nav.consents", icon: "shield", permission: "customers.view", render: () => <ConsentsScreen /> },
+  // Отдача рекламы: регистрации и выручка по кампаниям (атрибуция).
+  { id: "marketing", labelKey: "sh.nav.marketing", icon: "analytics", permission: "reports.view", render: () => <MarketingScreen /> },
   { id: "finance", labelKey: "sh.nav.finance", icon: "finance", permission: ["invoices.view", "finance.view"], render: (nav) => <FinanceScreen nav={nav} /> },
   { id: "content", labelKey: "sh.nav.content", icon: "list", permission: "content.view", render: (nav) => <ContentScreen nav={nav} /> },
   // Реклама в ленте лотов — это тоже контент витрины, но со своим сроком,

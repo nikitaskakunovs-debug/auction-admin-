@@ -16,9 +16,12 @@ export const watchStore = {
   list() { return read(); },
   toggle(id: string) {
     const cur = read();
-    const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
+    const adding = !cur.includes(id);
+    const next = adding ? [...cur, id] : cur.filter((x) => x !== id);
     localStorage.setItem(KEY, JSON.stringify(next));
     listeners.forEach((f) => f());
+    // Аналитика (GTM): в вёлмes добавили — снятие никого не интересует.
+    if (adding) void import("./track").then((m) => m.track("add_to_wishlist", { item_id: id }));
   },
   subscribe(fn: Fn) {
     listeners.add(fn);
