@@ -5,7 +5,7 @@ import { BrandMark } from "@/components/BrandMark";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
 import { dateLocale, useT } from "@/lib/i18n";
-import { gaItem, track } from "@/lib/track";
+import { orderEcom, purchaseOnce, track } from "@/lib/track";
 import { useStickyBar } from "@/lib/ui";
 import { formatEur, type MyOrder, type ShippingOption } from "@/lib/types";
 import { Icon } from "./Icon";
@@ -118,13 +118,13 @@ export function Checkout({ orderRef }: { orderRef: string }) {
   useEffect(() => {
     if (!order || beganRef.current === order.ref) return;
     beganRef.current = order.ref;
+    const ec = orderEcom(order);
     track("begin_checkout", {
-      transaction_id: order.ref, value: order.totalCents / 100, currency: "EUR",
-      commission_value: order.premiumCents / 100,
-      ecommerce: {
-        currency: "EUR", value: order.totalCents / 100,
-        items: [gaItem({ id: order.itemSku, name: order.itemTitle, category: order.itemCategory, priceCents: order.totalCents })],
-      },
+      value: ec.netCents / 100, currency: "EUR",
+      gross_total: ec.grossCents / 100,
+      commission_value: ec.commissionCents / 100,
+      vat_scheme: ec.vatScheme,
+      ecommerce: { currency: "EUR", value: ec.netCents / 100, items: [ec.item] },
     });
   }, [order]);
 
@@ -217,19 +217,21 @@ export function Checkout({ orderRef }: { orderRef: string }) {
       // Аванс покрыл всё — провайдер не нужен, сразу чек. event_id = номер
       // заказа: серверный Meta CAPI пришлёт такой же, дубль не засчитается.
       if (r.paid) {
-        track("purchase", {
-          transaction_id: orderRef, event_id: orderRef,
-          value: (order?.totalCents ?? 0) / 100, currency: "EUR",
-          commission_value: (order?.premiumCents ?? 0) / 100,
-          vat_value: (order?.vatCents ?? 0) / 100,
-          shipping_value: (order?.shippingCents ?? 0) / 100,
+        const ec = order ? orderEcom(order) : null;
+        purchaseOnce(orderRef, {
+          event_id: orderRef,
+          value: (ec ? ec.netCents : 0) / 100, currency: "EUR",
+          gross_total: (ec ? ec.grossCents : 0) / 100,
+          commission_value: (ec ? ec.commissionCents : 0) / 100,
+          vat_scheme: ec?.vatScheme ?? "standard",
           payment_status: "paid", payment_type: "avanss",
-          ...(order ? {
-            ecommerce: {
-              currency: "EUR", value: order.totalCents / 100, transaction_id: orderRef,
-              items: [gaItem({ id: order.itemSku, name: order.itemTitle, category: order.itemCategory, priceCents: order.totalCents })],
-            },
-          } : {}),
+          ecommerce: {
+            transaction_id: orderRef, currency: "EUR",
+            value: (ec ? ec.netCents : 0) / 100,
+            tax: (ec ? ec.taxCents : 0) / 100,
+            shipping: (ec ? ec.shippingCents : 0) / 100,
+            items: ec ? [ec.item] : [],
+          },
         });
         window.location.assign(`/account?tab=pirkumi&cek=${encodeURIComponent(orderRef)}`);
         return;

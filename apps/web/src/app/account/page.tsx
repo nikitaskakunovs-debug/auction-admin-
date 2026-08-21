@@ -16,7 +16,7 @@ import { say } from "@/components/Toast";
 import { VerifyNotice } from "@/components/VerifyNotice";
 import { publicApi } from "@/lib/api";
 import { dateLocale, useT, type Lang } from "@/lib/i18n";
-import { gaItem, track } from "@/lib/track";
+import { orderEcom, purchaseOnce, track } from "@/lib/track";
 import { photoThumb } from "@/lib/photos";
 import { formatEur, type MyOrder } from "@/lib/types";
 
@@ -98,25 +98,29 @@ export default function AccountPage() {
           void publicApi.get<{ orders: MyOrder[] }>("/api/public/me/orders")
             .then((res) => {
               const paid = res.orders.find((o) => o.ref === ref);
-              track("purchase", {
-                transaction_id: ref, event_id: ref, currency: "EUR", payment_status: "paid",
-                ...(paid
+              const ec = paid ? orderEcom(paid) : null;
+              purchaseOnce(ref, {
+                event_id: ref, currency: "EUR", payment_status: "paid",
+                ...(ec
                   ? {
-                      value: paid.totalCents / 100,
-                      // Доход площадки (комиссия) отдельно от кассы — отчёты
-                      // считают и оборот, и собственную выручку с кампании.
-                      commission_value: paid.premiumCents / 100,
-                      vat_value: paid.vatCents / 100,
-                      shipping_value: paid.shippingCents / 100,
+                      // value — лот+комиссия без НДС; gross_total — к оплате.
+                      // Доход площадки (commission_value) отдельно от кассы.
+                      value: ec.netCents / 100,
+                      gross_total: ec.grossCents / 100,
+                      commission_value: ec.commissionCents / 100,
+                      vat_scheme: ec.vatScheme,
                       ecommerce: {
-                        currency: "EUR", value: paid.totalCents / 100, transaction_id: ref,
-                        items: [gaItem({ id: paid.itemSku, name: paid.itemTitle, category: paid.itemCategory, priceCents: paid.totalCents })],
+                        transaction_id: ref, currency: "EUR",
+                        value: ec.netCents / 100,
+                        tax: ec.taxCents / 100,
+                        shipping: ec.shippingCents / 100,
+                        items: [ec.item],
                       },
                     }
                   : {}),
               });
             })
-            .catch(() => track("purchase", { transaction_id: ref, event_id: ref, currency: "EUR", payment_status: "paid" }));
+            .catch(() => purchaseOnce(ref, { event_id: ref, currency: "EUR", payment_status: "paid" }));
           return;
         }
         if (r.paymentStatus === "failed" || r.paymentStatus === "expired") { setPayBanner("failed"); return; }

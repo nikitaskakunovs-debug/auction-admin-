@@ -648,6 +648,10 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
           hammerCents: r.order.hammerCents,
           premiumCents: r.order.premiumCents,
           vatCents: r.order.vatCents,
+          // Ставка и режим НДС — аналитике (GA4) нужен vat_rate и
+          // vat_scheme; reverse charge решает движок по проверке VIES.
+          vatRateBp: r.order.vatRateBp,
+          reverseCharge: r.order.reverseCharge,
           shippingCents: r.order.shippingCents,
           handlingCents: r.order.handlingCents,
           totalCents: r.order.totalCents,

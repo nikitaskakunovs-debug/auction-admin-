@@ -77,6 +77,10 @@ export interface MyOrder {
   hammerCents: number;
   premiumCents: number;
   vatCents: number;
+  /** Ставка НДС в базисных пунктах (2100 = 21%) и режим reverse charge —
+   *  их решает движок; аналитика передаёт как vat_rate / vat_scheme. */
+  vatRateBp?: number;
+  reverseCharge?: boolean;
   shippingCents: number;
   handlingCents: number;
   totalCents: number;

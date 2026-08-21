@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
 import { conditionLabel } from "@/lib/conditions";
 import { useT } from "@/lib/i18n";
+import { marketFees } from "@/lib/fees";
 import { photoWeb, photoThumb } from "@/lib/photos";
 import { gaItem, track } from "@/lib/track";
 import { formatEur, type FixedListing } from "@/lib/types";
@@ -33,14 +34,22 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
     return () => { publicApi.listeners.delete(fn); };
   }, []);
 
-  // Аналитика (GTM): просмотр товара «Pērc uzreiz».
+  // Аналитика (GTM): просмотр товара «Pērc uzreiz». Комиссии у фикс-цены
+  // нет; итог с НДС приходит из движка (estimatedTotalCents).
   useEffect(() => {
+    const netCents = listing.priceCents;
+    const grossCents = listing.estimatedTotalCents ?? netCents;
     track("view_item", {
-      item_id: listing.id, item_name: listing.title, item_category: listing.category,
-      value: listing.priceCents / 100, currency: "EUR",
+      item_id: listing.sku, listing_id: listing.id, item_name: listing.title, item_category: listing.category,
+      value: netCents / 100, currency: "EUR",
+      gross_total: grossCents / 100, commission_value: 0, vat_scheme: "standard",
       ecommerce: {
-        currency: "EUR", value: listing.priceCents / 100,
-        items: [gaItem({ id: listing.id, name: listing.title, category: listing.category, priceCents: listing.priceCents })],
+        currency: "EUR", value: netCents / 100,
+        items: [gaItem({
+          sku: listing.sku, listingId: listing.id, name: listing.title, category: listing.category,
+          netCents, hammerCents: netCents, feeCents: 0,
+          vatRateBp: marketFees(listing.marketCode).vatRateBp, grossCents,
+        })],
       },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps

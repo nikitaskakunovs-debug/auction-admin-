@@ -12,7 +12,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
 import { useT } from "@/lib/i18n";
-import { gaItem, track } from "@/lib/track";
+import { orderEcom, track } from "@/lib/track";
 import { formatEur, type MyOrder } from "@/lib/types";
 import { Ph } from "./Ph";
 import { say } from "./Toast";
@@ -32,14 +32,14 @@ export function Cart() {
         // По умолчанию отмечено всё: чаще всего человек платит за всё сразу.
         setPicked(new Set(unpaid.map((o) => o.ref)));
         // Аналитика (GTM): просмотр корзины со всеми неоплаченными лотами.
+        // value — сумма «лот + комиссия» без НДС, ровно Σ items[].price.
         if (unpaid.length > 0) {
+          const ecs = unpaid.map(orderEcom);
+          const net = ecs.reduce((s, e) => s + e.netCents, 0);
           track("view_cart", {
-            value: unpaid.reduce((s, o) => s + o.totalCents, 0) / 100, currency: "EUR",
-            ecommerce: {
-              currency: "EUR",
-              value: unpaid.reduce((s, o) => s + o.totalCents, 0) / 100,
-              items: unpaid.map((o) => gaItem({ id: o.itemSku, name: o.itemTitle, category: o.itemCategory, priceCents: o.totalCents })),
-            },
+            value: net / 100, currency: "EUR",
+            gross_total: ecs.reduce((s, e) => s + e.grossCents, 0) / 100,
+            ecommerce: { currency: "EUR", value: net / 100, items: ecs.map((e) => e.item) },
           });
         }
       })
@@ -62,12 +62,10 @@ export function Cart() {
       // Аналитика (GTM): лот добавлен к общей оплате.
       const o = orders.find((x) => x.ref === ref);
       if (o) {
+        const e = orderEcom(o);
         track("add_to_cart", {
-          value: o.totalCents / 100, currency: "EUR",
-          ecommerce: {
-            currency: "EUR", value: o.totalCents / 100,
-            items: [gaItem({ id: o.itemSku, name: o.itemTitle, category: o.itemCategory, priceCents: o.totalCents })],
-          },
+          value: e.netCents / 100, currency: "EUR",
+          ecommerce: { currency: "EUR", value: e.netCents / 100, items: [e.item] },
         });
       }
     }
@@ -80,13 +78,14 @@ export function Cart() {
     // Один лот — обычная оплата: незачем городить группу из одного.
     if (refs.length === 1) { window.location.assign(`/apmaksa/${encodeURIComponent(refs[0]!)}`); return; }
     setBusy(true);
-    // Аналитика (GTM): оплата корзины началась — вся сумма и все лоты.
+    // Аналитика (GTM): оплата корзины началась — все выбранные лоты.
+    const ecs = chosen.map(orderEcom);
+    const net = ecs.reduce((s, e) => s + e.netCents, 0);
     track("begin_checkout", {
-      value: totalCents / 100, currency: "EUR", cart_size: refs.length,
-      ecommerce: {
-        currency: "EUR", value: totalCents / 100,
-        items: chosen.map((o) => gaItem({ id: o.itemSku, name: o.itemTitle, category: o.itemCategory, priceCents: o.totalCents })),
-      },
+      value: net / 100, currency: "EUR", cart_size: refs.length,
+      gross_total: totalCents / 100,
+      commission_value: ecs.reduce((s, e) => s + e.commissionCents, 0) / 100,
+      ecommerce: { currency: "EUR", value: net / 100, items: ecs.map((e) => e.item) },
     });
     void publicApi
       .post<{ checkoutUrl: string }>("/api/public/orders/pay-group", { refs, language: lang })

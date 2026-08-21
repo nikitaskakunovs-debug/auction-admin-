@@ -55,12 +55,26 @@ export function LotPage({
   const a = detail.auction;
 
   // Аналитика (GTM): просмотр лота — раз на заход, не на каждый опрос цены.
+  // item_id = номер лота (SKU); price = молоток + комиссия без НДС — та же
+  // разбивка, что человек видит в блоке «Ко я maksāšu» (арифметика движка).
   useEffect(() => {
     const cents = a.currentPriceCents ?? a.startPriceCents ?? 0;
+    const inv = computeInvoice(cents, a.marketCode);
+    const netCents = inv.hammerCents + inv.premiumCents;
     track("view_item", {
-      item_id: a.id, item_name: a.title, item_category: a.category,
-      value: cents / 100, currency: "EUR",
-      ecommerce: { currency: "EUR", value: cents / 100, items: [gaItem({ id: a.id, name: a.title, category: a.category, priceCents: cents })] },
+      item_id: a.sku, listing_id: a.id, item_name: a.title, item_category: a.category,
+      value: netCents / 100, currency: "EUR",
+      gross_total: inv.totalCents / 100,
+      commission_value: inv.premiumCents / 100,
+      vat_scheme: "standard",
+      ecommerce: {
+        currency: "EUR", value: netCents / 100,
+        items: [gaItem({
+          sku: a.sku, listingId: a.id, name: a.title, category: a.category,
+          netCents, hammerCents: inv.hammerCents, feeCents: inv.premiumCents,
+          vatRateBp: marketFees(a.marketCode).vatRateBp, grossCents: inv.totalCents,
+        })],
+      },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [a.id]);
@@ -194,7 +208,7 @@ export function LotPage({
         : { text: `${t("a.outbid")} — ${formatEur(r.currentPriceCents)}`, tone: "out" });
       say(r.youLead ? t("a.youLead") : t("a.outbid"));
       if (r.extended) say(t("a.extended"));
-      track("place_bid", { item_id: a.id, value: amount / 100, currency: "EUR", lead: r.youLead });
+      track("place_bid", { item_id: a.sku, listing_id: a.id, value: amount / 100, currency: "EUR", lead: r.youLead });
       await reload();
     } catch (err) {
       if (err instanceof PublicApiError && err.body.code === "EMAIL_NOT_VERIFIED") {
