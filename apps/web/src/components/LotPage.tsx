@@ -9,7 +9,7 @@ import { computeInvoice, increment, marketFees } from "@/lib/fees";
 import { dateLocale, useT } from "@/lib/i18n";
 import { photoWeb, photoThumb } from "@/lib/photos";
 import { formatEur, type AuctionDetail, type PublicAuction } from "@/lib/types";
-import { track } from "@/lib/track";
+import { gaItem, track } from "@/lib/track";
 import { useStickyBar } from "@/lib/ui";
 import { watchStore } from "@/lib/watch";
 import { KlixPayLater } from "./KlixPayLater";
@@ -56,9 +56,11 @@ export function LotPage({
 
   // Аналитика (GTM): просмотр лота — раз на заход, не на каждый опрос цены.
   useEffect(() => {
+    const cents = a.currentPriceCents ?? a.startPriceCents ?? 0;
     track("view_item", {
       item_id: a.id, item_name: a.title, item_category: a.category,
-      value: (a.currentPriceCents ?? a.startPriceCents ?? 0) / 100, currency: "EUR",
+      value: cents / 100, currency: "EUR",
+      ecommerce: { currency: "EUR", value: cents / 100, items: [gaItem({ id: a.id, name: a.title, category: a.category, priceCents: cents })] },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [a.id]);

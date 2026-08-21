@@ -19,7 +19,24 @@ const dl = (): DataLayer | null => {
 };
 
 export function track(event: string, params: Record<string, unknown> = {}): void {
-  dl()?.push({ event, ...params });
+  // ecommerce GA4 читает из отдельного ключа; перед событием его надо
+  // обнулить, иначе параметры прошлой покупки подмешиваются в следующую.
+  const layer = dl();
+  if (!layer) return;
+  if ("ecommerce" in params) layer.push({ ecommerce: null });
+  layer.push({ event, ...params });
+}
+
+/** Товарная строка GA4 (items[]): по ней отчёты видят, какие категории и
+ *  лоты приносят деньги, а не только сумму кассы. */
+export function gaItem(input: { id: string; name: string; category?: string | null; priceCents: number }) {
+  return {
+    item_id: input.id,
+    item_name: input.name,
+    ...(input.category ? { item_category: input.category } : {}),
+    price: input.priceCents / 100,
+    quantity: 1,
+  };
 }
 
 /** Обновление Google Consent Mode при каждом решении в плашке cookie.

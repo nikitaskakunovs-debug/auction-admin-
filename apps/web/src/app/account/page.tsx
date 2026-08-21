@@ -16,7 +16,7 @@ import { say } from "@/components/Toast";
 import { VerifyNotice } from "@/components/VerifyNotice";
 import { publicApi } from "@/lib/api";
 import { dateLocale, useT, type Lang } from "@/lib/i18n";
-import { track } from "@/lib/track";
+import { gaItem, track } from "@/lib/track";
 import { photoThumb } from "@/lib/photos";
 import { formatEur, type MyOrder } from "@/lib/types";
 
@@ -108,6 +108,10 @@ export default function AccountPage() {
                       commission_value: paid.premiumCents / 100,
                       vat_value: paid.vatCents / 100,
                       shipping_value: paid.shippingCents / 100,
+                      ecommerce: {
+                        currency: "EUR", value: paid.totalCents / 100, transaction_id: ref,
+                        items: [gaItem({ id: paid.itemSku, name: paid.itemTitle, category: paid.itemCategory, priceCents: paid.totalCents })],
+                      },
                     }
                   : {}),
               });

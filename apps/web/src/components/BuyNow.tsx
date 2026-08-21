@@ -7,7 +7,7 @@ import { publicApi, PublicApiError } from "@/lib/api";
 import { conditionLabel } from "@/lib/conditions";
 import { useT } from "@/lib/i18n";
 import { photoWeb, photoThumb } from "@/lib/photos";
-import { track } from "@/lib/track";
+import { gaItem, track } from "@/lib/track";
 import { formatEur, type FixedListing } from "@/lib/types";
 import { KlixPayLater } from "@/components/KlixPayLater";
 import { Icon } from "./Icon";
@@ -38,6 +38,10 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
     track("view_item", {
       item_id: listing.id, item_name: listing.title, item_category: listing.category,
       value: listing.priceCents / 100, currency: "EUR",
+      ecommerce: {
+        currency: "EUR", value: listing.priceCents / 100,
+        items: [gaItem({ id: listing.id, name: listing.title, category: listing.category, priceCents: listing.priceCents })],
+      },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listing.id]);

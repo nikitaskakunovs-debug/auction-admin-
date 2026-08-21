@@ -5,7 +5,7 @@ import { BrandMark } from "@/components/BrandMark";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
 import { dateLocale, useT } from "@/lib/i18n";
-import { track } from "@/lib/track";
+import { gaItem, track } from "@/lib/track";
 import { useStickyBar } from "@/lib/ui";
 import { formatEur, type MyOrder, type ShippingOption } from "@/lib/types";
 import { Icon } from "./Icon";
@@ -121,6 +121,10 @@ export function Checkout({ orderRef }: { orderRef: string }) {
     track("begin_checkout", {
       transaction_id: order.ref, value: order.totalCents / 100, currency: "EUR",
       commission_value: order.premiumCents / 100,
+      ecommerce: {
+        currency: "EUR", value: order.totalCents / 100,
+        items: [gaItem({ id: order.itemSku, name: order.itemTitle, category: order.itemCategory, priceCents: order.totalCents })],
+      },
     });
   }, [order]);
 
@@ -220,6 +224,12 @@ export function Checkout({ orderRef }: { orderRef: string }) {
           vat_value: (order?.vatCents ?? 0) / 100,
           shipping_value: (order?.shippingCents ?? 0) / 100,
           payment_status: "paid", payment_type: "avanss",
+          ...(order ? {
+            ecommerce: {
+              currency: "EUR", value: order.totalCents / 100, transaction_id: orderRef,
+              items: [gaItem({ id: order.itemSku, name: order.itemTitle, category: order.itemCategory, priceCents: order.totalCents })],
+            },
+          } : {}),
         });
         window.location.assign(`/account?tab=pirkumi&cek=${encodeURIComponent(orderRef)}`);
         return;

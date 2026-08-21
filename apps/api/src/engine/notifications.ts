@@ -67,6 +67,25 @@ export function emailBrand(ctx: AppContext): EmailBrand {
   };
 }
 
+/** Ссылки на витрину в письмах помечаются utm-метками — возвраты из писем
+ *  видны в отчёте «Mārketings» как канал email, а не «прямой заход».
+ *  amp: в HTML параметры доклеиваются как &amp;, в plain-тексте — как &. */
+function tagEmailLinks(body: string, campaign: string, base: string, amp: string): string {
+  if (!base) return body;
+  const re = new RegExp(base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + `[^\\s"'<)\\]]*`, "g");
+  const utm = `utm_source=email${amp}utm_medium=email${amp}utm_campaign=${encodeURIComponent(campaign)}`;
+  return body.replace(re, (url) => {
+    if (url.includes("utm_source=")) return url;
+    // Точка или запятая после ссылки в тексте — не часть адреса.
+    const tail = /[.,;:!]+$/.exec(url)?.[0] ?? "";
+    const clean = tail ? url.slice(0, -tail.length) : url;
+    // Фрагмент (#…) обязан остаться в самом конце адреса.
+    const [addr = "", hash] = clean.split(/#(.*)/s);
+    const sep = addr.includes("?") ? amp : "?";
+    return `${addr}${sep}${utm}${hash !== undefined ? `#${hash}` : ""}${tail}`;
+  });
+}
+
 /** Subject + both bodies for one message. */
 export function renderNotification(
   ctx: AppContext,
@@ -75,7 +94,12 @@ export function renderNotification(
   input: TemplateInput,
 ): { subject: string; text: string; html: string } {
   const copy: Rendered = renderCopy(type, lang, input, copyContext(ctx));
-  return { subject: copy.subject, text: copy.text, html: renderEmailHtml(copy.spec, emailBrand(ctx)) };
+  const base = ctx.config.storefrontBaseUrl;
+  return {
+    subject: copy.subject,
+    text: tagEmailLinks(copy.text, type, base, "&"),
+    html: tagEmailLinks(renderEmailHtml(copy.spec, emailBrand(ctx)), type, base, "&amp;"),
+  };
 }
 
 type Tx = Pick<Db, "select" | "insert">;
