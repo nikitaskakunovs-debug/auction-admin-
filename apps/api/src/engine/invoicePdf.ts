@@ -50,7 +50,9 @@ export function renderInvoicePdf(number: string, issuedAt: Date, d: InvoiceData)
     doc.text(buyerName, left, y);
     y += 14;
     doc.font("body").fontSize(9).fillColor("#444");
+    if (d.buyer.company && d.buyer.regNo) { doc.text(`Reģ. Nr. ${d.buyer.regNo}`, left, y); y += 12; }
     if (d.buyer.company && d.buyer.vatNo) { doc.text(`PVN ${d.buyer.vatNo}`, left, y); y += 12; }
+    if (d.buyer.address) { doc.text(d.buyer.address, left, y); y += 12; }
     doc.text(d.buyer.email, left, y);
     y += 12;
     if (d.buyer.country) { doc.text(d.buyer.country, left, y); y += 12; }

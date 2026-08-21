@@ -246,6 +246,41 @@
       "when": 1787249975981,
       "tag": "0034_known_lizard",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1787303232443,
+      "tag": "0035_tidy_dorian_gray",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1787303278138,
+      "tag": "0036_burly_toro",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1787303957683,
+      "tag": "0037_bored_marvel_boy",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1787304905244,
+      "tag": "0038_messy_photon",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1787305264436,
+      "tag": "0039_bouncy_mathemanic",
+      "breakpoints": true
     }
   ]
 }

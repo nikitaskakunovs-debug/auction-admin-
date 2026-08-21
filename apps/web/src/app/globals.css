@@ -2593,3 +2593,157 @@ footer .f-pill{border:0;font:inherit;cursor:pointer}
 .wish-grid .lot-body{padding:12px}
 .wish-grid .lot h3{font-size:15px}
 .wish-grid .price{font-size:21px}
+
+/* ═══════════════════════════════════════════════════════════════
+   СТАТУС ЗАКАЗА: ДЕНЬГИ И ВОЗВРАТЫ (макеты № 64, 65, 67, 68, 69,
+   69b, 70). Свой префикс `os-`, чтобы не столкнуться с боевыми
+   .opt / .step / .done / .srch. Цвета — только через токены.
+   ═══════════════════════════════════════════════════════════════ */
+.os-sum{display:flex;align-items:center;gap:22px;flex-wrap:wrap;padding:14px 16px;margin:0 0 14px;
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);
+  box-shadow:var(--shadow-1)}
+.os-sum .t{display:flex;flex-direction:column;gap:2px;min-width:0}
+.os-sum .t small{font-size:11.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
+  color:var(--text-3)}
+.os-sum .t b{font-size:19px;font-weight:800;letter-spacing:-.02em}
+
+.os-head{display:flex;align-items:flex-start;gap:14px;padding:16px;margin:0 0 14px;
+  border:1px solid var(--border);border-radius:var(--r-lg);background:var(--surface-2)}
+.os-head .ic{flex:none;width:36px;height:36px;border-radius:50%;display:grid;place-items:center;
+  background:var(--surface);color:var(--brand)}
+.os-head .t{display:flex;flex-direction:column;gap:4px;min-width:0}
+.os-head .t b{font-size:17px;letter-spacing:-.01em}
+.os-head .t small{font-size:13.5px;line-height:1.45;color:var(--text-2)}
+.os-head.is-bad{background:var(--live-soft);border-color:color-mix(in srgb,var(--live) 30%,transparent)}
+.os-head.is-bad .ic{color:var(--live)}
+.os-head.is-wait{background:var(--surface-2);border-color:var(--text-3)}
+.os-head.is-wait .ic{background:var(--surface);color:var(--text-2)}
+.os-head.is-ok{background:color-mix(in srgb,var(--accent) 22%,var(--surface))}
+
+.os-acts{margin:0 0 18px}
+.os-block{padding:16px;margin:0 0 14px;background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--r-lg)}
+.os-block>.g-lbl{margin-top:0}
+.os-block .note{margin:0 0 12px;font-size:13.5px;line-height:1.5;color:var(--text-2)}
+
+.os-copy{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 14px;
+  background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-md)}
+.os-copy b{font-size:18px;letter-spacing:.04em}
+
+.os-form{display:flex;flex-direction:column;gap:14px}
+.os-reasons{border:0;padding:0;margin:0;display:flex;flex-direction:column;gap:8px}
+.os-reasons legend{padding:0;margin:0 0 8px}
+.os-radio{display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;
+  background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-md)}
+.os-radio input{flex:0 0 18px!important;width:18px;height:18px;min-width:0;accent-color:var(--brand)}
+.os-radio span{flex:1;min-width:0;font-size:14px;font-weight:600}
+.os-radio:has(input:checked){border-color:var(--brand);
+  background:color-mix(in srgb,var(--accent) 18%,var(--surface))}
+.os-form textarea{width:100%;resize:vertical;font:inherit;padding:10px 12px;
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);color:var(--text)}
+
+@media (max-width:700px){
+  .os-sum{gap:14px 22px;padding:12px 14px}
+  .os-sum .t b{font-size:17px}
+  .os-head{padding:14px;gap:12px}
+  .os-head .t b{font-size:16px}
+  .os-acts{display:flex;flex-direction:column;gap:10px}
+  .os-acts .btn{width:100%;justify-content:center}
+  .os-block{padding:14px}
+  /* Строки данных на телефоне встают колонкой, иначе ключ распирает блок. */
+  .os-block .prow-s{flex-direction:column;align-items:flex-start;gap:2px}
+  .os-block .prow-s .k{flex:0 0 auto}
+}
+
+/* ── Телефон с выбором страны и маской (макеты № 50, 51) ───────*/
+.phone-cell{display:grid;gap:4px}
+.phone-row{display:flex;align-items:center;gap:0;background:var(--surface);
+  border:1px solid var(--border);border-radius:var(--r-md);overflow:hidden}
+.phone-row.is-bad{border-color:var(--live)}
+.phone-row .phone-cc{flex:0 0 auto;max-width:168px;min-height:0;border:0;border-right:1px solid var(--border);
+  border-radius:0;background:transparent;font:inherit;font-weight:700;padding:13px 12px;color:var(--text);
+  appearance:none;cursor:pointer;text-overflow:ellipsis}
+.phone-row input{flex:1;min-width:0;border:0;background:transparent;font:inherit;
+  padding:13px 12px;letter-spacing:.03em;color:var(--text)}
+.phone-row input:focus,.phone-cc:focus{outline:none}
+.phone-row:focus-within{border-color:var(--brand)}
+.fld-err{color:var(--live);font-size:12.5px;line-height:1.4}
+@media (max-width:560px){
+  .phone-cc{max-width:106px;font-size:14px}
+  .phone-row input{font-size:16px} /* iOS не зумит поле от 16px */
+}
+
+/* ── Реквизиты для счёта: список профилей (макеты № 42–45, 81) ─*/
+.bp-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:13px 14px;margin-bottom:8px;
+  background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-md)}
+.bp-row .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.bp-row .t b{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:15px}
+.bp-row .t small{font-size:12.5px;line-height:1.45;color:var(--text-2)}
+.bp-tag{flex:none;font-style:normal;font-size:11px;font-weight:800;letter-spacing:.04em;
+  text-transform:uppercase;padding:3px 8px;border-radius:var(--r-pill);
+  background:var(--accent);color:var(--brand)}
+.bp-acts{flex:none;display:flex;gap:8px;flex-wrap:wrap}
+.co-billing{margin-bottom:14px}
+.co-billing>.g-lbl{display:block;margin:0 0 8px}
+@media (max-width:560px){
+  .bp-row{align-items:flex-start}
+  .bp-acts{width:100%}
+  .bp-acts .btn-sm{flex:1;justify-content:center}
+}
+
+/* ── Сохранённые поиски (макет № 80) ───────────────────────────*/
+.ss-block{padding:16px;margin-top:var(--s5);background:var(--surface);
+  border:1px solid var(--border);border-radius:var(--r-lg)}
+.ss-block>.g-lbl{margin-top:0}
+.ss-block .note{margin:12px 0 0;font-size:13px;line-height:1.5;color:var(--text-2)}
+.ss-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:13px 14px;margin-bottom:8px;
+  background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-md)}
+.ss-row .t{flex:1 1 220px;min-width:0;display:flex;flex-direction:column;gap:3px}
+.ss-row .t b{font-size:15px}
+.ss-row .t small{font-size:12.5px;color:var(--text-2)}
+.ss-alert{flex:none;display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;cursor:pointer}
+.ss-alert input{flex:0 0 18px!important;width:18px;height:18px;min-width:0;accent-color:var(--brand)}
+.ss-acts{flex:none;display:flex;gap:8px;flex-wrap:wrap}
+@media (max-width:560px){
+  .ss-row{align-items:flex-start}
+  .ss-acts{width:100%}
+  .ss-acts .btn-sm{flex:1;justify-content:center}
+}
+.cg-head-acts{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+@media (max-width:560px){.cg-head-acts{width:100%;justify-content:space-between}}
+
+/* ── Корзина: несколько лотов одним платежом (макеты № 47, 48) ─*/
+.cart-cols{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:var(--s5);align-items:start}
+.cart-main{display:grid;gap:10px}
+.cart-row{display:flex;align-items:center;gap:14px;padding:14px 16px;
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg)}
+.cart-row:has(input:checked){border-color:var(--brand);
+  background:color-mix(in srgb,var(--accent) 14%,var(--surface))}
+.cart-tick{flex:none;display:grid;place-items:center;cursor:pointer;padding:4px}
+.cart-row input{flex:0 0 18px!important;width:18px;height:18px;min-width:0;accent-color:var(--brand)}
+.cart-row .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.cart-row .t b{font-size:15.5px;overflow:hidden;text-overflow:ellipsis}
+.cart-row .t small{font-size:12.5px;color:var(--text-2)}
+.cart-row .sum{flex:none;font-size:18px;font-weight:800;letter-spacing:-.02em}
+.cart-main .note{margin:4px 0 0;font-size:13px;line-height:1.5;color:var(--text-2)}
+.cart-side{position:sticky;top:96px;padding:16px;background:var(--surface);
+  border:1px solid var(--border);border-radius:var(--r-lg);box-shadow:var(--shadow-1)}
+.cart-side>.g-lbl{margin-top:0}
+.cart-side .btn{width:100%;justify-content:center;margin-top:12px}
+.cart-side .note{margin:10px 0 0;font-size:12.5px;line-height:1.5;color:var(--text-3)}
+@media (max-width:900px){
+  .cart-cols{grid-template-columns:minmax(0,1fr)}
+  /* Итог на телефоне идёт первым: сумма не должна прятаться в конце. */
+  .cart-side{position:static;order:-1}
+}
+@media (max-width:560px){
+  .cart-row{align-items:flex-start;gap:12px;padding:13px 14px}
+  .cart-row .sum{font-size:16px}
+}
+.cart-cta{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:14px 16px;
+  background:color-mix(in srgb,var(--accent) 16%,var(--surface));
+  border:1px solid var(--border);border-radius:var(--r-lg)}
+.cart-cta .t{flex:1 1 220px;min-width:0;display:flex;flex-direction:column;gap:2px}
+.cart-cta .t b{font-size:15.5px}
+.cart-cta .t small{font-size:13px;color:var(--text-2)}
+@media (max-width:560px){.cart-cta .btn{width:100%;justify-content:center}}

@@ -1,5 +1,5 @@
 import { items, orders, payments } from "@auction/db";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { verifyPayLinkToken } from "../auth/jwt.js";
@@ -117,11 +117,14 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
     if (status === "paid") {
       // Idempotent: a second callback (or a poll racing the callback) finds
       // the order already paid and no-ops.
-      await settleOrderPaid(ctx, payment.orderId, ACTORS[payment.provider as PayProvider] ?? ACTORS.klix, {
-        via: payment.provider,
-        paymentId: payment.id,
-        purchaseId: payment.providerId,
-      });
+      // Один платёж мог закрыть несколько заказов (макет № 48) — гасим все.
+      for (const orderId of [payment.orderId, ...payment.groupOrderIds]) {
+        await settleOrderPaid(ctx, orderId, ACTORS[payment.provider as PayProvider] ?? ACTORS.klix, {
+          via: payment.provider,
+          paymentId: payment.id,
+          purchaseId: payment.providerId,
+        });
+      }
     }
     return status;
   }
@@ -139,21 +142,30 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
     provider: PayProvider,
     channel: "web" | "email",
     language: string,
+    /** Попутные заказы, которые закрывает этот же платёж (макеты № 47, 48). */
+    alsoRows: Array<{ order: typeof orders.$inferSelect; itemTitle: string }> = [],
   ): Promise<{ ok: true; checkoutUrl: string } | { ok: false; status: number; error: string }> {
     // Провайдеру уходит остаток после зачёта аванса — не полный итог.
-    const chargeCents = row.order.totalCents - row.order.creditAppliedCents;
+    const allRows = [row, ...alsoRows];
+    const chargeCents = allRows.reduce((sum, r) => sum + r.order.totalCents - r.order.creditAppliedCents, 0);
+    const groupOrderIds = alsoRows.map((r) => r.order.id);
     if ((provider === "klix" && !ctx.klix) || (provider === "inbank" && !ctx.inbank)) {
       return { ok: false, status: 503, error: "payments_unavailable" };
     }
     const [existing] = await ctx.db
       .select()
       .from(payments)
-      .where(and(eq(payments.orderId, row.order.id), eq(payments.status, "created")))
+      .where(and(inArray(payments.orderId, allRows.map((r) => r.order.id)), eq(payments.status, "created")))
       .orderBy(desc(payments.createdAt))
       .limit(1);
     if (
       existing?.checkoutUrl &&
       existing.provider === provider &&
+      // Тот же набор заказов: чекаут за один лот нельзя переиспользовать
+      // для корзины из двух — сумма будет чужой.
+      existing.orderId === row.order.id &&
+      existing.groupOrderIds.length === groupOrderIds.length &&
+      existing.groupOrderIds.every((id) => groupOrderIds.includes(id)) &&
       // A fulfilment change reprices the order — a checkout carrying a stale
       // amount must never be reused, only superseded.
       existing.amountCents === chargeCents &&
@@ -188,7 +200,7 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
     const ref = encodeURIComponent(row.order.ref);
     const [payment] = await ctx.db
       .insert(payments)
-      .values({ orderId: row.order.id, provider, channel, amountCents: chargeCents })
+      .values({ orderId: row.order.id, provider, channel, amountCents: chargeCents, groupOrderIds })
       .returning();
     const callbackUrl = `${ctx.config.publicBaseUrl}/api/public/payments/${provider}/callback?payment=${payment!.id}`;
     try {
@@ -209,7 +221,9 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
       } else {
         const purchase = await ctx.klix!.createPurchase({
           amountCents: chargeCents,
-          name: `${row.order.ref} — ${row.itemTitle}`.slice(0, 250),
+          name: allRows.length > 1
+            ? `${allRows.map((r) => r.order.ref).join(", ")} — ${allRows.length} loti`.slice(0, 250)
+            : `${row.order.ref} — ${row.itemTitle}`.slice(0, 250),
           reference: row.order.ref,
           clientEmail: row.order.customerEmail,
           language,
@@ -309,6 +323,44 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
     if (!provider) return reply.code(503).send({ error: "payments_unavailable" });
     const language = body.data.language ?? MARKET_LANGUAGE[row.order.marketCode] ?? "en";
     const result = await openCheckout(row, provider, "web", language);
+    if (!result.ok) return reply.code(result.status).send({ error: result.error });
+    return { checkoutUrl: result.checkoutUrl };
+  });
+
+  /**
+   * Оплата нескольких лотов одним платежом (макеты № 47 и 48).
+   *
+   * Заказы остаются раздельными: у каждого свой счёт, своя доставка и своя
+   * выдача — общей становится только касса. Провайдеру уходит одна сумма, и
+   * когда она приходит, гасятся все заказы группы.
+   */
+  app.post("/api/public/orders/pay-group", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const body = z
+      .object({
+        refs: z.array(z.string().min(1)).min(2).max(20),
+        language: z.enum(["lv", "ru", "en", "et", "lt"]).optional(),
+        provider: z.enum(["klix", "inbank"]).optional(),
+      })
+      .safeParse(req.body ?? {});
+    if (!body.success) return reply.code(400).send({ error: "invalid_body" });
+
+    const rows: Array<{ order: typeof orders.$inferSelect; itemTitle: string }> = [];
+    for (const ref of body.data.refs) {
+      const row = await ownOrderByRef(ref, bidderId);
+      if (!row) return reply.code(404).send({ error: "not_found", ref });
+      if (row.order.status !== "awaiting_payment") {
+        return reply.code(409).send({ error: "order_not_awaiting_payment", ref });
+      }
+      rows.push(row);
+    }
+
+    const provider = body.data.provider ?? defaultProvider();
+    if (!provider) return reply.code(503).send({ error: "payments_unavailable" });
+    const first = rows[0]!;
+    const language = body.data.language ?? MARKET_LANGUAGE[first.order.marketCode] ?? "en";
+    const result = await openCheckout(first, provider, "web", language, rows.slice(1));
     if (!result.ok) return reply.code(result.status).send({ error: result.error });
     return { checkoutUrl: result.checkoutUrl };
   });

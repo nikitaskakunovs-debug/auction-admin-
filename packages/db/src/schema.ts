@@ -43,6 +43,15 @@ export const markets = pgTable("markets", {
   omnivaPmPriceCents: integer("omniva_pm_price_cents").notNull().default(399),
   /** DPD parcel-locker delivery price for this market (flat, €3.99). */
   dpdPmPriceCents: integer("dpd_pm_price_cents").notNull().default(399),
+  /** Courier delivery to a street address (flat, €6.90). */
+  courierPriceCents: integer("courier_price_cents").notNull().default(690),
+  /**
+   * Declared-value cover the buyer may add at checkout: basis points of the
+   * goods total, never below the floor. Insurance is NOT part of the buyer
+   * premium and does not change the VAT already computed on the hammer.
+   */
+  insuranceBp: integer("insurance_bp").notNull().default(100),
+  insuranceMinCents: integer("insurance_min_cents").notNull().default(100),
   /**
    * Packing/handling fee added on top of carrier delivery (flat, €2.00).
    * Like shipping, it is NEVER part of the 10% buyer premium — the premium
@@ -734,9 +743,12 @@ export const orders = pgTable(
     /** 6-digit collection credential, set at mark-paid (pickup fulfilment). */
     pickupCode: text("pickup_code"),
     pickupDeadlineAt: timestamp("pickup_deadline_at", { withTimezone: true }),
-    /** How the buyer receives the goods: warehouse pickup or a carrier. */
-    fulfilment: text("fulfilment").notNull().default("pickup"), // pickup | omniva_pm (| dpd_pm later)
-    /** Destination snapshot for carrier fulfilment (parcel machine). */
+    /** How the buyer receives the goods: warehouse pickup or a carrier.
+     * courier = door delivery to a street address; freight = oversized goods
+     * carried by a separate haulier after a written quote. */
+    fulfilment: text("fulfilment").notNull().default("pickup"), // pickup | omniva_pm | dpd_pm | courier | freight
+    /** Destination snapshot for carrier fulfilment: a parcel machine keeps
+     * machineId, courier and freight keep the street address instead. */
     shippingTo: jsonb("shipping_to").$type<{
       provider: string;
       machineId: string;
@@ -744,12 +756,34 @@ export const orders = pgTable(
       zip: string;
       country: string;
       address?: string;
+      city?: string;
+      /** Floor / lift / doorway notes the driver needs for bulky goods. */
+      accessNote?: string;
     } | null>(),
     /** Recipient contact for the carrier (required for locker delivery). */
     recipientName: text("recipient_name"),
     recipientPhone: text("recipient_phone"),
+    /** Somebody else collects at the warehouse: name shown to the counter
+     * along with the pickup code. Empty when the buyer comes personally. */
+    pickupProxyName: text("pickup_proxy_name").notNull().default(""),
+    /** Optional declared-value cover bought at checkout, in cents. */
+    insuranceCents: integer("insurance_cents").notNull().default(0),
     /** Retained no-show restock fee (5% of total by default). */
     restockFeeCents: integer("restock_fee_cents"),
+    /** Кому выставлен счёт: профиль реквизитов и его снимок на момент
+     * выписки — правка профиля не меняет уже выданный счёт (макет № 42). */
+    billingProfileId: uuid("billing_profile_id"),
+    billingSnapshot: jsonb("billing_snapshot").$type<{
+      kind: string;
+      name: string;
+      regNo: string;
+      vatNo: string;
+      address: string;
+      city: string;
+      zip: string;
+      country: string;
+      invoiceEmail: string;
+    } | null>(),
     /** Аванс, зачтённый в этот заказ: провайдеру ушла сумма за вычетом его. */
     creditAppliedCents: integer("credit_applied_cents").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -849,6 +883,13 @@ export const payments = pgTable(
     amountCents: integer("amount_cents").notNull(),
     /** Hosted checkout URL the customer was redirected to. */
     checkoutUrl: text("checkout_url"),
+    /**
+     * Один платёж за несколько лотов (макеты № 47 и 48): здесь лежат ОСТАЛЬНЫЕ
+     * заказы, которые закрывает этот же платёж. Сами заказы остаются
+     * отдельными — у каждого свой счёт, доставка и выдача; общей становится
+     * только оплата. Пусто — обычный платёж за один заказ.
+     */
+    groupOrderIds: jsonb("group_order_ids").$type<string[]>().notNull().default([]),
     /** Last raw provider status observed (diagnostics). */
     providerStatus: text("provider_status"),
     /**
@@ -907,7 +948,10 @@ export const shipments = pgTable(
     provider: text("provider").notNull().default("omniva"),
     /** Carrier tracking barcode returned at registration. */
     barcode: text("barcode").notNull(),
-    /** Our lifecycle: registered | in_transit | delivered | cancelled | error. */
+    /** Our lifecycle: registered | in_transit | at_point | delivered |
+     * unclaimed | returned | cancelled | error. `unclaimed` is the carrier
+     * hold expiring; `returned` is the parcel physically back with us — from
+     * there the buyer either pays a reshipment or takes the refund. */
     status: text("status").notNull().default("registered"),
     /** Last carrier event code observed (e.g. PACKET_DELIVERED_TO_CLIENT). */
     providerStatus: text("provider_status"),
@@ -943,7 +987,7 @@ export const customerFees = pgTable(
       .references(() => orders.id),
     /** Order ref snapshot for display after GDPR erasure of relations. */
     orderRef: text("order_ref").notNull(),
-    type: text("type").notNull(), // 'unpaid_restock' | 'no_pickup_restock'
+    type: text("type").notNull(), // 'unpaid_restock' | 'no_pickup_restock' | 'storage' | 'reship'
     amountCents: integer("amount_cents").notNull(),
     status: text("status").notNull().default("outstanding"), // outstanding | settled | waived
     note: text("note").notNull().default(""),
@@ -1294,6 +1338,83 @@ export const returnCases = pgTable(
     index("return_cases_customer_idx").on(t.customerId),
     index("return_cases_order_idx").on(t.orderId),
   ],
+);
+
+// ── Billing profiles (кому выставлять счёт: себе или своей фирме) ──────────
+
+/**
+ * Реквизиты покупателя для счёта. Одному аккаунту можно держать несколько:
+ * частное лицо и одна-две фирмы (макеты № 42–45 и 81). Заказ хранит и ссылку
+ * на профиль, и его снимок — правка профиля не переписывает выданный счёт.
+ */
+export const billingProfiles = pgTable(
+  "billing_profiles",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    /** person | company — от этого зависит набор обязательных полей. */
+    kind: text("kind").notNull().default("person"),
+    /** ФИО частного лица либо название фирмы — то, что печатается в счёте. */
+    name: text("name").notNull(),
+    /** Регистрационный номер фирмы; у частного лица пусто. */
+    regNo: text("reg_no").notNull().default(""),
+    vatNo: text("vat_no").notNull().default(""),
+    /** Юридический адрес одной строкой плюс город и индекс отдельно. */
+    address: text("address").notNull().default(""),
+    city: text("city").notNull().default(""),
+    zip: text("zip").notNull().default(""),
+    country: text("country").notNull().default("LV"),
+    /** Куда слать счета, если отличается от почты аккаунта. */
+    invoiceEmail: text("invoice_email").notNull().default(""),
+    /** Кэш проверки VIES — тот же формат, что у customers.vies. */
+    vies: jsonb("vies").$type<{ valid: boolean; checkedAt: string; consult?: string } | null>(),
+    isDefault: boolean("is_default").notNull().default(false),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("billing_profiles_customer_idx").on(t.customerId, t.archivedAt),
+  ],
+);
+
+// ── Сохранённые поиски (макет № 80) ────────────────────────────────────────
+
+/**
+ * Запрос, который покупатель сохранил, чтобы не набирать его каждый раз, и
+ * при желании получать письмо, когда под него появляются новые лоты.
+ * Храним сам запрос, а не результаты: каталог живёт своей жизнью.
+ */
+export const savedSearches = pgTable(
+  "saved_searches",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    /** Название, которое дал покупатель, либо собранное из фильтров. */
+    name: text("name").notNull(),
+    /** Снимок фильтров каталога — тот же набор, что в строке адреса. */
+    query: jsonb("query")
+      .$type<{
+        q?: string | undefined;
+        category?: string | undefined;
+        market?: string | undefined;
+        priceMinCents?: number | undefined;
+        priceMaxCents?: number | undefined;
+        condition?: string | undefined;
+        noReserve?: boolean | undefined;
+      }>()
+      .notNull()
+      .default({}),
+    /** Присылать письмо о новых лотах под этот запрос. */
+    alertEmail: boolean("alert_email").notNull().default(false),
+    /** Когда рассылка в последний раз проверяла этот запрос. */
+    lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("saved_searches_customer_idx").on(t.customerId, t.createdAt)],
 );
 
 export const auditLog = pgTable(

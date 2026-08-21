@@ -1,0 +1,1 @@
+ALTER TABLE "payments" ADD COLUMN "group_order_ids" jsonb DEFAULT '[]'::jsonb NOT NULL;

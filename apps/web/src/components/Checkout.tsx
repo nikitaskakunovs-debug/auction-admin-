@@ -10,11 +10,25 @@ import { formatEur, type MyOrder, type ShippingOption } from "@/lib/types";
 import { Icon } from "./Icon";
 import { KlixPayLater } from "./KlixPayLater";
 import { ParcelPicker } from "./ParcelPicker";
+import { PhoneField, fromE164, phoneComplete } from "./PhoneField";
 import { say } from "./Toast";
 
 /** Страница оплаты утверждённого макета: доставка, способ оплаты, получатель
  *  и сводка заказа справа. Данные и цены — из движка; выбор доставки
  *  пересчитывает заказ на сервере. */
+/** Профиль реквизитов в том виде, в каком его отдаёт кабинет. */
+interface CoBillingProfile {
+  id: string;
+  kind: "person" | "company";
+  name: string;
+  regNo: string;
+  vatNo: string;
+  address: string;
+  city: string;
+  zip: string;
+  isDefault: boolean;
+}
+
 const PAY_METHODS: Array<[string, string, string, string]> = [
   ["klix", "co.card", "co.cardD", "card"],
   ["inbank", "co.instal", "co.instalD", "home"],
@@ -57,6 +71,14 @@ export function Checkout({ orderRef }: { orderRef: string }) {
   const [machineName, setMachineName] = useState("");
   const [pay, setPay] = useState("klix");
   const [phone, setPhone] = useState("");
+  const [phoneTouched, setPhoneTouched] = useState(false);
+  /* Шаг сворачивается только после того, как выбор сделал человек: значение
+     из заказа — это ещё не выбор, и на телефоне список должен быть открыт. */
+  const [deliveryPicked, setDeliveryPicked] = useState(false);
+  /* Курьер и негабарит просят улицу вместо номера пакомата (макеты № 74, 75). */
+  const [addr, setAddr] = useState({ address: "", city: "", zip: "", accessNote: "" });
+  const [insured, setInsured] = useState(false);
+  const [insuranceRule, setInsuranceRule] = useState({ bp: 100, minCents: 100 });
   const [terms, setTerms] = useState(false);
   /** Какой шаг раскрыт вручную на телефоне; null — автоматически. */
   const [openStep, setOpenStep] = useState<number | null>(null);
@@ -71,6 +93,10 @@ export function Checkout({ orderRef }: { orderRef: string }) {
   const [creditCents, setCreditCents] = useState(0);
   const [useCredit, setUseCredit] = useState(true);
   const [meWho, setMeWho] = useState<string | null>(null);
+  /* Реквизиты для счёта: по умолчанию основной профиль, но на этой покупке
+     можно выбрать другой — заказ запомнит снимок (макет № 42). */
+  const [billing, setBilling] = useState<CoBillingProfile[]>([]);
+  const [billingId, setBillingId] = useState<string>("");
 
   const load = useCallback(async () => {
     try {
@@ -101,15 +127,23 @@ export function Checkout({ orderRef }: { orderRef: string }) {
     void publicApi.get<{ bidder: { alias: string; email: string; name: string | null; company: string | null } }>("/api/public/auth/me")
       .then((r) => setMeWho(r.bidder.company ?? r.bidder.name ?? r.bidder.alias))
       .catch(() => undefined);
+    void publicApi.get<{ profiles: CoBillingProfile[] }>("/api/public/me/billing-profiles")
+      .then((r) => {
+        setBilling(r.profiles);
+        setBillingId((prev) => prev || r.profiles.find((p) => p.isDefault)?.id || r.profiles[0]?.id || "");
+      })
+      .catch(() => undefined);
   }, [signedIn]);
 
   useEffect(() => {
-    void publicApi.get<{ options: ShippingOption[] }>("/api/public/shipping/options?market=LV")
-      .then((r) => setOptions(r.options))
+    void publicApi.get<{ options: ShippingOption[]; insurance?: { bp: number; minCents: number } }>("/api/public/shipping/options?market=LV")
+      .then((r) => { setOptions(r.options); if (r.insurance) setInsuranceRule(r.insurance); })
       .catch(() => setOptions([{ method: "pickup", priceCents: 0, handlingCents: 0 }]));
   }, []);
 
   const provider = method === "dpd_pm" ? "dpd" : method === "omniva_pm" ? "omniva" : null;
+  const needsAddress = method === "courier" || method === "freight";
+  const addrReady = Boolean(addr.address.trim() && addr.city.trim() && addr.zip.trim());
 
 
   const saveDelivery = async (next: string, machine: string) => {
@@ -117,13 +151,36 @@ export function Checkout({ orderRef }: { orderRef: string }) {
     try {
       await publicApi.post(`/api/public/orders/${encodeURIComponent(orderRef)}/fulfilment`, {
         method: next,
-        ...(next === "pickup" ? {} : { machineId: machine, recipientPhone: phone }),
+        ...(next === "pickup"
+          ? {}
+          : next === "courier" || next === "freight"
+            ? {
+                recipientPhone: phone,
+                insurance: insured,
+                address: {
+                  name: name.trim(),
+                  address: addr.address.trim(),
+                  city: addr.city.trim(),
+                  zip: addr.zip.trim(),
+                  ...(addr.accessNote.trim() ? { accessNote: addr.accessNote.trim() } : {}),
+                },
+              }
+            : { machineId: machine, recipientPhone: phone, insurance: insured }),
       });
       await load();
       say(t("co.deliverySaved"));
     } catch (err) {
       setError(err instanceof Error ? err.message : "error");
     } finally { setBusy(false); }
+  };
+
+  /** Фиксирует реквизиты на заказе: счёт выпишется по этому снимку. */
+  const saveBilling = async (profileId: string) => {
+    try {
+      await publicApi.post(`/api/public/me/orders/${encodeURIComponent(orderRef)}/billing`, { profileId });
+    } catch {
+      // Не блокируем оплату: счёт можно перевыставить, деньги важнее.
+    }
   };
 
   const startPayment = async () => {
@@ -188,16 +245,36 @@ export function Checkout({ orderRef }: { orderRef: string }) {
   // а не ждём сохранения на сервере — как в макете.
   const chosen = options.find((o) => o.method === method);
   const shipCost = chosen ? chosen.priceCents + chosen.handlingCents : order.shippingCents + order.handlingCents;
-  const gross = order.hammerCents + order.premiumCents + order.vatCents + shipCost;
+  /* Ту же формулу считает движок при сохранении доставки — здесь она только
+     показывает цену до отправки, чтобы галочка не была котом в мешке. */
+  const goodsCents = order.hammerCents + order.premiumCents + order.vatCents;
+  const insuranceQuoteCents = Math.max(
+    insuranceRule.minCents,
+    Math.round((goodsCents * insuranceRule.bp) / 10_000),
+  );
+  const insuranceCents = insured && method !== "pickup" ? insuranceQuoteCents : 0;
+  const gross = goodsCents + shipCost + insuranceCents;
   const creditApplied = creditCents > 0 && useCredit ? Math.min(creditCents, gross) : 0;
   const total = gross - creditApplied;
 
   // Шаги оформления: заполненный сворачивается на телефоне (веб не меняется).
-  const deliveryReady = Boolean(method) && (!provider || Boolean(machineId));
-  const recipientReady = Boolean(name.trim()) && Boolean(email.trim());
-  const deliveryName = chosen ? (chosen.method === "pickup" ? t("acc.deliveryPickup")
-    : chosen.method === "dpd_pm" ? t("acc.deliveryDpd") : t("acc.deliveryOmniva")) : "";
-  const deliveryValue = shipCost === 0 ? deliveryName : `${deliveryName} · ${formatEur(shipCost)}`;
+  const deliveryReady = Boolean(method) && (!provider || Boolean(machineId)) && (!needsAddress || addrReady);
+  /* Телефон нужен всегда: по нему звонит курьер и приходит код пакомата
+     (макет № 51 — просим прямо в шаге, не отправляя в настройки). */
+  const phoneParsed = fromE164(phone);
+  const phoneOk = phoneComplete(phoneParsed.digits, phoneParsed.iso);
+  const recipientReady = Boolean(name.trim()) && Boolean(email.trim()) && phoneOk;
+  const deliveryName = chosen
+    ? chosen.method === "pickup" ? t("acc.deliveryPickup")
+      : chosen.method === "dpd_pm" ? t("acc.deliveryDpd")
+      : chosen.method === "omniva_pm" ? t("acc.deliveryOmniva")
+      : chosen.method === "courier" ? t("co.courier")
+      : t("co.freight")
+    : "";
+  const deliveryValue =
+    method === "freight" ? `${deliveryName} · ${t("co.byQuote")}`
+    : shipCost === 0 ? deliveryName
+    : `${deliveryName} · ${formatEur(shipCost)}`;
   const recipientValue = [name.trim(), email.trim()].filter(Boolean).join(" · ");
 
   return (
@@ -236,10 +313,14 @@ export function Checkout({ orderRef }: { orderRef: string }) {
           e.preventDefault();
           if (!terms) { say(t("co.confirmTerms")); return; }
           if (provider && !machineId) { say(t("co.pickParcel")); return; }
+          if (needsAddress && !addrReady) { say(t("co.addrNeeded")); return; }
+          if (!phoneOk) { setPhoneTouched(true); say(t("co.phoneNeeded")); return; }
           say(t("co.processing"));
           // Сначала фиксируем доставку на сервере — он пересчитывает заказ,
           // и только потом уходим на оплату уже с итоговой суммой.
-          void saveDelivery(method, machineId).then(() => startPayment());
+          void saveDelivery(method, machineId)
+            .then(() => (billingId ? saveBilling(billingId) : undefined))
+            .then(() => startPayment());
         }}>
           <div className="pay-main">
             <div className="pay-sum" aria-hidden="true">
@@ -248,28 +329,66 @@ export function Checkout({ orderRef }: { orderRef: string }) {
               <span className="sum tnum">{formatEur(total)}</span>
             </div>
 
-            <PayStep n={1} label={t("f.delivery")} value={deliveryValue} done={deliveryReady}
+            <PayStep n={1} label={t("f.delivery")} value={deliveryValue} done={deliveryReady && deliveryPicked}
                      open={openStep === 1} onOpen={() => setOpenStep(1)} editLabel={t("ac.change")}>
             <fieldset className="card-b">
               <legend><h2>{t("f.delivery")}</h2></legend>
               {options.map((o) => (
                 <label className="opt" key={o.method}>
                   <input type="radio" name="ship" value={o.method} checked={method === o.method}
-                         onChange={() => setMethod(o.method)} />
+                         onChange={() => { setMethod(o.method); setDeliveryPicked(true); }} />
                   <span>
                     <b className="pay-opt-t">
                       {o.method === "omniva_pm" && <BrandMark name="omniva" h={16} />}
-                      {o.method === "dpd_pm" && <BrandMark name="dpd" h={16} />}
+                      {(o.method === "dpd_pm" || o.method === "courier") && <BrandMark name="dpd" h={16} />}
                       {o.method === "pickup" ? t("acc.deliveryPickup")
-                        : o.method === "dpd_pm" ? t("acc.deliveryDpd") : t("acc.deliveryOmniva")}
+                        : o.method === "dpd_pm" ? t("acc.deliveryDpd")
+                        : o.method === "courier" ? t("co.courier")
+                        : o.method === "freight" ? t("co.freight")
+                        : t("acc.deliveryOmniva")}
                     </b>
-                    <small>{o.method === "pickup" ? t("co.pickupAddr") : t("co.parcelEta")}</small>
+                    <small>
+                      {o.method === "pickup" ? t("co.pickupAddr")
+                        : o.method === "courier" ? t("co.courierD")
+                        : o.method === "freight" ? t("co.freightD")
+                        : t("co.parcelEta")}
+                    </small>
                   </span>
                   <span className="opt-p tnum">
-                    {o.priceCents + o.handlingCents === 0 ? t("co.free") : formatEur(o.priceCents + o.handlingCents)}
+                    {o.method === "freight" ? t("co.byQuote")
+                      : o.priceCents + o.handlingCents === 0 ? t("co.free")
+                      : formatEur(o.priceCents + o.handlingCents)}
                   </span>
                 </label>
               ))}
+
+              {needsAddress && (
+                <div className="fields addr-fields">
+                  <label style={{ gridColumn: "1 / -1" }}>{t("co.street")}
+                    <input type="text" autoComplete="street-address" required
+                           value={addr.address} onChange={(e) => setAddr({ ...addr, address: e.target.value })} /></label>
+                  <label>{t("co.city")}
+                    <input type="text" autoComplete="address-level2" required
+                           value={addr.city} onChange={(e) => setAddr({ ...addr, city: e.target.value })} /></label>
+                  <label>{t("co.zip")}
+                    <input type="text" autoComplete="postal-code" required inputMode="numeric"
+                           value={addr.zip} onChange={(e) => setAddr({ ...addr, zip: e.target.value })} /></label>
+                  <label style={{ gridColumn: "1 / -1" }}>{t("co.accessNote")}
+                    <input type="text" value={addr.accessNote}
+                           onChange={(e) => setAddr({ ...addr, accessNote: e.target.value })} /></label>
+                  {method === "freight" && <p className="note" style={{ gridColumn: "1 / -1" }}>{t("co.freightNote")}</p>}
+                </div>
+              )}
+
+              {method !== "pickup" && (
+                <label className="opt credit">
+                  <input type="checkbox" checked={insured} onChange={(e) => setInsured(e.target.checked)} />
+                  <span>
+                    <b>{t("co.insure", { sum: formatEur(insuranceQuoteCents) })}</b>
+                    <small>{t("co.insureD")}</small>
+                  </span>
+                </label>
+              )}
 
             </fieldset>
             </PayStep>
@@ -291,11 +410,35 @@ export function Checkout({ orderRef }: { orderRef: string }) {
                      open={openStep === 2} onOpen={() => setOpenStep(2)} editLabel={t("ac.change")}>
             <fieldset className="card-b">
               <legend><h2>{t("co.recipient")}</h2></legend>
-              {meWho && (
-                <p className="note" style={{ marginBottom: 10 }}>
-                  {t("kb.invoiceTo", { who: meWho })}{" "}
-                  <Link href="/account?tab=iestatijumi&s=rekviziti">{t("kb.invoiceToSia")}</Link>
-                </p>
+              {billing.length > 0 ? (
+                <div className="co-billing">
+                  <span className="g-lbl">{t("bp.forThis")}</span>
+                  {billing.map((p) => (
+                    <label className="opt" key={p.id}>
+                      <input type="radio" name="billing" value={p.id} checked={billingId === p.id}
+                             onChange={() => setBillingId(p.id)} />
+                      <span>
+                        <b>{p.name}</b>
+                        <small>
+                          {p.kind === "company"
+                            ? [p.regNo && `${t("bp.regNo")} ${p.regNo}`, p.vatNo,
+                               [p.address, p.city, p.zip].filter(Boolean).join(", ")].filter(Boolean).join(" · ")
+                            : t("kb.person")}
+                        </small>
+                      </span>
+                    </label>
+                  ))}
+                  <p className="note">
+                    <Link href="/account?tab=iestatijumi&s=rekviziti">{t("bp.manage")}</Link>
+                  </p>
+                </div>
+              ) : (
+                meWho && (
+                  <p className="note" style={{ marginBottom: 10 }}>
+                    {t("kb.invoiceTo", { who: meWho })}{" "}
+                    <Link href="/account?tab=iestatijumi&s=rekviziti">{t("kb.invoiceToSia")}</Link>
+                  </p>
+                )
               )}
               <div className="fields">
                 <label>{t("co.fullName")}
@@ -304,9 +447,12 @@ export function Checkout({ orderRef }: { orderRef: string }) {
                 <label>{t("auth.email")}
                   <input type="email" name="email" autoComplete="email" required
                          value={email} onChange={(e) => setEmail(e.target.value)} /></label>
-                <label>{t("co.phone")}
-                  <input type="tel" name="tel" autoComplete="tel"
-                         value={phone} onChange={(e) => setPhone(e.target.value)} /></label>
+                <div className="phone-cell">
+                  <PhoneField id="co-phone" label={t("co.phone")} lang={lang} required
+                              value={phone} onChange={(v) => { setPhone(v); setPhoneTouched(true); }}
+                              invalid={phoneTouched && !phoneOk} />
+                  {phoneTouched && !phoneOk && <small className="fld-err">{t("co.phoneNeeded")}</small>}
+                </div>
                 {provider && (
                   <div style={{ gridColumn: "1 / -1" }}>
                     <span className="sr" id="parcel-lab">{t("co.parcel")}</span>
@@ -355,9 +501,17 @@ export function Checkout({ orderRef }: { orderRef: string }) {
                 <tr><th scope="row">{t("lp.premium", { n: Math.round((order.premiumCents / Math.max(order.hammerCents, 1)) * 100) })}</th><td className="tnum">{formatEur(order.premiumCents)}</td></tr>
                 <tr><th scope="row">{t("lp.vatN", { n: Math.round((order.vatCents / Math.max(order.hammerCents + order.premiumCents, 1)) * 100) })}</th><td className="tnum">{formatEur(order.vatCents)}</td></tr>
                 <tr><th scope="row">{t("f.delivery")}</th>
-                  <td className="tnum">{shipCost === 0 ? "Bez maksas" : formatEur(shipCost)}</td></tr>
-                {machineName && (
+                  <td className="tnum">
+                    {method === "freight" ? t("co.byQuote") : shipCost === 0 ? t("co.free") : formatEur(shipCost)}
+                  </td></tr>
+                {machineName && !needsAddress && (
                   <tr><th scope="row">{t("co.parcel")}</th><td>{machineName}</td></tr>
+                )}
+                {needsAddress && addrReady && (
+                  <tr><th scope="row">{t("co.address")}</th><td>{addr.address}, {addr.city} {addr.zip}</td></tr>
+                )}
+                {insuranceCents > 0 && (
+                  <tr><th scope="row">{t("co.insurance")}</th><td className="tnum">{formatEur(insuranceCents)}</td></tr>
                 )}
                 {creditApplied > 0 && (
                   <tr><th scope="row">{t("kb.creditRow")}</th><td className="tnum">−{formatEur(creditApplied)}</td></tr>
@@ -396,8 +550,12 @@ export function Checkout({ orderRef }: { orderRef: string }) {
                   onClick={() => {
                     if (!terms) { say(t("co.confirmTerms")); payBox.current?.scrollIntoView({ behavior: "smooth", block: "center" }); return; }
                     if (provider && !machineId) { say(t("co.pickParcel")); return; }
+          if (needsAddress && !addrReady) { say(t("co.addrNeeded")); return; }
+          if (!phoneOk) { setPhoneTouched(true); say(t("co.phoneNeeded")); return; }
                     say(t("co.processing"));
-                    void saveDelivery(method, machineId).then(() => startPayment());
+                    void saveDelivery(method, machineId)
+            .then(() => (billingId ? saveBilling(billingId) : undefined))
+            .then(() => startPayment());
                   }}>
             {t("co.pay")}
           </button>

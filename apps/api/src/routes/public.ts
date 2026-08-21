@@ -1,8 +1,11 @@
 import { createHash, randomBytes } from "node:crypto";
 import {
   auctions,
+  auditLog,
   bids,
+  billingProfiles,
   cookieConsents,
+  counters,
   creditEntries,
   credits,
   customerFees,
@@ -12,15 +15,19 @@ import {
   invoices,
   items,
   listings,
+  markets,
   notificationPrefs,
   notifications,
   orders,
   payments,
   pickupTickets,
+  refunds,
+  returnCases,
+  savedSearches,
   shipments,
   verifyPassword,
 } from "@auction/db";
-import { and, asc, desc, eq, gt, ilike, inArray, isNull, lt } from "drizzle-orm";
+import { and, asc, desc, eq, gt, ilike, inArray, isNull, lt, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { signAccessToken } from "../auth/jwt.js";
@@ -1236,6 +1243,505 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
         ? { provider: payment.provider, method: payment.method, providerId: payment.providerId }
         : null,
     };
+  });
+
+
+  // ── Сохранённые поиски (макет № 80) ─────────────────────────────────────
+
+  const searchQuerySchema = z.object({
+    q: z.string().max(120).optional(),
+    category: z.string().max(60).optional(),
+    market: z.string().max(2).optional(),
+    priceMinCents: z.number().int().min(0).optional(),
+    priceMaxCents: z.number().int().min(0).optional(),
+    condition: z.string().max(20).optional(),
+    noReserve: z.boolean().optional(),
+  });
+
+  app.get("/api/public/me/searches", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const rows = await ctx.db
+      .select()
+      .from(savedSearches)
+      .where(eq(savedSearches.customerId, bidderId))
+      .orderBy(desc(savedSearches.createdAt));
+    return { searches: rows };
+  });
+
+  app.post("/api/public/me/searches", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const body = z
+      .object({ name: z.string().min(1).max(80), query: searchQuerySchema, alertEmail: z.boolean().default(false) })
+      .safeParse(req.body ?? {});
+    if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: body.error.flatten() });
+
+    // Двадцати запросов хватает любому: дальше это уже не поиск, а свалка.
+    const mine = await ctx.db
+      .select({ id: savedSearches.id })
+      .from(savedSearches)
+      .where(eq(savedSearches.customerId, bidderId));
+    if (mine.length >= 20) return reply.code(409).send({ error: "too_many" });
+
+    const [row] = await ctx.db
+      .insert(savedSearches)
+      .values({ customerId: bidderId, name: body.data.name.trim(), query: body.data.query, alertEmail: body.data.alertEmail })
+      .returning();
+    return { search: row };
+  });
+
+  app.patch("/api/public/me/searches/:id", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const { id } = req.params as { id: string };
+    const body = z
+      .object({ name: z.string().min(1).max(80).optional(), alertEmail: z.boolean().optional() })
+      .safeParse(req.body ?? {});
+    if (!body.success) return reply.code(400).send({ error: "bad_request" });
+    const [row] = await ctx.db
+      .update(savedSearches)
+      .set({
+        ...(body.data.name !== undefined ? { name: body.data.name.trim() } : {}),
+        ...(body.data.alertEmail !== undefined ? { alertEmail: body.data.alertEmail } : {}),
+      })
+      .where(and(eq(savedSearches.id, id), eq(savedSearches.customerId, bidderId)))
+      .returning();
+    if (!row) return reply.code(404).send({ error: "not_found" });
+    return { search: row };
+  });
+
+  app.delete("/api/public/me/searches/:id", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const { id } = req.params as { id: string };
+    const rows = await ctx.db
+      .delete(savedSearches)
+      .where(and(eq(savedSearches.id, id), eq(savedSearches.customerId, bidderId)))
+      .returning({ id: savedSearches.id });
+    if (!rows.length) return reply.code(404).send({ error: "not_found" });
+    return { ok: true };
+  });
+
+  // ── Реквизиты для счёта: себе или своей фирме (макеты № 42–45, 81) ──────
+
+  /** Схема профиля. Фирме обязателен рег. номер — без него счёт недействителен. */
+  const billingSchema = z
+    .object({
+      kind: z.enum(["person", "company"]),
+      name: z.string().min(2).max(160),
+      regNo: z.string().max(32).default(""),
+      vatNo: z.string().max(24).default(""),
+      address: z.string().max(200).default(""),
+      city: z.string().max(80).default(""),
+      zip: z.string().max(16).default(""),
+      country: z.string().min(2).max(2).default("LV"),
+      invoiceEmail: z.string().email().max(160).or(z.literal("")).default(""),
+      isDefault: z.boolean().default(false),
+    })
+    .refine((v) => v.kind === "person" || v.regNo.trim().length >= 4, {
+      path: ["regNo"],
+      message: "reg_no_required",
+    })
+    .refine((v) => v.kind === "person" || (v.address.trim() !== "" && v.city.trim() !== ""), {
+      path: ["address"],
+      message: "address_required",
+    });
+
+  app.get("/api/public/me/billing-profiles", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const rows = await ctx.db
+      .select()
+      .from(billingProfiles)
+      .where(and(eq(billingProfiles.customerId, bidderId), isNull(billingProfiles.archivedAt)))
+      .orderBy(desc(billingProfiles.isDefault), asc(billingProfiles.createdAt));
+    return { profiles: rows };
+  });
+
+  app.post("/api/public/me/billing-profiles", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const body = billingSchema.safeParse(req.body ?? {});
+    if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: body.error.flatten() });
+
+    const created = await ctx.db.transaction(async (tx) => {
+      const existing = await tx
+        .select({ id: billingProfiles.id })
+        .from(billingProfiles)
+        .where(and(eq(billingProfiles.customerId, bidderId), isNull(billingProfiles.archivedAt)));
+      // Первый профиль становится основным сам: выбирать не из чего.
+      const makeDefault = body.data.isDefault || existing.length === 0;
+      if (makeDefault) {
+        await tx
+          .update(billingProfiles)
+          .set({ isDefault: false })
+          .where(eq(billingProfiles.customerId, bidderId));
+      }
+      const [row] = await tx
+        .insert(billingProfiles)
+        .values({ ...body.data, customerId: bidderId, isDefault: makeDefault })
+        .returning();
+      return row!;
+    });
+    return { profile: created };
+  });
+
+  app.patch("/api/public/me/billing-profiles/:id", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const { id } = req.params as { id: string };
+    const body = billingSchema.safeParse(req.body ?? {});
+    if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: body.error.flatten() });
+
+    const updated = await ctx.db.transaction(async (tx) => {
+      const [own] = await tx
+        .select({ id: billingProfiles.id })
+        .from(billingProfiles)
+        .where(and(eq(billingProfiles.id, id), eq(billingProfiles.customerId, bidderId), isNull(billingProfiles.archivedAt)));
+      if (!own) return null;
+      if (body.data.isDefault) {
+        await tx.update(billingProfiles).set({ isDefault: false }).where(eq(billingProfiles.customerId, bidderId));
+      }
+      const [row] = await tx
+        .update(billingProfiles)
+        .set({ ...body.data })
+        .where(eq(billingProfiles.id, id))
+        .returning();
+      return row!;
+    });
+    if (!updated) return reply.code(404).send({ error: "not_found" });
+    return { profile: updated };
+  });
+
+  /** Профиль не удаляем физически: на него могут ссылаться выданные счета. */
+  app.delete("/api/public/me/billing-profiles/:id", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const { id } = req.params as { id: string };
+    const [own] = await ctx.db
+      .select({ id: billingProfiles.id, isDefault: billingProfiles.isDefault })
+      .from(billingProfiles)
+      .where(and(eq(billingProfiles.id, id), eq(billingProfiles.customerId, bidderId), isNull(billingProfiles.archivedAt)));
+    if (!own) return reply.code(404).send({ error: "not_found" });
+    await ctx.db.update(billingProfiles).set({ archivedAt: ctx.now(), isDefault: false }).where(eq(billingProfiles.id, id));
+    if (own.isDefault) {
+      const [next] = await ctx.db
+        .select({ id: billingProfiles.id })
+        .from(billingProfiles)
+        .where(and(eq(billingProfiles.customerId, bidderId), isNull(billingProfiles.archivedAt)))
+        .orderBy(asc(billingProfiles.createdAt))
+        .limit(1);
+      if (next) await ctx.db.update(billingProfiles).set({ isDefault: true }).where(eq(billingProfiles.id, next.id));
+    }
+    return { ok: true };
+  });
+
+  /** Выбрать реквизиты для конкретного неоплаченного заказа (макет № 42). */
+  app.post("/api/public/me/orders/:ref/billing", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const { ref } = req.params as { ref: string };
+    const body = z.object({ profileId: z.string().uuid() }).safeParse(req.body ?? {});
+    if (!body.success) return reply.code(400).send({ error: "bad_request" });
+
+    const [order] = await ctx.db
+      .select({ id: orders.id, status: orders.status })
+      .from(orders)
+      .where(and(eq(orders.ref, ref), eq(orders.customerId, bidderId)));
+    if (!order) return reply.code(404).send({ error: "not_found" });
+    if (order.status !== "awaiting_payment") return reply.code(409).send({ error: "not_editable" });
+
+    const [profile] = await ctx.db
+      .select()
+      .from(billingProfiles)
+      .where(and(eq(billingProfiles.id, body.data.profileId), eq(billingProfiles.customerId, bidderId), isNull(billingProfiles.archivedAt)));
+    if (!profile) return reply.code(404).send({ error: "profile_not_found" });
+
+    await ctx.db
+      .update(orders)
+      .set({
+        billingProfileId: profile.id,
+        billingSnapshot: {
+          kind: profile.kind, name: profile.name, regNo: profile.regNo, vatNo: profile.vatNo,
+          address: profile.address, city: profile.city, zip: profile.zip,
+          country: profile.country, invoiceEmail: profile.invoiceEmail,
+        },
+      })
+      .where(eq(orders.id, order.id));
+    return { ok: true };
+  });
+
+  /**
+   * Заказ целиком — экран статуса оплаты (макеты № 64, 65, 67, 68, 69, 70).
+   * Отдаём всё, из чего экран собирает своё состояние: суммы, срок, платежи,
+   * накопленную плату за хранение, открытую заявку на возврат и возвраты денег.
+   * Считает сервер: клиент ничего не пересчитывает.
+   */
+  app.get("/api/public/me/orders/:ref", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const { ref } = req.params as { ref: string };
+    const [row] = await ctx.db
+      .select({ order: orders, itemTitle: items.title, itemSku: items.sku, itemCategory: items.category })
+      .from(orders)
+      .innerJoin(items, eq(orders.itemId, items.id))
+      .where(and(eq(orders.ref, ref), eq(orders.customerId, bidderId)));
+    if (!row) return reply.code(404).send({ error: "not_found" });
+
+    const [lastPayment] = await ctx.db
+      .select({ status: payments.status, method: payments.method, provider: payments.provider, createdAt: payments.createdAt })
+      .from(payments)
+      .where(eq(payments.orderId, row.order.id))
+      .orderBy(desc(payments.createdAt))
+      .limit(1);
+
+    /** Сколько денег реально дошло: по этому числу экран решает, недоплата
+     *  это (макет № 69) или переплата (№ 69b). Клиент не считает ничего. */
+    const settledRows = await ctx.db
+      .select({ amountCents: payments.amountCents })
+      .from(payments)
+      .where(and(eq(payments.orderId, row.order.id), eq(payments.status, "paid")));
+    const paidCents = settledRows.reduce((sum, p) => sum + p.amountCents, 0);
+
+    const feeRows = await ctx.db
+      .select({ type: customerFees.type, amountCents: customerFees.amountCents, createdAt: customerFees.createdAt })
+      .from(customerFees)
+      .where(and(eq(customerFees.orderRef, ref), eq(customerFees.customerId, bidderId)));
+    const feesCents = feeRows.reduce((sum, f) => sum + f.amountCents, 0);
+
+    const [openReturn] = await ctx.db
+      .select({ ref: returnCases.ref, status: returnCases.status, reason: returnCases.reason,
+                decision: returnCases.decision, refundCents: returnCases.refundCents, createdAt: returnCases.createdAt })
+      .from(returnCases)
+      .where(eq(returnCases.orderId, row.order.id))
+      .orderBy(desc(returnCases.createdAt))
+      .limit(1);
+
+    const refundRows = await ctx.db
+      .select({ amountCents: refunds.amountCents, reason: refunds.reason, createdAt: refunds.createdAt })
+      .from(refunds)
+      .where(eq(refunds.orderId, row.order.id))
+      .orderBy(desc(refunds.createdAt));
+
+    const [invoice] = await ctx.db
+      .select({ number: invoices.number, issuedAt: invoices.issuedAt })
+      .from(invoices)
+      .where(and(eq(invoices.orderId, row.order.id), isNull(invoices.voidedAt)));
+
+    /** Последняя посылка: по её статусу экран показывает «не забрали»
+     *  и предлагает повторную отправку либо возврат денег (макет № 77). */
+    const [shipment] = await ctx.db
+      .select({ provider: shipments.provider, barcode: shipments.barcode, status: shipments.status,
+                providerStatus: shipments.providerStatus, createdAt: shipments.createdAt })
+      .from(shipments)
+      .where(eq(shipments.orderId, row.order.id))
+      .orderBy(desc(shipments.createdAt))
+      .limit(1);
+
+    const deadline = row.order.paymentDeadlineAt;
+    const lateDays = deadline && row.order.status === "awaiting_payment"
+      ? Math.max(0, Math.floor((Date.now() - new Date(deadline).getTime()) / 86_400_000))
+      : 0;
+
+    return {
+      ref: row.order.ref,
+      itemTitle: row.itemTitle,
+      itemSku: row.itemSku,
+      itemCategory: row.itemCategory,
+      hammerCents: row.order.hammerCents,
+      premiumCents: row.order.premiumCents,
+      vatCents: row.order.vatCents,
+      shippingCents: row.order.shippingCents,
+      handlingCents: row.order.handlingCents,
+      creditAppliedCents: row.order.creditAppliedCents,
+      totalCents: row.order.totalCents,
+      status: row.order.status,
+      fulfilment: row.order.fulfilment,
+      shippingTo: row.order.shippingTo,
+      insuranceCents: row.order.insuranceCents,
+      pickupProxyName: row.order.pickupProxyName,
+      recipientPhone: row.order.recipientPhone,
+      paymentDeadlineAt: deadline,
+      paidAt: row.order.paidAt,
+      pickupCode: row.order.pickupCode,
+      pickupDeadlineAt: row.order.pickupDeadlineAt,
+      createdAt: row.order.createdAt,
+      lateDays,
+      paidCents,
+      feesCents,
+      fees: feeRows,
+      lastPayment: lastPayment ?? null,
+      invoice: invoice ? { number: invoice.number, issuedAt: invoice.issuedAt } : null,
+      shipment: shipment ?? null,
+      returnCase: openReturn ?? null,
+      refunds: refundRows,
+    };
+  });
+
+  /**
+   * Продление срока оплаты (макет № 67). Даём один раз и без вопросов —
+   * так и написано клиенту на экране. Повтор ловим по журналу.
+   */
+  app.post("/api/public/me/orders/:ref/extend", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const { ref } = req.params as { ref: string };
+    const [row] = await ctx.db
+      .select({ id: orders.id, status: orders.status, deadline: orders.paymentDeadlineAt })
+      .from(orders)
+      .where(and(eq(orders.ref, ref), eq(orders.customerId, bidderId)));
+    if (!row) return reply.code(404).send({ error: "not_found" });
+    if (row.status !== "awaiting_payment") return reply.code(409).send({ error: "not_payable" });
+
+    const used = await ctx.db
+      .select({ id: auditLog.id })
+      .from(auditLog)
+      .where(and(eq(auditLog.type, "order"), eq(auditLog.target, ref), eq(auditLog.action, "payment_extended")))
+      .limit(1);
+    if (used.length) return reply.code(409).send({ error: "already_extended" });
+
+    const base = row.deadline && new Date(row.deadline).getTime() > Date.now() ? new Date(row.deadline) : new Date();
+    const next = new Date(base.getTime() + 7 * 86_400_000);
+    await ctx.db.update(orders).set({ paymentDeadlineAt: next }).where(eq(orders.id, row.id));
+    await ctx.db.insert(auditLog).values({
+      type: "order", target: ref, action: "payment_extended",
+      actorLabel: "buyer", detail: { orderId: row.id, until: next.toISOString() },
+    });
+    return { paymentDeadlineAt: next.toISOString() };
+  });
+
+  /**
+   * Забирает другой человек (макет № 76). Имя показывается на стойке рядом
+   * с кодом выдачи; доверенность не нужна — код и есть допуск.
+   */
+  app.post("/api/public/me/orders/:ref/proxy", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const { ref } = req.params as { ref: string };
+    const body = z.object({ name: z.string().max(120) }).safeParse(req.body ?? {});
+    if (!body.success) return reply.code(400).send({ error: "bad_request" });
+
+    const [row] = await ctx.db
+      .select({ id: orders.id, status: orders.status, fulfilment: orders.fulfilment })
+      .from(orders)
+      .where(and(eq(orders.ref, ref), eq(orders.customerId, bidderId)));
+    if (!row) return reply.code(404).send({ error: "not_found" });
+    if (row.fulfilment !== "pickup" || row.status !== "paid") {
+      return reply.code(409).send({ error: "not_collectable" });
+    }
+    const name = body.data.name.trim();
+    await ctx.db.update(orders).set({ pickupProxyName: name }).where(eq(orders.id, row.id));
+    await ctx.db.insert(auditLog).values({
+      type: "order", target: ref, action: name ? "pickup_proxy_set" : "pickup_proxy_cleared",
+      actorLabel: "buyer", detail: { orderId: row.id, name },
+    });
+    return { pickupProxyName: name };
+  });
+
+  /**
+   * Посылка вернулась на склад — покупатель просит отправить её повторно
+   * (макет № 77b). Повторная отправка платная: заводим счёт в customer_fees,
+   * а сам ярлык печатает склад, когда деньги придут.
+   */
+  app.post("/api/public/me/orders/:ref/reship", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const { ref } = req.params as { ref: string };
+    const [row] = await ctx.db
+      .select({ id: orders.id, status: orders.status, marketCode: orders.marketCode, fulfilment: orders.fulfilment })
+      .from(orders)
+      .where(and(eq(orders.ref, ref), eq(orders.customerId, bidderId)));
+    if (!row) return reply.code(404).send({ error: "not_found" });
+    if (row.status !== "paid" || row.fulfilment === "pickup") return reply.code(409).send({ error: "not_shippable" });
+
+    const [ship] = await ctx.db
+      .select({ status: shipments.status })
+      .from(shipments)
+      .where(eq(shipments.orderId, row.id))
+      .orderBy(desc(shipments.createdAt))
+      .limit(1);
+    if (!ship || (ship.status !== "returned" && ship.status !== "unclaimed")) {
+      return reply.code(409).send({ error: "not_returned" });
+    }
+
+    const existing = await ctx.db
+      .select({ id: customerFees.id })
+      .from(customerFees)
+      .where(and(eq(customerFees.orderId, row.id), eq(customerFees.type, "reship"), eq(customerFees.status, "outstanding")))
+      .limit(1);
+    if (existing.length) return reply.code(409).send({ error: "already_requested" });
+
+    const [market] = await ctx.db.select().from(markets).where(eq(markets.code, row.marketCode));
+    const amountCents = market?.courierPriceCents ?? 690;
+    await ctx.db.insert(customerFees).values({
+      customerId: bidderId, orderId: row.id, orderRef: ref, type: "reship",
+      amountCents, note: "buyer requested reshipment",
+    });
+    await ctx.db.insert(auditLog).values({
+      type: "order", target: ref, action: "reship_requested",
+      actorLabel: "buyer", detail: { orderId: row.id, amountCents },
+    });
+    return { amountCents };
+  });
+
+  /**
+   * Заявка на возврат в течение 14 дней (макет № 68). Решение принимает
+   * склад в панели — здесь только регистрируем обращение покупателя.
+   */
+  app.post("/api/public/me/orders/:ref/return", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const { ref } = req.params as { ref: string };
+    const body = z
+      .object({
+        reason: z.enum(["not_as_described", "damaged", "changed_mind", "other"]),
+        note: z.string().max(2000).optional(),
+      })
+      .safeParse(req.body ?? {});
+    if (!body.success) return reply.code(400).send({ error: "bad_request" });
+
+    const [row] = await ctx.db
+      .select({ order: orders, alias: customers.alias })
+      .from(orders)
+      .innerJoin(customers, eq(orders.customerId, customers.id))
+      .where(and(eq(orders.ref, ref), eq(orders.customerId, bidderId)));
+    if (!row || row.order.status !== "paid") return reply.code(404).send({ error: "not_found" });
+
+    const existing = await ctx.db
+      .select({ id: returnCases.id })
+      .from(returnCases)
+      .where(and(eq(returnCases.orderId, row.order.id), eq(returnCases.status, "open")))
+      .limit(1);
+    if (existing.length) return reply.code(409).send({ error: "already_open" });
+
+    const paidAt = row.order.paidAt ? new Date(row.order.paidAt).getTime() : Date.now();
+    const withinWindow = Date.now() - paidAt <= 14 * 86_400_000;
+
+    const caseRef = await ctx.db.transaction(async (tx) => {
+      await tx.insert(counters).values({ key: "return_case", value: 0 }).onConflictDoNothing();
+      const [seq] = await tx
+        .update(counters)
+        .set({ value: sql`${counters.value} + 1` })
+        .where(eq(counters.key, "return_case"))
+        .returning({ value: counters.value });
+      const nextRef = `RET-${String(seq!.value).padStart(4, "0")}`;
+      await tx.insert(returnCases).values({
+        ref: nextRef,
+        orderId: row.order.id,
+        orderRef: row.order.ref,
+        itemId: row.order.itemId,
+        customerId: bidderId,
+        customerAlias: row.alias,
+        reason: body.data.reason,
+        note: body.data.note ?? "",
+        withinWindow,
+        openedByLabel: "buyer",
+      });
+      return nextRef;
+    });
+
+    return { ref: caseRef, withinWindow };
   });
 
   app.post("/api/public/listings/:id/buy", async (req, reply) => {

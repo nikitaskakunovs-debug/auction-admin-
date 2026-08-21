@@ -11,6 +11,7 @@ import { SettingsHub } from "@/components/account/SettingsHub";
 import { Countdown } from "@/components/Countdown";
 import { LotCard } from "@/components/LotCard";
 import { Ph } from "@/components/Ph";
+import { SavedSearches } from "@/components/account/SavedSearches";
 import { say } from "@/components/Toast";
 import { VerifyNotice } from "@/components/VerifyNotice";
 import { publicApi } from "@/lib/api";
@@ -328,6 +329,7 @@ export default function AccountPage() {
                   {watched.map((a) => <LotCard key={a.id} lot={a} />)}
                 </div>
               )}
+              <SavedSearches />
             </div>
           )}
 
@@ -593,6 +595,19 @@ function Purchases({ orders, lang }: { orders: MyOrder[]; lang: Lang }) {
         </div>
       </div>
       <CreditBoard />
+      {/* Два и больше неоплаченных лота — предлагаем закрыть их одним
+          платежом (макеты № 47 и 48). Один лот платится как раньше. */}
+      {unpaid.length > 1 && (
+        <div className="cart-cta">
+          <span className="t">
+            <b>{t("cart.ctaT", { n: unpaid.length })}</b>
+            <small>{t("cart.ctaD")}</small>
+          </span>
+          <Link className="btn btn-primary" href="/grozs">
+            <Ph name="package" size={18} /> {t("cart.ctaBtn")}
+          </Link>
+        </div>
+      )}
       <div className="subpills" role="tablist">
         {([["all", t("kb.fAll"), orders.length], ["topay", t("kb.fToPay"), unpaid.length], ["paid", t("kb.fPaid"), paidRows.length]] as const).map(([id, label, n]) => (
           <button key={id} type="button" role="tab" aria-selected={filter === id}

@@ -22,6 +22,9 @@ export interface InvoiceData {
     company: string | null;
     vatNo: string | null;
     country: string | null;
+    /** Регистрационный номер и юридический адрес фирмы (макеты № 43–45). */
+    regNo?: string | null;
+    address?: string | null;
   };
   item: { sku: string; title: string };
   hammerCents: number;
@@ -78,14 +81,34 @@ export async function issueInvoice(
     orderRef: order.ref,
     marketCode: order.marketCode,
     seller: { legalName: market?.legalName || "Skakunov’s SIA", country: order.marketCode },
-    buyer: {
-      alias: order.customerAlias,
-      email: order.customerEmail,
-      name: buyer?.name ?? null,
-      company: buyer?.company ?? null,
-      vatNo: buyer?.vatNo ?? null,
-      country: buyer?.country ?? null,
-    },
+    // Реквизиты берём из снимка заказа: покупатель мог выбрать для этой
+    // покупки фирму, а профиль после выписки уже правил (макет № 42).
+    buyer: (() => {
+      const b = order.billingSnapshot;
+      if (b) {
+        const line = [b.address, b.city, b.zip].filter(Boolean).join(", ");
+        return {
+          alias: order.customerAlias,
+          email: b.invoiceEmail || order.customerEmail,
+          name: b.kind === "company" ? (buyer?.name ?? null) : b.name,
+          company: b.kind === "company" ? b.name : null,
+          vatNo: b.vatNo || null,
+          country: b.country || order.marketCode,
+          regNo: b.regNo || null,
+          address: line || null,
+        };
+      }
+      return {
+        alias: order.customerAlias,
+        email: order.customerEmail,
+        name: buyer?.name ?? null,
+        company: buyer?.company ?? null,
+        vatNo: buyer?.vatNo ?? null,
+        country: buyer?.country ?? null,
+        regNo: null,
+        address: null,
+      };
+    })(),
     item: { sku: item?.sku ?? "—", title: item?.title ?? "—" },
     hammerCents: order.hammerCents,
     premiumCents: order.premiumCents,

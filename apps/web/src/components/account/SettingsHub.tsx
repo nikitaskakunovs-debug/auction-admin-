@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
 import { PUBLIC_API_URL } from "@/lib/config";
 import { ALL_LANGS, dateLocale, useT, type Lang } from "@/lib/i18n";
@@ -243,27 +243,70 @@ function ProfilePage({ me, onAlias, onBack }: { me: Me | null; onAlias: (a: stri
   );
 }
 
-/** Реквизиты (№ 45) — пока один получатель на существующих полях клиента
- *  (название, PVN); несколько компаний придут со схемой billing_profiles. */
+/** Реквизиты для счетов (макеты № 43–45 и 81).
+ *
+ *  Профилей может быть несколько: себе как частному лицу и своим фирмам.
+ *  Один помечен основным — он подставляется в оплату по умолчанию, но на
+ *  конкретной покупке можно выбрать другой, и заказ запомнит снимок.
+ */
+interface BillingProfile {
+  id: string;
+  kind: "person" | "company";
+  name: string;
+  regNo: string;
+  vatNo: string;
+  address: string;
+  city: string;
+  zip: string;
+  country: string;
+  invoiceEmail: string;
+  isDefault: boolean;
+}
+
+const EMPTY_PROFILE: Omit<BillingProfile, "id"> = {
+  kind: "person", name: "", regNo: "", vatNo: "", address: "", city: "", zip: "",
+  country: "LV", invoiceEmail: "", isDefault: false,
+};
+
 function RekvizitiPage({ me, onBack }: { me: Me | null; onBack: () => void }) {
   const { t } = useT();
-  const [kind, setKind] = useState<"person" | "company">("person");
-  const [company, setCompany] = useState("");
-  const [vatNo, setVatNo] = useState("");
-  const [name, setName] = useState("");
+  const [list, setList] = useState<BillingProfile[]>([]);
+  const [editing, setEditing] = useState<BillingProfile | Omit<BillingProfile, "id"> | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const save = async () => {
+  const load = useCallback(() => {
+    void publicApi
+      .get<{ profiles: BillingProfile[] }>("/api/public/me/billing-profiles")
+      .then((r) => setList(r.profiles))
+      .catch(() => setList([]));
+  }, []);
+  useEffect(load, [load]);
+
+  const save = async (p: BillingProfile | Omit<BillingProfile, "id">) => {
     setBusy(true);
     try {
-      await publicApi.request("PATCH", "/api/public/me", {
-        company: kind === "company" ? company : "",
-        vatNo: kind === "company" ? vatNo : "",
-        name,
-      });
+      const body = {
+        kind: p.kind, name: p.name.trim(), regNo: p.regNo.trim(), vatNo: p.vatNo.trim(),
+        address: p.address.trim(), city: p.city.trim(), zip: p.zip.trim(),
+        country: p.country.trim().toUpperCase() || "LV",
+        invoiceEmail: p.invoiceEmail.trim(), isDefault: p.isDefault,
+      };
+      if ("id" in p) await publicApi.request("PATCH", `/api/public/me/billing-profiles/${p.id}`, body);
+      else await publicApi.post("/api/public/me/billing-profiles", body);
       say(t("kb.saved"));
-    } catch { say(t("err.generic")); }
+      setEditing(null);
+      load();
+    } catch { say(t("bp.invalid")); }
     setBusy(false);
+  };
+
+  const remove = (id: string) => {
+    setBusy(true);
+    void publicApi
+      .request("DELETE", `/api/public/me/billing-profiles/${id}`)
+      .then(() => { say(t("kb.saved")); load(); })
+      .catch(() => say(t("err.generic")))
+      .finally(() => setBusy(false));
   };
 
   return (
@@ -275,43 +318,127 @@ function RekvizitiPage({ me, onBack }: { me: Me | null; onBack: () => void }) {
           <p className="cnt">{t("kb.rekvSub")}</p>
         </div>
       </div>
-      <section className="card-b">
-        <p className="g-lbl">{t("kb.recipient")}</p>
-        <div className="seg2">
-          <button className={`seg${kind === "person" ? " on" : ""}`} type="button" onClick={() => setKind("person")}>
-            <b>{t("kb.person")}</b><small>{t("kb.personSub")}</small>
-          </button>
-          <button className={`seg${kind === "company" ? " on" : ""}`} type="button" onClick={() => setKind("company")}>
-            <b>{t("kb.company")}</b><small>{t("kb.companySub")}</small>
-          </button>
-        </div>
 
-        <p className="g-lbl">{t("kb.contactInfo")}</p>
-        <label className="fld">
-          <span>{t("kb.nameSurname")}</span>
-          <input value={name} placeholder={me?.alias ?? ""} onChange={(e) => setName(e.target.value)} />
-        </label>
-
-        {kind === "company" && (
-          <>
-            <p className="g-lbl">{t("kb.companyReq")}</p>
-            <label className="fld">
-              <span>{t("kb.companyName")}</span>
-              <input value={company} onChange={(e) => setCompany(e.target.value)} />
-            </label>
-            <label className="fld">
-              <span>{t("kb.vatNoL")}</span>
-              <input value={vatNo} placeholder="LV…" onChange={(e) => setVatNo(e.target.value)} />
-            </label>
-          </>
-        )}
-
-        <div className="acts">
-          <button className="btn btn-primary" type="button" disabled={busy} onClick={() => void save()}>{t("kb.saveRekv")}</button>
-        </div>
-        <p className="note">{t("kb.rekvNote")}</p>
-      </section>
+      {editing === null ? (
+        <section className="card-b">
+          <p className="g-lbl">{t("bp.saved")}</p>
+          {list.length === 0 && <p className="note">{t("bp.empty")}</p>}
+          {list.map((p) => (
+            <div className="bp-row" key={p.id}>
+              <span className="t">
+                <b>
+                  {p.name}
+                  {p.isDefault && <em className="bp-tag">{t("bp.default")}</em>}
+                </b>
+                <small>
+                  {p.kind === "company"
+                    ? [p.regNo && `${t("bp.regNo")} ${p.regNo}`, p.vatNo, [p.address, p.city, p.zip].filter(Boolean).join(", ")]
+                        .filter(Boolean).join(" · ")
+                    : t("kb.person")}
+                </small>
+              </span>
+              <span className="bp-acts">
+                <button className="btn btn-outline btn-sm" type="button" onClick={() => setEditing(p)}>{t("ac.change")}</button>
+                <button className="btn btn-outline btn-sm" type="button" disabled={busy} onClick={() => remove(p.id)}>{t("bp.remove")}</button>
+              </span>
+            </div>
+          ))}
+          <div className="acts">
+            <button className="btn btn-primary" type="button" onClick={() => setEditing({ ...EMPTY_PROFILE, name: me?.alias ?? "" })}>
+              {t("bp.add")}
+            </button>
+          </div>
+          <p className="note">{t("kb.rekvNote")}</p>
+        </section>
+      ) : (
+        <ProfileForm
+          value={editing}
+          busy={busy}
+          onCancel={() => setEditing(null)}
+          onSave={(p) => void save(p)}
+        />
+      )}
     </div>
+  );
+}
+
+/** Форма одного профиля: у фирмы к обязательным полям добавляются
+ *  регистрационный номер и юридический адрес — без них счёт не выписать. */
+function ProfileForm({
+  value, busy, onCancel, onSave,
+}: {
+  value: BillingProfile | Omit<BillingProfile, "id">;
+  busy: boolean;
+  onCancel: () => void;
+  onSave: (p: BillingProfile | Omit<BillingProfile, "id">) => void;
+}) {
+  const { t } = useT();
+  const [p, setP] = useState(value);
+  const set = <K extends keyof typeof p>(k: K, v: (typeof p)[K]) => setP({ ...p, [k]: v });
+  const companyReady = p.kind === "person"
+    || (p.regNo.trim().length >= 4 && p.address.trim() !== "" && p.city.trim() !== "");
+  const ready = p.name.trim().length >= 2 && companyReady;
+
+  return (
+    <section className="card-b">
+      <p className="g-lbl">{t("kb.recipient")}</p>
+      <div className="seg2">
+        <button className={`seg${p.kind === "person" ? " on" : ""}`} type="button" onClick={() => set("kind", "person")}>
+          <b>{t("kb.person")}</b><small>{t("kb.personSub")}</small>
+        </button>
+        <button className={`seg${p.kind === "company" ? " on" : ""}`} type="button" onClick={() => set("kind", "company")}>
+          <b>{t("kb.company")}</b><small>{t("kb.companySub")}</small>
+        </button>
+      </div>
+
+      <p className="g-lbl">{p.kind === "company" ? t("kb.companyReq") : t("kb.contactInfo")}</p>
+      <label className="fld">
+        <span>{p.kind === "company" ? t("kb.companyName") : t("kb.nameSurname")}</span>
+        <input value={p.name} onChange={(e) => set("name", e.target.value)} />
+      </label>
+
+      {p.kind === "company" && (
+        <>
+          <label className="fld">
+            <span>{t("bp.regNo")}</span>
+            <input value={p.regNo} inputMode="numeric" onChange={(e) => set("regNo", e.target.value)} />
+          </label>
+          <label className="fld">
+            <span>{t("kb.vatNoL")}</span>
+            <input value={p.vatNo} placeholder="LV…" onChange={(e) => set("vatNo", e.target.value)} />
+          </label>
+          <label className="fld">
+            <span>{t("bp.legalAddr")}</span>
+            <input value={p.address} autoComplete="street-address" onChange={(e) => set("address", e.target.value)} />
+          </label>
+          <div className="fields">
+            <label className="fld">
+              <span>{t("co.city")}</span>
+              <input value={p.city} autoComplete="address-level2" onChange={(e) => set("city", e.target.value)} />
+            </label>
+            <label className="fld">
+              <span>{t("co.zip")}</span>
+              <input value={p.zip} autoComplete="postal-code" onChange={(e) => set("zip", e.target.value)} />
+            </label>
+          </div>
+          <label className="fld">
+            <span>{t("bp.invoiceEmail")}</span>
+            <input value={p.invoiceEmail} type="email" autoComplete="email" onChange={(e) => set("invoiceEmail", e.target.value)} />
+          </label>
+        </>
+      )}
+
+      <label className="opt credit">
+        <input type="checkbox" checked={p.isDefault} onChange={(e) => set("isDefault", e.target.checked)} />
+        <span><b>{t("bp.makeDefault")}</b><small>{t("bp.makeDefaultD")}</small></span>
+      </label>
+
+      <div className="acts">
+        <button className="btn btn-primary" type="button" disabled={busy || !ready} onClick={() => onSave(p)}>{t("kb.saveRekv")}</button>
+        <button className="btn btn-outline" type="button" onClick={onCancel}>{t("nav.cancel")}</button>
+      </div>
+      {!companyReady && p.kind === "company" && <p className="note">{t("bp.companyNeeds")}</p>}
+    </section>
   );
 }
 

@@ -63,8 +63,19 @@ export function registerShippingRoutes(app: FastifyInstance, ctx: AppContext, pe
     }
     if (ctx.dpd) {
       options.push({ method: "dpd_pm", priceCents: m?.dpdPmPriceCents ?? 399, handlingCents: m?.handlingFeeCents ?? 0 });
+      // Курьер до двери (макет № 74) — тот же DPD, но по адресу.
+      options.push({ method: "courier", priceCents: m?.courierPriceCents ?? 690, handlingCents: m?.handlingFeeCents ?? 0 });
     }
-    return { options };
+    // Негабарит (макет № 75): цену считает менеджер письменной сметой,
+    // поэтому в списке она нулевая и экран пишет об этом прямым текстом.
+    options.push({ method: "freight", priceCents: 0, handlingCents: m?.handlingFeeCents ?? 0 });
+    return {
+      options,
+      insurance: {
+        bp: m?.insuranceBp ?? 100,
+        minCents: m?.insuranceMinCents ?? 100,
+      },
+    };
   });
 
   /** Parcel machines/lockers: ?provider=omniva|dpd&country=LV&q=ogre */
@@ -83,10 +94,23 @@ export function registerShippingRoutes(app: FastifyInstance, ctx: AppContext, pe
   });
 
   const fulfilmentSchema = z.object({
-    method: z.enum(["pickup", "omniva_pm", "dpd_pm"]),
+    method: z.enum(["pickup", "omniva_pm", "dpd_pm", "courier", "freight"]),
     machineId: z.string().min(1).optional(),
     recipientName: z.string().max(120).optional(),
     recipientPhone: z.string().max(32).optional(),
+    /** Улица для курьера и негабарита (макеты № 74, 75). */
+    address: z
+      .object({
+        name: z.string().max(120).default(""),
+        address: z.string().min(3).max(200),
+        city: z.string().min(1).max(80),
+        zip: z.string().min(3).max(16),
+        country: z.string().max(2).default(""),
+        accessNote: z.string().max(300).optional(),
+      })
+      .optional(),
+    /** Страховка объявленной ценности (макет № 78). */
+    insurance: z.boolean().optional(),
   });
 
   /** Choose delivery for the bidder's own unpaid order (repriceable). */
@@ -106,7 +130,11 @@ export function registerShippingRoutes(app: FastifyInstance, ctx: AppContext, pe
       actor: { id: null, label: "Customer" },
     });
     if (!result.ok) {
-      const status = result.code === "MACHINE_NOT_FOUND" ? 404 : result.code === "SHIPPING_OFF" ? 503 : result.code === "PHONE_REQUIRED" ? 400 : 409;
+      const status =
+        result.code === "MACHINE_NOT_FOUND" ? 404
+        : result.code === "SHIPPING_OFF" ? 503
+        : result.code === "PHONE_REQUIRED" || result.code === "ADDRESS_REQUIRED" ? 400
+        : 409;
       return reply.code(status).send({ error: result.code.toLowerCase() });
     }
     return result;
