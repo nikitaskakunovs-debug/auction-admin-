@@ -35,8 +35,8 @@ export default function RegisterPage() {
     setBusy(true);
     setError(null);
     try {
-      await publicApi.register({ email: email.trim().toLowerCase(), alias: aliasTrim, password, country, marketingOptIn: marketing });
-      track("sign_up", { method: "email" });
+      const bidder = await publicApi.register({ email: email.trim().toLowerCase(), alias: aliasTrim, password, country, marketingOptIn: marketing });
+      track("sign_up", { method: "email", user_id: bidder.id });
       setDone(true);
     } catch (err) {
       if (err instanceof PublicApiError && err.body.error === "email_exists") setError(t("auth.errEmailExists"));

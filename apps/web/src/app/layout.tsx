@@ -67,6 +67,9 @@ function gtag(){dataLayer.push(arguments);}
 gtag('consent','default',{ad_storage:'denied',ad_user_data:'denied',ad_personalization:'denied',analytics_storage:'denied',wait_for_update:500});
 try{var c=JSON.parse(localStorage.getItem('izsoli_cc_v1')||'null');
 if(c){gtag('consent','update',{analytics_storage:c.analytics?'granted':'denied',ad_storage:c.marketing?'granted':'denied',ad_user_data:c.marketing?'granted':'denied',ad_personalization:c.marketing?'granted':'denied'});}}catch(e){}
+try{var bt=JSON.parse(localStorage.getItem('auction_bidder_tokens')||'null');
+if(bt&&bt.accessToken){var bp=JSON.parse(atob(bt.accessToken.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
+if(bp&&bp.sub){window.dataLayer.push({user_id:bp.sub});}}}catch(e){}
 (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});
 var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';
 j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);

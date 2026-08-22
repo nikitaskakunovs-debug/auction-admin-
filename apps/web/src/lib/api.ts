@@ -43,11 +43,29 @@ class PublicApi {
     return this.tokens !== null;
   }
 
+  /** Внутренний UUID аккаунта из токена сессии — для GA4 User-ID.
+   *  Никаких персональных данных: только случайный идентификатор базы. */
+  get bidderId(): string | null {
+    const token = this.tokens?.accessToken;
+    if (!token) return null;
+    try {
+      const payload = JSON.parse(atob(token.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/"))) as { sub?: string };
+      return payload.sub ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   private setTokens(t: Tokens | null): void {
     this.tokens = t;
     if (typeof window !== "undefined") {
       if (t) localStorage.setItem(STORAGE_KEY, JSON.stringify(t));
       else localStorage.removeItem(STORAGE_KEY);
+      // GA4 User-ID: вход/выход мгновенно обновляет личность в dataLayer;
+      // выход обязан явно прислать null, чтобы события гостя не клеились
+      // к прошлому аккаунту.
+      (window as unknown as { dataLayer?: Array<Record<string, unknown>> }).dataLayer
+        ?.push({ event: "user_identity", user_id: t ? this.bidderId : null });
     }
     for (const fn of this.listeners) fn();
   }

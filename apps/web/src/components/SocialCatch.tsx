@@ -47,7 +47,12 @@ export function SocialCatch() {
       // регистрация. Фрагмент стирается сразу, поэтому sign_up не повторится
       // при обновлении страницы. Никаких персональных данных.
       const method = params.get("p");
-      if (method) track(params.get("n") === "1" ? "sign_up" : "login", { method });
+      if (method) {
+        track(params.get("n") === "1" ? "sign_up" : "login", {
+          method,
+          ...(publicApi.bidderId ? { user_id: publicApi.bidderId } : {}),
+        });
+      }
       history.replaceState(null, "", window.location.pathname + window.location.search);
       return;
     }

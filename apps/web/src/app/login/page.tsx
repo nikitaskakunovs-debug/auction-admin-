@@ -23,8 +23,8 @@ export default function LoginPage() {
     setBusy(true);
     setError(null);
     try {
-      await publicApi.login(email.trim().toLowerCase(), password);
-      track("login", { method: "email" });
+      const bidder = await publicApi.login(email.trim().toLowerCase(), password);
+      track("login", { method: "email", user_id: bidder.id });
       router.push(next);
     } catch {
       setError(t("auth.failed"));
