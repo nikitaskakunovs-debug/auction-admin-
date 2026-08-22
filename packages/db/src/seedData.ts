@@ -479,8 +479,8 @@ export async function seedDatabase(db: Db, opts: SeedOptions = {}): Promise<void
       { alias: "olga_v", maxCents: 12_000 },
     ],
   });
-  const hammer = won.state.currentPriceCents!;
-  const inv = computeInvoice({ hammerCents: hammer, buyerPremiumBp: 1_000, vatRateBp: 2_100 });
+  // Финальная цена торгов раскладывается вниз — как в движке закрытия.
+  const inv = computeInvoice({ grossCents: won.state.currentPriceCents!, buyerPremiumBp: 1_000, vatRateBp: 2_100 });
   const winnerId = won.state.leader!.bidderId;
   await db.insert(t.orders).values({
     ref: "A-1001",
