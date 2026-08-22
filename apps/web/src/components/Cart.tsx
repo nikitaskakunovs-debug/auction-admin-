@@ -59,12 +59,21 @@ export function Cart() {
     if (next.has(ref)) next.delete(ref);
     else {
       next.add(ref);
-      // Аналитика (GTM): лот добавлен к общей оплате.
+      // Аналитика (GTM): лот добавлен к общей оплате. Верхние параметры —
+      // про ДОБАВЛЕННЫЙ лот и явно в каждом событии: GTM помнит значения
+      // прошлых пушей, и без явной перезаписи сюда подмешивался gross_total
+      // всей корзины из view_cart. Корзина целиком — отдельными полями.
       const o = orders.find((x) => x.ref === ref);
       if (o) {
         const e = orderEcom(o);
+        const chosenAfter = orders.filter((x) => next.has(x.ref));
         track("add_to_cart", {
           value: e.netCents / 100, currency: "EUR",
+          gross_total: e.grossCents / 100,
+          commission_value: e.commissionCents / 100,
+          vat_scheme: e.vatScheme,
+          cart_size: chosenAfter.length,
+          cart_gross_total: chosenAfter.reduce((s, x) => s + x.totalCents, 0) / 100,
           ecommerce: { currency: "EUR", value: e.netCents / 100, items: [e.item] },
         });
       }
