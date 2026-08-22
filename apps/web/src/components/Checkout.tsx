@@ -121,7 +121,7 @@ export function Checkout({ orderRef }: { orderRef: string }) {
     const ec = orderEcom(order);
     track("begin_checkout", {
       value: ec.netCents / 100, currency: "EUR",
-      gross_total: ec.grossCents / 100,
+      gross_total: ec.grossCents / 100, cart_gross_total: ec.grossCents / 100, cart_size: 1,
       commission_value: ec.commissionCents / 100,
       vat_scheme: ec.vatScheme,
       ecommerce: { currency: "EUR", value: ec.netCents / 100, items: [ec.item] },

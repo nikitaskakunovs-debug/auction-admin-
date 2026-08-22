@@ -141,8 +141,10 @@ export function registerSocialAuthRoutes(
     return reply.code(501).send({ error: "provider_not_configured" });
   });
 
-  /** Найти или создать аккаунт по профилю провайдера. */
-  async function upsert(profile: SocialProfile): Promise<typeof customers.$inferSelect> {
+  /** Найти или создать аккаунт по профилю провайдера. `created` отличает
+   *  первую регистрацию от повторного входа — аналитике (sign_up vs login)
+   *  это разные события. */
+  async function upsert(profile: SocialProfile): Promise<{ customer: typeof customers.$inferSelect; created: boolean }> {
     if (!profile.sub) throw new SocialAuthError("provider returned empty id");
     const idColumn =
       profile.provider === "google" ? customers.googleId
@@ -150,7 +152,7 @@ export function registerSocialAuthRoutes(
       : customers.telegramId;
 
     const [byId] = await ctx.db.select().from(customers).where(eq(idColumn, profile.sub));
-    if (byId && byId.erasedAt === null) return byId;
+    if (byId && byId.erasedAt === null) return { customer: byId, created: false };
 
     if (profile.email && profile.emailVerified) {
       const [byEmail] = await ctx.db.select().from(customers).where(eq(customers.email, profile.email));
@@ -166,7 +168,8 @@ export function registerSocialAuthRoutes(
           })
           .where(eq(customers.id, byEmail.id))
           .returning();
-        return updated!;
+        // Привязка к существующему аккаунту — это вход, не регистрация.
+        return { customer: updated!, created: false };
       }
     }
 
@@ -192,7 +195,7 @@ export function registerSocialAuthRoutes(
         })
         .onConflictDoNothing()
         .returning();
-      if (row) return row;
+      if (row) return { customer: row, created: true };
       // Пусто — конфликт: либо редкое совпадение сегварда (пробуем другой),
       // либо адрес уже занят — тогда и шестая попытка кончится тем же 409.
     }
@@ -200,9 +203,12 @@ export function registerSocialAuthRoutes(
   }
 
   async function finish(profile: SocialProfile, target: string, req: FastifyRequest, reply: FastifyReply) {
-    const customer = await upsert(profile);
+    const { customer, created } = await upsert(profile);
     const tokens = await deps.issueTokens(customer, req);
-    return reply.redirect(`${target}#a=${tokens.accessToken}&r=${tokens.refreshToken}`);
+    // p/n — для аналитики на витрине: каким способом вошли и первая ли это
+    // регистрация (sign_up) или повторный вход (login). Персональных данных
+    // во фрагменте нет, и он не попадает ни в логи, ни в Referer.
+    return reply.redirect(`${target}#a=${tokens.accessToken}&r=${tokens.refreshToken}&p=${profile.provider}&n=${created ? 1 : 0}`);
   }
 
   const failure = (reply: FastifyReply, err: unknown) => {

@@ -36,9 +36,10 @@ export function Cart() {
         if (unpaid.length > 0) {
           const ecs = unpaid.map(orderEcom);
           const net = ecs.reduce((s, e) => s + e.netCents, 0);
+          const gross = ecs.reduce((s, e) => s + e.grossCents, 0) / 100;
           track("view_cart", {
             value: net / 100, currency: "EUR",
-            gross_total: ecs.reduce((s, e) => s + e.grossCents, 0) / 100,
+            gross_total: gross, cart_gross_total: gross, cart_size: unpaid.length,
             ecommerce: { currency: "EUR", value: net / 100, items: ecs.map((e) => e.item) },
           });
         }
@@ -56,8 +57,24 @@ export function Cart() {
 
   const toggle = (ref: string) => {
     const next = new Set(picked);
-    if (next.has(ref)) next.delete(ref);
-    else {
+    if (next.has(ref)) {
+      next.delete(ref);
+      // Аналитика (GTM): лот снят с общей оплаты; корзина — после удаления.
+      const o = orders.find((x) => x.ref === ref);
+      if (o) {
+        const e = orderEcom(o);
+        const chosenAfter = orders.filter((x) => next.has(x.ref));
+        track("remove_from_cart", {
+          value: e.netCents / 100, currency: "EUR",
+          gross_total: e.grossCents / 100,
+          commission_value: e.commissionCents / 100,
+          vat_scheme: e.vatScheme,
+          cart_size: chosenAfter.length,
+          cart_gross_total: chosenAfter.reduce((s, x) => s + x.totalCents, 0) / 100,
+          ecommerce: { currency: "EUR", value: e.netCents / 100, items: [e.item] },
+        });
+      }
+    } else {
       next.add(ref);
       // Аналитика (GTM): лот добавлен к общей оплате. Верхние параметры —
       // про ДОБАВЛЕННЫЙ лот и явно в каждом событии: GTM помнит значения
@@ -92,7 +109,7 @@ export function Cart() {
     const net = ecs.reduce((s, e) => s + e.netCents, 0);
     track("begin_checkout", {
       value: net / 100, currency: "EUR", cart_size: refs.length,
-      gross_total: totalCents / 100,
+      gross_total: totalCents / 100, cart_gross_total: totalCents / 100,
       commission_value: ecs.reduce((s, e) => s + e.commissionCents, 0) / 100,
       ecommerce: { currency: "EUR", value: net / 100, items: ecs.map((e) => e.item) },
     });

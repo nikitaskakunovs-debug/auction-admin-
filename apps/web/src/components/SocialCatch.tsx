@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { publicApi } from "@/lib/api";
 import { PUBLIC_API_URL } from "@/lib/config";
 import { useT } from "@/lib/i18n";
+import { track } from "@/lib/track";
 import { say } from "./Toast";
 
 /** Приём токенов после соцвхода (макеты № 50, 52).
@@ -42,6 +43,11 @@ export function SocialCatch() {
     const r = params.get("r");
     if (a && r) {
       publicApi.adoptTokens(a, r);
+      // Аналитика: p — способ входа (google/facebook/telegram), n=1 — первая
+      // регистрация. Фрагмент стирается сразу, поэтому sign_up не повторится
+      // при обновлении страницы. Никаких персональных данных.
+      const method = params.get("p");
+      if (method) track(params.get("n") === "1" ? "sign_up" : "login", { method });
       history.replaceState(null, "", window.location.pathname + window.location.search);
       return;
     }

@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { publicApi } from "@/lib/api";
 import { useT } from "@/lib/i18n";
+import { track } from "@/lib/track";
 import { AuthCard } from "@/components/authUi";
 import { SocialAuth } from "@/components/SocialAuth";
 import Link from "next/link";
@@ -23,6 +24,7 @@ export default function LoginPage() {
     setError(null);
     try {
       await publicApi.login(email.trim().toLowerCase(), password);
+      track("login", { method: "email" });
       router.push(next);
     } catch {
       setError(t("auth.failed"));
