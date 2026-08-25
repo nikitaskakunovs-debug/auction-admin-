@@ -427,7 +427,7 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
 
   /** Действующая редакция текста о cookie. Меняется вместе с текстом: старые
    *  согласия остаются привязанными к той редакции, на которую соглашались. */
-  const COOKIE_POLICY_VERSION = "2026-08-14";
+  const COOKIE_POLICY_VERSION = "2026-08-21";
 
   const consentSchema = z.object({
     visitorId: z.string().min(8).max(64),

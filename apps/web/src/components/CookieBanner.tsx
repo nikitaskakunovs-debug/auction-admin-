@@ -13,7 +13,7 @@ const VISITOR_KEY = "izsoli_visitor_v1";
 
 /** Действующая редакция текста. Должна совпадать с той, что знает API:
  *  согласие на прежнюю редакцию считается устаревшим и спрашивается заново. */
-const POLICY_VERSION = "2026-08-14";
+const POLICY_VERSION = "2026-08-21";
 
 type Saved = { mode: string; analytics: boolean; marketing: boolean; policyVersion?: string };
 
