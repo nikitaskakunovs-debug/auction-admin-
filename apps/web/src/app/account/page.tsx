@@ -124,7 +124,11 @@ export default function AccountPage() {
                   : {}),
               });
             })
-            .catch(() => purchaseOnce(ref, { event_id: ref, currency: "EUR", payment_status: "paid" }));
+            .catch(() => purchaseOnce(ref, {
+              ...adsUserData({ email: me?.email }),
+              event_id: ref, currency: "EUR", payment_status: "paid",
+              ecommerce: { transaction_id: ref, currency: "EUR" },
+            }));
           return;
         }
         if (r.paymentStatus === "failed" || r.paymentStatus === "expired") { setPayBanner("failed"); return; }

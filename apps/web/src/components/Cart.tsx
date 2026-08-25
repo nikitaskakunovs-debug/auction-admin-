@@ -12,7 +12,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
 import { useT } from "@/lib/i18n";
-import { orderEcom, track } from "@/lib/track";
+import { adsUserData, orderEcom, track } from "@/lib/track";
 import { formatEur, type MyOrder } from "@/lib/types";
 import { Ph } from "./Ph";
 import { say } from "./Toast";
@@ -22,6 +22,15 @@ export function Cart() {
   const [orders, setOrders] = useState<MyOrder[] | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
+  /** Контакт для Google Ads Enhanced Conversions — только при согласии. */
+  const [meContact, setMeContact] = useState<{ email: string; name: string | null } | null>(null);
+
+  useEffect(() => {
+    void publicApi
+      .get<{ bidder: { email: string; name: string | null } }>("/api/public/auth/me")
+      .then((r) => setMeContact({ email: r.bidder.email, name: r.bidder.name }))
+      .catch(() => undefined);
+  }, []);
 
   const load = useCallback(() => {
     void publicApi
@@ -108,6 +117,7 @@ export function Cart() {
     const ecs = chosen.map(orderEcom);
     const net = ecs.reduce((s, e) => s + e.netCents, 0);
     track("begin_checkout", {
+      ...adsUserData({ email: meContact?.email, name: meContact?.name }),
       value: net / 100, currency: "EUR", cart_size: refs.length,
       gross_total: totalCents / 100, cart_gross_total: totalCents / 100,
       commission_value: ecs.reduce((s, e) => s + e.commissionCents, 0) / 100,
