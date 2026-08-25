@@ -240,7 +240,7 @@ export function Checkout({ orderRef }: { orderRef: string }) {
             phone: phone || order?.recipientPhone,
             country: order?.shippingTo?.country, zip: order?.shippingTo?.zip,
           }),
-          event_id: orderRef,
+          transaction_id: orderRef, event_id: orderRef,
           value: (ec ? ec.netCents : 0) / 100, currency: "EUR",
           gross_total: (ec ? ec.grossCents : 0) / 100,
           commission_value: (ec ? ec.commissionCents : 0) / 100,
