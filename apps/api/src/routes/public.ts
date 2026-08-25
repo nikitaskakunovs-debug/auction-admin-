@@ -659,6 +659,9 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
           paidAt: r.order.paidAt,
           fulfilment: r.order.fulfilment,
           shippingTo: r.order.shippingTo,
+          // Телефон получателя: подставляем в поле оплаты, чтобы не набирать
+          // заново, и отдаём Google Ads Enhanced Conversions при согласии.
+          recipientPhone: r.order.recipientPhone,
           shipment: shipment ? { barcode: shipment.barcode, status: shipment.status } : null,
         };
       }),

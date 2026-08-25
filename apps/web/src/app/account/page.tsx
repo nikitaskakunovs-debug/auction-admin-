@@ -101,7 +101,7 @@ export default function AccountPage() {
               const ec = paid ? orderEcom(paid) : null;
               purchaseOnce(ref, {
                 ...adsUserData({
-                  email: me?.email,
+                  email: me?.email, phone: paid?.recipientPhone,
                   country: paid?.shippingTo?.country, zip: paid?.shippingTo?.zip,
                 }),
                 event_id: ref, currency: "EUR", payment_status: "paid",

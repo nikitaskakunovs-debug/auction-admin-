@@ -94,8 +94,11 @@ export function Checkout({ orderRef }: { orderRef: string }) {
   const [creditCents, setCreditCents] = useState(0);
   const [useCredit, setUseCredit] = useState(true);
   const [meWho, setMeWho] = useState<string | null>(null);
-  /** Для Google Ads Enhanced Conversions (user_data) — только при согласии. */
+  /** Для Google Ads Enhanced Conversions (user_data) — только при согласии.
+   *  meReady = ответ /auth/me получен (успех или отказ): begin_checkout ждёт
+   *  его, иначе гонка двух параллельных запросов оставляла user_data пустым. */
   const [meContact, setMeContact] = useState<{ email: string; name: string | null } | null>(null);
+  const [meReady, setMeReady] = useState(false);
   /* Реквизиты для счёта: по умолчанию основной профиль, но на этой покупке
      можно выбрать другой — заказ запомнит снимок (макет № 42). */
   const [billing, setBilling] = useState<CoBillingProfile[]>([]);
@@ -109,6 +112,8 @@ export function Checkout({ orderRef }: { orderRef: string }) {
       if (found) {
         setMethod(found.fulfilment);
         setMachineId(found.shippingTo?.machineId ?? "");
+        // Телефон уже вводили при прошлом заходе — не заставляем набирать снова.
+        if (found.recipientPhone) setPhone((prev) => prev || found.recipientPhone!);
       }
     } catch { setOrder(null); }
   }, [orderRef]);
@@ -118,12 +123,12 @@ export function Checkout({ orderRef }: { orderRef: string }) {
   // отчётах считалась не только касса, но и наш собственный доход.
   const beganRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!order || beganRef.current === order.ref) return;
+    if (!order || !meReady || beganRef.current === order.ref) return;
     beganRef.current = order.ref;
     const ec = orderEcom(order);
     track("begin_checkout", {
       ...adsUserData({
-        email: meContact?.email, name: meContact?.name,
+        email: meContact?.email, name: meContact?.name, phone: order.recipientPhone,
         country: order.shippingTo?.country, zip: order.shippingTo?.zip,
       }),
       value: ec.netCents / 100, currency: "EUR",
@@ -132,7 +137,8 @@ export function Checkout({ orderRef }: { orderRef: string }) {
       vat_scheme: ec.vatScheme,
       ecommerce: { currency: "EUR", value: ec.netCents / 100, items: [ec.item] },
     });
-  }, [order]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order, meReady]);
 
   useEffect(() => {
     setSignedIn(publicApi.hasSession);
@@ -153,7 +159,8 @@ export function Checkout({ orderRef }: { orderRef: string }) {
         setMeWho(r.bidder.company ?? r.bidder.name ?? r.bidder.alias);
         setMeContact({ email: r.bidder.email, name: r.bidder.name });
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => setMeReady(true));
     void publicApi.get<{ profiles: CoBillingProfile[] }>("/api/public/me/billing-profiles")
       .then((r) => {
         setBilling(r.profiles);
@@ -229,7 +236,8 @@ export function Checkout({ orderRef }: { orderRef: string }) {
         const ec = order ? orderEcom(order) : null;
         purchaseOnce(orderRef, {
           ...adsUserData({
-            email: meContact?.email, name: meContact?.name, phone,
+            email: meContact?.email, name: meContact?.name,
+            phone: phone || order?.recipientPhone,
             country: order?.shippingTo?.country, zip: order?.shippingTo?.zip,
           }),
           event_id: orderRef,

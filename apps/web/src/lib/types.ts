@@ -92,6 +92,8 @@ export interface MyOrder {
   /** pickup | omniva_pm */
   fulfilment: string;
   shippingTo: { provider: string; machineId: string; name: string; zip: string; country: string; address?: string } | null;
+  /** Телефон получателя в международном формате — подстановка в оплате. */
+  recipientPhone?: string | null;
   shipment: { barcode: string; status: string } | null;
 }
 
