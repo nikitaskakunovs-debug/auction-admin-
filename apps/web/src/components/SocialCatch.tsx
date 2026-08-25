@@ -17,7 +17,12 @@ import { say } from "./Toast";
 export function SocialCatch() {
   const { t } = useT();
   useEffect(() => {
-    const raw = window.location.hash.replace(/^#/, "");
+    // Фрагмент забирает скрипт в <head> (до тегов аналитики) и кладёт сюда;
+    // сам адрес к этому моменту уже очищен. location.hash — запасной путь
+    // для случаев вроде #social-error=1, которые в <head> не трогаем.
+    const stash = (window as unknown as { __izAuthFragment?: string }).__izAuthFragment;
+    if (stash) delete (window as unknown as { __izAuthFragment?: string }).__izAuthFragment;
+    const raw = stash ?? window.location.hash.replace(/^#/, "");
     if (!raw) return;
     const params = new URLSearchParams(raw);
 

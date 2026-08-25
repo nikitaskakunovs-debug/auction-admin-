@@ -16,7 +16,7 @@ import { say } from "@/components/Toast";
 import { VerifyNotice } from "@/components/VerifyNotice";
 import { publicApi } from "@/lib/api";
 import { dateLocale, useT, type Lang } from "@/lib/i18n";
-import { orderEcom, purchaseOnce, track } from "@/lib/track";
+import { adsUserData, orderEcom, purchaseOnce, track } from "@/lib/track";
 import { photoThumb } from "@/lib/photos";
 import { formatEur, type MyOrder } from "@/lib/types";
 
@@ -100,6 +100,10 @@ export default function AccountPage() {
               const paid = res.orders.find((o) => o.ref === ref);
               const ec = paid ? orderEcom(paid) : null;
               purchaseOnce(ref, {
+                ...adsUserData({
+                  email: me?.email,
+                  country: paid?.shippingTo?.country, zip: paid?.shippingTo?.zip,
+                }),
                 event_id: ref, currency: "EUR", payment_status: "paid",
                 ...(ec
                   ? {

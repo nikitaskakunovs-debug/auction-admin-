@@ -5,7 +5,7 @@ import { BrandMark } from "@/components/BrandMark";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
 import { dateLocale, useT } from "@/lib/i18n";
-import { orderEcom, purchaseOnce, track } from "@/lib/track";
+import { adsUserData, orderEcom, purchaseOnce, track } from "@/lib/track";
 import { useStickyBar } from "@/lib/ui";
 import { formatEur, type MyOrder, type ShippingOption } from "@/lib/types";
 import { Icon } from "./Icon";
@@ -94,6 +94,8 @@ export function Checkout({ orderRef }: { orderRef: string }) {
   const [creditCents, setCreditCents] = useState(0);
   const [useCredit, setUseCredit] = useState(true);
   const [meWho, setMeWho] = useState<string | null>(null);
+  /** Для Google Ads Enhanced Conversions (user_data) — только при согласии. */
+  const [meContact, setMeContact] = useState<{ email: string; name: string | null } | null>(null);
   /* Реквизиты для счёта: по умолчанию основной профиль, но на этой покупке
      можно выбрать другой — заказ запомнит снимок (макет № 42). */
   const [billing, setBilling] = useState<CoBillingProfile[]>([]);
@@ -120,6 +122,10 @@ export function Checkout({ orderRef }: { orderRef: string }) {
     beganRef.current = order.ref;
     const ec = orderEcom(order);
     track("begin_checkout", {
+      ...adsUserData({
+        email: meContact?.email, name: meContact?.name,
+        country: order.shippingTo?.country, zip: order.shippingTo?.zip,
+      }),
       value: ec.netCents / 100, currency: "EUR",
       gross_total: ec.grossCents / 100, cart_gross_total: ec.grossCents / 100, cart_size: 1,
       commission_value: ec.commissionCents / 100,
@@ -143,7 +149,10 @@ export function Checkout({ orderRef }: { orderRef: string }) {
       .then((r) => setCreditCents(r.balanceCents))
       .catch(() => undefined);
     void publicApi.get<{ bidder: { alias: string; email: string; name: string | null; company: string | null } }>("/api/public/auth/me")
-      .then((r) => setMeWho(r.bidder.company ?? r.bidder.name ?? r.bidder.alias))
+      .then((r) => {
+        setMeWho(r.bidder.company ?? r.bidder.name ?? r.bidder.alias);
+        setMeContact({ email: r.bidder.email, name: r.bidder.name });
+      })
       .catch(() => undefined);
     void publicApi.get<{ profiles: CoBillingProfile[] }>("/api/public/me/billing-profiles")
       .then((r) => {
@@ -219,6 +228,10 @@ export function Checkout({ orderRef }: { orderRef: string }) {
       if (r.paid) {
         const ec = order ? orderEcom(order) : null;
         purchaseOnce(orderRef, {
+          ...adsUserData({
+            email: meContact?.email, name: meContact?.name, phone,
+            country: order?.shippingTo?.country, zip: order?.shippingTo?.zip,
+          }),
           event_id: orderRef,
           value: (ec ? ec.netCents : 0) / 100, currency: "EUR",
           gross_total: (ec ? ec.grossCents : 0) / 100,

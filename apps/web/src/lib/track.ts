@@ -24,11 +24,23 @@ const dl = (): DataLayer | null => {
  *  зāģis — реальный случай с теста). */
 const ECOM_EVENTS = new Set(["view_item", "add_to_cart", "view_cart", "begin_checkout", "purchase"]);
 
+/** Поисковую строку человек пишет сам — иногда это его же почта или телефон.
+ *  Отправлять такое в аналитику нельзя (политика Google и GDPR), поэтому
+ *  заменяем на метку: сам факт поиска остаётся, личные данные — нет. */
+function redact(value: string): string {
+  return value
+    .replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, "[email]")
+    .replace(/(?:\+?\d[\s()-]?){7,}/g, "[phone]");
+}
+
 export function track(event: string, params: Record<string, unknown> = {}): void {
   const layer = dl();
   if (!layer) return;
-  if ("ecommerce" in params || ECOM_EVENTS.has(event)) layer.push({ ecommerce: null });
-  layer.push({ event, ...params });
+  const safe = typeof params.search_term === "string"
+    ? { ...params, search_term: redact(params.search_term) }
+    : params;
+  if ("ecommerce" in safe || ECOM_EVENTS.has(event)) layer.push({ ecommerce: null });
+  layer.push({ event, ...safe });
 }
 
 /** Товарная строка GA4 (items[]) по ТЗ аналитики:
@@ -78,6 +90,41 @@ export function orderEcom(o: OrderLike) {
       grossCents: netCents + o.vatCents,
     }),
   };
+}
+
+/** First-party данные для Google Ads Enhanced Conversions (begin_checkout и
+ *  purchase). Правила:
+ *  — собираются ТОЛЬКО при согласии на маркетинг (сигнал ad_user_data):
+ *    без галочки в плашке объект вообще не попадает в dataLayer;
+ *  — ничего не хэшируем сами — это делает тег Google в GTM;
+ *  — почта в lowercase без пробелов, телефон только в международном формате,
+ *    отсутствующие поля не передаются;
+ *  — в GA4 эти поля не уходят: их читает только тег Google Ads, GA4-теги
+ *    к user_data не привязаны. */
+export function adsUserData(i: {
+  email?: string | null; phone?: string | null; name?: string | null;
+  country?: string | null; zip?: string | null;
+}): { user_data?: Record<string, unknown> } {
+  try {
+    const c = JSON.parse(localStorage.getItem("izsoli_cc_v1") ?? "null") as { marketing?: boolean } | null;
+    if (c?.marketing !== true) return {};
+  } catch { return {}; }
+  const email = i.email?.trim().toLowerCase() || undefined;
+  const cleaned = (i.phone ?? "").replace(/[\s()-]/g, "");
+  const phone = /^\+\d{8,15}$/.test(cleaned) ? cleaned : undefined;
+  const parts = (i.name ?? "").trim().split(/\s+/).filter(Boolean);
+  const address = {
+    ...(parts[0] ? { first_name: parts[0] } : {}),
+    ...(parts.length > 1 ? { last_name: parts.slice(1).join(" ") } : {}),
+    ...(i.country ? { country: i.country } : {}),
+    ...(i.zip ? { postal_code: i.zip } : {}),
+  };
+  const user_data = {
+    ...(email ? { email } : {}),
+    ...(phone ? { phone_number: phone } : {}),
+    ...(Object.keys(address).length > 0 ? { address } : {}),
+  };
+  return Object.keys(user_data).length > 0 ? { user_data } : {};
 }
 
 /** purchase — ровно один раз на заказ: обновление страницы чека или возврат

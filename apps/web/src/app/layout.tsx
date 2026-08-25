@@ -61,6 +61,17 @@ const manrope = localFont({
 const GTM_ID = /^GTM-[A-Z0-9]+$/.test(process.env.NEXT_PUBLIC_GTM_ID ?? "")
   ? process.env.NEXT_PUBLIC_GTM_ID!
   : null;
+
+/** Возврат после соцвхода приходит с токенами во фрагменте (#a=…&r=…), а от
+ *  Telegram — с #tgAuthResult=<base64>, внутри которого имя человека. GA4
+ *  пишет page_location вместе с фрагментом, поэтому снимать его в React
+ *  (после гидратации) поздно: гонка с загрузкой gtm.js могла отправить в
+ *  аналитику токен сессии и личные данные. Забираем фрагмент здесь — до
+ *  любых тегов — и отдаём SocialCatch через window. */
+const authFragmentGuard = `
+try{var h=location.hash.replace(/^#/,'');
+if(h&&/(^|&)(a=|tgAuthResult=)/.test(h)){window.__izAuthFragment=h;
+history.replaceState(null,'',location.pathname+location.search);}}catch(e){}`;
 const gtmBootstrap = GTM_ID && `
 window.dataLayer=window.dataLayer||[];
 function gtag(){dataLayer.push(arguments);}
@@ -121,6 +132,8 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         {/* Снимаем no-js до первой отрисовки: правила фолбэка в globals.css
             рассчитаны на то, что с JS их не видно. */}
         <script dangerouslySetInnerHTML={{ __html: "document.documentElement.classList.remove('no-js')" }} />
+        {/* Строго до GTM: снимаем токены соцвхода из адреса. */}
+        <script dangerouslySetInnerHTML={{ __html: authFragmentGuard }} />
         {gtmBootstrap && <script dangerouslySetInnerHTML={{ __html: gtmBootstrap }} />}
       </head>
       <body>
