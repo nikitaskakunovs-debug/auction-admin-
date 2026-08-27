@@ -104,6 +104,18 @@ export async function generateMetadata(): Promise<Metadata> {
     // The current country's own domain is the canonical base; the ccTLD
     // siblings (.lv/.ee/.lt) reinforce each other via hreflang.
     alternates: alternatesFor(country, "/"),
+    // Фирменные иконки из логотип-пакета. favicon.ico, icon.svg и
+    // apple-icon.png Next.js подхватывает из app/ сам; здесь — размеры для
+    // Android и закладка Safari.
+    manifest: "/site.webmanifest",
+    icons: {
+      icon: [
+        { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
+        { url: "/favicon-16x16.png", sizes: "16x16", type: "image/png" },
+        { url: "/favicon-96x96.png", sizes: "96x96", type: "image/png" },
+      ],
+      other: [{ rel: "mask-icon", url: "/safari-pinned-tab.svg", color: "#161A17" }],
+    },
     openGraph: {
       siteName: "Izsoli.lv",
       locale: country.defaultLang,
