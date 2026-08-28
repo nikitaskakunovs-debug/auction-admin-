@@ -1,5 +1,5 @@
 import { CATEGORIES, CONDITIONS, resolveBid, type BidState, type LedgerEntry } from "@auction/domain";
-import { inArray, like, sql } from "drizzle-orm";
+import { inArray, sql } from "drizzle-orm";
 import { createDb } from "./client.js";
 import type { Db } from "./client.js";
 import * as t from "./schema.js";
@@ -8,8 +8,9 @@ import * as t from "./schema.js";
  * Demo catalog CLI: three lots for EVERY category, in different states, so the
  * whole card zoo is visible at once — in the admin panel and on the storefront.
  *
- *   node packages/db/dist/demoCatalog.js          create (refuses if present)
- *   node packages/db/dist/demoCatalog.js remove   delete everything it created
+ *   node packages/db/dist/demoCatalog.js           create (refuses if present)
+ *   node packages/db/dist/demoCatalog.js refresh   вернуть витрину к жизни
+ *   node packages/db/dist/demoCatalog.js remove    delete everything it created
  *
  * Per category:
  *   A — live auction (reserve / no-reserve / bid battles / ending soon vary)
@@ -21,9 +22,14 @@ import * as t from "./schema.js";
  * @demo.izsoli.lv — `remove` finds it all by those marks. Bids are replayed
  * through the domain resolver, so seeded auctions look exactly like the
  * engine would have left them.
+ *
+ * `refresh` нужен потому, что демо-торги живут по настоящим часам: через
+ * сутки движок их честно закрывает, и каталог пустеет. Refresh переставляет
+ * время живым и запланированным лотам вперёд — ничего не удаляя и не трогая
+ * завершённые торги, на которых держатся заказы и страница результатов.
  */
 
-const MODE = process.argv[2] === "remove" ? "remove" : "create";
+const MODE = process.argv[2] === "remove" ? "remove" : process.argv[2] === "refresh" ? "refresh" : "create";
 
 /** [auction title, fixed-price title, third-state title] per category. */
 const TITLES: Record<string, [string, string, string]> = {
@@ -58,15 +64,31 @@ const DEMO_BIDDERS = [
 const sku3 = (code: string) => code.replace(/[^a-z]/g, "").slice(0, 3).toUpperCase();
 
 async function create(db: Db): Promise<void> {
-  const [existing] = await db
-    .select({ n: sql<string>`count(*)` })
+  // Стоящий демо-каталог — это лоты, на которые НЕ выписан заказ. Те, что
+  // проданы, остались бухгалтерией: они не мешают положить рядом новый набор,
+  // и требовать сначала «remove» из-за них было бы тупиком — удалить их
+  // нельзя, а создать поверх не давало бы.
+  const standing = await db
+    .select({ id: t.items.id })
     .from(t.items)
-    .where(like(t.items.sku, "DEMO-%"));
-  if (Number(existing?.n ?? 0) > 0) {
-    console.log(`демо-лоты уже есть (${existing!.n} шт.) — сначала: node packages/db/dist/demoCatalog.js remove`);
+    .leftJoin(t.orders, sql`${t.orders.itemId} = ${t.items.id}`)
+    .where(sql`${t.items.sku} like 'DEMO-%' and ${t.items.sku} not like 'DEMO-ORD-%' and ${t.orders.id} is null`);
+  if (standing.length > 0) {
+    console.log(`демо-лоты уже есть (${standing.length} шт.) — сначала: node packages/db/dist/demoCatalog.js remove`);
+    console.log("или, если каталог просто «просрочился»: node packages/db/dist/demoCatalog.js refresh");
     process.exitCode = 1;
     return;
   }
+
+  // Номер прогона: артикул уникален, а проданные лоты прошлого набора
+  // остаются навсегда — второй набор получает суффикс, а не падает на индексе.
+  const runRows = await db
+    .select({ sku: t.items.sku })
+    .from(t.items)
+    .where(sql`${t.items.sku} like 'DEMO-%' and ${t.items.sku} not like 'DEMO-ORD-%'`);
+  const run =
+    1 + runRows.reduce((max, r) => Math.max(max, Number(/-[ABC](\d+)$/.exec(r.sku)?.[1] ?? 1)), 0);
+  const runSfx = run <= 1 ? "" : String(run);
 
   const now = new Date();
   const hours = (n: number) => new Date(now.getTime() + n * 3_600_000);
@@ -182,7 +204,7 @@ async function create(db: Db): Promise<void> {
     // the cards show every flavour: bid battle, untouched, "ending soon".
     const withReserve = i % 3 === 0;
     const withBids = i % 2 === 0;
-    const itemA = await makeItem(`${pfx}-A`, cat.code, titleA, "live");
+    const itemA = await makeItem(`${pfx}-A${runSfx}`, cat.code, titleA, "live");
     await makeAuction({
       itemId: itemA, title: titleA,
       startPriceCents: Math.round(base / 2),
@@ -199,7 +221,7 @@ async function create(db: Db): Promise<void> {
     made++;
 
     // B — fixed price. A couple of categories get quantity 3 (multi-stock).
-    const itemB = await makeItem(`${pfx}-B`, cat.code, titleB, "listed");
+    const itemB = await makeItem(`${pfx}-B${runSfx}`, cat.code, titleB, "listed");
     await db.insert(t.listings).values({
       itemId: itemB, type: "fixed", title: titleB, marketCode: "LV",
       priceCents: Math.round(base * 1.2), quantity: i % 5 === 0 ? 3 : 1,
@@ -210,13 +232,13 @@ async function create(db: Db): Promise<void> {
     // C — the rotating third state.
     const third = i % 4;
     if (third === 0) {
-      const itemC = await makeItem(`${pfx}-C`, cat.code, titleC, "listed");
+      const itemC = await makeItem(`${pfx}-C${runSfx}`, cat.code, titleC, "listed");
       await makeAuction({
         itemId: itemC, title: titleC, startPriceCents: Math.round(base * 0.6),
         startsAt: hours(24), endsAt: hours(48), status: "scheduled", bids: [],
       });
     } else if (third === 1) {
-      const itemC = await makeItem(`${pfx}-C`, cat.code, titleC, "won");
+      const itemC = await makeItem(`${pfx}-C${runSfx}`, cat.code, titleC, "won");
       await makeAuction({
         itemId: itemC, title: titleC, startPriceCents: Math.round(base * 0.5),
         startsAt: hours(-72), endsAt: hours(-2), status: "ended_won",
@@ -226,7 +248,7 @@ async function create(db: Db): Promise<void> {
         ],
       });
     } else if (third === 2) {
-      const itemC = await makeItem(`${pfx}-C`, cat.code, titleC, "unsold");
+      const itemC = await makeItem(`${pfx}-C${runSfx}`, cat.code, titleC, "unsold");
       await makeAuction({
         itemId: itemC, title: titleC, startPriceCents: Math.round(base * 0.5),
         reserveCents: base * 2,
@@ -235,7 +257,7 @@ async function create(db: Db): Promise<void> {
       });
     } else {
       // Draft: exists only in the admin panel — never reached the storefront.
-      await makeItem(`${pfx}-C`, cat.code, titleC, "draft");
+      await makeItem(`${pfx}-C${runSfx}`, cat.code, titleC, "draft");
     }
     made++;
   }
@@ -249,63 +271,133 @@ async function remove(db: Db): Promise<void> {
   const demoItems = await db
     .select({ id: t.items.id })
     .from(t.items)
-    .where(like(t.items.sku, "DEMO-%"));
+    .where(sql`${t.items.sku} like 'DEMO-%' and ${t.items.sku} not like 'DEMO-ORD-%'`);
   const itemIds = demoItems.map((r) => r.id);
 
   if (itemIds.length > 0) {
-    const demoListings = await db
-      .select({ id: t.listings.id })
-      .from(t.listings)
-      .where(inArray(t.listings.itemId, itemIds));
-    const listingIds = demoListings.map((r) => r.id);
-
-    if (listingIds.length > 0) {
-      const demoAuctions = await db
-        .select({ id: t.auctions.id })
-        .from(t.auctions)
-        .where(inArray(t.auctions.listingId, listingIds));
-      const auctionIds = demoAuctions.map((r) => r.id);
-      if (auctionIds.length > 0) {
-        await db.delete(t.bids).where(inArray(t.bids.auctionId, auctionIds));
-        await db.delete(t.auctions).where(inArray(t.auctions.id, auctionIds));
-      }
-      await db.delete(t.listings).where(inArray(t.listings.id, listingIds));
-    }
-
-    // A demo lot someone actually bought has a real order pointing at it —
-    // that is bookkeeping now, so the item stays and gets reported instead.
+    // Что купили — то бухгалтерия: заказ ссылается и на лот, и на его
+    // выставление, и на сами торги. Считаем «неприкасаемых» ПЕРВЫМИ, иначе
+    // удаление торгов упирается в внешний ключ заказа и обрывает всю уборку.
     const ordered = await db
-      .select({ itemId: t.orders.itemId })
+      .select({ itemId: t.orders.itemId, listingId: t.orders.listingId, auctionId: t.orders.auctionId })
       .from(t.orders)
       .where(inArray(t.orders.itemId, itemIds));
-    const keep = new Set(ordered.map((r) => r.itemId));
-    const deletable = itemIds.filter((id) => !keep.has(id));
-    if (deletable.length > 0) await db.delete(t.items).where(inArray(t.items.id, deletable));
-    if (keep.size > 0) console.log(`оставлено ${keep.size} лотов — на них есть настоящие заказы`);
-    console.log(`удалено ${deletable.length} демо-лотов`);
+    const keepItems = new Set(ordered.map((r) => r.itemId));
+    const keepListings = new Set(ordered.map((r) => r.listingId));
+    const keepAuctions = new Set(ordered.map((r) => r.auctionId).filter((x): x is string => x !== null));
+
+    const deletableItems = itemIds.filter((id) => !keepItems.has(id));
+    if (deletableItems.length > 0) {
+      const demoListings = await db
+        .select({ id: t.listings.id })
+        .from(t.listings)
+        .where(inArray(t.listings.itemId, deletableItems));
+      const listingIds = demoListings.map((r) => r.id).filter((id) => !keepListings.has(id));
+
+      if (listingIds.length > 0) {
+        const demoAuctions = await db
+          .select({ id: t.auctions.id })
+          .from(t.auctions)
+          .where(inArray(t.auctions.listingId, listingIds));
+        const auctionIds = demoAuctions.map((r) => r.id).filter((id) => !keepAuctions.has(id));
+        if (auctionIds.length > 0) {
+          await db.delete(t.bids).where(inArray(t.bids.auctionId, auctionIds));
+          await db.delete(t.watchlist).where(inArray(t.watchlist.auctionId, auctionIds));
+          await db.delete(t.auctions).where(inArray(t.auctions.id, auctionIds));
+        }
+        await db.delete(t.watchlist).where(inArray(t.watchlist.listingId, listingIds));
+        await db.delete(t.listings).where(inArray(t.listings.id, listingIds));
+      }
+      await db.delete(t.items).where(inArray(t.items.id, deletableItems));
+    }
+    if (keepItems.size > 0) console.log(`оставлено ${keepItems.size} лотов — на них есть настоящие заказы`);
+    console.log(`удалено ${deletableItems.length} демо-лотов`);
   } else {
     console.log("демо-лотов нет");
   }
 
-  // Demo bidders go too — unless they placed bids on REAL auctions meanwhile.
+  // Demo bidders go too — unless anything still points at them: ставки на
+  // настоящих торгах, заказы, талоны выдачи. Пробуем удалить и отступаем, если
+  // база держит: демо-клиент, ставший частью реальной истории, остаётся.
   const demoCustomers = await db
-    .select({ id: t.customers.id })
+    .select({ id: t.customers.id, alias: t.customers.alias })
     .from(t.customers)
     .where(inArray(t.customers.email, DEMO_BIDDERS.map((b) => b.email)));
+  let removed = 0;
   for (const c of demoCustomers) {
-    const [stillBidding] = await db
-      .select({ n: sql<string>`count(*)` })
-      .from(t.bids)
-      .where(sql`${t.bids.customerId} = ${c.id}`);
-    if (Number(stillBidding?.n ?? 0) === 0) {
+    try {
       await db.delete(t.customers).where(sql`${t.customers.id} = ${c.id}`);
+      removed++;
+    } catch {
+      console.log(`оставлен клиент ${c.alias} — на нём висит история (заказы или ставки)`);
     }
   }
+  console.log(`удалено ${removed} демо-клиентов из ${demoCustomers.length}`);
+}
+
+/**
+ * Вернуть витрину к жизни: демо-торги идут по настоящим часам и через сутки
+ * закрываются, после чего каталог пустеет. Здесь мы переставляем время вперёд
+ * тем лотам, которые задумывались живыми и запланированными, — ничего не
+ * удаляя. Проданные и намеренно завершённые торги не трогаем: на них держатся
+ * заказы и страница результатов.
+ */
+async function refresh(db: Db): Promise<void> {
+  const now = new Date();
+  const hours = (n: number) => new Date(now.getTime() + n * 3_600_000);
+
+  const rows = await db
+    .select({
+      auctionId: t.auctions.id,
+      status: t.auctions.status,
+      itemId: t.items.id,
+      sku: t.items.sku,
+      bidCount: t.auctions.bidCount,
+    })
+    .from(t.auctions)
+    .innerJoin(t.listings, sql`${t.listings.id} = ${t.auctions.listingId}`)
+    .innerJoin(t.items, sql`${t.items.id} = ${t.listings.itemId}`)
+    .leftJoin(t.orders, sql`${t.orders.auctionId} = ${t.auctions.id}`)
+    .where(sql`${t.items.sku} like 'DEMO-%' and ${t.items.sku} not like 'DEMO-ORD-%' and ${t.orders.id} is null`);
+
+  // A-слот задумывался живым, C-слот со статусом scheduled — запланированным.
+  // Всё остальное (резерв не взят, без ставок) завершено намеренно: это и есть
+  // содержимое страницы результатов, и трогать его нечестно.
+  let live = 0;
+  let scheduled = 0;
+  for (const [i, r] of rows.entries()) {
+    const isA = /-A\d*$/.test(r.sku);
+    if (isA) {
+      // Разброс по времени возвращает витрине прежнюю пестроту: что-то
+      // «заканчивается через час», что-то идёт ещё трое суток.
+      const endsIn = i % 4 === 0 ? 1 : 6 + (i % 12) * 6;
+      await db
+        .update(t.auctions)
+        .set({ status: "live", startsAt: hours(-6 - (i % 12)), endsAt: hours(endsIn), closedAt: null })
+        .where(sql`${t.auctions.id} = ${r.auctionId}`);
+      await db.update(t.items).set({ status: "live", updatedAt: now }).where(sql`${t.items.id} = ${r.itemId}`);
+      live++;
+    } else if (r.bidCount === 0) {
+      // C-слот без единой ставки — это и есть «запланированные на завтра»:
+      // у двух других завершённых состояний ставки по замыслу есть, так что
+      // одно это и отличает их после того, как время всех сравняло.
+      await db
+        .update(t.auctions)
+        .set({ status: "scheduled", startsAt: hours(24), endsAt: hours(48), closedAt: null })
+        .where(sql`${t.auctions.id} = ${r.auctionId}`);
+      await db.update(t.items).set({ status: "listed", updatedAt: now }).where(sql`${t.items.id} = ${r.itemId}`);
+      scheduled++;
+    }
+  }
+
+  console.log(`витрина обновлена: ${live} живых торгов, ${scheduled} запланированных`);
+  console.log("лоты «Купить сразу» не истекают — они на месте; завершённые торги остались в /rezultati");
 }
 
 const { db, pool } = createDb();
 try {
   if (MODE === "remove") await remove(db);
+  else if (MODE === "refresh") await refresh(db);
   else await create(db);
 } finally {
   await pool.end();
