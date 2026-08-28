@@ -42,6 +42,7 @@ const CLIENTS = [
     email: "marks@demo.izsoli.lv", alias: "demo_marks", name: "Marks Demo",
     country: "LV", lang: "ru", verified: true, marketing: true,
     attribution: { source: "facebook", medium: "paid_social", campaign: "atlaides" },
+    lastTouch: { source: "email", medium: "email", campaign: "izsoli_digest", landing: "/katalogs" },
     note: "VIP с авансом: кредит на счету, заказ с зачётом аванса, посылка в пути",
   },
   {
@@ -139,6 +140,10 @@ async function create(db: Db): Promise<void> {
   // ── Клиенты: каждый типаж, upsert по адресу (demoCatalog мог создать часть) ─
   const ids: Record<string, string> = {};
   for (const c of CLIENTS) {
+    // Последнее касание есть не у всех: у части демо-клиентов оно совпадает
+    // с первым, и тогда карточка честно рисует один блок вместо двух.
+    const last: { source?: string; medium?: string; campaign?: string; landing?: string } | null =
+      "lastTouch" in c ? c.lastTouch : null;
     const values = {
       email: c.email,
       alias: c.alias,
@@ -163,6 +168,15 @@ async function create(db: Db): Promise<void> {
       vies: "vies" in c ? c.vies : null,
       telegramId: "telegramId" in c ? c.telegramId : null,
       attribution: "attribution" in c ? { ...c.attribution, at: days(-30).toISOString() } : null,
+      // Последнее касание отличается от первого: так в карточке и в отчёте
+      // видна разница между «кто привёл» и «что вернуло».
+      attributionLast: last
+        ? { ...last, at: days(-2).toISOString() }
+        : "attribution" in c ? { ...c.attribution, at: days(-30).toISOString() } : null,
+      attributionTouches: last ? 4 : "attribution" in c ? 1 : 0,
+      visitorId: `demo-visitor-${c.key}`,
+      lastLoginMethod: "telegramId" in c ? "telegram" : "password",
+      lastLoginAt: days(-1),
       notes: c.note,
     };
     await db.insert(t.customers).values(values).onConflictDoNothing();
@@ -292,6 +306,7 @@ async function create(db: Db): Promise<void> {
     creditAppliedCents?: number;
     billingSnapshot?: NonNullable<typeof t.orders.$inferInsert.billingSnapshot>;
     attribution?: { source?: string; medium?: string; campaign?: string };
+    attributionLast?: { source?: string; medium?: string; campaign?: string };
     listingSold?: boolean;
   }) => {
     const def = ORDER_ITEMS[args.sku]!;
@@ -354,6 +369,9 @@ async function create(db: Db): Promise<void> {
         creditAppliedCents: args.creditAppliedCents ?? 0,
         billingSnapshot: args.billingSnapshot ?? null,
         attribution: args.attribution ? { ...args.attribution, at: created.toISOString() } : null,
+        attributionLast: args.attributionLast
+          ? { ...args.attributionLast, at: created.toISOString() }
+          : args.attribution ? { ...args.attribution, at: created.toISOString() } : null,
       })
       .returning({ id: t.orders.id });
     orderIds[args.sku] = order!.id;
@@ -504,6 +522,9 @@ async function create(db: Db): Promise<void> {
       shippingTo: { provider: "omniva", machineId: "88817", name: "Rīga Alfa pakomāts", zip: "LV-1005", country: "LV" },
       recipientName: "Marks Demo", recipientPhone: "+37120000001",
       attribution: { source: "facebook", medium: "paid_social", campaign: "atlaides" },
+      // Привела реклама, а вернула рассылка — ровно тот случай, ради которого
+      // в отчёте есть вторая модель.
+      attributionLast: { source: "email", medium: "email", campaign: "izsoli_digest" },
     });
     await paidPayment(o.id, o.inv.totalCents, "klix card", 2);
     await makeInvoice(o, { name: "Marks Demo", address: "Lāčplēša iela 25-7, Rīga", country: "LV" });

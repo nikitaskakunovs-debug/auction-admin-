@@ -16,6 +16,7 @@ import { RECEIVING } from "./i18n/receiving.js";
 import { SETTINGS } from "./i18n/settings.js";
 import { SHELL } from "./i18n/shell.js";
 import { MARKETING } from "./i18n/marketing.js";
+import { ATTRIBUTION } from "./i18n/attribution.js";
 import { WHSTATS } from "./i18n/whstats.js";
 
 /**
@@ -367,6 +368,7 @@ const ALL = {
   ...PICKUP,
   ...WHSTATS,
   ...MARKETING,
+  ...ATTRIBUTION,
   ...CUSTOMERS,
   ...FINANCE,
   ...FRONTDESK,

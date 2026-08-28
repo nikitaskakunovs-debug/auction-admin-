@@ -361,17 +361,37 @@ export const customers = pgTable(
     googleId: text("google_id"),
     facebookId: text("facebook_id"),
     telegramId: text("telegram_id"),
-    /** Откуда человек пришёл (первое касание): utm-метки и реферер первого
-     * визита. Пишется один раз при регистрации — по нему панель считает
-     * отдачу рекламы. Не персональные данные: только метки кампаний. */
+    /** Откуда человек пришёл ВПЕРВЫЕ: utm-метки и реферер первого визита.
+     * Пишется один раз и больше не меняется — это «кто его привёл», и цена
+     * привлечения считается по нему. Не персональные данные: только метки. */
     attribution: jsonb("attribution").$type<{
       source?: string; medium?: string; campaign?: string; content?: string;
       term?: string; referrer?: string; landing?: string; at?: string;
     }>(),
+    /** Откуда пришёл В ПОСЛЕДНИЙ раз. Обновляется на каждом визите с меткой.
+     * Первого касания одного мало: человек однажды пришёл из поиска, а купил
+     * по письму — без последнего касания вся заслуга письма невидима, и
+     * рассылка с ретаргетингом выглядят бесполезными. */
+    attributionLast: jsonb("attribution_last").$type<{
+      source?: string; medium?: string; campaign?: string; content?: string;
+      term?: string; referrer?: string; landing?: string; at?: string;
+    }>(),
+    /** Сколько раз приходил по метке — отличает случайный клик от того, кого
+     * реклама вела к покупке несколько недель. */
+    attributionTouches: integer("attribution_touches").notNull().default(0),
+    /** Идентификатор браузера из плашки cookie. Связывает решения, принятые
+     * ДО регистрации, с уже появившимся аккаунтом: иначе согласие анонимного
+     * гостя навсегда остаётся отдельной строкой, которую не с кем сопоставить. */
+    visitorId: text("visitor_id"),
+    /** Как человек входит на самом деле: password | google | facebook |
+     * telegram. Наличие googleId говорит лишь, что связка есть; это — чем
+     * пользовались в последний раз. */
+    lastLoginMethod: text("last_login_method"),
+    lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
     erasedAt: timestamp("erased_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("customers_email_idx").on(t.email)],
+  (t) => [uniqueIndex("customers_email_idx").on(t.email), index("customers_visitor_idx").on(t.visitorId)],
 );
 
 /**
@@ -801,15 +821,27 @@ export const orders = pgTable(
     } | null>(),
     /** Аванс, зачтённый в этот заказ: провайдеру ушла сумма за вычетом его. */
     creditAppliedCents: integer("credit_applied_cents").notNull().default(0),
-    /** Снимок атрибуции клиента на момент создания заказа — панель считает
-     * выручку по кампаниям, даже если клиент потом удалит аккаунт. */
+    /** Снимок ПЕРВОГО касания клиента на момент заказа — кто его когда-то
+     * привёл. Остаётся даже после удаления аккаунта: отчёт по кампаниям не
+     * должен обнуляться от того, что человек ушёл. */
     attribution: jsonb("attribution").$type<{
+      source?: string; medium?: string; campaign?: string; content?: string;
+      term?: string; referrer?: string; landing?: string; at?: string;
+    }>(),
+    /** Снимок ПОСЛЕДНЕГО касания — что привело человека именно к этой покупке.
+     * По нему считается отдача письма и ретаргетинга, которых в модели
+     * первого касания не видно вовсе. */
+    attributionLast: jsonb("attribution_last").$type<{
       source?: string; medium?: string; campaign?: string; content?: string;
       term?: string; referrer?: string; landing?: string; at?: string;
     }>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("orders_ref_idx").on(t.ref), index("orders_status_idx").on(t.status)],
+  (t) => [
+    uniqueIndex("orders_ref_idx").on(t.ref),
+    index("orders_status_idx").on(t.status),
+    index("orders_customer_idx").on(t.customerId, t.createdAt),
+  ],
 );
 
 // ── Pickup tickets (one customer visit; drives the waiting-room boards) ─────

@@ -98,8 +98,12 @@ export async function buyNow(
         reverseCharge,
         status: "awaiting_payment",
         paymentDeadlineAt,
-        // Снимок «откуда пришёл клиент» — для отчёта по рекламе в панели.
+        // Два снимка «откуда пришёл клиент» — первое касание (кто привёл) и
+        // последнее (что привело к этой покупке). Отчёт по рекламе умеет
+        // считать по обеим моделям, и обе остаются верны после удаления
+        // аккаунта: цифры кампаний не должны зависеть от чужого ухода.
         attribution: buyer.attribution ?? null,
+        attributionLast: buyer.attributionLast ?? buyer.attribution ?? null,
       })
       .returning({ id: orders.id });
 

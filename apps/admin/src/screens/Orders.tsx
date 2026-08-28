@@ -8,7 +8,8 @@
  *    shipping, invoice).
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { api, ApiError, type Item, type Order } from "../api.js";
+import { api, ApiError, type Attribution, type Item, type Order } from "../api.js";
+import { AttributionCard, channelLabel } from "../attribution.js";
 import type { Nav } from "../App.js";
 import { useAuth } from "../auth.js";
 import { exportCSV, exportPDFPrint, exportXLS } from "../exporters.js";
@@ -76,6 +77,19 @@ interface Shipment {
   createdAt: string;
 }
 
+interface Buyer {
+  id: string;
+  alias: string;
+  email: string;
+  blocked: boolean;
+  strikes: number;
+  createdAt: string;
+  attribution: Attribution | null;
+  attributionLast: Attribution | null;
+  lastLoginMethod: string | null;
+  ordersCount: number;
+}
+
 interface OrderDetail {
   order: Order;
   item: Item;
@@ -83,6 +97,7 @@ interface OrderDetail {
   invoice: { id: string; number: string; issuedAt: string } | null;
   payments: Payment[];
   shipments: Shipment[];
+  buyer: Buyer | null;
 }
 
 const SHIPMENT_TONE: Record<string, "ok" | "warn" | "danger" | "neutral" | "accent"> = {
@@ -140,6 +155,14 @@ interface Filters {
   q: string;
 }
 
+/** Сужение до одной кампании, пришедшее ссылкой из отчёта. */
+export interface AttrFilter {
+  model: "first" | "last";
+  source: string;
+  medium: string;
+  campaign: string;
+}
+
 const DEFAULT_FILTERS: Filters = {
   status: "all", market: "all", fulfilment: "all", band: "any",
   from: "", to: "", sort: "newest", q: "",
@@ -179,8 +202,14 @@ const SORTS: Array<{ value: string; labelKey: TKey }> = [
 
 const filterTools = makeFilterTools(DEFAULT_FILTERS);
 
-function buildQuery(f: Filters, limit: number, offset: number): string {
+function buildQuery(f: Filters, limit: number, offset: number, attr?: AttrFilter | null): string {
   const p = new URLSearchParams();
+  if (attr) {
+    p.set("attrModel", attr.model);
+    p.set("attrSource", attr.source);
+    p.set("attrMedium", attr.medium);
+    p.set("attrCampaign", attr.campaign);
+  }
   if (f.status !== "all") p.set("status", f.status);
   if (f.market !== "all") p.set("market", f.market);
   if (f.fulfilment !== "all") p.set("fulfilment", f.fulfilment);
@@ -246,16 +275,32 @@ function toExportRow(o: OrderRow): string[] {
 
 // ── Screen entry ─────────────────────────────────────────────────────────────
 
+/** Ссылка из отчёта «Reklāmas atdeve»: список, суженный до одной кампании.
+ *  Вид `attr:<модель>:<source>|<medium>|<campaign>`; пустые части значат
+ *  «без метки» — так открывается и строка прямых заходов. */
+function parseAttrParam(param: string | null): AttrFilter | null {
+  if (!param?.startsWith("attr:")) return null;
+  const [, model = "last", key = ""] = param.split(":");
+  const [source = "", medium = "", campaign = ""] = key.split("|").map(decodeURIComponent);
+  return { model: model === "first" ? "first" : "last", source, medium, campaign };
+}
+
+export function attrRoute(model: string, source: string, medium: string, campaign: string): string {
+  const k = [source, medium, campaign].map(encodeURIComponent).join("|");
+  return `attr:${model}:${k}`;
+}
+
 export function OrdersScreen({ nav }: { nav: Nav }) {
-  if (nav.route.param) return <OrderDetailPage id={nav.route.param} nav={nav} />;
-  return <OrdersList nav={nav} />;
+  const attr = parseAttrParam(nav.route.param);
+  if (nav.route.param && !attr) return <OrderDetailPage id={nav.route.param} nav={nav} />;
+  return <OrdersList nav={nav} attr={attr} />;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
 // LIST VIEW
 // ═════════════════════════════════════════════════════════════════════════════
 
-function OrdersList({ nav }: { nav: Nav }) {
+function OrdersList({ nav, attr }: { nav: Nav; attr?: AttrFilter | null }) {
   const { can } = useAuth();
   const { t } = useT();
   const toast = useToast();
@@ -296,7 +341,7 @@ function OrdersList({ nav }: { nav: Nav }) {
     const s = ++seq.current;
     setLoading(true);
     void api
-      .get<ListResponse>(`/api/orders?${buildQuery(filters, PAGE, 0)}`)
+      .get<ListResponse>(`/api/orders?${buildQuery(filters, PAGE, 0, attr)}`)
       .then((r) => {
         if (seq.current !== s) return;
         setRows(r.orders);
@@ -308,12 +353,14 @@ function OrdersList({ nav }: { nav: Nav }) {
       .catch(() => {
         if (seq.current === s) setLoading(false);
       });
-  }, [filters, refreshTick]);
+    // attr — сужение из отчёта по рекламе; смена кампании обязана
+    // перезапрашивать список, иначе останутся чужие строки.
+  }, [filters, refreshTick, attr?.model, attr?.source, attr?.medium, attr?.campaign]);
 
   const loadMore = async () => {
     setLoadingMore(true);
     try {
-      const r = await api.get<ListResponse>(`/api/orders?${buildQuery(filters, PAGE, rows.length)}`);
+      const r = await api.get<ListResponse>(`/api/orders?${buildQuery(filters, PAGE, rows.length, attr)}`);
       setRows((prev) => {
         const seen = new Set(prev.map((o) => o.id));
         return [...prev, ...r.orders.filter((o) => !seen.has(o.id))];
@@ -382,7 +429,7 @@ function OrdersList({ nav }: { nav: Nav }) {
     if (selectedRows.length > 0) return selectedRows;
     const out: OrderRow[] = [];
     for (;;) {
-      const r = await api.get<ListResponse>(`/api/orders?${buildQuery(filters, EXPORT_PAGE, out.length)}`);
+      const r = await api.get<ListResponse>(`/api/orders?${buildQuery(filters, EXPORT_PAGE, out.length, attr)}`);
       out.push(...r.orders);
       if (r.orders.length === 0 || out.length >= r.total) break;
     }
@@ -498,6 +545,22 @@ function OrdersList({ nav }: { nav: Nav }) {
         <ASelect value={filters.sort} onChange={(v) => set({ sort: v })} options={SORTS.map((s) => ({ value: s.value, label: t(s.labelKey) }))} />
       </div>
 
+      {attr && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+          background: AT.accentSoft, borderRadius: AT.radiusSm, padding: "9px 12px",
+        }}>
+          <span style={{ fontFamily: AT.body, fontSize: 12.5, fontWeight: 700, color: AT.accent }}>
+            {t(attr.model === "first" ? "mk.model.first" : "mk.model.last")}:
+          </span>
+          <span style={{ fontFamily: AT.body, fontSize: 12.5 }}>
+            {channelLabel(attr, t("attr.direct"))}{attr.campaign ? ` · ${attr.campaign}` : ""}
+          </span>
+          <span style={{ flex: 1 }} />
+          <ABtn size="sm" kind="ghost" onClick={() => nav.go("orders", null)}>{t("pk.clearAll")}</ABtn>
+        </div>
+      )}
+
       <FilterChips chips={chips} onClearAll={clearAll} />
 
       {/* Table */}
@@ -550,7 +613,7 @@ function OrdersList({ nav }: { nav: Nav }) {
                 style={checkboxStyle}
                 aria-label={t("ord.selectAllAria")}
               />,
-              t("ord.thOrder"), t("c.date"), t("c.market"), t("ord.thBidder"), t("ord.thPayment"), t("c.total"), t("c.status"),
+              t("ord.thOrder"), t("c.date"), t("c.market"), t("ord.thBidder"), t("attr.title"), t("ord.thPayment"), t("c.total"), t("c.status"),
             ]}>
               {rows.map((o) => (
                 <ATr key={o.id} onClick={() => nav.go("orders", o.id)} active={selected.has(o.id)}>
@@ -575,6 +638,18 @@ function OrdersList({ nav }: { nav: Nav }) {
                       <AAvatar name={o.customerAlias} size={20} />
                       <span style={{ fontWeight: 600 }}>{o.customerAlias}</span>
                     </span>
+                  </ATd>
+                  <ATd>
+                    {/* Канал прямо в списке: «какие заказы из рекламы» — вопрос
+                        к списку, а не к каждой карточке по очереди. */}
+                    <span style={{ fontSize: 12, color: (o.attributionLast ?? o.attribution) ? AT.ink : AT.inkSoft }}>
+                      {channelLabel(o.attributionLast ?? o.attribution, "—")}
+                    </span>
+                    {(o.attributionLast ?? o.attribution)?.campaign && (
+                      <div style={{ fontFamily: AT.body, fontSize: 10.5, color: AT.inkSoft }}>
+                        {(o.attributionLast ?? o.attribution)!.campaign}
+                      </div>
+                    )}
                   </ATd>
                   <ATd>
                     <span style={{ fontSize: 12, color: o.paidVia ? AT.ink : AT.inkSoft }}>
@@ -862,6 +937,46 @@ function OrderDetailPage({ id, nav }: { id: string; nav: Nav }) {
                 <KV k={t("ord.secDelivery")} v={fulfilmentLabel(o.fulfilment)} />
                 {o.pickupCode && <KV k={t("ord.pickupCode")} v={<span style={{ fontFamily: AT.mono, fontWeight: 700 }}>{o.pickupCode}</span>} />}
               </div>
+
+              {/* Откуда пришёл заказ. Стоит прямо в сводке, а не отдельным
+                  экраном: вопрос «это из рекламы?» задают в ту же секунду,
+                  что и «сколько он должен». */}
+              <div style={{ marginTop: 14 }}>
+                <AttributionCard
+                  first={o.attribution ?? detail.buyer?.attribution}
+                  last={o.attributionLast ?? detail.buyer?.attributionLast}
+                  note={o.attribution || o.attributionLast ? t("attr.orderNote") : undefined}
+                />
+              </div>
+
+              {/* Кто покупатель на самом деле: сколько заказов, когда пришёл,
+                  чем входит. Без этого о госте и о постоянном покупателе
+                  карточка говорила одинаково. */}
+              {detail.buyer && (
+                <div style={{
+                  marginTop: 10, background: AT.surfaceAlt, borderRadius: AT.radiusSm, padding: "10px 12px",
+                  display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
+                }}>
+                  <span style={{ fontFamily: AT.body, fontSize: 12, fontWeight: 700 }}>{t("cd.buyer")}</span>
+                  <span style={{ fontFamily: AT.body, fontSize: 12.5 }}>
+                    {detail.buyer.ordersCount} {t("cd.buyer.orders")}
+                  </span>
+                  <span style={{ fontFamily: AT.body, fontSize: 11.5, color: AT.inkSoft }}>
+                    · {t("ord.created")} {formatDate(detail.buyer.createdAt)}
+                  </span>
+                  {detail.buyer.lastLoginMethod && (
+                    <span style={{ fontFamily: AT.body, fontSize: 11.5, color: AT.inkSoft }}>
+                      · {detail.buyer.lastLoginMethod === "password" ? t("cd.login.password") : detail.buyer.lastLoginMethod}
+                    </span>
+                  )}
+                  {detail.buyer.blocked && <ABadge tone="danger">{t("cust.st.blocked")}</ABadge>}
+                  {detail.buyer.strikes > 0 && <ABadge tone="warn">{t("cust.th.strikes")}: {detail.buyer.strikes}</ABadge>}
+                  <span style={{ flex: 1 }} />
+                  <ABtn size="sm" kind="ghost" onClick={() => (nav.openTab ?? nav.go)("customers", o.customerId)}>
+                    {t("cd.openCustomer")}
+                  </ABtn>
+                </div>
+              )}
             </ACard>
           </div>
 

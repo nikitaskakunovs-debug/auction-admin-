@@ -67,7 +67,11 @@ export function registerSocialAuthRoutes(
   app: FastifyInstance,
   ctx: AppContext,
   deps: {
-    issueTokens: (customer: { id: string; email: string; alias: string }, req?: FastifyRequest) => Promise<{ accessToken: string; refreshToken: string }>;
+    issueTokens: (
+      customer: { id: string; email: string; alias: string },
+      req?: FastifyRequest,
+      method?: "password" | "google" | "facebook" | "telegram",
+    ) => Promise<{ accessToken: string; refreshToken: string }>;
   },
 ): void {
   const enabled = () => ({
@@ -204,7 +208,7 @@ export function registerSocialAuthRoutes(
 
   async function finish(profile: SocialProfile, target: string, req: FastifyRequest, reply: FastifyReply) {
     const { customer, created } = await upsert(profile);
-    const tokens = await deps.issueTokens(customer, req);
+    const tokens = await deps.issueTokens(customer, req, profile.provider);
     // p/n — для аналитики на витрине: каким способом вошли и первая ли это
     // регистрация (sign_up) или повторный вход (login). Персональных данных
     // во фрагменте нет, и он не попадает ни в логи, ни в Referer.

@@ -92,7 +92,20 @@ function publicAuction(row: {
 export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): void {
   // ── Bidder auth ───────────────────────────────────────────────────────────
 
-  async function issueTokens(customer: { id: string; email: string; alias: string }, req?: FastifyRequest) {
+  /**
+   * Выдать пару токенов и записать сессию.
+   *
+   * `method` — чем человек воспользовался СЕЙЧАС. Наличие googleId говорит
+   * лишь, что связка когда-то создана; при разборе обращения важно другое —
+   * как он входит на самом деле, потому что «не могу войти» у того, кто
+   * всегда жал кнопку Google, и у того, кто помнил пароль, — разные истории.
+   * Обновление токена методом не считается: это не вход.
+   */
+  async function issueTokens(
+    customer: { id: string; email: string; alias: string },
+    req?: FastifyRequest,
+    method?: "password" | "google" | "facebook" | "telegram",
+  ) {
     const refreshToken = randomBytes(48).toString("base64url");
     // Сессия = строка refresh-токена; её id уходит в access-токен как sid,
     // чтобы экран «Drošība» знал, какая из сессий — текущая.
@@ -107,6 +120,12 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
         lastUsedAt: ctx.now(),
       })
       .returning({ id: customerRefreshTokens.id });
+    if (method) {
+      await ctx.db
+        .update(customers)
+        .set({ lastLoginMethod: method, lastLoginAt: ctx.now() })
+        .where(eq(customers.id, customer.id));
+    }
     const accessToken = signAccessToken(
       { sub: customer.id, kind: "bidder", email: customer.email, name: customer.alias, role: "bidder", sid: session!.id },
       ctx.config.jwtSecret,
@@ -191,7 +210,7 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
     if (!row) return reply.code(409).send({ error: "email_exists" });
     // Письмо со ссылкой уходит сразу; до подтверждения ставки закрыты.
     await sendVerificationEmail(row);
-    return issueTokens(row, req);
+    return issueTokens(row, req, "password");
   });
 
   app.post("/api/public/auth/login", async (req, reply) => {
@@ -209,7 +228,7 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
     ) {
       return reply.code(401).send({ error: "invalid_credentials" });
     }
-    return issueTokens(customer, req);
+    return issueTokens(customer, req, "password");
   });
 
   // ── Forgot password (emailed single-use link) ─────────────────────────────
@@ -1026,28 +1045,67 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
   /** Свои данные одним файлом. Спецификация хочет ZIP на почту со ссылкой на
    *  7 дней; пока файл отдаётся сразу — это честнее, чем ждать этап с
    *  файловым хранилищем. */
-  /** Откуда пришёл клиент (первое касание): utm-метки, реферер, посадочная.
-   *  Пишется один раз — повторные вызовы и попытки переписать игнорируются,
-   *  первое касание переписать нельзя по определению. Панель по этим меткам
-   *  считает регистрации, заказы и выручку на кампанию. */
+  /**
+   * Откуда пришёл клиент: utm-метки, реферер, посадочная.
+   *
+   * Касаний два. ПЕРВОЕ пишется один раз — попытки переписать игнорируются,
+   * первое касание переписать нельзя по определению; по нему считается цена
+   * привлечения. ПОСЛЕДНЕЕ обновляется на каждом помеченном визите — по нему
+   * видно, что привело человека к покупке именно сейчас, и только так письмо
+   * и ретаргетинг вообще получают свою долю выручки.
+   *
+   * Заодно принимаем id браузера из плашки cookie: он сшивает согласия,
+   * данные до регистрации, с уже появившимся аккаунтом.
+   */
   app.post("/api/public/me/attribution", async (req, reply) => {
     const bidderId = requireBidder(req, reply);
     if (!bidderId) return;
     const short = z.string().max(120).optional();
+    const touch = z.object({
+      source: short, medium: short, campaign: short, content: short, term: short,
+      referrer: z.string().max(400).optional(),
+      landing: z.string().max(400).optional(),
+    });
     const body = z
       .object({
-        source: short, medium: short, campaign: short, content: short, term: short,
-        referrer: z.string().max(400).optional(),
-        landing: z.string().max(400).optional(),
+        first: touch.optional(),
+        last: touch.optional(),
+        visitorId: z.string().max(80).optional(),
       })
+      // Старый плоский вид (одно касание в корне тела) остаётся рабочим:
+      // витрина у кого-то в кэше, и ронять её на 400 незачем.
+      .and(touch.partial())
       .safeParse(req.body ?? {});
     if (!body.success) return reply.code(400).send({ error: "invalid_body" });
-    const clean = Object.fromEntries(Object.entries(body.data).filter(([, v]) => v));
-    if (Object.keys(clean).length === 0) return { ok: true };
-    await ctx.db
-      .update(customers)
-      .set({ attribution: { ...clean, at: ctx.now().toISOString() } })
-      .where(and(eq(customers.id, bidderId), isNull(customers.attribution)));
+    const { first, last, visitorId, ...flat } = body.data;
+    const strip = (t: Record<string, string | undefined> | undefined) => {
+      if (!t) return null;
+      const clean = Object.fromEntries(Object.entries(t).filter(([, v]) => v));
+      return Object.keys(clean).length > 0 ? { ...clean, at: ctx.now().toISOString() } : null;
+    };
+    const firstTouch = strip(first) ?? strip(flat);
+    const lastTouch = strip(last) ?? firstTouch;
+
+    if (firstTouch) {
+      await ctx.db
+        .update(customers)
+        .set({ attribution: firstTouch })
+        .where(and(eq(customers.id, bidderId), isNull(customers.attribution)));
+    }
+    if (lastTouch) {
+      await ctx.db
+        .update(customers)
+        .set({ attributionLast: lastTouch, attributionTouches: sql`${customers.attributionTouches} + 1` })
+        .where(eq(customers.id, bidderId));
+    }
+    // Id браузера тоже пишем один раз: у аккаунта он первый, а не последний —
+    // перезапись увела бы согласия гостя к чужому браузеру.
+    if (visitorId) {
+      await ctx.db
+        .update(customers)
+        .set({ visitorId })
+        .where(and(eq(customers.id, bidderId), isNull(customers.visitorId)));
+    }
     return { ok: true };
   });
 

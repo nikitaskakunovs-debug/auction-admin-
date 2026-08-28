@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError, type Customer, type Order } from "../api.js";
+import { AttributionCard } from "../attribution.js";
 import type { Nav } from "../App.js";
 import { useAuth } from "../auth.js";
 import { exportCSV, exportPDFPrint, exportXLS } from "../exporters.js";
@@ -35,6 +36,38 @@ interface CreditEntry {
   createdAt: string;
 }
 
+interface ConsentRow {
+  id: string;
+  mode: "accept" | "reject" | "custom";
+  analytics: boolean;
+  marketing: boolean;
+  policyVersion: string;
+  host: string;
+  createdAt: string;
+  /** Решение принято до регистрации — найдено по id браузера, а не по аккаунту. */
+  viaVisitor: boolean;
+}
+
+interface MailRow {
+  id: string;
+  type: string;
+  kind: string;
+  subject: string;
+  status: string;
+  sentAt: string | null;
+  scheduledFor: string | null;
+  lastError: string | null;
+  createdAt: string;
+}
+
+interface SessionRow {
+  id: string;
+  ua: string | null;
+  ip: string | null;
+  lastUsedAt: string | null;
+  createdAt: string;
+}
+
 interface CustomerDetail {
   customer: Customer;
   orders: Order[];
@@ -42,6 +75,13 @@ interface CustomerDetail {
   fees: CustomerFee[];
   outstandingFeeCents: number;
   credit: { balanceCents: number; entries: CreditEntry[] };
+  consents: ConsentRow[];
+  sessions: SessionRow[];
+  mail: MailRow[];
+  searches: Array<{ id: string; name: string; alertEmail: boolean; createdAt: string }>;
+  watchCount: number;
+  notificationPrefs: Array<{ event: string; email: boolean }>;
+  lifetime: { paidOrders: number; revenueCents: number };
 }
 
 interface ListResponse {
@@ -693,12 +733,21 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
           }
         >
           <div style={{ display: "grid", gap: 14 }}>
-            <div style={{ display: "flex", gap: 12 }}>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              <Stat label={t("cd.lifetime")} value={formatEur(detail.lifetime.revenueCents)} />
               <Stat label={t("cust.stat.bids")} value={String(detail.bidStats.totalBids)} />
               <Stat label={t("cust.stat.auctions")} value={String(detail.bidStats.auctionsBidOn)} />
               <Stat label={t("cust.th.strikes")} value={String(detail.customer.strikes)} warn={detail.customer.strikes > 0} />
               <Stat label={t("cust.th.feesDue")} value={formatEur(detail.outstandingFeeCents)} warn={detail.outstandingFeeCents > 0} />
             </div>
+
+            {/* Откуда пришёл — первым делом: с этого начинается любой разговор
+                о клиенте, и раньше ответа на него в панели не было вовсе. */}
+            <AttributionCard
+              first={detail.customer.attribution}
+              last={detail.customer.attributionLast}
+              touches={detail.customer.attributionTouches}
+            />
 
             {/* A3: tag editor — toggling saves immediately (audited). */}
             {!detail.customer.erasedAt && (
@@ -764,7 +813,123 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
               {!detail.customer.googleId && !detail.customer.facebookId && !detail.customer.telegramId && (
                 <span style={{ fontFamily: AT.body, fontSize: 12, color: AT.inkSoft }}>{t("cust.social.none")}</span>
               )}
+              {/* Привязка говорит лишь, что связка есть. Чем человек реально
+                  пользуется — вот это, и при разборе «не могу войти» важно
+                  именно оно. */}
+              {detail.customer.lastLoginAt && (
+                <div style={{ flexBasis: "100%", fontFamily: AT.body, fontSize: 11.5, color: AT.inkSoft }}>
+                  {t("cd.lastLogin")}: {formatDay(detail.customer.lastLoginAt)}
+                  {detail.customer.lastLoginMethod
+                    ? ` · ${detail.customer.lastLoginMethod === "password" ? t("cd.login.password") : detail.customer.lastLoginMethod}`
+                    : ""}
+                  {detail.sessions.length > 0 ? ` · ${t("cd.sessions")}: ${detail.sessions.length}` : ""}
+                </div>
+              )}
             </div>
+
+            {/* Согласия: и cookie, и рассылка, и стоп-сигналы — в одном месте.
+                На запрос «докажите, что он соглашался» ответ обязан находиться
+                за один клик, а не собираться из трёх экранов. */}
+            <ACard title={t("cd.consents")} pad={false}>
+              <div style={{ padding: "10px 12px", display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", borderBottom: `1px solid ${AT.ruleSoft}` }}>
+                <span style={{ fontFamily: AT.body, fontSize: 12, color: AT.inkSoft, minWidth: 92 }}>{t("cd.consent.marketing")}</span>
+                {detail.customer.marketingOptIn
+                  ? <ABadge tone="ok">{t("c.yes")}</ABadge>
+                  : <ABadge tone="neutral">{t("c.no")}</ABadge>}
+                {detail.customer.marketingOptInAt && (
+                  <span style={{ fontFamily: AT.body, fontSize: 11.5, color: AT.inkSoft }}>
+                    {formatDay(detail.customer.marketingOptInAt)}
+                    {detail.customer.marketingSource ? ` · ${detail.customer.marketingSource}` : ""}
+                  </span>
+                )}
+                {detail.customer.marketingOptOutAt && (
+                  <span style={{ fontFamily: AT.body, fontSize: 11.5, color: AT.inkSoft }}>
+                    ✕ {formatDay(detail.customer.marketingOptOutAt)}
+                  </span>
+                )}
+                {detail.customer.unsubscribedAt && (
+                  <span title={formatDay(detail.customer.unsubscribedAt)}><ABadge tone="warn">{t("cd.unsubscribed")}</ABadge></span>
+                )}
+                {detail.customer.emailBouncedAt && (
+                  <span title={formatDay(detail.customer.emailBouncedAt)}><ABadge tone="danger">{t("cd.bounced")}</ABadge></span>
+                )}
+              </div>
+              {detail.consents.length === 0 ? (
+                <div style={{ padding: "10px 12px", fontFamily: AT.body, fontSize: 12, color: AT.inkSoft }}>
+                  {t("cd.consent.none")}
+                </div>
+              ) : (
+                <ATable head={[t("cust.credit.when"), t("cd.consent.cookies"), t("cd.consent.analytics"), t("cd.consent.marketing"), t("cd.consent.version")]}>
+                  {detail.consents.map((c) => (
+                    <ATr key={c.id}>
+                      <ATd>
+                        {formatDay(c.createdAt)}
+                        {c.viaVisitor && (
+                          <span style={{ fontFamily: AT.body, fontSize: 10.5, color: AT.inkSoft }}> · {t("cd.consent.beforeSignup")}</span>
+                        )}
+                      </ATd>
+                      <ATd>
+                        <ABadge tone={c.mode === "accept" ? "ok" : c.mode === "reject" ? "neutral" : "warn"}>
+                          {t(`cd.consent.mode.${c.mode}` as TKey)}
+                        </ABadge>
+                      </ATd>
+                      <ATd>{c.analytics ? "✓" : "—"}</ATd>
+                      <ATd>{c.marketing ? "✓" : "—"}</ATd>
+                      <ATd mono>{c.policyVersion}</ATd>
+                    </ATr>
+                  ))}
+                </ATable>
+              )}
+            </ACard>
+
+            {/* Интересы: чего человек ждёт. По ним понятно, что ему предлагать
+                и почему он вообще подписался на письма. */}
+            {(detail.searches.length > 0 || detail.watchCount > 0) && (
+              <div style={{ background: AT.surfaceAlt, borderRadius: AT.radiusSm, padding: "10px 12px", display: "grid", gap: 6 }}>
+                <span style={{ fontFamily: AT.body, fontSize: 12, fontWeight: 700 }}>{t("cd.interests")}</span>
+                {detail.watchCount > 0 && (
+                  <div style={{ fontFamily: AT.body, fontSize: 12.5 }}>{t("cd.watchlist")}: {detail.watchCount}</div>
+                )}
+                {detail.searches.length > 0 && (
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {detail.searches.map((s) => (
+                      <ABadge key={s.id} tone={s.alertEmail ? "accent" : "neutral"}>
+                        {s.name}{s.alertEmail ? ` · ${t("cd.alertOn")}` : ""}
+                      </ABadge>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Письма: что человеку реально ушло и дошло ли. Без этого на
+                «мне ничего не приходило» ответить нечем. */}
+            <ACard title={`${t("cd.mail.title")} (${detail.mail.length})`} pad={false}>
+              {detail.mail.length === 0 ? (
+                <AEmpty text={t("cd.mail.none")} />
+              ) : (
+                <ATable head={[t("cust.credit.when"), t("cd.mail.subject"), t("c.status")]}>
+                  {detail.mail.map((m) => (
+                    <ATr key={m.id}>
+                      <ATd>{formatDay(m.sentAt ?? m.createdAt)}</ATd>
+                      <ATd>
+                        {m.subject}
+                        {m.kind === "marketing" && (
+                          <span style={{ fontFamily: AT.body, fontSize: 10.5, color: AT.inkSoft }}> · {t("cd.mail.marketing")}</span>
+                        )}
+                      </ATd>
+                      <ATd>
+                        <span title={m.lastError ?? (m.scheduledFor ? formatDay(m.scheduledFor) : undefined)}>
+                          <ABadge tone={m.status === "sent" ? "ok" : m.status === "failed" ? "danger" : "warn"}>
+                            {m.status === "pending" && m.scheduledFor ? t("cd.mail.scheduled") : m.status}
+                          </ABadge>
+                        </span>
+                      </ATd>
+                    </ATr>
+                  ))}
+                </ATable>
+              )}
+            </ACard>
 
             {!detail.customer.erasedAt && can("customers.edit") && (
               <>

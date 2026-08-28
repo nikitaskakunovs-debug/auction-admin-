@@ -89,7 +89,7 @@ const SCREENS: ScreenDef[] = [
   // место в панели, а не только в браузере посетителя.
   { id: "consents", labelKey: "sh.nav.consents", icon: "shield", permission: "customers.view", render: () => <ConsentsScreen /> },
   // Отдача рекламы: регистрации и выручка по кампаниям (атрибуция).
-  { id: "marketing", labelKey: "sh.nav.marketing", icon: "analytics", permission: "reports.view", render: () => <MarketingScreen /> },
+  { id: "marketing", labelKey: "sh.nav.marketing", icon: "analytics", permission: "reports.view", render: (nav) => <MarketingScreen nav={nav} /> },
   { id: "finance", labelKey: "sh.nav.finance", icon: "finance", permission: ["invoices.view", "finance.view"], render: (nav) => <FinanceScreen nav={nav} /> },
   { id: "content", labelKey: "sh.nav.content", icon: "list", permission: "content.view", render: (nav) => <ContentScreen nav={nav} /> },
   // Реклама в ленте лотов — это тоже контент витрины, но со своим сроком,
