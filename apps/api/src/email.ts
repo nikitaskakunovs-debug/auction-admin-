@@ -12,6 +12,9 @@ export interface EmailMessage {
   /** Designed body. Always sent alongside `text`, never instead of it — a
    * client that refuses HTML still gets every fact. */
   html?: string;
+  /** Служебные заголовки письма. Сегодня это List-Unsubscribe: без него
+   * Gmail не показывает свою кнопку отписки и хуже пропускает рассылку. */
+  headers?: Record<string, string>;
 }
 
 export interface EmailAdapter {
@@ -92,6 +95,7 @@ export class SmtpEmailAdapter implements EmailAdapter {
       subject: msg.subject,
       text: msg.text,
       ...(msg.html ? { html: msg.html } : {}),
+      ...(msg.headers ? { headers: msg.headers } : {}),
     });
   }
 }

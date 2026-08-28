@@ -3,21 +3,27 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { FixedListing, PublicAuction } from "@/lib/types";
+import { publicApi } from "@/lib/api";
 import { watchStore } from "@/lib/watch";
 import { useT } from "@/lib/i18n";
 import { Icon } from "./Icon";
 import { fixedToCard, LotCard, type CardLot } from "./LotCard";
 
-/** Вэлмес — сохранённые лоты. Список ID живёт локально (в движке пока нет
- *  вотчлиста), сами лоты приходят из каталога. */
+/** Вэлмес — сохранённые лоты. Список ID хранится у вошедшего в базе, у гостя —
+ *  в браузере; сами лоты приходят из каталога. */
 export function Watchlist({ auctions, listings = [] }: { auctions: PublicAuction[]; listings?: FixedListing[] }) {
   const { t } = useT();
   const [ids, setIds] = useState<string[] | null>(null);
+  const [signedIn, setSignedIn] = useState(false);
 
   useEffect(() => {
     const sync = () => setIds(watchStore.list());
     sync();
-    return watchStore.subscribe(sync);
+    setSignedIn(publicApi.hasSession);
+    const onSession = () => setSignedIn(publicApi.hasSession);
+    publicApi.listeners.add(onSession);
+    const off = watchStore.subscribe(sync);
+    return () => { publicApi.listeners.delete(onSession); off(); };
   }, []);
 
   const pool: CardLot[] = [...auctions, ...listings.map(fixedToCard)];
@@ -60,7 +66,7 @@ export function Watchlist({ auctions, listings = [] }: { auctions: PublicAuction
       )}
 
       <p className="note" style={{ marginTop: "var(--s5)" }}>
-        {t("wl.localNote")}
+        {t(signedIn ? "wl.syncedNote" : "wl.localNote")}
       </p>
     </section>
   );

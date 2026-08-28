@@ -1,5 +1,5 @@
 import { customers, notificationPrefs, notifications, type Db } from "@auction/db";
-import { and, asc, eq, lte, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, lte, or, sql } from "drizzle-orm";
 import type { AppContext } from "../context.js";
 import {
   LANGS,
@@ -13,6 +13,7 @@ import {
   type TemplateInput,
 } from "./emailCopy.js";
 import { renderEmailHtml, type EmailBrand } from "./emailLayout.js";
+import { unsubscribeApiUrl, unsubscribeUrl } from "./unsubscribe.js";
 
 /**
  * Notification enqueue + dispatch. Enqueue writes an outbox row (inside the
@@ -86,19 +87,46 @@ function tagEmailLinks(body: string, campaign: string, base: string, amp: string
   });
 }
 
+/** Подпись под рассылкой: почему письмо пришло и как перестать его получать.
+ *  У сервисных писем этого блока нет — от счёта не отписываются. */
+const UNSUB_COPY: Record<Lang, { label: string; note: string }> = {
+  lv: {
+    label: "Atteikties no jaunumiem",
+    note: "Šo vēstuli saņēmāt, jo piekritāt jaunumiem izsoli.lv. Paziņojumi par jūsu solījumiem, rēķiniem un saņemšanu pienāks arī turpmāk.",
+  },
+  ru: {
+    label: "Отписаться от рассылки",
+    note: "Письмо пришло, потому что вы согласились получать новости izsoli.lv. Уведомления о ваших ставках, счетах и выдаче будут приходить и дальше.",
+  },
+  en: {
+    label: "Unsubscribe from updates",
+    note: "You received this because you agreed to updates from izsoli.lv. Notices about your bids, invoices and pickup will keep coming.",
+  },
+};
+
 /** Subject + both bodies for one message. */
 export function renderNotification(
   ctx: AppContext,
   type: NotificationType,
   lang: Lang,
   input: TemplateInput,
+  /** Идентификатор клиента для маркетинговых писем: с ним в подвал ляжет
+   *  видимая ссылка отписки. Для сервисных писем не передаётся. */
+  marketingFor?: string,
 ): { subject: string; text: string; html: string } {
   const copy: Rendered = renderCopy(type, lang, input, copyContext(ctx));
   const base = ctx.config.storefrontBaseUrl;
+  const unsub = marketingFor
+    ? { ...UNSUB_COPY[lang], url: unsubscribeUrl(marketingFor, ctx.config.jwtSecret, base) }
+    : undefined;
+  const spec = unsub ? { ...copy.spec, unsubscribe: unsub } : copy.spec;
+  // Ссылка отписки помечена своей меткой: отписки в отчёте видны отдельно от
+  // переходов в каталог, а utm-подстановка её не трогает.
+  const textUnsub = unsub ? `\n\n---\n${unsub.note}\n${unsub.label}: ${unsub.url}` : "";
   return {
     subject: copy.subject,
-    text: tagEmailLinks(copy.text, type, base, "&"),
-    html: tagEmailLinks(renderEmailHtml(copy.spec, emailBrand(ctx)), type, base, "&amp;"),
+    text: tagEmailLinks(copy.text, type, base, "&") + textUnsub,
+    html: tagEmailLinks(renderEmailHtml(spec, emailBrand(ctx)), type, base, "&amp;"),
   };
 }
 
@@ -202,7 +230,12 @@ export async function dispatchNotifications(ctx: AppContext, batch = 50): Promis
   const pending = await ctx.db
     .select()
     .from(notifications)
-    .where(eq(notifications.status, "pending"))
+    .where(and(
+      eq(notifications.status, "pending"),
+      // Маркетинг, отложенный из-за ночной тишины, ждёт своего часа;
+      // сервисные письма приходят без этой отметки и уходят сразу.
+      or(isNull(notifications.scheduledFor), lte(notifications.scheduledFor, ctx.now())),
+    ))
     .orderBy(asc(notifications.createdAt))
     .limit(batch);
 
@@ -213,11 +246,21 @@ export async function dispatchNotifications(ctx: AppContext, batch = 50): Promis
       // Rows written before HTML emails existed have no html — they still go
       // out as plain text rather than being re-rendered from newer copy.
       const html = n.html ? await resolvePayLaterExample(ctx, n.html) : undefined;
+      // Отписка: почтовики требуют её у любой рассылки, и Gmail показывает
+      // свою кнопку только при этих двух заголовках. У сервисных писем
+      // отписки нет и быть не может — их отменяют не так.
+      const headers = n.kind === "marketing" && n.customerId
+        ? {
+            "List-Unsubscribe": `<${unsubscribeApiUrl(n.customerId, ctx.config.jwtSecret, ctx.config.publicBaseUrl)}>`,
+            "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+          }
+        : undefined;
       await ctx.email.send({
         to: n.toEmail,
         subject: n.subject,
         text: body,
         ...(html ? { html } : {}),
+        ...(headers ? { headers } : {}),
       });
       await ctx.db
         .update(notifications)

@@ -288,6 +288,13 @@
       "when": 1787310000000,
       "tag": "0040_quiet_marketer",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1787400000000,
+      "tag": "0041_swift_postman",
+      "breakpoints": true
     }
   ]
 }

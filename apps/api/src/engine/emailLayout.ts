@@ -91,6 +91,9 @@ export interface EmailSpec {
   notes?: Array<{ title?: string | undefined; text: string; tone?: Tone | undefined }> | undefined;
   /** Footer line specific to this message, e.g. the order it concerns. */
   footNote?: string | undefined;
+  /** Видимая ссылка отписки. Есть только у рассылки: у письма о заказе её
+   *  нет и быть не должно — от счёта не отписываются. */
+  unsubscribe?: { url: string; label: string; note: string } | undefined;
   /** Labels that would otherwise be hard-coded English. */
   labels: { follow: string; review: string };
 }
@@ -249,6 +252,14 @@ export function renderEmailHtml(spec: EmailSpec, brand: EmailBrand): string {
               ${esc(brand.legalName)}${brand.regNo ? ` &middot; ${esc(brand.regNo)}` : ""} &middot; ${esc(brand.address)}<br>
               &copy; ${new Date().getUTCFullYear()} ${esc(brand.companyName)}${spec.footNote ? ` &middot; ${esc(spec.footNote)}` : ""}
             </div>
+            ${
+              spec.unsubscribe
+                ? `<div style="margin-top:10px;font-size:11px;line-height:1.6;color:${BRAND.faint};">
+              ${esc(spec.unsubscribe.note)}<br>
+              <a href="${safeUrl(spec.unsubscribe.url)}" style="color:#FFFFFF;text-decoration:underline;">${esc(spec.unsubscribe.label)}</a>
+            </div>`
+                : ""
+            }
           </td></tr>
         </table>
       </td></tr>

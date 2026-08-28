@@ -75,6 +75,9 @@ export class AuctionScheduler {
         await phase("pollShipments", () => this.pollShipments());
         // Phase E: pull Jira statuses + IT comments (every 5 min).
         await phase("syncBugs", () => this.syncBugs());
+        // Письма по просьбе: новые лоты под сохранённые поиски и вэлмес на
+        // исходе (раз в 30 минут — чаще некуда, письма всё равно суточные).
+        await phase("marketingCrons", () => this.marketingCrons());
         // Drain the outbox last so this tick's enqueues go out promptly.
         await phase("dispatchNotifications", () => dispatchNotifications(this.ctx));
       } finally {
@@ -113,6 +116,15 @@ export class AuctionScheduler {
     for (const shipment of active) {
       await refreshShipment(this.ctx, shipment).catch(() => undefined);
     }
+  }
+
+  /** Кроны запрошенных писем, раз в 30 минут (Redis-маркер). */
+  private async marketingCrons(): Promise<void> {
+    const marker = await this.ctx.redis.set("marketing:crons", "1", "PX", 30 * 60 * 1000, "NX");
+    if (marker !== "OK") return;
+    const { runSavedSearchAlerts, runWatchlistEndingAlerts } = await import("./marketingCrons.js");
+    await runSavedSearchAlerts(this.ctx).catch((err) => console.error("saved search alerts failed", err));
+    await runWatchlistEndingAlerts(this.ctx).catch((err) => console.error("watchlist alerts failed", err));
   }
 
   /** Jira → panel sync, guarded by a 5-minute Redis marker. */

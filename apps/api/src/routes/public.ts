@@ -26,8 +26,9 @@ import {
   savedSearches,
   shipments,
   verifyPassword,
+  watchlist,
 } from "@auction/db";
-import { and, asc, desc, eq, gt, ilike, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, ilike, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { signAccessToken } from "../auth/jwt.js";
@@ -43,7 +44,9 @@ import { placeBid } from "../engine/bids.js";
 import { InsufficientCreditError, getOrCreateCredit, moveCredit } from "../engine/credits.js";
 import { renderInvoiceHtml, type InvoiceData } from "../engine/invoices.js";
 import { renderInvoicePdf } from "../engine/invoicePdf.js";
+import { applyUnsubscribe } from "../engine/marketing.js";
 import { enqueueNotification } from "../engine/notifications.js";
+import { verifyUnsubscribeToken } from "../engine/unsubscribe.js";
 import { registerSocialAuthRoutes } from "./socialAuth.js";
 import { buyNow } from "../engine/purchase.js";
 
@@ -497,7 +500,9 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
       .update(customers)
       .set(
         body.data.optIn
-          ? { marketingOptIn: true, marketingOptInAt: now, marketingSource: "account", marketingOptOutAt: null }
+          // Согласие из кабинета снимает и отписку по ссылке из письма —
+          // иначе галочка была бы включена, а письма всё равно бы не шли.
+          ? { marketingOptIn: true, marketingOptInAt: now, marketingSource: "account", marketingOptOutAt: null, unsubscribedAt: null }
           // Дату согласия не стираем: отзыв тоже нужно уметь показать.
           : { marketingOptIn: false, marketingOptOutAt: now },
       )
@@ -544,6 +549,8 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
         patch.marketingOptInAt = now;
         patch.marketingSource = "account";
         patch.marketingOptOutAt = null;
+        // Согласие из кабинета снимает и отписку по ссылке из письма.
+        patch.unsubscribedAt = null;
       } else {
         // Дату согласия не стираем: отзыв тоже нужно уметь показать.
         patch.marketingOptIn = false;
@@ -1341,6 +1348,126 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
       .where(and(eq(savedSearches.id, id), eq(savedSearches.customerId, bidderId)))
       .returning({ id: savedSearches.id });
     if (!rows.length) return reply.code(404).send({ error: "not_found" });
+    return { ok: true };
+  });
+
+  // ── Отписка от рассылки ─────────────────────────────────────────────────
+
+  /**
+   * Работает без входа в аккаунт — иначе это не отписка, а препятствие.
+   * GET ничего не меняет и уводит человека на страницу витрины: ссылку могут
+   * открыть предпросмотрщик почты или антивирус, и молча выключать рассылку
+   * от их визита нельзя. Меняет состояние только POST — его шлёт либо кнопка
+   * на странице, либо сам почтовик (One-Click).
+   */
+  const unsubToken = z.object({ t: z.string().min(10).max(200) });
+
+  app.get("/api/public/unsubscribe", async (req, reply) => {
+    const q = unsubToken.safeParse(req.query ?? {});
+    const site = ctx.config.storefrontBaseUrl;
+    if (!q.success) return reply.redirect(`${site}/atteikties`, 302);
+    return reply.redirect(`${site}/atteikties?t=${encodeURIComponent(q.data.t)}`, 302);
+  });
+
+  app.post("/api/public/unsubscribe", async (req, reply) => {
+    const q = unsubToken.safeParse({ ...(req.query as object), ...(typeof req.body === "object" ? req.body : {}) });
+    if (!q.success) return reply.code(400).send({ error: "invalid_token" });
+    const customerId = verifyUnsubscribeToken(q.data.t, ctx.config.jwtSecret);
+    if (!customerId) return reply.code(400).send({ error: "invalid_token" });
+    await applyUnsubscribe(ctx, customerId);
+    // Повторное нажатие отвечает так же: человеку важен результат, а не то,
+    // была ли отписка уже сделана.
+    return { ok: true };
+  });
+
+  /** Ошиблись кнопкой — возвращаем подписку тем же токеном. */
+  app.post("/api/public/resubscribe", async (req, reply) => {
+    const q = unsubToken.safeParse({ ...(req.query as object), ...(typeof req.body === "object" ? req.body : {}) });
+    if (!q.success) return reply.code(400).send({ error: "invalid_token" });
+    const customerId = verifyUnsubscribeToken(q.data.t, ctx.config.jwtSecret);
+    if (!customerId) return reply.code(400).send({ error: "invalid_token" });
+    await ctx.db
+      .update(customers)
+      .set({ unsubscribedAt: null, marketingOptIn: true, marketingOptInAt: ctx.now(), marketingOptOutAt: null })
+      .where(and(eq(customers.id, customerId), isNull(customers.erasedAt)));
+    return { ok: true };
+  });
+
+  // ── Вэлмес: отслеживаемые лоты ──────────────────────────────────────────
+
+  /**
+   * Список живёт в базе, а не в браузере: сердечко, поставленное с телефона,
+   * обязано быть на месте и в ноутбуке, и через полгода после чистки кэша.
+   * Наружу отдаём и принимаем плоский список идентификаторов — витрине всё
+   * равно, торги это или лот «купить сразу», а в базе ссылка своя на каждое.
+   */
+  const WATCH_LIMIT = 500;
+
+  /** Разложить пришедшие идентификаторы по двум колонкам; чужого не берём. */
+  async function watchRows(customerId: string, ids: string[]) {
+    if (ids.length === 0) return [];
+    const live = await ctx.db.select({ id: auctions.id }).from(auctions).where(inArray(auctions.id, ids));
+    const fixed = await ctx.db.select({ id: listings.id }).from(listings).where(inArray(listings.id, ids));
+    return [
+      ...live.map((a) => ({ customerId, auctionId: a.id, listingId: null })),
+      ...fixed.map((l) => ({ customerId, auctionId: null, listingId: l.id })),
+    ];
+  }
+
+  async function watchIds(customerId: string): Promise<string[]> {
+    const rows = await ctx.db
+      .select({ auctionId: watchlist.auctionId, listingId: watchlist.listingId })
+      .from(watchlist)
+      .where(eq(watchlist.customerId, customerId))
+      .orderBy(desc(watchlist.createdAt));
+    return rows.map((r) => r.auctionId ?? r.listingId).filter((x): x is string => x !== null);
+  }
+
+  app.get("/api/public/me/watchlist", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    return { ids: await watchIds(bidderId) };
+  });
+
+  /** Слияние, а не замена: при первом входе список из браузера переезжает в
+   *  базу, ничего не затирая. Снятие сердечка идёт отдельным DELETE. */
+  app.post("/api/public/me/watchlist", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const body = z.object({ ids: z.array(z.string().uuid()).max(WATCH_LIMIT) }).safeParse(req.body ?? {});
+    if (!body.success) return reply.code(400).send({ error: "invalid_body" });
+    const rows = await watchRows(bidderId, [...new Set(body.data.ids)]);
+    if (rows.length > 0) await ctx.db.insert(watchlist).values(rows).onConflictDoNothing();
+    return { ids: await watchIds(bidderId) };
+  });
+
+  app.post("/api/public/me/watchlist/:id", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const { id } = req.params as { id: string };
+    const [count] = await ctx.db
+      .select({ n: sql<string>`count(*)` })
+      .from(watchlist)
+      .where(eq(watchlist.customerId, bidderId));
+    if (Number(count?.n ?? 0) >= WATCH_LIMIT) return reply.code(409).send({ error: "too_many" });
+    const rows = await watchRows(bidderId, [id]);
+    if (rows.length === 0) return reply.code(404).send({ error: "not_found" });
+    await ctx.db.insert(watchlist).values(rows).onConflictDoNothing();
+    return { ok: true };
+  });
+
+  app.delete("/api/public/me/watchlist/:id", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const { id } = req.params as { id: string };
+    await ctx.db
+      .delete(watchlist)
+      .where(
+        and(
+          eq(watchlist.customerId, bidderId),
+          or(eq(watchlist.auctionId, id), eq(watchlist.listingId, id)),
+        ),
+      );
     return { ok: true };
   });
 

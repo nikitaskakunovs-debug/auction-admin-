@@ -73,6 +73,13 @@ export async function buildServer(ctx: AppContext, opts: { logger?: boolean } = 
     credentials: true,
   });
 
+  // Почтовики (Gmail, Yahoo) жмут кнопку «Отписаться» сами и шлют
+  // form-urlencoded — без этого разбора Fastify ответил бы 415, и кнопка
+  // в почте перестала бы работать. Тело нам не нужно: токен в адресе.
+  app.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string" }, (_req, body, done) =>
+    done(null, body),
+  );
+
   // Global rate limit (per-IP), Redis-backed so it holds across instances.
   // Auth endpoints add their own stricter caps via per-route config.
   await app.register(rateLimit, {

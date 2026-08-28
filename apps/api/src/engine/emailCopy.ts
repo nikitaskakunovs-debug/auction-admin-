@@ -30,12 +30,14 @@ export type NotificationType =
   | "unpaid_cancelled"
   | "shipped"
   | "refunded"
-  | "checked_in";
+  | "checked_in"
+  | "saved_search_hits"
+  | "watchlist_ending";
 
 export const NOTIFICATION_TYPES: NotificationType[] = [
   "verify_email", "outbid", "won", "purchased", "payment_reminder", "order_paid",
   "pickup_ready", "pickup_reminder", "no_pickup_cancelled", "unpaid_cancelled",
-  "shipped", "refunded", "checked_in",
+  "shipped", "refunded", "checked_in", "saved_search_hits", "watchlist_ending",
 ];
 
 export interface TemplateInput {
@@ -65,6 +67,13 @@ export interface TemplateInput {
   lineCount?: number | undefined;
   /** Ссылка действия письма — подтверждение почты. */
   actionUrl?: string | undefined;
+  /** Подборка лотов для писем-списков: новые по сохранённому поиску, лоты
+   *  из вэлмес на исходе. Цена — та, что человек видит на витрине. */
+  lots?: Array<{ title: string; priceCents: number; endsAt?: Date | undefined }> | undefined;
+  /** Имя сохранённого поиска, которому письмо соответствует. */
+  searchName?: string | undefined;
+  /** Сколько нашлось всего, если в письме показан не весь список. */
+  totalCount?: number | undefined;
 }
 
 /** Links and addresses the copy needs; supplied by config, never hard-coded. */
@@ -728,6 +737,99 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
         },
       };
     }
+
+    // ── Marketing: new lots matching a saved search (LC-02) ─────────────────
+    case "saved_search_hits": {
+      const lots = i.lots ?? [];
+      const total = i.totalCount ?? lots.length;
+      const name = i.searchName ?? "";
+      const listText = lots
+        .map((l) => `• ${l.title} — ${moneyIn(l.priceCents, lang)}`)
+        .join("\n");
+      const more = total > lots.length
+        ? { lv: `\n…un vēl ${total - lots.length} loti.`, ru: `\n…и ещё ${total - lots.length} лотов.`, en: `\n…and ${total - lots.length} more lots.` }[lang]
+        : "";
+      return {
+        subject: {
+          lv: `Jauni loti: ${name} (${total})`,
+          ru: `Новые лоты: ${name} (${total})`,
+          en: `New lots: ${name} (${total})`,
+        }[lang],
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nPēc jūsu saglabātā meklējuma «${name}» ir parādījušies jauni loti:\n\n${listText}${more}\n\nSkatīt visus: ${ctx.siteUrl}/meklet\n\n[saved_search_hits]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nПо вашему сохранённому поиску «${name}» появились новые лоты:\n\n${listText}${more}\n\nСмотреть все: ${ctx.siteUrl}/meklet\n\n[saved_search_hits]`,
+          en: `Hi ${i.alias},\n\nNew lots have appeared for your saved search "${name}":\n\n${listText}${more}\n\nSee them all: ${ctx.siteUrl}/meklet\n\n[saved_search_hits]`,
+        }[lang],
+        spec: {
+          preheader: {
+            lv: `${total} jauni loti pēc meklējuma «${name}»`,
+            ru: `${total} новых лотов по поиску «${name}»`,
+            en: `${total} new lots for "${name}"`,
+          }[lang],
+          headline: { lv: "JAUNI LOTI JŪSU MEKLĒJUMĀ", ru: "НОВЫЕ ЛОТЫ ПО ВАШЕМУ ПОИСКУ", en: "NEW LOTS FOR YOUR SEARCH" }[lang],
+          headlineTone: "accent",
+          greeting: hi,
+          intro: {
+            lv: `Pēc saglabātā meklējuma «${name}» kopš pēdējās vēstules ir parādījušies ${total} jauni loti. Cena ir galīgā — bez piemaksām pie kases.`,
+            ru: `По сохранённому поиску «${name}» с прошлого письма появились новые лоты: ${total}. Цена финальная — без доплат на кассе.`,
+            en: `Since our last message, ${total} new lots have appeared for your saved search "${name}". The price you see is final — nothing added at checkout.`,
+          }[lang],
+          facts: lots.map((l) => ({ label: `${l.title}:`, value: moneyIn(l.priceCents, lang) })),
+          cta: { label: { lv: "Skatīt lotus", ru: "Смотреть лоты", en: "See the lots" }[lang], url: `${ctx.siteUrl}/meklet` },
+          ...(total > lots.length
+            ? {
+                ctaNote: {
+                  lv: `Vēstulē redzami pirmie ${lots.length} — pavisam ${total}.`,
+                  ru: `В письме первые ${lots.length} — всего ${total}.`,
+                  en: `Showing the first ${lots.length} of ${total}.`,
+                }[lang],
+              }
+            : {}),
+          labels,
+        },
+      };
+    }
+
+    // ── Marketing: watched lots about to close ──────────────────────────────
+    case "watchlist_ending": {
+      const lots = i.lots ?? [];
+      const listText = lots
+        .map((l) => `• ${l.title} — ${moneyIn(l.priceCents, lang)}${l.endsAt ? ` (${fmtDateTime(l.endsAt, lang)})` : ""}`)
+        .join("\n");
+      const one = lots.length === 1;
+      return {
+        subject: one
+          ? { lv: `Drīz noslēgsies: ${lots[0]!.title}`, ru: `Скоро завершится: ${lots[0]!.title}`, en: `Ending soon: ${lots[0]!.title}` }[lang]
+          : { lv: `${lots.length} jūsu vēlmju loti drīz noslēgsies`, ru: `${lots.length} лотов из вашего списка скоро завершатся`, en: `${lots.length} of your watched lots are ending soon` }[lang],
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nLoti no jūsu vēlmju saraksta drīz noslēgsies:\n\n${listText}\n\nPaspējiet nosolīt: ${ctx.siteUrl}/velmes\n\n[watchlist_ending]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nЛоты из вашего списка желаний скоро завершатся:\n\n${listText}\n\nУспейте сделать ставку: ${ctx.siteUrl}/velmes\n\n[watchlist_ending]`,
+          en: `Hi ${i.alias},\n\nLots on your watchlist are about to close:\n\n${listText}\n\nThere is still time to bid: ${ctx.siteUrl}/velmes\n\n[watchlist_ending]`,
+        }[lang],
+        spec: {
+          preheader: {
+            lv: "Pēdējā iespēja nosolīt sekotos lotus",
+            ru: "Последний шанс поставить на отслеживаемые лоты",
+            en: "Last chance to bid on the lots you follow",
+          }[lang],
+          headline: { lv: "DRĪZ NOSLĒGSIES", ru: "СКОРО ЗАВЕРШИТСЯ", en: "ENDING SOON" }[lang],
+          headlineTone: "warn",
+          greeting: hi,
+          intro: {
+            lv: "Loti, kuriem sekojat, tuvojas beigām. Ja kāds no tiem ir jūsējais — tagad ir īstais brīdis.",
+            ru: "Лоты, за которыми вы следите, подходят к концу. Если какой-то из них ваш — сейчас самое время.",
+            en: "The lots you follow are coming to a close. If one of them is yours, now is the moment.",
+          }[lang],
+          facts: lots.map((l) => ({
+            label: `${l.title}:`,
+            value: `${moneyIn(l.priceCents, lang)}${l.endsAt ? ` · ${fmtDateTime(l.endsAt, lang)}` : ""}`,
+            tone: "warn" as const,
+          })),
+          cta: { label: { lv: "Uz vēlmju sarakstu", ru: "К списку желаний", en: "To your watchlist" }[lang], url: `${ctx.siteUrl}/velmes` },
+          labels,
+        },
+      };
+    }
   }
 }
 
@@ -765,6 +867,27 @@ export function sampleInput(type: NotificationType, opts: { online?: boolean } =
       return { ...base, refundCents: 25_156, reason: "Prece neatbilda aprakstam" };
     case "checked_in":
       return { ...base, ticketNumber: 119, lineCount: 2 };
+    case "saved_search_hits":
+      return {
+        ...base,
+        orderRef: undefined, totalCents: undefined, hammerCents: undefined, premiumCents: undefined, vatCents: undefined,
+        searchName: "Rolex pulksteņi",
+        totalCount: 4,
+        lots: [
+          { title: "Rolex Datejust 36, 1985", priceCents: 312_000 },
+          { title: "Rolex Air-King, 2001", priceCents: 258_000 },
+          { title: "Tudor Black Bay 58", priceCents: 189_000 },
+        ],
+      };
+    case "watchlist_ending":
+      return {
+        ...base,
+        orderRef: undefined, totalCents: undefined, hammerCents: undefined, premiumCents: undefined, vatCents: undefined,
+        lots: [
+          { title: "Omega Seamaster, 1970. gadi", priceCents: 25_156, endsAt: new Date(Date.now() + 6 * 3_600_000) },
+          { title: "Dyson V15 putekļsūcējs", priceCents: 18_900, endsAt: new Date(Date.now() + 9 * 3_600_000) },
+        ],
+      };
     default:
       return base;
   }

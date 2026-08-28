@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -342,6 +343,13 @@ export const customers = pgTable(
     marketingSource: text("marketing_source"),
     /** Когда согласие отозвали. Строку не чистим — отзыв тоже надо доказывать. */
     marketingOptOutAt: timestamp("marketing_opt_out_at", { withTimezone: true }),
+    /** Отписка по ссылке из письма (List-Unsubscribe или подвал). Отдельно от
+     * marketingOptOut: то — решение в кабинете, это — из самого письма, и
+     * почтовики требуют, чтобы оно срабатывало без входа в аккаунт. */
+    unsubscribedAt: timestamp("unsubscribed_at", { withTimezone: true }),
+    /** Адрес отбился навсегда — больше не пишем никогда, ни маркетинг, ни
+     * сервис: продолжать бить в мёртвый ящик значит терять репутацию домена. */
+    emailBouncedAt: timestamp("email_bounced_at", { withTimezone: true }),
     /** Подтверждение почты. У существующих клиентов заполняется миграцией —
      * они уже торговали, запирать их задним числом нельзя. Null = новый
      * аккаунт, письму ещё не поверили: ставки и покупки закрыты. */
@@ -1161,6 +1169,13 @@ export const notifications = pgTable(
     html: text("html"),
     /** Optional idempotency key — a partial unique index rejects duplicates. */
     dedupeKey: text("dedupe_key"),
+    /** service — про заказ, ставку, выдачу: идёт всегда и вне лимитов.
+     * marketing — дайджесты, подборки, возвращение: только с согласием,
+     * с частотным лимитом и не ночью. */
+    kind: text("kind").notNull().default("service"),
+    /** Маркетинговое письмо, отложенное до конца тишины. Отправка ждёт
+     * этого момента; null — отправлять при первой же выемке. */
+    scheduledFor: timestamp("scheduled_for", { withTimezone: true }),
     status: text("status").notNull().default("pending"), // pending | sent | failed
     attempts: integer("attempts").notNull().default(0),
     lastError: text("last_error"),
@@ -1399,6 +1414,39 @@ export const billingProfiles = pgTable(
  * при желании получать письмо, когда под него появляются новые лоты.
  * Храним сам запрос, а не результаты: каталог живёт своей жизнью.
  */
+/**
+ * Список желаний (Vēlmes).
+ *
+ * Жил в localStorage браузера: на втором устройстве его не было, а движок не
+ * знал, за какими лотами человек следит, — и не мог написать «твой лот скоро
+ * закроется». Теперь список на сервере; в браузере остаётся только копия для
+ * гостя, которая при входе вливается сюда.
+ */
+export const watchlist = pgTable(
+  "watchlist",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    /** Отслеживать можно и торги, и лот «купить сразу» — на витрине это одна
+     *  и та же кнопка-сердце, поэтому строка хранит ровно одну из двух ссылок. */
+    auctionId: uuid("auction_id").references(() => auctions.id, { onDelete: "cascade" }),
+    listingId: uuid("listing_id").references(() => listings.id, { onDelete: "cascade" }),
+    /** Письмо «скоро закроется» уходит один раз на лот — здесь отметка. */
+    endingNotifiedAt: timestamp("ending_notified_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // NULL в уникальном индексе не конфликтует сам с собой, поэтому одна пара
+    // на торги и одна на лот считаются независимо — ровно то, что нужно.
+    uniqueIndex("watchlist_pair_idx").on(t.customerId, t.auctionId),
+    uniqueIndex("watchlist_listing_pair_idx").on(t.customerId, t.listingId),
+    index("watchlist_auction_idx").on(t.auctionId),
+    check("watchlist_one_target", sql`(${t.auctionId} is not null) <> (${t.listingId} is not null)`),
+  ],
+);
+
 export const savedSearches = pgTable(
   "saved_searches",
   {

@@ -1,0 +1,191 @@
+import { customerFees, customers, notifications } from "@auction/db";
+import { and, count, desc, eq, gte, isNull, sql } from "drizzle-orm";
+import type { AppContext } from "../context.js";
+import type { Db } from "@auction/db";
+import { langFor, renderNotification } from "./notifications.js";
+import type { NotificationType, TemplateInput } from "./emailCopy.js";
+
+/**
+ * Планировщик маркетинговых писем.
+ *
+ * Сервисные письма (заказ, оплата, выдача) идут всегда и мимо этого файла —
+ * их человек ждёт. Всё остальное — дайджесты, подборки, возвращение — проходит
+ * здесь и обязано пережить четыре проверки: согласие, стоп-сигналы, частоту
+ * и тишину. Правила зашиты в код, а не держатся в голове: рассылка без
+ * ограничителей за полгода превращается в спам и сжигает репутацию домена,
+ * после чего перестают доходить и сервисные письма тоже.
+ */
+
+/** Не больше двух маркетинговых писем в неделю на человека. */
+const MAX_PER_WEEK = 2;
+/** И не чаще одного раза в двое суток. */
+const MIN_GAP_HOURS = 48;
+/** Ночью не пишем: письмо ждёт утра. Часы по рижскому времени. */
+const QUIET_FROM_HOUR = 22;
+const QUIET_TO_HOUR = 8;
+
+export type MarketingSkip =
+  | "no_consent"
+  | "unsubscribed"
+  | "bounced"
+  | "blocked"
+  | "debt"
+  | "erased"
+  | "service_address"
+  | "too_soon"
+  | "weekly_cap"
+  | "duplicate";
+
+export type MarketingResult = { ok: true; scheduledFor: Date } | { ok: false; skip: MarketingSkip };
+
+type Tx = Pick<Db, "select" | "insert">;
+
+/** Рижское время суток (UTC+2/+3) — почта уходит по часам получателя, а не
+ *  по часам сервера. Смещение зимой 2, летом 3; берём по месяцу — ошибка в
+ *  неделю на границе перевода часов роли для «не писать ночью» не играет. */
+function rigaHour(at: Date): number {
+  const month = at.getUTCMonth() + 1;
+  const offset = month >= 4 && month <= 10 ? 3 : 2;
+  return (at.getUTCHours() + offset) % 24;
+}
+
+/** Ближайший момент, когда писать уже можно. */
+function afterQuietHours(at: Date): Date {
+  const hour = rigaHour(at);
+  if (hour >= QUIET_TO_HOUR && hour < QUIET_FROM_HOUR) return at;
+  // Двигаемся вперёд по часу, пока не выйдем из тишины: так не нужно
+  // считать переходы через полночь и смену смещения вручную.
+  const next = new Date(at.getTime());
+  for (let i = 0; i < 24; i++) {
+    next.setTime(next.getTime() + 3_600_000);
+    if (rigaHour(next) === QUIET_TO_HOUR) {
+      next.setUTCMinutes(0, 0, 0);
+      return next;
+    }
+  }
+  return at;
+}
+
+/**
+ * Поставить маркетинговое письмо в очередь, если человеку сейчас можно писать.
+ * Возвращает причину отказа — вызывающая сторона может её записать, но
+ * никогда не должна обходить.
+ */
+export async function enqueueMarketing(
+  ctx: AppContext,
+  tx: Tx,
+  args: {
+    customerId: string;
+    type: NotificationType;
+    template: TemplateInput;
+    /** Ключ идемпотентности: одно письмо на событие, а не на каждый проход крона. */
+    dedupeKey: string;
+    /**
+     * Письмо, которое человек попросил сам: галочка «сообщать о новых лотах»
+     * у сохранённого поиска, лоты из вэлмес на исходе. Такое письмо не
+     * требует общего согласия на рассылку и лимитами частоты не задерживается
+     * (хотя в них считается: подборка уступает место просьбе). Стоп-сигналы —
+     * отписка, возврат почты, блокировка — действуют без исключений.
+     */
+    explicit?: boolean;
+  },
+): Promise<MarketingResult> {
+  const now = ctx.now();
+
+  const [person] = await tx
+    .select({
+      email: customers.email,
+      alias: customers.alias,
+      country: customers.country,
+      lang: customers.lang,
+      erasedAt: customers.erasedAt,
+      blocked: customers.blocked,
+      marketingOptIn: customers.marketingOptIn,
+      unsubscribedAt: customers.unsubscribedAt,
+      emailBouncedAt: customers.emailBouncedAt,
+    })
+    .from(customers)
+    .where(eq(customers.id, args.customerId));
+
+  if (!person || person.erasedAt !== null) return { ok: false, skip: "erased" };
+  if (person.email.endsWith("@nav.izsoli.lv")) return { ok: false, skip: "service_address" };
+  if (person.emailBouncedAt !== null) return { ok: false, skip: "bounced" };
+  if (person.unsubscribedAt !== null) return { ok: false, skip: "unsubscribed" };
+  if (person.blocked) return { ok: false, skip: "blocked" };
+  if (!args.explicit) {
+    if (!person.marketingOptIn) return { ok: false, skip: "no_consent" };
+
+    // Долг: пока человек должен денег, продавать ему новое неуместно.
+    const [debt] = await tx
+      .select({ n: count() })
+      .from(customerFees)
+      .where(and(eq(customerFees.customerId, args.customerId), eq(customerFees.status, "outstanding")));
+    if ((debt?.n ?? 0) > 0) return { ok: false, skip: "debt" };
+
+    // Частота считается по уже поставленным в очередь письмам, а не по
+    // отправленным: иначе два крона в одну минуту пробили бы лимит вдвоём.
+    const weekAgo = new Date(now.getTime() - 7 * 86_400_000);
+    const [week] = await tx
+      .select({ n: count() })
+      .from(notifications)
+      .where(and(
+        eq(notifications.customerId, args.customerId),
+        eq(notifications.kind, "marketing"),
+        gte(notifications.createdAt, weekAgo),
+      ));
+    if ((week?.n ?? 0) >= MAX_PER_WEEK) return { ok: false, skip: "weekly_cap" };
+
+    const [last] = await tx
+      .select({ createdAt: notifications.createdAt })
+      .from(notifications)
+      .where(and(eq(notifications.customerId, args.customerId), eq(notifications.kind, "marketing")))
+      .orderBy(desc(notifications.createdAt))
+      .limit(1);
+    if (last && now.getTime() - last.createdAt.getTime() < MIN_GAP_HOURS * 3_600_000) {
+      return { ok: false, skip: "too_soon" };
+    }
+  }
+
+  const lang = langFor(person.lang, person.country);
+  const { subject, text, html } = renderNotification(
+    ctx,
+    args.type,
+    lang,
+    { ...args.template, alias: person.alias },
+    args.customerId,
+  );
+  const scheduledFor = afterQuietHours(now);
+
+  const rows = await tx
+    .insert(notifications)
+    .values({
+      customerId: args.customerId,
+      type: args.type,
+      kind: "marketing",
+      toEmail: person.email,
+      lang,
+      subject,
+      body: text,
+      html,
+      dedupeKey: args.dedupeKey,
+      scheduledFor,
+    })
+    .onConflictDoNothing()
+    .returning({ id: notifications.id });
+  if (rows.length === 0) return { ok: false, skip: "duplicate" };
+  return { ok: true, scheduledFor };
+}
+
+/** Отписка по ссылке из письма. Идемпотентна: повторный клик ничего не портит. */
+export async function applyUnsubscribe(ctx: AppContext, customerId: string): Promise<boolean> {
+  const rows = await ctx.db
+    .update(customers)
+    .set({
+      unsubscribedAt: ctx.now(),
+      marketingOptIn: false,
+      marketingOptOutAt: sql`coalesce(${customers.marketingOptOutAt}, ${ctx.now()})`,
+    })
+    .where(and(eq(customers.id, customerId), isNull(customers.erasedAt)))
+    .returning({ id: customers.id });
+  return rows.length > 0;
+}
