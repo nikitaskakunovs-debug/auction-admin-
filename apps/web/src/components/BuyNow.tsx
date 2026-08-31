@@ -87,11 +87,14 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
       };
       // Ссылка на заказ есть — метим по ней, чтобы повторная покупка такого же
       // лота позже событие не потеряла; нет — метим по карточке.
-      addToCartOnce(created?.orderRef ?? `listing:${listing.id}`, params);
       refreshCart();
-      // Сразу на вкладку заказов: новый заказ ждёт оплаты именно там,
-      // на обзоре его карточки нет.
-      router.push("/account?tab=pirkumi");
+      // Переход в кабинет — только после того, как событие ушло из браузера:
+      // иначе запрос пикселя обрывается переходом и AddToCart приходит в Meta
+      // одной серверной копией, склеивать которую не с чем.
+      addToCartOnce(created?.orderRef ?? `listing:${listing.id}`, params, {
+        // Новый заказ ждёт оплаты во вкладке заказов, на обзоре его нет.
+        onDone: () => router.push("/account?tab=pirkumi"),
+      });
     } catch (err) {
       if (err instanceof PublicApiError && err.body.code === "NOT_AVAILABLE") {
         setSoldOut(true); setError(t("buy.soldOut"));

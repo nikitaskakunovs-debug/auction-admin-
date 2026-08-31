@@ -155,7 +155,38 @@ function mirrorToMeta(event: string, eventId: string, params: Record<string, unk
     .catch(() => undefined);
 }
 
-export function track(event: string, params: Record<string, unknown> = {}): void {
+/**
+ * Дождаться, пока событие реально уйдёт из браузера, и только потом уходить
+ * со страницы.
+ *
+ * Серверная копия переживает переход — она отправляется с keepalive. А запрос
+ * пикселя обрывается вместе со страницей, и получалось, что у входа и у
+ * добавления в корзину, после которых сразу идёт переход, до Meta доезжала
+ * только серверная половина. GTM для этого и придумал eventCallback: он
+ * вызывается, когда теги этого события отработали.
+ *
+ * Свой таймер обязателен: если GTM заблокирован расширением, eventCallback не
+ * вызовет никто, и человек навсегда останется на странице входа.
+ */
+function navGuard(done: () => void, timeoutMs: number): Record<string, unknown> {
+  let fired = false;
+  const fire = () => {
+    if (fired) return;
+    fired = true;
+    done();
+  };
+  setTimeout(fire, timeoutMs);
+  return { eventCallback: fire, eventTimeout: timeoutMs };
+}
+
+export interface TrackOptions {
+  /** Куда идти после того, как событие ушло из браузера. */
+  onDone?: () => void;
+  /** Сколько максимум ждать GTM, прежде чем идти дальше. */
+  timeoutMs?: number;
+}
+
+export function track(event: string, params: Record<string, unknown> = {}, opts: TrackOptions = {}): void {
   const layer = dl();
   const safe = typeof params.search_term === "string"
     ? { ...params, search_term: redact(params.search_term) }
@@ -167,7 +198,15 @@ export function track(event: string, params: Record<string, unknown> = {}): void
     if ("ecommerce" in safe || ECOM_EVENTS.has(event)) layer.push({ ecommerce: null });
     // event_id уходит в dataLayer, чтобы тег Meta в GTM передал его пикселю
     // как eventID — без этого браузерная и серверная копии не склеятся.
-    layer.push({ event, event_id: eventId, ...safe });
+    layer.push({
+      event,
+      event_id: eventId,
+      ...safe,
+      ...(opts.onDone ? navGuard(opts.onDone, opts.timeoutMs ?? 1200) : {}),
+    });
+  } else if (opts.onDone) {
+    // GTM на этой сборке нет — задерживать человека незачем.
+    opts.onDone();
   }
   mirrorToMeta(event, eventId, safe);
 }
@@ -186,8 +225,39 @@ export function track(event: string, params: Record<string, unknown> = {}): void
 export function trackPageView(): void {
   if (process.env.NEXT_PUBLIC_META_PAGEVIEW !== "1") return;
   const eventId = newEventId("page_view");
-  dl()?.push({ event: "meta_page_view", event_id: eventId });
+
+  // Серверную копию отправляем сразу: она ни от чего в браузере не зависит и
+  // дойдёт даже там, где пиксель заблокирован.
   mirrorToMeta("page_view", eventId, {});
+
+  /* Браузерную — только когда пиксель инициализирован.
+   *
+   * Тег «Meta | PageView» вызывает fbq. Если событие лечь в dataLayer раньше,
+   * чем базовый тег успел создать fbq, тег отработает вхолостую: в Meta
+   * приедет одна серверная копия, и склеивать будет не с чем. Именно так
+   * выглядели Server-only просмотры на первой загрузке.
+   *
+   * Ждём появления fbq, но не бесконечно: если пиксель заблокирован
+   * расширением, он не появится никогда, и ждать нечего — событие уже
+   * учтено сервером. */
+  const layer = dl();
+  if (!layer) return;
+  const ready = () => typeof (window as unknown as { fbq?: unknown }).fbq === "function";
+  const push = () => layer.push({ event: "meta_page_view", event_id: eventId });
+  if (ready()) {
+    push();
+    return;
+  }
+  let waited = 0;
+  const timer = setInterval(() => {
+    waited += 100;
+    if (ready()) {
+      clearInterval(timer);
+      push();
+    } else if (waited >= 5_000) {
+      clearInterval(timer);
+    }
+  }, 100);
 }
 
 /** Товарная строка GA4 (items[]) по ТЗ аналитики:
@@ -282,12 +352,17 @@ export function adsUserData(i: {
  *  раздувалась бы на ровном месте. Отметка живёт в браузере; если хранилище
  *  недоступно (приватный режим), событие уходит — лучше лишнее, чем пустая
  *  воронка, а GA4 дедуплицирует покупки по transaction_id сам. */
-function trackOnce(key: string, event: string, params: Record<string, unknown>): void {
+function trackOnce(key: string, event: string, params: Record<string, unknown>, opts: TrackOptions = {}): void {
   try {
-    if (localStorage.getItem(key)) return;
+    if (localStorage.getItem(key)) {
+      // Событие уже учтено — но переход выполнить обязаны, иначе человек
+      // останется на странице лота, нажав «купить» второй раз.
+      opts.onDone?.();
+      return;
+    }
     localStorage.setItem(key, "1");
   } catch { /* приватный режим — полагаемся на дедупликацию на стороне GA4 */ }
-  track(event, params);
+  track(event, params, opts);
 }
 
 /** purchase — ровно один раз на заказ: обновление страницы чека или возврат
@@ -303,8 +378,8 @@ export function purchaseOnce(ref: string, params: Record<string, unknown>): void
  *  поэтому и нужна отметка. Без этого события у покупателя одного лота
  *  воронка Meta и Google рвалась: просмотр → сразу оплата, а ступени
  *  AddToCart, на которую настраивают кампании, не было вовсе. */
-export function addToCartOnce(ref: string, params: Record<string, unknown>): void {
-  trackOnce(`izsoli_ga_atc_${ref}`, "add_to_cart", params);
+export function addToCartOnce(ref: string, params: Record<string, unknown>, opts: TrackOptions = {}): void {
+  trackOnce(`izsoli_ga_atc_${ref}`, "add_to_cart", params, opts);
 }
 
 /** Обновление Google Consent Mode при каждом решении в плашке cookie.

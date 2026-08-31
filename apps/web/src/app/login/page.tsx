@@ -24,8 +24,11 @@ export default function LoginPage() {
     setError(null);
     try {
       const bidder = await publicApi.login(email.trim().toLowerCase(), password);
-      track("login", { method: "email", user_id: bidder.id });
-      router.push(next);
+      // Переход — только после того, как теги Meta отработали: иначе запрос
+      // пикселя обрывается вместе со страницей, и до Meta доезжает лишь
+      // серверная копия. Задержка ограничена — заблокированный GTM не должен
+      // держать человека на форме входа.
+      track("login", { method: "email", user_id: bidder.id }, { onDone: () => router.push(next) });
     } catch {
       setError(t("auth.failed"));
     } finally {
