@@ -156,6 +156,43 @@ function mirrorToMeta(event: string, eventId: string, params: Record<string, unk
 }
 
 /**
+ * Дождаться готовности пикселя.
+ *
+ * Тег Meta в GTM вызывает fbq. Пока базовый тег не отработал, fbq не
+ * существует, и любой тег Meta срабатывает вхолостую: в Meta приезжает одна
+ * серверная копия, склеивать её не с чем.
+ *
+ * Базовый тег висит на загрузке контейнера, а она бывает раз на страницу.
+ * Если в тот момент согласия на рекламу ещё не было, тег не сработал — и на
+ * переходах внутри витрины fbq не появится вовсе, потому что контейнер
+ * повторно не грузится. Отсюда и брались Server-only события целыми сериями:
+ * не «первая секунда после загрузки», а весь отрезок до следующей полной
+ * перезагрузки страницы.
+ *
+ * Поэтому ждём долго — но не вечно: у человека с блокировщиком fbq не
+ * появится никогда, и держать таймер смысла нет. Событие в этом случае уже
+ * учтено сервером, и это ровно тот случай, когда Server-only законен.
+ */
+const PIXEL_WAIT_MS = 20_000;
+function whenPixelReady(run: () => void): void {
+  const ready = () => typeof (window as unknown as { fbq?: unknown }).fbq === "function";
+  if (ready()) {
+    run();
+    return;
+  }
+  let waited = 0;
+  const timer = setInterval(() => {
+    waited += 100;
+    if (ready()) {
+      clearInterval(timer);
+      run();
+    } else if (waited >= PIXEL_WAIT_MS) {
+      clearInterval(timer);
+    }
+  }, 100);
+}
+
+/**
  * Дождаться, пока событие реально уйдёт из браузера, и только потом уходить
  * со страницы.
  *
@@ -230,34 +267,10 @@ export function trackPageView(): void {
   // дойдёт даже там, где пиксель заблокирован.
   mirrorToMeta("page_view", eventId, {});
 
-  /* Браузерную — только когда пиксель инициализирован.
-   *
-   * Тег «Meta | PageView» вызывает fbq. Если событие лечь в dataLayer раньше,
-   * чем базовый тег успел создать fbq, тег отработает вхолостую: в Meta
-   * приедет одна серверная копия, и склеивать будет не с чем. Именно так
-   * выглядели Server-only просмотры на первой загрузке.
-   *
-   * Ждём появления fbq, но не бесконечно: если пиксель заблокирован
-   * расширением, он не появится никогда, и ждать нечего — событие уже
-   * учтено сервером. */
+  // Браузерную — когда пиксель готов принять вызов.
   const layer = dl();
   if (!layer) return;
-  const ready = () => typeof (window as unknown as { fbq?: unknown }).fbq === "function";
-  const push = () => layer.push({ event: "meta_page_view", event_id: eventId });
-  if (ready()) {
-    push();
-    return;
-  }
-  let waited = 0;
-  const timer = setInterval(() => {
-    waited += 100;
-    if (ready()) {
-      clearInterval(timer);
-      push();
-    } else if (waited >= 5_000) {
-      clearInterval(timer);
-    }
-  }, 100);
+  whenPixelReady(() => layer.push({ event: "meta_page_view", event_id: eventId }));
 }
 
 /** Товарная строка GA4 (items[]) по ТЗ аналитики:
@@ -396,4 +409,15 @@ export function consentUpdate(analytics: boolean, marketing: boolean): void {
     ad_user_data: marketing ? "granted" : "denied",
     ad_personalization: marketing ? "granted" : "denied",
   });
+  /* Отдельный сигнал «рекламное согласие только что получено».
+   *
+   * Базовый тег пикселя висит на загрузке контейнера. Человек, который
+   * согласился уже ПОСЛЕ неё, до конца сессии остаётся без fbq: контейнер
+   * повторно не грузится, а внутри витрины переходы идут без перезагрузки.
+   * Этот сигнал даёт базовому тегу второй повод сработать — сразу, а не со
+   * следующей полной загрузки страницы.
+   *
+   * Имя новое: ни один существующий триггер его не слушает, поэтому GA4 и
+   * прочая настройка от появления сигнала не меняются. */
+  if (marketing) layer.push({ event: "meta_consent_granted" });
 }
