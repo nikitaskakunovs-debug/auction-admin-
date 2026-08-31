@@ -3,6 +3,10 @@
 import { useEffect, useState } from "react";
 import { metaTrace, pixelReady, type MetaTrace } from "@/lib/track";
 
+type Tone = "ok" | "warn" | "bad";
+type Row = [string, string, Tone];
+const TONE: Record<Tone, string> = { ok: "#b9e6a1", warn: "#e8d48a", bad: "#ff9a8a" };
+
 /**
  * Панель диагностики Meta.
  *
@@ -21,8 +25,9 @@ import { metaTrace, pixelReady, type MetaTrace } from "@/lib/track";
 export function MetaDebug() {
   const [on, setOn] = useState(false);
   const [rows, setRows] = useState<readonly MetaTrace[]>([]);
-  const [env, setEnv] = useState<Array<[string, string]>>([]);
+  const [env, setEnv] = useState<Row[]>([]);
   const [copied, setCopied] = useState(false);
+  const [reset, setReset] = useState(false);
 
   // Включение/выключение по адресу; решение держится в рамках вкладки.
   useEffect(() => {
@@ -49,16 +54,28 @@ export function MetaDebug() {
           { analytics?: boolean; marketing?: boolean } | null;
         if (c) consent = `аналитика ${c.analytics ? "да" : "нет"}, реклама ${c.marketing ? "да" : "нет"}`;
       } catch { /* нет доступа к хранилищу */ }
+      // Отметки «событие по этому заказу уже учтено». Именно из-за них
+      // add_to_cart и purchase не повторяются во втором прогоне в том же
+      // браузере — событие не потеряно, оно просто уже было.
+      let marks = 0;
+      try {
+        for (const k of Object.keys(localStorage)) if (k.startsWith("izsoli_ga_")) marks += 1;
+      } catch { /* нет хранилища */ }
       const containers = Object.keys(w.google_tag_manager ?? {}).filter((k) => k.startsWith("GTM-"));
       const fbevents = Array.from(document.scripts).some((s) => s.src.includes("fbevents.js"));
       setEnv([
-        ["fbq", pixelReady() ? "функция (пиксель жив)" : "НЕТ — браузерная половина не уйдёт"],
-        ["fbevents.js", fbevents ? "загружен" : "не загружен"],
-        ["GTM", containers.length ? containers.join(", ") : "контейнер не отвечает"],
-        ["dataLayer", String(w.dataLayer?.length ?? 0)],
-        ["cookie _fbp", cookie("_fbp")],
-        ["cookie _fbc", cookie("_fbc")],
-        ["согласие", consent],
+        ["fbq", pixelReady() ? "функция — пиксель жив" : "НЕТ — браузерная половина не уйдёт", pixelReady() ? "ok" : "bad"],
+        ["fbevents.js", fbevents ? "загружен" : "не загружен", fbevents ? "ok" : "bad"],
+        ["GTM", containers.length ? containers.join(", ") : "контейнер не отвечает", containers.length ? "ok" : "bad"],
+        ["dataLayer", String(w.dataLayer?.length ?? 0), "ok"],
+        ["cookie _fbp", cookie("_fbp"), cookie("_fbp") === "есть" ? "ok" : "warn"],
+        ["cookie _fbc", cookie("_fbc"), "ok"],
+        ["согласие", consent, consent.includes("реклама да") ? "ok" : "warn"],
+        [
+          "отметки заказов",
+          marks === 0 ? "нет — воронка пойдёт целиком" : `${marks} — add_to_cart и purchase по этим заказам не повторятся`,
+          marks === 0 ? "ok" : "warn",
+        ],
       ]);
       setRows([...metaTrace.list()]);
     };
@@ -92,6 +109,15 @@ export function MetaDebug() {
                 onClick={() => {
                   void navigator.clipboard?.writeText(asText).then(() => setCopied(true));
                 }}>{copied ? "скопировано" : "копировать"}</button>
+        <button type="button" style={btn} title="Разрешить повтор add_to_cart и purchase по тем же заказам"
+                onClick={() => {
+                  try {
+                    for (const k of Object.keys(localStorage)) {
+                      if (k.startsWith("izsoli_ga_")) localStorage.removeItem(k);
+                    }
+                  } catch { /* нет хранилища */ }
+                  setReset(true);
+                }}>{reset ? "сброшено" : "сбросить отметки"}</button>
         <button type="button" style={btn}
                 onClick={() => {
                   try { sessionStorage.removeItem("izsoli_metadebug"); } catch { /* нет хранилища */ }
@@ -100,10 +126,10 @@ export function MetaDebug() {
       </div>
 
       <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 8 }}><tbody>
-        {env.map(([k, v]) => (
+        {env.map(([k, v, tone]) => (
           <tr key={k}>
             <td style={{ opacity: .65, paddingRight: 10, whiteSpace: "nowrap" }}>{k}</td>
-            <td style={{ color: v.startsWith("НЕТ") || v.startsWith("не ") || v === "нет" ? "#ff9a8a" : "#b9e6a1" }}>{v}</td>
+            <td style={{ color: TONE[tone] }}>{v}</td>
           </tr>
         ))}
       </tbody></table>
