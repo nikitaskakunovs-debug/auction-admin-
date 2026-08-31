@@ -395,6 +395,11 @@ async function refresh(db: Db): Promise<void> {
   // published + остаток больше нуля», и достаточно одному из трёх сбиться,
   // чтобы раздел опустел при живых лотах в базе. Чиним все три, а если
   // продажи у карточки нет вовсе — заводим её заново.
+  //
+  // Заказ на таком лоте сам по себе не повод его не трогать: отменённый за
+  // неоплату лот в жизни возвращается в продажу, и демо-набор должен вести
+  // себя так же. Держат лот только живые заказы — ожидающий оплаты и
+  // оплаченный; при них лот продан по-настоящему, и возвращать его нечестно.
   const fixedRows = await db
     .select({
       itemId: t.items.id,
@@ -403,16 +408,20 @@ async function refresh(db: Db): Promise<void> {
       category: t.items.category,
       listingId: t.listings.id,
       quantity: t.listings.quantity,
+      held: sql<number>`count(${t.orders.id}) filter (where ${t.orders.status} in ('awaiting_payment', 'paid'))`,
     })
     .from(t.items)
     .leftJoin(t.listings, sql`${t.listings.itemId} = ${t.items.id} and ${t.listings.type} = 'fixed'`)
     .leftJoin(t.orders, sql`${t.orders.itemId} = ${t.items.id}`)
-    .where(sql`${t.items.sku} like 'DEMO-%' and ${t.items.sku} not like 'DEMO-ORD-%' and ${t.orders.id} is null`);
+    .where(sql`${t.items.sku} like 'DEMO-%' and ${t.items.sku} not like 'DEMO-ORD-%'`)
+    .groupBy(t.items.id, t.listings.id);
 
   let fixed = 0;
   let restored = 0;
+  let sold = 0;
   for (const r of fixedRows) {
     if (!/-B\d*$/.test(r.sku)) continue;
+    if (Number(r.held) > 0) { sold++; continue; }
     if (r.listingId) {
       await db
         .update(t.listings)
@@ -432,6 +441,7 @@ async function refresh(db: Db): Promise<void> {
 
   console.log(`витрина обновлена: ${live} живых торгов, ${scheduled} запланированных, ${fixed} «Купить сразу»`);
   if (restored > 0) console.log(`из них заведено заново: ${restored} — у карточек не было продажи`);
+  if (sold > 0) console.log(`${sold} лотов «Купить сразу» оставлены проданными — на них живые заказы`);
   console.log("завершённые торги остались в /rezultati — их время не трогали");
 }
 
