@@ -390,8 +390,49 @@ async function refresh(db: Db): Promise<void> {
     }
   }
 
-  console.log(`витрина обновлена: ${live} живых торгов, ${scheduled} запланированных`);
-  console.log("лоты «Купить сразу» не истекают — они на месте; завершённые торги остались в /rezultati");
+  // Лоты «Купить сразу» по часам не истекают, но пропасть из каталога умеют:
+  // витрина показывает их только при сочетании «карточка listed + продажа
+  // published + остаток больше нуля», и достаточно одному из трёх сбиться,
+  // чтобы раздел опустел при живых лотах в базе. Чиним все три, а если
+  // продажи у карточки нет вовсе — заводим её заново.
+  const fixedRows = await db
+    .select({
+      itemId: t.items.id,
+      sku: t.items.sku,
+      title: t.items.title,
+      category: t.items.category,
+      listingId: t.listings.id,
+      quantity: t.listings.quantity,
+    })
+    .from(t.items)
+    .leftJoin(t.listings, sql`${t.listings.itemId} = ${t.items.id} and ${t.listings.type} = 'fixed'`)
+    .leftJoin(t.orders, sql`${t.orders.itemId} = ${t.items.id}`)
+    .where(sql`${t.items.sku} like 'DEMO-%' and ${t.items.sku} not like 'DEMO-ORD-%' and ${t.orders.id} is null`);
+
+  let fixed = 0;
+  let restored = 0;
+  for (const r of fixedRows) {
+    if (!/-B\d*$/.test(r.sku)) continue;
+    if (r.listingId) {
+      await db
+        .update(t.listings)
+        .set({ status: "published", quantity: Math.max(r.quantity ?? 0, 1) })
+        .where(sql`${t.listings.id} = ${r.listingId}`);
+    } else {
+      const base = BASE_CENTS[r.category ?? "other"] ?? 30_000;
+      await db.insert(t.listings).values({
+        itemId: r.itemId, type: "fixed", title: r.title, marketCode: "LV",
+        priceCents: Math.round(base * 1.2), quantity: 1, status: "published",
+      });
+      restored++;
+    }
+    await db.update(t.items).set({ status: "listed", updatedAt: now }).where(sql`${t.items.id} = ${r.itemId}`);
+    fixed++;
+  }
+
+  console.log(`витрина обновлена: ${live} живых торгов, ${scheduled} запланированных, ${fixed} «Купить сразу»`);
+  if (restored > 0) console.log(`из них заведено заново: ${restored} — у карточек не было продажи`);
+  console.log("завершённые торги остались в /rezultati — их время не трогали");
 }
 
 const { db, pool } = createDb();
