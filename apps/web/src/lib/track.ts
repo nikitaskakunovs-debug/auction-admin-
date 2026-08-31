@@ -185,7 +185,7 @@ export function track(event: string, params: Record<string, unknown> = {}): void
  */
 export function trackPageView(): void {
   if (process.env.NEXT_PUBLIC_META_PAGEVIEW !== "1") return;
-  const eventId = newEventId("pv");
+  const eventId = newEventId("page_view");
   dl()?.push({ event: "meta_page_view", event_id: eventId });
   mirrorToMeta("page_view", eventId, {});
 }

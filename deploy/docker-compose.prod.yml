@@ -161,6 +161,11 @@ services:
         NEXT_PUBLIC_SENTRY_DSN: ${SENTRY_DSN_WEB:-}
         # Google Tag Manager (аналитика и пиксели, Consent Mode внутри).
         NEXT_PUBLIC_GTM_ID: ${NEXT_PUBLIC_GTM_ID:-GTM-WGN2M7KZ}
+        # Meta PageView. Включать ТОЛЬКО после публикации изменений GTM, где
+        # базовый тег переведён на событие meta_page_view и получает eventID:
+        # иначе просмотр посчитается дважды. Значение попадает в сборку, а не
+        # в рантайм, поэтому смена требует пересборки web.
+        NEXT_PUBLIC_META_PAGEVIEW: ${NEXT_PUBLIC_META_PAGEVIEW:-0}
     restart: unless-stopped
     depends_on:
       - api
