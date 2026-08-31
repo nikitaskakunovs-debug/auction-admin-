@@ -15,8 +15,9 @@ import { SavedSearches } from "@/components/account/SavedSearches";
 import { say } from "@/components/Toast";
 import { VerifyNotice } from "@/components/VerifyNotice";
 import { publicApi } from "@/lib/api";
+import { setCartCount } from "@/lib/cart";
 import { dateLocale, useT, type Lang } from "@/lib/i18n";
-import { adsUserData, orderEcom, purchaseOnce, track } from "@/lib/track";
+import { addToCartOnce, adsUserData, orderEcom, purchaseOnce, track } from "@/lib/track";
 import { photoThumb } from "@/lib/photos";
 import { formatEur, type MyOrder } from "@/lib/types";
 
@@ -606,6 +607,47 @@ function Purchases({ orders, lang }: { orders: MyOrder[]; lang: Lang }) {
     if (cek) setReceiptRef(cek);
   }, []);
 
+  const unpaid = orders.filter((o) => o.status === "awaiting_payment");
+  const paidRows = orders.filter((o) => o.status === "paid");
+
+  /* Аналитика (GTM): «к оплате» — это и есть корзина.
+   *
+   * Экран общей оплаты показывают только при двух и более лотах, поэтому у
+   * покупателя ОДНОГО лота воронка обрывалась: просмотр → сразу оплата, без
+   * ступеней AddToCart и ViewCart, под которые настраивают кампании Meta и
+   * Google. Здесь эти ступени есть при любом числе лотов.
+   *
+   * add_to_cart — по одному разу на заказ: выигранные торги попадают в список
+   * без нажатия, и без отметки событие уходило бы при каждом заходе. */
+  const unpaidKey = unpaid.map((o) => o.ref).join(",");
+  useEffect(() => {
+    // Значок в шапке и в нижней панели берёт число отсюда: список уже
+    // загружен, отдельный запрос ради счётчика был бы лишним.
+    setCartCount(unpaid.length);
+    if (unpaid.length === 0) return;
+    const ecs = unpaid.map(orderEcom);
+    const net = ecs.reduce((s, e) => s + e.netCents, 0);
+    const gross = ecs.reduce((s, e) => s + e.grossCents, 0) / 100;
+    unpaid.forEach((o, i) => {
+      const e = ecs[i]!;
+      addToCartOnce(o.ref, {
+        item_id: o.itemSku, item_name: o.itemTitle,
+        value: e.netCents / 100, currency: "EUR",
+        gross_total: e.grossCents / 100,
+        commission_value: e.commissionCents / 100,
+        vat_scheme: e.vatScheme,
+        cart_size: unpaid.length, cart_gross_total: gross,
+        ecommerce: { currency: "EUR", value: e.netCents / 100, items: [e.item] },
+      });
+    });
+    track("view_cart", {
+      value: net / 100, currency: "EUR",
+      gross_total: gross, cart_gross_total: gross, cart_size: unpaid.length,
+      ecommerce: { currency: "EUR", value: net / 100, items: ecs.map((e) => e.item) },
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unpaidKey]);
+
   if (receiptRef) {
     return (
       <Receipt
@@ -615,8 +657,6 @@ function Purchases({ orders, lang }: { orders: MyOrder[]; lang: Lang }) {
     );
   }
 
-  const unpaid = orders.filter((o) => o.status === "awaiting_payment");
-  const paidRows = orders.filter((o) => o.status === "paid");
   const rows = filter === "topay" ? unpaid : filter === "paid" ? paidRows : orders;
 
   const short = (d: string | null | undefined) => (d ? new Date(d).toLocaleDateString(dateLocale(lang)) : "—");
@@ -639,16 +679,19 @@ function Purchases({ orders, lang }: { orders: MyOrder[]; lang: Lang }) {
         </div>
       </div>
       <CreditBoard />
-      {/* Два и больше неоплаченных лота — предлагаем закрыть их одним
-          платежом (макеты № 47 и 48). Один лот платится как раньше. */}
-      {unpaid.length > 1 && (
+      {/* Вход в корзину — при ЛЮБОМ числе неоплаченных лотов. Раньше он
+          появлялся только от двух, и покупатель одного лота корзины не
+          видел вовсе: страница /grozs существовала, а попасть на неё было
+          неоткуда. Текст и кнопка разные: «оплатить вместе» про один лот
+          звучало бы нелепо. */}
+      {unpaid.length > 0 && (
         <div className="cart-cta">
           <span className="t">
             <b>{t("cart.ctaT", { n: unpaid.length })}</b>
-            <small>{t("cart.ctaD")}</small>
+            <small>{unpaid.length > 1 ? t("cart.ctaD") : t("cart.ctaD1")}</small>
           </span>
           <Link className="btn btn-primary" href="/grozs">
-            <Ph name="package" size={18} /> {t("cart.ctaBtn")}
+            <Ph name="package" size={18} /> {unpaid.length > 1 ? t("cart.ctaBtn") : t("cart.ctaBtn1")}
           </Link>
         </div>
       )}

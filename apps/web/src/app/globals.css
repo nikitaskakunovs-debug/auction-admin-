@@ -484,6 +484,12 @@ footer li a:hover{opacity:1;text-decoration:underline}
 .dock a[aria-current]{background:var(--accent);color:var(--on-accent)}
 .dock .badge-dot{position:absolute;top:6px;right:calc(50% - 14px);width:9px;height:9px;
   border-radius:50%;background:var(--live);box-shadow:0 0 0 2px var(--surface)}
+/* Счётчик корзины: та же посадка, что у точки «в эфире», но с числом. */
+.dock .n{position:absolute;top:4px;right:calc(50% - 20px);min-width:16px;height:16px;
+  padding:0 4px;border-radius:9px;background:var(--accent);color:var(--on-accent);
+  font-size:10px;font-weight:800;line-height:16px;text-align:center;
+  box-shadow:0 0 0 2px var(--surface)}
+.dock a[aria-current] .n{background:var(--on-accent);color:var(--accent)}
 .dock .ava{width:22px;height:22px;border-radius:50%;background:var(--brand);color:var(--accent);
   display:grid;place-items:center;font-size:11px;font-weight:800;flex:none}
 @media(max-width:340px){.dock .lbl{font-size:10px}}

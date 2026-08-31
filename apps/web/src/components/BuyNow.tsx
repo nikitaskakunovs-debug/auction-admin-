@@ -4,11 +4,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
+import { refreshCart } from "@/lib/cart";
 import { conditionLabel } from "@/lib/conditions";
 import { useT } from "@/lib/i18n";
 import { computeInvoice, marketFees } from "@/lib/fees";
 import { photoWeb, photoThumb } from "@/lib/photos";
-import { gaItem, track } from "@/lib/track";
+import { addToCartOnce, gaItem, track } from "@/lib/track";
 import { formatEur, type FixedListing } from "@/lib/types";
 import { KlixPayLater } from "@/components/KlixPayLater";
 import { Icon } from "./Icon";
@@ -58,9 +59,36 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
   const buy = async () => {
     setBusy(true); setError(null);
     try {
-      await publicApi.post(`/api/public/listings/${listing.id}/buy`);
+      const created = await publicApi.post<{ orderRef?: string }>(
+        `/api/public/listings/${listing.id}/buy`,
+      );
       setConfirm(false);
       say(t("buy.now"));
+      // Аналитика (GTM): лот попал в «к оплате» — это и есть добавление в
+      // корзину. Раньше событие жило только на экране общей оплаты, куда
+      // покупателя ОДНОГО лота не ведут вовсе, и ступень AddToCart, под
+      // которую настраивают кампании Meta и Google, просто отсутствовала.
+      const inv = computeInvoice(listing.priceCents, listing.marketCode);
+      const netCents = inv.hammerCents + inv.premiumCents;
+      const item = gaItem({
+        sku: listing.sku, listingId: listing.id, name: listing.title, category: listing.category,
+        netCents, hammerCents: inv.hammerCents, feeCents: inv.premiumCents,
+        vatRateBp: marketFees(listing.marketCode).vatRateBp, grossCents: inv.totalCents,
+      });
+      const params = {
+        item_id: listing.sku, listing_id: listing.id, item_name: listing.title,
+        value: netCents / 100, currency: "EUR",
+        gross_total: inv.totalCents / 100,
+        commission_value: inv.premiumCents / 100,
+        vat_scheme: "standard",
+        cart_size: 1,
+        cart_gross_total: inv.totalCents / 100,
+        ecommerce: { currency: "EUR", value: netCents / 100, items: [item] },
+      };
+      // Ссылка на заказ есть — метим по ней, чтобы повторная покупка такого же
+      // лота позже событие не потеряла; нет — метим по карточке.
+      addToCartOnce(created?.orderRef ?? `listing:${listing.id}`, params);
+      refreshCart();
       // Сразу на вкладку заказов: новый заказ ждёт оплаты именно там,
       // на обзоре его карточки нет.
       router.push("/account?tab=pirkumi");

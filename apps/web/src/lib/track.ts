@@ -127,16 +127,37 @@ export function adsUserData(i: {
   return Object.keys(user_data).length > 0 ? { user_data } : {};
 }
 
-/** purchase — ровно один раз на заказ: обновление страницы чека или возврат
- *  на неё не должны дублировать конверсию (плюс GA4 сам дедуплицирует по
- *  transaction_id — двойная страховка). */
-export function purchaseOnce(ref: string, params: Record<string, unknown>): void {
+/** Событие ровно один раз на заказ.
+ *
+ *  Некоторые шаги воронки происходят не по нажатию, а по факту: лот выигран и
+ *  ждёт оплаты. Такое видно при каждом заходе в кабинет, и без отметки Meta и
+ *  Google получали бы add_to_cart на каждое обновление страницы — воронка
+ *  раздувалась бы на ровном месте. Отметка живёт в браузере; если хранилище
+ *  недоступно (приватный режим), событие уходит — лучше лишнее, чем пустая
+ *  воронка, а GA4 дедуплицирует покупки по transaction_id сам. */
+function trackOnce(key: string, event: string, params: Record<string, unknown>): void {
   try {
-    const key = `izsoli_ga_purchase_${ref}`;
     if (localStorage.getItem(key)) return;
     localStorage.setItem(key, "1");
-  } catch { /* приватный режим — положимся на дедупликацию GA4 */ }
-  track("purchase", params);
+  } catch { /* приватный режим — полагаемся на дедупликацию на стороне GA4 */ }
+  track(event, params);
+}
+
+/** purchase — ровно один раз на заказ: обновление страницы чека или возврат
+ *  на неё не должны дублировать конверсию. */
+export function purchaseOnce(ref: string, params: Record<string, unknown>): void {
+  trackOnce(`izsoli_ga_purchase_${ref}`, "purchase", params);
+}
+
+/** add_to_cart — один раз на заказ.
+ *
+ *  «Корзина» здесь — список неоплаченных лотов, и лот попадает в неё двумя
+ *  путями: нажатием «Pirkt tagad» и победой на торгах. Второй путь — не клик,
+ *  поэтому и нужна отметка. Без этого события у покупателя одного лота
+ *  воронка Meta и Google рвалась: просмотр → сразу оплата, а ступени
+ *  AddToCart, на которую настраивают кампании, не было вовсе. */
+export function addToCartOnce(ref: string, params: Record<string, unknown>): void {
+  trackOnce(`izsoli_ga_atc_${ref}`, "add_to_cart", params);
 }
 
 /** Обновление Google Consent Mode при каждом решении в плашке cookie.

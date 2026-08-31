@@ -7,6 +7,7 @@ import { captureAttribution, submitAttribution } from "@/lib/attr";
 import { useT } from "@/lib/i18n";
 import type { Country } from "@/lib/country";
 import { alertStore, useRail, useReveal } from "@/lib/ui";
+import { cartStore } from "@/lib/cart";
 import { watchStore } from "@/lib/watch";
 import { markAlertsSeen, relTime, type MyNotification } from "./account/data";
 import { CatalogMenu } from "./CatalogMenu";
@@ -39,6 +40,7 @@ export function Chrome({ country = "LV" }: { country?: Country }) {
   const [region, setRegion] = useState(false);
   const [search, setSearch] = useState(false);
   const [alerts, setAlerts] = useState(0);
+  const [cart, setCart] = useState(0);
   const [menu, setMenu] = useState(false);
   const rail = useRail<HTMLDivElement>();
 
@@ -65,6 +67,12 @@ export function Chrome({ country = "LV" }: { country?: Country }) {
     const sync = () => setAlerts(alertStore.list().length);
     sync();
     return alertStore.subscribe(sync);
+  }, []);
+
+  useEffect(() => {
+    const sync = () => setCart(cartStore.count());
+    sync();
+    return cartStore.subscribe(sync);
   }, []);
 
 
@@ -167,6 +175,24 @@ export function Chrome({ country = "LV" }: { country?: Country }) {
                 </>
               )}
             </Link>
+            {/* Корзина. Раньше страница /grozs существовала, но попасть на
+                неё было неоткуда: ссылка появлялась в кабинете только при
+                двух и более неоплаченных лотах. Значок даёт корзине
+                постоянное место — как в любом магазине, — и показывает
+                число лотов, ждущих оплаты. Гостю корзину не показываем:
+                у него нет заказов, и пустой значок только путал бы. */}
+            {signedIn && (
+              <Link className="icon-link" href="/grozs">
+                <Icon name="cart" size={22} />{t("nav.cart")}
+                {cart > 0 && (
+                  <>
+                    <span className="n" aria-hidden="true">{cart}</span>
+                    <span className="sr">{t("nav.cartN", { n: cart })}</span>
+                  </>
+                )}
+              </Link>
+            )}
+
             {/* На телефоне видна только primary-кнопка, поэтому главным
                 действием стоит вход и кабинет, а не выход. */}
             {signedIn ? (

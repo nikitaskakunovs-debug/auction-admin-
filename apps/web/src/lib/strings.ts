@@ -607,6 +607,8 @@ export const STRINGS: Record<string, Record<Lang, string>> = {
   "nav.alerts": { lv: "Brīdinājumi", ru: "Уведомления", en: "Alerts", et: "Teavitused", lt: "Pranešimai" },
   "nav.alertsN": { lv: "{n} brīdinājumi", ru: "Уведомлений: {n}", en: "{n} alerts", et: "{n} teavitust", lt: "Pranešimų: {n}" },
   "nav.watchlist": { lv: "Vēlmes", ru: "Избранное", en: "Watchlist", et: "Jälgimisnimekiri", lt: "Norų sąrašas" },
+  "nav.cart": { lv: "Grozs", ru: "Корзина", en: "Cart", et: "Ostukorv", lt: "Krepšelis" },
+  "nav.cartN": { lv: "Grozā {n} loti", ru: "В корзине лотов: {n}", en: "{n} lots in the cart", et: "Ostukorvis {n} partiid", lt: "Krepšelyje lotų: {n}" },
   "nav.watchlistN": { lv: "{n} saglabāti loti", ru: "Сохранённых лотов: {n}", en: "{n} saved lots", et: "{n} salvestatud partiid", lt: "Išsaugotų lotų: {n}" },
   "nav.home": { lv: "Sākums", ru: "Главная", en: "Home", et: "Avaleht", lt: "Pradžia" },
   "nav.search": { lv: "Meklēt", ru: "Поиск", en: "Search", et: "Otsi", lt: "Ieškoti" },
@@ -1268,6 +1270,8 @@ export const STRINGS: Record<string, Record<Lang, string>> = {
   "cart.note": { lv: "Katram lotam paliek savs rēķins, sava piegāde un sava izsniegšana — kopīga ir tikai apmaksa.", ru: "У каждого лота остаётся свой счёт, своя доставка и своя выдача — общей будет только оплата.", en: "Each lot keeps its own invoice, delivery and handover — only the payment is shared.", et: "Igal partiil jääb oma arve, tarne ja väljastus — ühine on ainult makse.", lt: "Kiekvienas lotas išlaiko savo sąskaitą, pristatymą ir išdavimą — bendras tik mokėjimas." },
   "cart.ctaT": { lv: "Neapmaksāti loti: {n}", ru: "Неоплаченных лотов: {n}", en: "{n} unpaid lots", et: "Maksmata partiisid: {n}", lt: "Neapmokėtų lotų: {n}" },
   "cart.ctaD": { lv: "Var samaksāt par visiem uzreiz — bankā būs viens maksājums.", ru: "Можно оплатить всё сразу — в банке будет один платёж.", en: "You can pay for all of them at once — one payment in your bank.", et: "Saad maksta kõigi eest korraga — pangas on üks makse.", lt: "Galite sumokėti už visus iš karto — banke bus vienas mokėjimas." },
+  "cart.ctaD1": { lv: "Atver grozu un pabeidz apmaksu.", ru: "Откройте корзину и завершите оплату.", en: "Open the cart and finish paying.", et: "Ava ostukorv ja lõpeta makse.", lt: "Atverkite krepšelį ir užbaikite mokėjimą." },
+  "cart.ctaBtn1": { lv: "Uz grozu", ru: "В корзину", en: "Go to cart", et: "Ostukorvi", lt: "Į krepšelį" },
   "cart.ctaBtn": { lv: "Apmaksāt kopā", ru: "Оплатить вместе", en: "Pay together", et: "Maksa koos", lt: "Mokėti kartu" },
 };
 

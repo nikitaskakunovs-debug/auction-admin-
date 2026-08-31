@@ -11,8 +11,9 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
+import { setCartCount } from "@/lib/cart";
 import { useT } from "@/lib/i18n";
-import { adsUserData, orderEcom, track } from "@/lib/track";
+import { addToCartOnce, adsUserData, orderEcom, track } from "@/lib/track";
 import { formatEur, type MyOrder } from "@/lib/types";
 import { Ph } from "./Ph";
 import { say } from "./Toast";
@@ -38,6 +39,7 @@ export function Cart() {
       .then((r) => {
         const unpaid = r.orders.filter((o) => o.status === "awaiting_payment");
         setOrders(unpaid);
+        setCartCount(unpaid.length);
         // По умолчанию отмечено всё: чаще всего человек платит за всё сразу.
         setPicked(new Set(unpaid.map((o) => o.ref)));
         // Аналитика (GTM): просмотр корзины со всеми неоплаченными лотами.
@@ -85,15 +87,20 @@ export function Cart() {
       }
     } else {
       next.add(ref);
-      // Аналитика (GTM): лот добавлен к общей оплате. Верхние параметры —
-      // про ДОБАВЛЕННЫЙ лот и явно в каждом событии: GTM помнит значения
+      // Аналитика (GTM): лот отмечен к общей оплате. Верхние параметры —
+      // про ОТМЕЧЕННЫЙ лот и явно в каждом событии: GTM помнит значения
       // прошлых пушей, и без явной перезаписи сюда подмешивался gross_total
       // всей корзины из view_cart. Корзина целиком — отдельными полями.
+      //
+      // Один раз на лот: в корзину он попал раньше — при победе на торгах
+      // или нажатии «Pirkt tagad», — и там add_to_cart уже был. Снять и
+      // вернуть галочку — это выбор способа оплаты, а не второе добавление,
+      // и считать его второй раз значило бы раздувать воронку Meta и Google.
       const o = orders.find((x) => x.ref === ref);
       if (o) {
         const e = orderEcom(o);
         const chosenAfter = orders.filter((x) => next.has(x.ref));
-        track("add_to_cart", {
+        addToCartOnce(o.ref, {
           value: e.netCents / 100, currency: "EUR",
           gross_total: e.grossCents / 100,
           commission_value: e.commissionCents / 100,
