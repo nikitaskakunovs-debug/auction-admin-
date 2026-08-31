@@ -11,6 +11,7 @@ import { Chrome } from "@/components/Chrome";
 import { CookieBanner } from "@/components/CookieBanner";
 import { Dock } from "@/components/Dock";
 import { Footer } from "@/components/Footer";
+import { MetaDebug } from "@/components/MetaDebug";
 import { Modals } from "@/components/Modals";
 import { SocialCatch } from "@/components/SocialCatch";
 import { Toast } from "@/components/Toast";
@@ -167,6 +168,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           <SocialCatch />
           <CookieBanner />
           <Toast />
+          {/* Открывается вручную адресом ?metadebug=1 — обычный посетитель её
+              не видит и о ней не знает. */}
+          <MetaDebug />
         </I18nProvider>
       </body>
     </html>

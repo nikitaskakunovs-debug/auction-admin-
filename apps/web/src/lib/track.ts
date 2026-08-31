@@ -97,10 +97,11 @@ function marketingAllowed(): boolean {
  * оплаты, и присылать её со слов браузера значило бы разрешить рисовать
  * конверсии.
  */
-function mirrorToMeta(event: string, eventId: string, params: Record<string, unknown>): void {
+function mirrorToMeta(event: string, eventId: string, params: Record<string, unknown>): string {
   const name = META_NAME[event];
-  if (!name || name === "Purchase") return;
-  if (!marketingAllowed()) return;
+  if (!name) return "нет у Meta";
+  if (name === "Purchase") return "только сервер";
+  if (!marketingAllowed()) return "нет согласия";
 
   const ec = params.ecommerce as { items?: Array<Record<string, unknown>>; value?: number } | undefined;
   const items = ec?.items ?? [];
@@ -153,6 +154,55 @@ function mirrorToMeta(event: string, eventId: string, params: Record<string, unk
       }),
     )
     .catch(() => undefined);
+  return "ушло";
+}
+
+/* ═══════════════════════ ДИАГНОСТИКА ═══════════════════════
+ *
+ * Дневник последних событий Meta: что ушло на сервер и был ли в этот момент
+ * жив пиксель. Нужен ровно для одного вопроса — почему в Events Manager
+ * появляются Server-only строки. Личных данных здесь нет, панель открывается
+ * только вручную адресом ?metadebug=1 и видна лишь тому, кто её открыл.
+ */
+export interface MetaTrace {
+  at: string;
+  event: string;
+  eventId: string;
+  server: string;
+  browser: string;
+}
+const traces: MetaTrace[] = [];
+const traceWatchers = new Set<() => void>();
+
+/** Жив ли пиксель прямо сейчас. */
+export function pixelReady(): boolean {
+  return typeof window !== "undefined" && typeof (window as unknown as { fbq?: unknown }).fbq === "function";
+}
+
+export const metaTrace = {
+  list: (): readonly MetaTrace[] => traces,
+  subscribe(fn: () => void): () => void {
+    traceWatchers.add(fn);
+    return () => { traceWatchers.delete(fn); };
+  },
+};
+
+function ping(): void {
+  for (const fn of traceWatchers) fn();
+}
+
+function noteTrace(event: string, eventId: string, server: string, browser: string): MetaTrace {
+  const row: MetaTrace = {
+    at: new Date().toLocaleTimeString("lv-LV", { hour12: false }),
+    event: META_NAME[event] ?? event,
+    eventId,
+    server,
+    browser,
+  };
+  traces.push(row);
+  if (traces.length > 60) traces.shift();
+  ping();
+  return row;
 }
 
 /**
@@ -174,20 +224,22 @@ function mirrorToMeta(event: string, eventId: string, params: Record<string, unk
  * учтено сервером, и это ровно тот случай, когда Server-only законен.
  */
 const PIXEL_WAIT_MS = 20_000;
-function whenPixelReady(run: () => void): void {
-  const ready = () => typeof (window as unknown as { fbq?: unknown }).fbq === "function";
-  if (ready()) {
+function whenPixelReady(run: () => void, trace?: MetaTrace): void {
+  if (pixelReady()) {
     run();
+    if (trace) { trace.browser = "ушло сразу"; ping(); }
     return;
   }
   let waited = 0;
   const timer = setInterval(() => {
     waited += 100;
-    if (ready()) {
+    if (pixelReady()) {
       clearInterval(timer);
       run();
+      if (trace) { trace.browser = `ушло через ${(waited / 1000).toFixed(1)} с`; ping(); }
     } else if (waited >= PIXEL_WAIT_MS) {
       clearInterval(timer);
+      if (trace) { trace.browser = "fbq так и не появился"; ping(); }
     }
   }, 100);
 }
@@ -245,7 +297,10 @@ export function track(event: string, params: Record<string, unknown> = {}, opts:
     // GTM на этой сборке нет — задерживать человека незачем.
     opts.onDone();
   }
-  mirrorToMeta(event, eventId, safe);
+  const server = mirrorToMeta(event, eventId, safe);
+  if (META_NAME[event]) {
+    noteTrace(event, eventId, server, !layer ? "нет dataLayer" : pixelReady() ? "пиксель готов" : "fbq нет");
+  }
 }
 
 /**
@@ -265,12 +320,13 @@ export function trackPageView(): void {
 
   // Серверную копию отправляем сразу: она ни от чего в браузере не зависит и
   // дойдёт даже там, где пиксель заблокирован.
-  mirrorToMeta("page_view", eventId, {});
+  const server = mirrorToMeta("page_view", eventId, {});
 
   // Браузерную — когда пиксель готов принять вызов.
   const layer = dl();
+  const trace = noteTrace("page_view", eventId, server, layer ? "ждём fbq…" : "нет dataLayer");
   if (!layer) return;
-  whenPixelReady(() => layer.push({ event: "meta_page_view", event_id: eventId }));
+  whenPixelReady(() => layer.push({ event: "meta_page_view", event_id: eventId }), trace);
 }
 
 /** Товарная строка GA4 (items[]) по ТЗ аналитики:
