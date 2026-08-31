@@ -73,6 +73,22 @@ export interface ApiConfig {
    * driver for the test suite.
    */
   klixMode: "off" | "live" | "simulate";
+  /**
+   * Meta Conversions API — серверная копия событий пикселя.
+   *
+   * Токен живёт ТОЛЬКО здесь: ни во фронтенде, ни в GTM, ни в dataLayer, ни в
+   * репозитории. Без токена весь блок равен null, и движок просто ничего не
+   * шлёт — браузерный пиксель при этом продолжает работать сам по себе, так
+   * что выключение серверной части не ломает рекламу.
+   */
+  metaCapi: {
+    datasetId: string;
+    accessToken: string;
+    /** Версия Graph API — в конфиге, чтобы поднимать её без правки логики. */
+    graphVersion: string;
+    /** Код тестовых событий Meta. Только на время проверки, в проде пусто. */
+    testEventCode: string;
+  } | null;
   klix: {
     apiUrl: string;
     brandId: string;
@@ -316,6 +332,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
         : null,
     maxPhotoBytes: Number(env.MAX_PHOTO_BYTES ?? 15 * 1024 * 1024),
     klixMode,
+    // Токен пустой — интеграция выключена целиком, и это нормальное рабочее
+    // состояние: браузерный пиксель ей не подчинён.
+    metaCapi:
+      env.META_CAPI_ACCESS_TOKEN && env.META_DATASET_ID
+        ? {
+            datasetId: env.META_DATASET_ID,
+            accessToken: env.META_CAPI_ACCESS_TOKEN,
+            graphVersion: env.META_GRAPH_VERSION ?? "v21.0",
+            testEventCode: env.META_TEST_EVENT_CODE ?? "",
+          }
+        : null,
     klix:
       klixMode === "off"
         ? null

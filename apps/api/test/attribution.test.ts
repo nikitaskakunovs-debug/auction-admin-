@@ -34,7 +34,7 @@ describe("откуда пришёл клиент: касания, согласи
     if (world) await world.close();
   });
 
-  const post = (payload: unknown) =>
+  const post = (payload: Record<string, unknown>) =>
     world.server.app.inject({
       method: "POST",
       url: "/api/public/me/attribution",

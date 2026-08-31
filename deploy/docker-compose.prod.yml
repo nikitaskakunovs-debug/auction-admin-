@@ -51,6 +51,14 @@ services:
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
       S3_SECRET_KEY: ${S3_SECRET_KEY:-}
       S3_PUBLIC_URL: ${S3_PUBLIC_URL:-}
+      # Meta Conversions API. Токен живёт ТОЛЬКО здесь, в deploy/.env на
+      # сервере: во фронтенд, в GTM и в репозиторий он не попадает. Пусто —
+      # серверная отправка выключена, браузерный пиксель работает как прежде.
+      META_CAPI_ACCESS_TOKEN: ${META_CAPI_ACCESS_TOKEN:-}
+      META_DATASET_ID: ${META_DATASET_ID:-}
+      META_GRAPH_VERSION: ${META_GRAPH_VERSION:-v21.0}
+      # Код тестовых событий — только на время проверки в Meta Test Events.
+      META_TEST_EVENT_CODE: ${META_TEST_EVENT_CODE:-}
       EMAIL_MODE: ${EMAIL_MODE:-console}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}

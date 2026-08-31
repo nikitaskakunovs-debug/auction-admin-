@@ -1479,6 +1479,42 @@ export const watchlist = pgTable(
   ],
 );
 
+/**
+ * Журнал отправок в Meta Conversions API.
+ *
+ * Нужен не ради статистики: без него на вопрос «дошло ли событие и почему
+ * Meta считает конверсии иначе» ответить нечем — рекламный кабинет своих
+ * ошибок не показывает, а поддержка Meta просит trace id. Здесь лежит ровно
+ * технический результат: что послали, когда, чем ответили. Персональных
+ * данных и токена в журнале нет и быть не может — в Meta они уходят
+ * захешированными, а сюда не попадают вовсе.
+ */
+export const metaEvents = pgTable(
+  "meta_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Тот же идентификатор, что ушёл в браузерный пиксель: по нему Meta
+     *  склеивает две копии события в одну конверсию. */
+    eventId: text("event_id").notNull(),
+    eventName: text("event_name").notNull(),
+    /** Кто именно — для разбора обращений; при удалении аккаунта обнуляется. */
+    customerId: uuid("customer_id").references(() => customers.id, { onDelete: "set null" }),
+    /** pending | sent | failed | skipped — skipped значит «нет согласия». */
+    status: text("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    httpStatus: integer("http_status"),
+    /** fbtrace_id из ответа Meta — с ним обращаются в поддержку. */
+    traceId: text("trace_id"),
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("meta_events_event_idx").on(t.eventId),
+    index("meta_events_status_idx").on(t.status, t.createdAt),
+  ],
+);
+
 export const savedSearches = pgTable(
   "saved_searches",
   {

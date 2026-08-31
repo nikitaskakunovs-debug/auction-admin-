@@ -3,6 +3,7 @@ import { assertItemTransition, type ItemStatus } from "@auction/domain";
 import { eq } from "drizzle-orm";
 import { slackOrderPaid } from "./slackNotify.js";
 import { writeAudit } from "../audit.js";
+import { purchaseToMeta } from "./metaPurchase.js";
 import type { AppContext } from "../context.js";
 import { enqueueNotification } from "./notifications.js";
 import { generatePickupCode } from "./pickup.js";
@@ -67,6 +68,11 @@ export async function settleOrderPaid(
       via: typeof meta.provider === "string" ? meta.provider : "manuāli",
       orderId: result.order.id,
     });
+    // Meta CAPI: покупка отправляется ИМЕННО отсюда — из единственного места,
+    // где оплата действительно подтверждена. Браузер шлёт свою копию с тем же
+    // event_id, Meta склеивает их в одну конверсию. Если человек закрыл
+    // вкладку сразу после банка, серверная копия всё равно дойдёт.
+    void purchaseToMeta(ctx, result.order).catch(() => undefined);
   }
   return result;
 }

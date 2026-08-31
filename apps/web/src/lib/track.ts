@@ -11,6 +11,8 @@
  *  согласия, и это их зона ответственности, не наша.
  */
 
+import { PUBLIC_API_URL } from "./config";
+
 type DataLayer = Array<Record<string, unknown> | IArguments>;
 
 const dl = (): DataLayer | null => {
@@ -33,14 +35,159 @@ function redact(value: string): string {
     .replace(/(?:\+?\d[\s()-]?){7,}/g, "[phone]");
 }
 
+/** Наши события → стандартные имена Meta. Что не в таблице — серверной копии
+ *  не имеет: у Meta нет подходящего стандартного события, а выдумывать своё
+ *  ради одной строки в отчёте не стоит (view_cart считает GA4). */
+const META_NAME: Record<string, string> = {
+  page_view: "PageView",
+  view_item: "ViewContent",
+  search: "Search",
+  add_to_cart: "AddToCart",
+  begin_checkout: "InitiateCheckout",
+  purchase: "Purchase",
+  sign_up: "CompleteRegistration",
+  login: "Login",
+};
+
+/** Идентификатор одного действия. Уходит и в пиксель (eventID), и на сервер:
+ *  по нему Meta склеивает браузерную и серверную копии в одну конверсию.
+ *  Не выводится из времени — два действия в одну секунду обязаны отличаться. */
+function newEventId(event: string): string {
+  const rnd =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2) + Date.now().toString(36);
+  return `${event}-${rnd}`;
+}
+
+/** Cookie Meta: уходят без хеша, так требует сама Meta. `_fbc` собирается из
+ *  fbclid, если пиксель ещё не успел записать cookie сам. */
+function metaCookies(): { fbp?: string; fbc?: string } {
+  if (typeof document === "undefined") return {};
+  const get = (name: string) =>
+    document.cookie.split("; ").find((c) => c.startsWith(`${name}=`))?.split("=")[1];
+  const fbp = get("_fbp");
+  let fbc = get("_fbc");
+  if (!fbc) {
+    const clid = new URLSearchParams(window.location.search).get("fbclid");
+    if (clid) fbc = `fb.1.${Date.now()}.${clid}`;
+  }
+  return { ...(fbp ? { fbp } : {}), ...(fbc ? { fbc } : {}) };
+}
+
+/** Есть ли согласие на маркетинг. Без него ни пиксель, ни серверная копия не
+ *  имеют права ни на событие, ни на данные человека. */
+function marketingAllowed(): boolean {
+  try {
+    const c = JSON.parse(localStorage.getItem("izsoli_cc_v1") ?? "null") as { marketing?: boolean } | null;
+    return c?.marketing === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Серверная копия события (Meta CAPI).
+ *
+ * Личных данных отсюда не уходит вовсе: сервер берёт их из своей базы и
+ * хеширует сам. Наружу идут только имя события, его идентификатор, адрес
+ * страницы, товарные поля и cookie самой Meta.
+ *
+ * Purchase здесь не отправляется: покупку подтверждает движок после реальной
+ * оплаты, и присылать её со слов браузера значило бы разрешить рисовать
+ * конверсии.
+ */
+function mirrorToMeta(event: string, eventId: string, params: Record<string, unknown>): void {
+  const name = META_NAME[event];
+  if (!name || name === "Purchase") return;
+  if (!marketingAllowed()) return;
+
+  const ec = params.ecommerce as { items?: Array<Record<string, unknown>>; value?: number } | undefined;
+  const items = ec?.items ?? [];
+  const ids = items.map((i) => String(i.item_id)).filter(Boolean);
+  const custom: Record<string, unknown> = {
+    ...(ids.length ? { content_ids: ids, content_type: "product" } : {}),
+    ...(items.length === 1 && items[0]!.item_name ? { content_name: String(items[0]!.item_name) } : {}),
+    ...(items.length === 1 && items[0]!.item_category ? { content_category: String(items[0]!.item_category) } : {}),
+    ...(items.length
+      ? {
+          contents: items.map((i) => ({
+            id: String(i.item_id),
+            quantity: 1,
+            ...(typeof i.price === "number" ? { item_price: i.price } : {}),
+          })),
+          num_items: items.length,
+        }
+      : {}),
+    ...(typeof params.value === "number" ? { value: params.value, currency: "EUR" } : {}),
+    ...(typeof params.search_term === "string" ? { search_string: redact(params.search_term) } : {}),
+    ...(name === "CompleteRegistration" ? { status: true } : {}),
+  };
+
+  let visitorId: string | null = null;
+  try {
+    visitorId = localStorage.getItem("izsoli_visitor_v1");
+  } catch { /* приватный режим — сервер сверит согласие по аккаунту */ }
+
+  const body = JSON.stringify({
+    event_name: name,
+    event_id: eventId,
+    event_source_url: window.location.href,
+    ...(visitorId ? { visitor_id: visitorId } : {}),
+    ...metaCookies(),
+    ...(Object.keys(custom).length ? { custom_data: custom } : {}),
+  });
+
+  // Токен сессии нужен, чтобы сервер узнал человека и подставил его данные;
+  // сам запрос ничего не ждёт и никого не задерживает.
+  void import("./api")
+    .then(({ publicApi }) =>
+      fetch(`${PUBLIC_API_URL}/api/public/meta/event`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(publicApi.accessToken ? { authorization: `Bearer ${publicApi.accessToken}` } : {}),
+        },
+        body,
+        keepalive: true,
+      }),
+    )
+    .catch(() => undefined);
+}
+
 export function track(event: string, params: Record<string, unknown> = {}): void {
   const layer = dl();
-  if (!layer) return;
   const safe = typeof params.search_term === "string"
     ? { ...params, search_term: redact(params.search_term) }
     : params;
-  if ("ecommerce" in safe || ECOM_EVENTS.has(event)) layer.push({ ecommerce: null });
-  layer.push({ event, ...safe });
+  // Идентификатор действия: если вызывающая сторона задала свой (покупка —
+  // `purchase-<номер заказа>`), берём его; иначе создаём новый.
+  const eventId = typeof safe.event_id === "string" ? safe.event_id : newEventId(event);
+  if (layer) {
+    if ("ecommerce" in safe || ECOM_EVENTS.has(event)) layer.push({ ecommerce: null });
+    // event_id уходит в dataLayer, чтобы тег Meta в GTM передал его пикселю
+    // как eventID — без этого браузерная и серверная копии не склеятся.
+    layer.push({ event, event_id: eventId, ...safe });
+  }
+  mirrorToMeta(event, eventId, safe);
+}
+
+/**
+ * PageView для Meta.
+ *
+ * Единственное событие, чью браузерную половину шлёт базовый тег GTM, а не
+ * наш код. Пока этот тег срабатывает на «All Pages» без eventID, склеить его
+ * с серверной копией нечем — и Meta посчитала бы просмотр дважды. Поэтому
+ * серверная копия выключена по умолчанию и включается флагом ПОСЛЕ того, как
+ * базовый тег переведён на событие `meta_page_view` и получает из него
+ * eventID. Имя события новое: ни один существующий триггер GA4 его не
+ * слушает, так что настройка GA4 при этом не задета.
+ */
+export function trackPageView(): void {
+  if (process.env.NEXT_PUBLIC_META_PAGEVIEW !== "1") return;
+  const eventId = newEventId("pv");
+  dl()?.push({ event: "meta_page_view", event_id: eventId });
+  mirrorToMeta("page_view", eventId, {});
 }
 
 /** Товарная строка GA4 (items[]) по ТЗ аналитики:

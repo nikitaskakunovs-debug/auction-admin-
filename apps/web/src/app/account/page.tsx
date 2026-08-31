@@ -107,7 +107,7 @@ export default function AccountPage() {
                 }),
                 // transaction_id продублирован наверх: GA4 читает его из
                 // ecommerce, тегу Google Ads удобнее с верхнего уровня.
-                transaction_id: ref, event_id: ref, currency: "EUR", payment_status: "paid",
+                transaction_id: ref, event_id: `purchase-${ref}`, currency: "EUR", payment_status: "paid",
                 ...(ec
                   ? {
                       // value — лот+комиссия без НДС; gross_total — к оплате.
@@ -129,7 +129,7 @@ export default function AccountPage() {
             })
             .catch(() => purchaseOnce(ref, {
               ...adsUserData({ email: me?.email }),
-              transaction_id: ref, event_id: ref, currency: "EUR", payment_status: "paid",
+              transaction_id: ref, event_id: `purchase-${ref}`, currency: "EUR", payment_status: "paid",
               ecommerce: { transaction_id: ref, currency: "EUR" },
             }));
           return;

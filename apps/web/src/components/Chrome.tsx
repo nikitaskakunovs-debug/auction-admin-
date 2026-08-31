@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { publicApi } from "@/lib/api";
 import { captureAttribution, submitAttribution } from "@/lib/attr";
@@ -8,6 +9,7 @@ import { useT } from "@/lib/i18n";
 import type { Country } from "@/lib/country";
 import { alertStore, useRail, useReveal } from "@/lib/ui";
 import { cartStore } from "@/lib/cart";
+import { trackPageView } from "@/lib/track";
 import { watchStore } from "@/lib/watch";
 import { markAlertsSeen, relTime, type MyNotification } from "./account/data";
 import { CatalogMenu } from "./CatalogMenu";
@@ -43,6 +45,7 @@ export function Chrome({ country = "LV" }: { country?: Country }) {
   const [cart, setCart] = useState(0);
   const [menu, setMenu] = useState(false);
   const rail = useRail<HTMLDivElement>();
+  const path = usePathname();
 
   useReveal();
 
@@ -74,6 +77,11 @@ export function Chrome({ country = "LV" }: { country?: Country }) {
     sync();
     return cartStore.subscribe(sync);
   }, []);
+
+  // Meta PageView при переходах внутри витрины. Выключен, пока базовый тег
+  // GTM не переведён на событие meta_page_view (иначе просмотр считался бы
+  // дважды) — см. trackPageView.
+  useEffect(() => { trackPageView(); }, [path]);
 
 
   /* Высота верхней панели постоянна.
