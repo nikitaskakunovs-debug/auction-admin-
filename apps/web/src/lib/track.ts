@@ -171,7 +171,18 @@ export interface MetaTrace {
   server: string;
   browser: string;
 }
-const traces: MetaTrace[] = [];
+/** Дневник переживает полную перезагрузку страницы: половина воронки —
+ *  оплата и возврат с неё — это уход с сайта и обратно, и без сохранения
+ *  самые интересные строки исчезали бы ровно там, где их и надо смотреть.
+ *  Пишем только при открытой панели: обычному посетителю это ни к чему. */
+const TRACE_KEY = "izsoli_meta_trace_v1";
+function loadTraces(): MetaTrace[] {
+  try {
+    const raw = JSON.parse(sessionStorage.getItem(TRACE_KEY) ?? "[]") as unknown;
+    return Array.isArray(raw) ? (raw as MetaTrace[]) : [];
+  } catch { return []; }
+}
+const traces: MetaTrace[] = typeof window === "undefined" ? [] : loadTraces();
 const traceWatchers = new Set<() => void>();
 
 /** Жив ли пиксель прямо сейчас. */
@@ -188,6 +199,11 @@ export const metaTrace = {
 };
 
 function ping(): void {
+  try {
+    if (sessionStorage.getItem("izsoli_metadebug") === "1") {
+      sessionStorage.setItem(TRACE_KEY, JSON.stringify(traces));
+    }
+  } catch { /* нет хранилища — дневник живёт только в памяти */ }
   for (const fn of traceWatchers) fn();
 }
 
