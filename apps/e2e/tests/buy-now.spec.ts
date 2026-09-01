@@ -18,7 +18,7 @@ test("fixed-price: guest cart → register at checkout → order is born in the 
   await page.goto(`/listing/${listingId}`);
   await page.click("text=/Buy now|Pirkt tagad/");
   await expect(page).toHaveURL(/\/grozs$/);
-  await expect(page.locator(`text=${title}`)).toBeVisible();
+  await expect(page.locator(".cart-row b", { hasText: title })).toBeVisible();
 
   // Оформление спрашивает вход — с возвратом в этот же грозс.
   await page.click("text=/Proceed to checkout|Noformēt pasūtījumu/");
@@ -31,7 +31,7 @@ test("fixed-price: guest cart → register at checkout → order is born in the 
   // После входа лот на месте (корзины слиты), единственная кнопка ведёт в
   // оплату: заказ рождается только на этом шаге.
   await page.goto("/grozs");
-  await expect(page.locator(`text=${title}`)).toBeVisible();
+  await expect(page.locator(".cart-row b", { hasText: title })).toBeVisible();
   await page.click("text=/Pay |Apmaksāt /");
   await expect(page).toHaveURL(/\/apmaksa\/A-\d+/);
 
