@@ -453,6 +453,8 @@ export function gaItem(i: {
   sku: string; listingId?: string; name: string; category?: string | null;
   netCents: number; hammerCents?: number; feeCents?: number;
   vatRateBp?: number; grossCents?: number;
+  /** Модель продажи: auction | buy_now. Источник — движок, не витрина. */
+  saleType?: string;
 }) {
   return {
     item_id: i.sku,
@@ -465,13 +467,24 @@ export function gaItem(i: {
     ...(i.feeCents !== undefined ? { auction_fee: i.feeCents / 100 } : {}),
     ...(i.vatRateBp !== undefined ? { vat_rate: i.vatRateBp / 100 } : {}),
     ...(i.grossCents !== undefined ? { gross_price: i.grossCents / 100 } : {}),
+    ...(i.saleType ? { sale_type: i.saleType } : {}),
   };
+}
+
+/** Верхний sale_type события по составу позиций: единый тип — он и есть,
+ *  оба сразу — «mixed» (только на верхнем уровне; внутри items[] всегда
+ *  точные значения). */
+export function saleTypeOf(types: Array<string | undefined>): Record<string, string> {
+  const set = new Set(types.filter((t): t is string => !!t));
+  if (set.size === 0) return {};
+  return { sale_type: set.size === 1 ? [...set][0]! : "mixed" };
 }
 
 /** Заказ движка → карточка товара + суммы. Net = молоток + комиссия (без
  *  НДС), gross = с НДС; доставка в gross_price лота не входит — она общая. */
 export interface OrderLike {
   ref: string; itemSku: string; itemTitle: string; itemCategory?: string | null;
+  saleType?: string;
   hammerCents: number; premiumCents: number; vatCents: number;
   vatRateBp?: number; reverseCharge?: boolean;
   shippingCents: number; handlingCents: number; totalCents: number;
@@ -485,11 +498,13 @@ export function orderEcom(o: OrderLike) {
     grossCents: o.totalCents,
     commissionCents: o.premiumCents,
     vatScheme: o.reverseCharge ? "reverse_charge" : "standard",
+    saleType: o.saleType,
     item: gaItem({
       sku: o.itemSku, name: o.itemTitle, category: o.itemCategory,
       netCents, hammerCents: o.hammerCents, feeCents: o.premiumCents,
       ...(o.vatRateBp !== undefined ? { vatRateBp: o.vatRateBp } : {}),
       grossCents: netCents + o.vatCents,
+      ...(o.saleType ? { saleType: o.saleType } : {}),
     }),
   };
 }

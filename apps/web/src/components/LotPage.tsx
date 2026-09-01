@@ -64,6 +64,7 @@ export function LotPage({
     const netCents = inv.hammerCents + inv.premiumCents;
     track("view_item", {
       item_id: a.sku, listing_id: a.id, item_name: a.title, item_category: a.category,
+      sale_type: "auction",
       value: netCents / 100, currency: "EUR",
       gross_total: inv.totalCents / 100,
       commission_value: inv.premiumCents / 100,
@@ -74,6 +75,7 @@ export function LotPage({
           sku: a.sku, listingId: a.id, name: a.title, category: a.category,
           netCents, hammerCents: inv.hammerCents, feeCents: inv.premiumCents,
           vatRateBp: marketFees(a.marketCode).vatRateBp, grossCents: inv.totalCents,
+          saleType: "auction",
         })],
       },
     });

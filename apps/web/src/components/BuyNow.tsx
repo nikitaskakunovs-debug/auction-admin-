@@ -42,6 +42,7 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
     const netCents = inv.hammerCents + inv.premiumCents;
     track("view_item", {
       item_id: listing.sku, listing_id: listing.id, item_name: listing.title, item_category: listing.category,
+      sale_type: "buy_now",
       value: netCents / 100, currency: "EUR",
       gross_total: inv.totalCents / 100, commission_value: inv.premiumCents / 100, vat_scheme: "standard",
       ecommerce: {
@@ -50,6 +51,7 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
           sku: listing.sku, listingId: listing.id, name: listing.title, category: listing.category,
           netCents, hammerCents: inv.hammerCents, feeCents: inv.premiumCents,
           vatRateBp: marketFees(listing.marketCode).vatRateBp, grossCents: inv.totalCents,
+          saleType: "buy_now",
         })],
       },
     });
@@ -64,9 +66,11 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
       sku: listing.sku, listingId: listing.id, name: listing.title, category: listing.category,
       netCents, hammerCents: inv.hammerCents, feeCents: inv.premiumCents,
       vatRateBp: marketFees(listing.marketCode).vatRateBp, grossCents: inv.totalCents,
+      saleType: "buy_now",
     });
     return {
       item_id: listing.sku, listing_id: listing.id, item_name: listing.title,
+      sale_type: "buy_now",
       value: netCents / 100, currency: "EUR",
       gross_total: inv.totalCents / 100,
       commission_value: inv.premiumCents / 100,

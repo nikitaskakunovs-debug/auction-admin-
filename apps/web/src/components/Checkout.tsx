@@ -132,6 +132,7 @@ export function Checkout({ orderRef }: { orderRef: string }) {
     // Один раз на заказ и с отметкой в браузере: обновление страницы или
     // возврат со входа не создают второй InitiateCheckout той же сессии.
     beginCheckoutOnce(order.ref, {
+      ...(order.saleType ? { sale_type: order.saleType } : {}),
       ...adsUserData({
         email: meContact?.email, name: meContact?.name, phone: order.recipientPhone,
         country: order.shippingTo?.country, zip: order.shippingTo?.zip,

@@ -663,6 +663,10 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
         const shipment = shipmentByOrder.get(r.order.id) ?? null;
         return {
           ref: r.order.ref,
+          // Тип продажи решает движок, а не витрина: заказ либо родился из
+          // торгов (есть auctionId), либо из фикс-цены. Аналитика делит
+          // воронку по этому полю (sale_type: auction | buy_now).
+          saleType: r.order.auctionId ? "auction" : "buy_now",
           itemTitle: r.itemTitle,
           itemSku: r.itemSku,
           // Категория и состояние — для строки «Lots» и кнопки «Atrast

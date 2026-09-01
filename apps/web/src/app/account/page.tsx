@@ -18,7 +18,7 @@ import { publicApi } from "@/lib/api";
 import { setCartCount } from "@/lib/cart";
 import { dateLocale, useT, type Lang } from "@/lib/i18n";
 import { loginHref } from "@/lib/nav";
-import { addToCartOnce, adsUserData, orderEcom, purchaseOnce, track } from "@/lib/track";
+import { addToCartOnce, adsUserData, orderEcom, purchaseOnce, saleTypeOf, track } from "@/lib/track";
 import { photoThumb } from "@/lib/photos";
 import { formatEur, type MyOrder } from "@/lib/types";
 
@@ -102,6 +102,7 @@ export default function AccountPage() {
               const paid = res.orders.find((o) => o.ref === ref);
               const ec = paid ? orderEcom(paid) : null;
               purchaseOnce(ref, {
+                ...(paid?.saleType ? { sale_type: paid.saleType } : {}),
                 ...adsUserData({
                   email: me?.email, phone: paid?.recipientPhone,
                   country: paid?.shippingTo?.country, zip: paid?.shippingTo?.zip,
@@ -633,6 +634,8 @@ function Purchases({ orders, lang }: { orders: MyOrder[]; lang: Lang }) {
       const e = ecs[i]!;
       addToCartOnce(o.ref, {
         item_id: o.itemSku, item_name: o.itemTitle,
+        // Тип продажи заказа решает движок: выигранные торги — auction.
+        ...(o.saleType ? { sale_type: o.saleType } : {}),
         value: e.netCents / 100, currency: "EUR",
         gross_total: e.grossCents / 100,
         commission_value: e.commissionCents / 100,
@@ -642,6 +645,7 @@ function Purchases({ orders, lang }: { orders: MyOrder[]; lang: Lang }) {
       });
     });
     track("view_cart", {
+      ...saleTypeOf(unpaid.map((o) => o.saleType)),
       value: net / 100, currency: "EUR",
       gross_total: gross, cart_gross_total: gross, cart_size: unpaid.length,
       ecommerce: { currency: "EUR", value: net / 100, items: ecs.map((e) => e.item) },

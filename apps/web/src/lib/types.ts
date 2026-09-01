@@ -71,6 +71,8 @@ export interface FixedListing {
 
 export interface MyOrder {
   ref: string;
+  /** Откуда родился заказ: торги или фикс-цена. Решает движок. */
+  saleType?: "auction" | "buy_now";
   itemTitle: string;
   itemSku: string;
   /** Категория и состояние лота — строка «Lots» и «Atrast līdzīgus». */

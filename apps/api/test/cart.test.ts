@@ -1,4 +1,4 @@
-import { items, listings, orders } from "@auction/db";
+import { auctions, items, listings, orders } from "@auction/db";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createWorld, type TestWorld } from "./helpers.js";
@@ -183,6 +183,57 @@ describe("гостевая корзина «Pērc uzreiz»", () => {
     const after = (await list(undefined, me.accessToken)).json() as { count: number };
     expect(after.count).toBe(0);
     world.setNow(null);
+  });
+
+  it("тип продажи заказа решает движок: auction против buy_now", async () => {
+    const me = await register("cart.saletype@test.lv");
+
+    // Покупка фикс-лота через корзину → buy_now.
+    const fixed = await mkListing();
+    await add(fixed.listingId, undefined, me.accessToken);
+    const checkout = await world.server.app.inject({
+      method: "POST",
+      url: "/api/public/cart/checkout",
+      headers: { authorization: `Bearer ${me.accessToken}` },
+      payload: {},
+    });
+    expect(checkout.statusCode).toBe(200);
+
+    // Заказ, рождённый торгами, кладём напрямую — проверяем поле, не торги.
+    n += 1;
+    const [aItem] = await world.ctx.db
+      .insert(items)
+      .values({ sku: `CART-${n}`, title: "Изысканный лот", marketCode: "LV", status: "awaiting_payment" })
+      .returning({ id: items.id });
+    const [aListing] = await world.ctx.db
+      .insert(listings)
+      .values({ itemId: aItem!.id, type: "auction", title: "Изысканный лот", marketCode: "LV", startPriceCents: 5_000, status: "published" })
+      .returning({ id: listings.id });
+    const now = world.ctx.now();
+    const [auction] = await world.ctx.db
+      .insert(auctions)
+      .values({ listingId: aListing!.id, status: "ended_won", startsAt: now, endsAt: now })
+      .returning({ id: auctions.id });
+    await world.ctx.db.insert(orders).values({
+      ref: "A-8801", auctionId: auction!.id, listingId: aListing!.id, itemId: aItem!.id,
+      customerId: me.bidder.id, customerAlias: "cartsaletype", customerEmail: "cart.saletype@test.lv",
+      marketCode: "LV",
+      hammerCents: 5_000, premiumCents: 500, vatCents: 1_155, vatRateBp: 2_100,
+      totalCents: 6_655, status: "awaiting_payment",
+    });
+
+    const mine = await world.server.app.inject({
+      method: "GET",
+      url: "/api/public/me/orders",
+      headers: { authorization: `Bearer ${me.accessToken}` },
+    });
+    expect(mine.statusCode).toBe(200);
+    const byRef = new Map(
+      (mine.json() as { orders: Array<{ ref: string; saleType: string }> }).orders.map((o) => [o.ref, o.saleType]),
+    );
+    expect(byRef.get("A-8801")).toBe("auction");
+    const bought = (checkout.json() as { orders: Array<{ ref: string }> }).orders[0]!.ref;
+    expect(byRef.get(bought)).toBe("buy_now");
   });
 
   it("оформляется только отмеченное — остальное остаётся лежать", async () => {

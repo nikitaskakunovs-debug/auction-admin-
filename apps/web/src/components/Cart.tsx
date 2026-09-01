@@ -22,7 +22,7 @@ import { publicApi, PublicApiError } from "@/lib/api";
 import { cartCheckout, cartCheckoutStart, cartList, cartRemove, setCartCount, setCartItemsCount, type CartItem, type CartView } from "@/lib/cart";
 import { useT } from "@/lib/i18n";
 import { loginHref } from "@/lib/nav";
-import { addToCartOnce, adsUserData, beginCheckoutOnce, gaItem, markBeginCheckout, orderEcom, track } from "@/lib/track";
+import { addToCartOnce, adsUserData, beginCheckoutOnce, gaItem, markBeginCheckout, orderEcom, saleTypeOf, track } from "@/lib/track";
 import { formatEur, type MyOrder } from "@/lib/types";
 import { Ph } from "./Ph";
 import { say } from "./Toast";
@@ -54,10 +54,13 @@ function itemEcom(i: CartItem) {
     netCents,
     grossCents: i.totalCents,
     commissionCents: i.premiumCents,
+    // В гостевую корзину попадают только лоты с фиксированной ценой.
+    saleType: "buy_now",
     item: gaItem({
       sku: i.sku, listingId: i.listingId, name: i.title, category: i.category,
       netCents, hammerCents: i.hammerCents, feeCents: i.premiumCents,
       vatRateBp: i.vatRateBp, grossCents: i.totalCents,
+      saleType: "buy_now",
     }),
   };
 }
@@ -122,6 +125,9 @@ export function Cart() {
     const net = ecs.reduce((s, e) => s + e.netCents, 0);
     const gross = ecs.reduce((s, e) => s + e.grossCents, 0) / 100;
     track("view_cart", {
+      // auction | buy_now при однородном составе, mixed — при смешанном;
+      // внутри items[] каждый лот несёт свой точный тип.
+      ...saleTypeOf(ecs.map((e) => e.saleType)),
       value: net / 100, currency: "EUR",
       gross_total: gross, cart_gross_total: gross, cart_size: ecs.length,
       ecommerce: { currency: "EUR", value: net / 100, items: ecs.map((e) => e.item) },
@@ -134,6 +140,7 @@ export function Cart() {
       .then(() => {
         const e = itemEcom(i);
         track("remove_from_cart", {
+          sale_type: "buy_now",
           value: e.netCents / 100, currency: "EUR",
           gross_total: e.grossCents / 100,
           commission_value: e.commissionCents / 100,
@@ -188,8 +195,9 @@ export function Cart() {
 
   /** Галочка на заказе или отложенном лоте: снял — remove_from_cart, вернул —
    *  add_to_cart один раз на лот (отметка не даёт раздуть воронку). */
-  const cartPulse = (on: boolean, key: string, e: { netCents: number; grossCents: number; commissionCents: number; item: unknown }, sizeAfter: number, grossAfter: number) => {
+  const cartPulse = (on: boolean, key: string, e: { netCents: number; grossCents: number; commissionCents: number; saleType?: string; item: unknown }, sizeAfter: number, grossAfter: number) => {
     const params = {
+      ...(e.saleType ? { sale_type: e.saleType } : {}),
       value: e.netCents / 100, currency: "EUR",
       gross_total: e.grossCents / 100,
       commission_value: e.commissionCents / 100,
@@ -242,6 +250,7 @@ export function Cart() {
     const coId = chosenPending.length > 0 ? checkoutId() : `group:${[...orderRefs].sort().join("+")}`;
     beginCheckoutOnce(coId, {
       ...adsUserData({ email: meContact?.email, name: meContact?.name }),
+      ...saleTypeOf(ecs.map((e) => e.saleType)),
       value: net / 100, currency: "EUR", cart_size: ecs.length,
       checkout_id: coId,
       gross_total: totalCents / 100, cart_gross_total: totalCents / 100,
