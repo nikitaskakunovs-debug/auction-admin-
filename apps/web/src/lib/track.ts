@@ -170,6 +170,8 @@ export interface MetaTrace {
   eventId: string;
   server: string;
   browser: string;
+  /** Кто вызвал — для строк, снятых прямо с пикселя. */
+  from?: string;
 }
 /** Дневник переживает полную перезагрузку страницы: половина воронки —
  *  оплата и возврат с неё — это уход с сайта и обратно, и без сохранения
@@ -190,6 +192,86 @@ export function pixelReady(): boolean {
   return typeof window !== "undefined" && typeof (window as unknown as { fbq?: unknown }).fbq === "function";
 }
 
+/**
+ * Наблюдатель за вызовами пикселя.
+ *
+ * Events Manager показывает, что событие пришло, но не показывает, кто его
+ * отправил. Лишний PageView без eventID может прийти из базового тега Meta,
+ * из второго тега в GTM или из автоматической настройки самой Meta — и
+ * различить их по журналу Meta нельзя.
+ *
+ * Поэтому подменяем `fbq` обёрткой, которая записывает имя события, наличие
+ * eventID и файл, откуда пришёл вызов, — и передаёт вызов дальше без единого
+ * изменения. Ставится только при открытой панели: подмена глобальной функции
+ * рекламной системы — не то, что стоит держать включённым для посетителей.
+ */
+type Fbq = ((...args: unknown[]) => unknown) & Record<string, unknown>;
+
+/** По стеку вызова понять, чей это был fbq: тег GTM, наш код или сам пиксель. */
+function callerOf(stack: string | undefined): string {
+  const line = (stack ?? "")
+    .split("\n")
+    .slice(2)
+    .find((l) => !l.includes("track.") && /https?:\/\//.test(l));
+  const url = /(https?:\/\/[^\s)]+)/.exec(line ?? "")?.[1] ?? "";
+  if (/gtm\.js|googletagmanager/.test(url)) return "тег GTM";
+  if (/fbevents|connect\.facebook/.test(url)) return "сам пиксель";
+  if (/\/_next\//.test(url)) return "код витрины";
+  return url ? url.replace(/^https?:\/\/[^/]+/, "").slice(0, 40) : "неизвестно";
+}
+
+let pixelCalls = 0;
+export function watchPixelCalls(): void {
+  const w = window as unknown as { fbq?: Fbq; _fbq?: Fbq; __izsoliFbqWatch?: boolean };
+  if (w.__izsoliFbqWatch) return;
+
+  const install = (): boolean => {
+    const orig = w.fbq;
+    if (typeof orig !== "function") return false;
+    const wrapped = function (this: unknown, ...args: unknown[]) {
+      try {
+        if (args[0] === "track" || args[0] === "trackCustom") {
+          const opts = (args[3] ?? args[2]) as { eventID?: string } | undefined;
+          const id = typeof opts?.eventID === "string" ? opts.eventID : "";
+          pixelCalls += 1;
+          noteTrace(
+            `fbq: ${String(args[1] ?? "?")}`,
+            id || `pixel-${pixelCalls}`,
+            "—",
+            id ? "ушло с eventID" : "БЕЗ eventID — дубль",
+            callerOf(new Error().stack),
+          );
+        }
+      } catch { /* диагностика не имеет права ломать пиксель */ }
+      return (orig as (...a: unknown[]) => unknown).apply(this, args);
+    } as unknown as Fbq;
+    // Свойства пикселя (queue, callMethod, loaded, version) обязаны уехать
+    // вместе с функцией: fbevents.js читает их с той же ссылки.
+    for (const k of Object.keys(orig)) wrapped[k] = orig[k];
+    w.fbq = wrapped;
+    w._fbq = wrapped;
+    w.__izsoliFbqWatch = true;
+    return true;
+  };
+
+  if (install()) return;
+  // Пикселя ещё нет — дожидаемся, но не вечно.
+  let waited = 0;
+  const timer = setInterval(() => {
+    waited += 200;
+    if (install() || waited >= PIXEL_WAIT_MS) clearInterval(timer);
+  }, 200);
+}
+
+// Если панель уже открыта в этой вкладке — ставим наблюдателя сразу при
+// загрузке кода, не дожидаясь отрисовки самой панели: базовый тег Meta
+// отрабатывает рано, и поставленный позже наблюдатель его вызов пропустит.
+if (typeof window !== "undefined") {
+  try {
+    if (sessionStorage.getItem("izsoli_metadebug") === "1") watchPixelCalls();
+  } catch { /* нет хранилища — наблюдателя поставит панель */ }
+}
+
 export const metaTrace = {
   list: (): readonly MetaTrace[] => traces,
   subscribe(fn: () => void): () => void {
@@ -207,12 +289,13 @@ function ping(): void {
   for (const fn of traceWatchers) fn();
 }
 
-function noteTrace(event: string, eventId: string, server: string, browser: string): MetaTrace {
+function noteTrace(event: string, eventId: string, server: string, browser: string, from?: string): MetaTrace {
   const row: MetaTrace = {
     at: new Date().toLocaleTimeString("lv-LV", { hour12: false }),
     event: META_NAME[event] ?? event,
     eventId,
     server,
+    ...(from ? { from } : {}),
     browser,
   };
   traces.push(row);

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { metaTrace, pixelReady, type MetaTrace } from "@/lib/track";
+import { metaTrace, pixelReady, watchPixelCalls, type MetaTrace } from "@/lib/track";
 
 type Tone = "ok" | "warn" | "bad";
 type Row = [string, string, Tone];
@@ -41,6 +41,8 @@ export function MetaDebug() {
 
   useEffect(() => {
     if (!on) return;
+    // С этого момента видно каждый вызов пикселя — включая чужие, без eventID.
+    watchPixelCalls();
     const cookie = (n: string) =>
       document.cookie.split("; ").some((c) => c.startsWith(`${n}=`)) ? "есть" : "нет";
     const read = () => {
@@ -90,7 +92,7 @@ export function MetaDebug() {
   const asText = [
     ...env.map(([k, v]) => `${k}: ${v}`),
     "—",
-    ...rows.map((r) => `${r.at} ${r.event} | сервер: ${r.server} | браузер: ${r.browser} | ${r.eventId}`),
+    ...rows.map((r) => `${r.at} ${r.event}${r.from ? ` (${r.from})` : ""} | сервер: ${r.server} | браузер: ${r.browser} | ${r.eventId}`),
   ].join("\n");
 
   const box: React.CSSProperties = {
@@ -145,7 +147,7 @@ export function MetaDebug() {
             {rows.slice().reverse().map((r) => (
               <tr key={r.eventId} style={{ borderTop: "1px solid #232b23" }}>
                 <td style={{ whiteSpace: "nowrap", paddingRight: 8 }}>{r.at}</td>
-                <td style={{ paddingRight: 8 }}>{r.event}</td>
+                <td style={{ paddingRight: 8 }}>{r.event}{r.from ? <span style={{ opacity: .6 }}> · {r.from}</span> : null}</td>
                 <td style={{ paddingRight: 8, color: TONE[r.server === "ушло" ? "ok" : "warn"] }}>{r.server}</td>
                 <td style={{ color: TONE[r.browser.startsWith("ушло") ? "ok" : r.browser.startsWith("ждём") ? "warn" : "bad"] }}>{r.browser}</td>
               </tr>
