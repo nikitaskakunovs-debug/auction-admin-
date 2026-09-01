@@ -5,6 +5,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AppContext } from "../context.js";
 import { buyNow } from "../engine/purchase.js";
+import { heldByOthers, myHoldUntil, releaseHold, reserveUnit } from "../engine/reservations.js";
 
 /**
  * Гостевая корзина лотов «Pērc uzreiz».
@@ -159,6 +160,7 @@ export function registerCartRoutes(app: FastifyInstance, ctx: AppContext): void 
     const marketRows = await ctx.db.select().from(markets);
     const byMarket = new Map(marketRows.map((m) => [m.code, m]));
 
+    const mine = [ids.visitorId ?? "", ids.customerId ?? ""].filter(Boolean);
     const itemsOut = [];
     const alive: CartEntry[] = [];
     for (const e of entries) {
@@ -166,7 +168,17 @@ export function registerCartRoutes(app: FastifyInstance, ctx: AppContext): void 
       // Продажа исчезла из базы совсем — такой записи в корзине делать нечего.
       if (!view) continue;
       alive.push(e);
-      itemsOut.push(view);
+      // Единицы, придержанные другими оформляющими, человеку недоступны;
+      // его собственный резерв — наоборот, гарантия и таймер.
+      const row = byId.get(e.id)!;
+      const others = view.available ? await heldByOthers(ctx, e.id, mine) : 0;
+      const reservedUntil = await myHoldUntil(ctx, e.id, mine);
+      itemsOut.push({
+        ...view,
+        available: view.available && row.listing.quantity - others > 0,
+        stock: Math.max(row.listing.quantity - others, 0),
+        reservedUntil,
+      });
     }
     if (key && alive.length !== entries.length) await writeEntries(ctx, key, alive);
 
@@ -214,7 +226,46 @@ export function registerCartRoutes(app: FastifyInstance, ctx: AppContext): void 
     const { key, entries } = await resolveCart(ctx, ids);
     const next = entries.filter((e) => e.id !== listingId);
     if (key) await writeEntries(ctx, key, next);
+    await releaseHold(ctx, listingId, [ids.visitorId ?? "", ids.customerId ?? ""].filter(Boolean));
     return { ok: true, count: next.length };
+  });
+
+  /**
+   * Начало оформления: за человеком на десять минут закрепляется по ОДНОЙ
+   * единице каждого лота корзины — чтобы вход или регистрация не стоили ему
+   * выбранного. Резерв поштучный: при остатке 10 занята одна единица, а не
+   * весь лот. Повторное нажатие срок не продлевает; таймер виден в GET /cart.
+   */
+  app.post("/api/public/cart/checkout-start", async (req, reply) => {
+    const body = z.object({ visitor_id: visitorSchema.optional() }).safeParse(req.body ?? {});
+    if (!body.success) return reply.code(400).send({ error: "invalid_body" });
+    const ids = who(req, body.data.visitor_id);
+    if (!ids.customerId && !ids.visitorId) return reply.code(400).send({ error: "no_identity" });
+    const holder = ids.visitorId ?? ids.customerId!;
+    const also = [ids.customerId ?? ""].filter(Boolean);
+
+    const { entries } = await resolveCart(ctx, ids);
+    if (entries.length === 0) return reply.code(409).send({ error: "cart_empty" });
+    const rows = await loadRows(entries.map((e) => e.id));
+    const byId = new Map(rows.map((r) => [r.listing.id, r]));
+
+    const reserved: Array<{ listingId: string; until: number }> = [];
+    const missed: string[] = [];
+    for (const e of entries) {
+      const row = byId.get(e.id);
+      const sellable =
+        row && row.listing.status === "published" && row.listing.quantity > 0 && row.item.status === "listed";
+      if (!sellable) { missed.push(e.id); continue; }
+      const until = await reserveUnit(ctx, { listingId: e.id, holder, also, quantity: row.listing.quantity });
+      if (until === null) missed.push(e.id);
+      else reserved.push({ listingId: e.id, until });
+    }
+    return {
+      ok: true,
+      reserved,
+      missed,
+      reservedUntil: reserved.length > 0 ? Math.min(...reserved.map((r) => r.until)) : null,
+    };
   });
 
   /**
@@ -246,7 +297,11 @@ export function registerCartRoutes(app: FastifyInstance, ctx: AppContext): void 
     const remaining: CartEntry[] = [];
 
     for (const e of entries) {
-      const result = await buyNow(ctx, { listingId: e.id, customerId: bidderId });
+      const result = await buyNow(ctx, {
+        listingId: e.id,
+        customerId: bidderId,
+        holderIds: body.data.visitor_id ? [body.data.visitor_id] : [],
+      });
       if (result.ok) {
         created.push({ ref: result.orderRef, totalCents: result.totalCents, listingId: e.id });
         continue;

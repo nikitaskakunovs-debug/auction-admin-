@@ -6,15 +6,27 @@ import type { AppContext } from "../context.js";
 import { issueInvoice } from "./invoices.js";
 import { enqueueNotification } from "./notifications.js";
 import { buildPayUrl } from "./payLink.js";
+import { heldByOthers, releaseHold } from "./reservations.js";
 import { slackBuyNow } from "./slackNotify.js";
 
 /**
- * Fixed-price "buy it now". A fixed listing is backed by ONE unique warehouse
- * item (the platform's lots are unique), so it sells exactly once — the
- * item's `listed` status is the availability gate. Stock-safe: the listing +
- * item rows are locked FOR UPDATE so concurrent buyers serialize and only one
- * wins. Reuses the auction post-sale machinery (order + sequential invoice +
- * item lifecycle) with no buyer's premium (that's an auction-hammer commission).
+ * Fixed-price "buy it now". Stock-safe: the listing + item rows are locked
+ * FOR UPDATE so concurrent buyers serialize.
+ *
+ * Two shapes of stock:
+ *  — quantity 1 (the classic unique lot): the backing item's `listed` status
+ *    is the availability gate; the sale archives the listing and walks the
+ *    item into the post-sale lifecycle;
+ *  — quantity N (an e-commerce style multi-stock lot): each sale takes ONE
+ *    unit. The display item stays `listed` while stock remains; the sold unit
+ *    gets its own cloned item row (warehouse flows — picking, shipping,
+ *    returns — drive item status per PHYSICAL unit, so units must not share a
+ *    row). The last unit sells through the classic path.
+ *
+ * Ten-minute checkout reservations (Redis) narrow availability: units held by
+ * OTHER people are not for sale, the buyer's own hold never blocks them.
+ * Reuses the auction post-sale machinery (order + sequential invoice + item
+ * lifecycle) with no buyer's premium (that's an auction-hammer commission).
  */
 
 export type BuyError =
@@ -35,9 +47,14 @@ export interface BuyResult {
 
 export async function buyNow(
   ctx: AppContext,
-  args: { listingId: string; customerId: string },
+  args: { listingId: string; customerId: string; holderIds?: string[] },
 ): Promise<BuyResult | { ok: false; code: BuyError }> {
   const now = ctx.now();
+  const mine = [args.customerId, ...(args.holderIds ?? [])];
+
+  // Единицы, зарезервированные ДРУГИМИ оформляющими, покупке недоступны.
+  // Считаем до транзакции: Redis внутри блокировки строк держать незачем.
+  const othersHold = await heldByOthers(ctx, args.listingId, mine);
 
   const result = await ctx.db.transaction(async (tx): Promise<BuyResult | { ok: false; code: BuyError }> => {
     const [listing] = await tx.select().from(listings).where(eq(listings.id, args.listingId)).for("update");
@@ -45,6 +62,7 @@ export async function buyNow(
     if (listing.type !== "fixed") return { ok: false, code: "NOT_FIXED_PRICE" };
     if (listing.priceCents === null) return { ok: false, code: "NO_PRICE" };
     if (listing.status !== "published") return { ok: false, code: "NOT_AVAILABLE" };
+    if (listing.quantity - othersHold <= 0) return { ok: false, code: "NOT_AVAILABLE" };
 
     const [buyer] = await tx.select().from(customers).where(eq(customers.id, args.customerId));
     if (!buyer || buyer.blocked || buyer.erasedAt !== null) return { ok: false, code: "BIDDER_BLOCKED" };
@@ -79,12 +97,53 @@ export async function buyNow(
     const ref = `A-${counter!.value}`;
     const paymentDeadlineAt = new Date(now.getTime() + ctx.config.paymentDeadlineHours * 3_600_000);
 
+    // Одна единица из остатка или последняя? Последняя идёт классическим
+    // путём — витринная карточка и есть проданная вещь. Не последняя получает
+    // собственную карточку-единицу: складские потоки (сборка, отправка,
+    // возврат) ведут статус по физической вещи, и делить одну строку между
+    // покупателями нельзя. Витринная карточка остаётся listed, лот — published.
+    const lastUnit = listing.quantity <= 1;
+    let soldItemId = item.id;
+    if (!lastUnit) {
+      // Номер единицы — по числу заказов лота: отменённые не освобождают
+      // номер, артикул единицы не повторяется.
+      const [unitRow] = await tx
+        .select({ n: sql<string>`count(*)` })
+        .from(orders)
+        .where(eq(orders.listingId, listing.id));
+      const [unit] = await tx
+        .insert(items)
+        .values({
+          sku: `${item.sku}-U${Number(unitRow!.n) + 2}`,
+          title: item.title,
+          description: item.description,
+          condition: item.condition,
+          conditionNotes: item.conditionNotes,
+          category: item.category,
+          location: item.location,
+          locationId: item.locationId,
+          weightGrams: item.weightGrams,
+          dims: item.dims,
+          photos: item.photos,
+          consignmentId: item.consignmentId,
+          costCents: item.costCents,
+          marketCode: item.marketCode,
+          status: "awaiting_payment",
+        })
+        .returning({ id: items.id });
+      soldItemId = unit!.id;
+      await tx
+        .update(listings)
+        .set({ quantity: listing.quantity - 1, updatedAt: now })
+        .where(eq(listings.id, listing.id));
+    }
+
     const [order] = await tx
       .insert(orders)
       .values({
         ref,
         listingId: listing.id,
-        itemId: item.id,
+        itemId: soldItemId,
         customerId: buyer.id,
         customerAlias: buyer.alias,
         customerEmail: buyer.email,
@@ -109,16 +168,18 @@ export async function buyNow(
 
     await issueInvoice(tx, order!.id, now);
 
-    // The unique item is sold: close the listing.
-    await tx
-      .update(listings)
-      .set({ quantity: 0, status: "archived", updatedAt: now })
-      .where(eq(listings.id, listing.id));
+    if (lastUnit) {
+      // The last (or only) unit is sold: close the listing.
+      await tx
+        .update(listings)
+        .set({ quantity: 0, status: "archived", updatedAt: now })
+        .where(eq(listings.id, listing.id));
 
-    // Move the item into the post-sale lifecycle (listed → won → awaiting_payment).
-    assertItemTransition(item.status as ItemStatus, "won");
-    assertItemTransition("won", "awaiting_payment");
-    await tx.update(items).set({ status: "awaiting_payment", updatedAt: now }).where(eq(items.id, item.id));
+      // Move the item into the post-sale lifecycle (listed → won → awaiting_payment).
+      assertItemTransition(item.status as ItemStatus, "won");
+      assertItemTransition("won", "awaiting_payment");
+      await tx.update(items).set({ status: "awaiting_payment", updatedAt: now }).where(eq(items.id, item.id));
+    }
 
     await enqueueNotification(ctx, tx, {
       customerId: buyer.id,
@@ -138,6 +199,9 @@ export async function buyNow(
 
     return { ok: true, orderRef: ref, totalCents: inv.totalCents, slack: { title: listing.title, priceCents: listing.priceCents!, orderId: order!.id, alias: buyer.alias } };
   });
+
+  // Покупка состоялась — резерв больше не нужен, единица списана по-настоящему.
+  if (result.ok) await releaseHold(ctx, args.listingId, mine).catch(() => undefined);
 
   if (result.ok && result.slack) {
     slackBuyNow(ctx, {

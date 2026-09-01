@@ -12,7 +12,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
-import { cartCheckout, cartList, cartRemove, setCartCount, setCartItemsCount, type CartItem, type CartView } from "@/lib/cart";
+import { cartCheckout, cartCheckoutStart, cartList, cartRemove, setCartCount, setCartItemsCount, type CartItem, type CartView } from "@/lib/cart";
 import { useT } from "@/lib/i18n";
 import { loginHref } from "@/lib/nav";
 import { photoThumb } from "@/lib/photos";
@@ -140,6 +140,36 @@ export function Cart() {
    * и об этом говорится прямо.
    */
   const [checkingOut, setCheckingOut] = useState(false);
+
+  /* Таймер резерва: с нажатия «Noformēt pasūtījumu» одна единица каждого
+   * лота держится за человеком десять минут — ровно чтобы вход или
+   * регистрация не стоили ему выбранного. Осталось времени — на экране;
+   * вышло — резерв снят сервером сам, корзина перечитывается. */
+  const [reservedUntil, setReservedUntil] = useState<number | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!cart) return;
+    const mine = cart.items.map((i) => i.reservedUntil).filter((v): v is number => v !== null && v > Date.now());
+    setReservedUntil(mine.length > 0 ? Math.min(...mine) : null);
+  }, [cart]);
+  useEffect(() => {
+    if (!reservedUntil) return;
+    const timer = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [reservedUntil]);
+  const reserveLeftMs = reservedUntil ? reservedUntil - nowMs : 0;
+  useEffect(() => {
+    if (reservedUntil && reserveLeftMs <= 0) {
+      setReservedUntil(null);
+      load();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reservedUntil, reserveLeftMs]);
+  const mmss = (ms: number) => {
+    const total = Math.max(Math.floor(ms / 1000), 0);
+    return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+  };
+
   const checkoutCart = () => {
     if (!cart) return;
     const avail = cart.items.filter((i) => i.available);
@@ -159,7 +189,11 @@ export function Cart() {
       ecommerce: { currency: "EUR", value: net / 100, items: ecs.map((e) => e.item) },
     });
     if (!signedIn) {
-      router.push(loginHref("/grozs"));
+      // Резерв — и на вход: по одной единице на лот, десять минут.
+      void cartCheckoutStart()
+        .then((r) => { if (r.reservedUntil) setReservedUntil(r.reservedUntil); })
+        .catch(() => undefined)
+        .finally(() => router.push(loginHref("/grozs")));
       return;
     }
     setCheckingOut(true);
@@ -328,6 +362,11 @@ export function Cart() {
                     disabled={checkingOut || pendingAvail.length === 0} onClick={checkoutCart}>
               {t("cart.checkout")}
             </button>
+            {reservedUntil && reserveLeftMs > 0 && (
+              <p className="note" style={{ color: "var(--brand)", fontWeight: 600 }} suppressHydrationWarning>
+                {t("cart.reservedFor", { t: mmss(reserveLeftMs) })}
+              </p>
+            )}
             <p className="note">{t("bn.noPremium")}</p>
           </aside>
         </div>

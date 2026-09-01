@@ -49,6 +49,7 @@ import { enqueueNotification } from "../engine/notifications.js";
 import { verifyUnsubscribeToken } from "../engine/unsubscribe.js";
 import { registerSocialAuthRoutes } from "./socialAuth.js";
 import { buyNow } from "../engine/purchase.js";
+import { heldTotal } from "../engine/reservations.js";
 
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
@@ -871,7 +872,17 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
       .orderBy(desc(listings.createdAt))
       .limit(limit + 1)
       .offset(offset);
-    return { listings: rows.slice(0, limit).map(publicListing), hasMore: rows.length > limit };
+    // Остаток за вычетом живых резервов: придержанная на оформлении единица
+    // с витрины уже снята, хотя окончательно её заберёт только заказ.
+    const page = rows.slice(0, limit);
+    const held = await Promise.all(page.map((r) => heldTotal(ctx, r.listing.id)));
+    return {
+      listings: page.map((r, i) => ({
+        ...publicListing(r),
+        stock: Math.max(r.listing.quantity - held[i]!, 0),
+      })),
+      hasMore: rows.length > limit,
+    };
   });
 
   app.get("/api/public/listings/:id", async (req, reply) => {
@@ -886,10 +897,12 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
     if (!row || row.listing.type !== "fixed" || row.listing.status === "draft") {
       return reply.code(404).send({ error: "not_found" });
     }
-    const soldOut = row.listing.status !== "published" || row.item.status !== "listed";
+    const soldOut =
+      row.listing.status !== "published" || row.item.status !== "listed" || row.listing.quantity <= 0;
+    const stock = soldOut ? 0 : Math.max(row.listing.quantity - (await heldTotal(ctx, row.listing.id)), 0);
     // Цена — финальная: комиссия и НДС внутри, итог равен витринной цене.
     const estimatedTotalCents = row.listing.priceCents ?? 0;
-    return { listing: { ...publicListing(row), soldOut, estimatedTotalCents } };
+    return { listing: { ...publicListing(row), soldOut, stock, estimatedTotalCents } };
   });
 
 
@@ -1955,7 +1968,12 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
     if (!bidderId) return;
     if (!(await requireVerifiedEmail(bidderId, reply))) return;
     const { id } = req.params as { id: string };
-    const result = await buyNow(ctx, { listingId: id, customerId: bidderId });
+    const body = z.object({ visitor_id: z.string().regex(/^[a-zA-Z0-9_-]{8,64}$/).optional() }).safeParse(req.body ?? {});
+    const result = await buyNow(ctx, {
+      listingId: id,
+      customerId: bidderId,
+      holderIds: body.success && body.data.visitor_id ? [body.data.visitor_id] : [],
+    });
     if (!result.ok) {
       const status = result.code === "LISTING_NOT_FOUND" ? 404 : result.code === "NOT_AVAILABLE" ? 409 : 422;
       return reply.code(status).send(result);

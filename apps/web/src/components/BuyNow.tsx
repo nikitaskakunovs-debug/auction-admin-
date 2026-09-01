@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
-import { cartAdd, refreshCart } from "@/lib/cart";
+import { cartAdd, refreshCart, visitorId } from "@/lib/cart";
 import { conditionLabel } from "@/lib/conditions";
 import { useT } from "@/lib/i18n";
 import { computeInvoice, marketFees } from "@/lib/fees";
@@ -104,6 +104,8 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
     try {
       const created = await publicApi.post<{ orderRef?: string }>(
         `/api/public/listings/${listing.id}/buy`,
+        // Свой же резерв, взятый на оформлении, покупке мешать не должен.
+        { visitor_id: visitorId() || undefined },
       );
       setConfirm(false);
       say(t("buy.now"));
@@ -137,6 +139,7 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
     } finally { setBusy(false); }
   };
 
+  const stock = listing.stock ?? listing.quantity;
   const shots = listing.photos.length ? listing.photos : new Array<string | null>(3).fill(null);
 
   return (
@@ -220,8 +223,14 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
 
             {error && <p className="bb-status err">{error}</p>}
 
+            {/* Живой остаток: единицы минус чужие резервы. Больше одной —
+                говорим сколько; ноль при живом лоте — всё на оформлении. */}
+            {!soldOut && stock > 1 && <p className="note">{t("bn.stock", { n: stock })}</p>}
+
             {soldOut ? (
               <p className="bb-status warn">{t("buy.soldOut")}</p>
+            ) : stock === 0 ? (
+              <p className="bb-status warn">{t("cart.allReserved")}</p>
             ) : signedIn ? (
               <button className="btn btn-primary btn-lg btn-block" type="button" disabled={busy}
                       aria-haspopup="dialog" onClick={() => setConfirm(true)}>{t("buy.now")}</button>

@@ -62,6 +62,8 @@ export interface FixedListing {
   marketCode: string;
   priceCents: number;
   quantity: number;
+  /** Живой остаток: единицы минус чужие резервы на оформлении. */
+  stock?: number;
   soldOut?: boolean;
   /** Price + VAT — the checkout total (fixed-price buys carry no premium). */
   estimatedTotalCents?: number;

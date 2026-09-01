@@ -1286,6 +1286,10 @@ export const STRINGS: Record<string, Record<Lang, string>> = {
   "cart.emptyG": { lv: "Grozs ir tukšs", ru: "Корзина пуста", en: "Your cart is empty", et: "Ostukorv on tühi", lt: "Krepšelis tuščias" },
   "cart.emptyGD": { lv: "Ieliec grozā lotu ar tūlītējas pirkšanas cenu — ienākt varēsi pie noformēšanas.", ru: "Положите в корзину лот с фиксированной ценой — войти можно будет при оформлении.", en: "Add a buy-now lot to the cart — you can sign in at checkout.", et: "Lisa korvi kohe ostetav partii — sisse saad logida vormistamisel.", lt: "Įdėkite į krepšelį lotą su fiksuota kaina — prisijungti galėsite užsakymo metu." },
   "cart.subG": { lv: "Lotu grozā: {n}.", ru: "Лотов в корзине: {n}.", en: "{n} lots in the cart.", et: "Partiisid korvis: {n}.", lt: "Lotų krepšelyje: {n}." },
+  // ── Поштучный остаток и резерв на оформлении ───
+  "bn.stock": { lv: "Noliktavā: {n} gab.", ru: "В наличии: {n} шт.", en: "In stock: {n}", et: "Laos: {n} tk", lt: "Sandėlyje: {n} vnt." },
+  "cart.reservedFor": { lv: "Loti rezervēti tev vēl {t}", ru: "Лоты зарезервированы за вами ещё {t}", en: "Your lots are reserved for {t}", et: "Partiid on sulle broneeritud veel {t}", lt: "Lotai jums rezervuoti dar {t}" },
+  "cart.allReserved": { lv: "Visas vienības šobrīd tiek noformētas. Pamēģini pēc pāris minūtēm.", ru: "Все единицы сейчас оформляются другими. Попробуйте через пару минут.", en: "Every unit is being checked out right now. Try again in a couple of minutes.", et: "Kõik ühikud on praegu vormistamisel. Proovi paari minuti pärast uuesti.", lt: "Visi vienetai šiuo metu forminami. Pabandykite po poros minučių." },
 };
 
 /** Перевод без React-контекста — для серверных компонентов. */

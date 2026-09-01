@@ -51,6 +51,10 @@ export interface CartItem {
   totalCents: number;
   available: boolean;
   priceChanged: boolean;
+  /** Живой остаток лота за вычетом чужих резервов. */
+  stock: number;
+  /** До какого момента (мс) единица придержана за этим человеком. */
+  reservedUntil: number | null;
 }
 
 export interface CartView {
@@ -85,6 +89,18 @@ export interface CartCheckoutResult {
 
 export function cartCheckout(): Promise<CartCheckoutResult> {
   return publicApi.post(`/api/public/cart/checkout`, { visitor_id: visitorId() || undefined });
+}
+
+export interface CartReserveResult {
+  ok: boolean;
+  reserved: Array<{ listingId: string; until: number }>;
+  missed: string[];
+  reservedUntil: number | null;
+}
+
+/** Начало оформления: придержать по одной единице каждого лота на 10 минут. */
+export function cartCheckoutStart(): Promise<CartReserveResult> {
+  return publicApi.post(`/api/public/cart/checkout-start`, { visitor_id: visitorId() || undefined });
 }
 
 type Fn = () => void;
