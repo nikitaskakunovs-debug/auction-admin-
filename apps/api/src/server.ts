@@ -73,6 +73,10 @@ export async function buildServer(ctx: AppContext, opts: { logger?: boolean } = 
   await app.register(cors, {
     origin: (origin, cb) => cb(null, !origin || allowed.has(origin)),
     credentials: true,
+    // По умолчанию @fastify/cors пускает из браузера только GET/HEAD/POST —
+    // и «Noņemt» в корзине (DELETE) молча умирал на preflight. Разрешаем
+    // весь набор, которым пользуется витрина.
+    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"],
   });
 
   // Почтовики (Gmail, Yahoo) жмут кнопку «Отписаться» сами и шлют

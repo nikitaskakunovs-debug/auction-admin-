@@ -87,8 +87,11 @@ export interface CartCheckoutResult {
   unavailable?: Array<{ listingId: string; title: string }>;
 }
 
-export function cartCheckout(): Promise<CartCheckoutResult> {
-  return publicApi.post(`/api/public/cart/checkout`, { visitor_id: visitorId() || undefined });
+export function cartCheckout(listingIds?: string[]): Promise<CartCheckoutResult> {
+  return publicApi.post(`/api/public/cart/checkout`, {
+    visitor_id: visitorId() || undefined,
+    ...(listingIds && listingIds.length > 0 ? { listing_ids: listingIds } : {}),
+  });
 }
 
 export interface CartReserveResult {

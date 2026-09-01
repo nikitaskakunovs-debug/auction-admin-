@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { publicApi, PublicApiError } from "@/lib/api";
-import { cartAdd, refreshCart, visitorId } from "@/lib/cart";
+import { PublicApiError } from "@/lib/api";
+import { cartAdd, cartList, refreshCart } from "@/lib/cart";
 import { conditionLabel } from "@/lib/conditions";
 import { useT } from "@/lib/i18n";
 import { computeInvoice, marketFees } from "@/lib/fees";
@@ -21,20 +21,19 @@ import { say } from "./Toast";
 export function BuyNow({ listing }: { listing: FixedListing }) {
   const { t } = useT();
   const router = useRouter();
-  const [signedIn, setSignedIn] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [soldOut, setSoldOut] = useState(!!listing.soldOut);
   const [frame, setFrame] = useState(0);
-  const [confirm, setConfirm] = useState(false);
   const [inCart, setInCart] = useState(false);
 
+  // Лот уже отложен? Карточка обязана это помнить и после ухода в кабинет
+  // и обратно — иначе кнопка выглядит так, будто ничего не было.
   useEffect(() => {
-    setSignedIn(publicApi.hasSession);
-    const fn = () => setSignedIn(publicApi.hasSession);
-    publicApi.listeners.add(fn);
-    return () => { publicApi.listeners.delete(fn); };
-  }, []);
+    void cartList()
+      .then((c) => setInCart(c.items.some((i) => i.listingId === listing.id)))
+      .catch(() => undefined);
+  }, [listing.id]);
 
   // Аналитика (GTM): просмотр товара «Pērc uzreiz». Цена финальная —
   // раскладываем той же арифметикой, что движок (комиссия и НДС внутри).
@@ -78,61 +77,26 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
     };
   };
 
-  /** Гость откладывает лот: корзина живёт на сервере, вход не нужен — его
-   *  попросят только при оформлении, с возвратом обратно. */
-  const addToCart = async () => {
+  /** Единственный путь покупки — через корзину, и для гостя, и для
+   *  вошедшего: лот откладывается на сервере, заказ родится в грозсе.
+   *  «Pirkt tagad» — то же добавление плюс переход сразу в грозс. */
+  const addToCart = async (goToCart: boolean) => {
     setBusy(true); setError(null);
     try {
       const r = await cartAdd(listing.id);
       setInCart(true);
       refreshCart();
-      say(r.added ? t("cart.added") : t("cart.inCart"));
       // Один раз на лот: повторное нажатие и повторное открытие корзины
       // второго AddToCart не рождают.
       if (r.added) addToCartOnce(`listing:${listing.id}`, atcParams());
+      if (goToCart) {
+        router.push("/grozs");
+        return;
+      }
+      say(r.added ? t("cart.added") : t("cart.inCart"));
     } catch (err) {
       if (err instanceof PublicApiError && err.status === 409) {
         setSoldOut(true); setError(t("buy.soldOut"));
-      } else {
-        setError(err instanceof Error ? err.message : "error");
-      }
-    } finally { setBusy(false); }
-  };
-
-  const buy = async () => {
-    setBusy(true); setError(null);
-    try {
-      const created = await publicApi.post<{ orderRef?: string }>(
-        `/api/public/listings/${listing.id}/buy`,
-        // Свой же резерв, взятый на оформлении, покупке мешать не должен.
-        { visitor_id: visitorId() || undefined },
-      );
-      setConfirm(false);
-      say(t("buy.now"));
-      // Аналитика (GTM): лот попал в «к оплате» — это и есть добавление в
-      // корзину. Раньше событие жило только на экране общей оплаты, куда
-      // покупателя ОДНОГО лота не ведут вовсе, и ступень AddToCart, под
-      // которую настраивают кампании Meta и Google, просто отсутствовала.
-      const params = atcParams();
-      // Ссылка на заказ есть — метим по ней, чтобы повторная покупка такого же
-      // лота позже событие не потеряла; нет — метим по карточке.
-      refreshCart();
-      // Переход в кабинет — только после того, как событие ушло из браузера:
-      // иначе запрос пикселя обрывается переходом и AddToCart приходит в Meta
-      // одной серверной копией, склеивать которую не с чем.
-      addToCartOnce(created?.orderRef ?? `listing:${listing.id}`, params, {
-        // Новый заказ ждёт оплаты во вкладке заказов, на обзоре его нет.
-        onDone: () => router.push("/account?tab=pirkumi"),
-      });
-    } catch (err) {
-      if (err instanceof PublicApiError && err.body.code === "NOT_AVAILABLE") {
-        setSoldOut(true); setError(t("buy.soldOut"));
-      } else if (err instanceof PublicApiError && err.body.code === "BIDDER_BLOCKED") {
-        setError(t("buy.blocked"));
-      } else if (err instanceof PublicApiError && err.body.code === "EMAIL_NOT_VERIFIED") {
-        setError(t("lc.verifyFirst"));
-      } else if (err instanceof PublicApiError && err.body.code === "FEES_OUTSTANDING") {
-        setError(t("fees.blockedShort"));
       } else {
         setError(err instanceof Error ? err.message : "error");
       }
@@ -231,15 +195,18 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
               <p className="bb-status warn">{t("buy.soldOut")}</p>
             ) : stock === 0 ? (
               <p className="bb-status warn">{t("cart.allReserved")}</p>
-            ) : signedIn ? (
-              <button className="btn btn-primary btn-lg btn-block" type="button" disabled={busy}
-                      aria-haspopup="dialog" onClick={() => setConfirm(true)}>{t("buy.now")}</button>
             ) : inCart ? (
               <Link className="btn btn-primary btn-lg btn-block" href="/grozs">{t("cart.open")}</Link>
             ) : (
-              /* Гостю вход не нужен: лот откладывается в серверную корзину. */
-              <button className="btn btn-primary btn-lg btn-block" type="button" disabled={busy}
-                      onClick={() => void addToCart()}>{t("cart.add")}</button>
+              /* Путь один для всех — через корзину, вход спросят при
+                 оформлении. «Pirkt tagad» = положить и сразу в грозс. */
+              <>
+                <button className="btn btn-primary btn-lg btn-block" type="button" disabled={busy}
+                        onClick={() => void addToCart(true)}>{t("buy.now")}</button>
+                <button className="btn btn-outline btn-lg btn-block" type="button" disabled={busy}
+                        style={{ marginTop: 8 }}
+                        onClick={() => void addToCart(false)}>{t("cart.add")}</button>
+              </>
             )}
 
             {!soldOut && listing.estimatedTotalCents ? (
@@ -253,48 +220,6 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
         </div>
       </div>
 
-      {/* ═══ МОДАЛКА: ПОДТВЕРЖДЕНИЕ ПОКУПКИ ═══ */}
-      {confirm && (
-        <div className="modal" role="dialog" aria-modal="true" aria-labelledby="m-buy-t">
-          <div className="modal-bd" onClick={() => setConfirm(false)} />
-          <div className="modal-card">
-            <div className="modal-head">
-              <div>
-                <span className="kicker">{t("bn.confirmKicker")} · {listing.sku}</span>
-                <h3 id="m-buy-t">{listing.title}</h3>
-              </div>
-              <button className="modal-x" type="button" aria-label={t("nav.close")}
-                      onClick={() => setConfirm(false)}><Icon name="x" /></button>
-            </div>
-            <div className="sum">
-              <p className="sum-lab">{t("buy.price")}</p>
-              <p className="sum-amt tnum">{formatEur(listing.priceCents)}</p>
-              <p className="note">{t("buy.vatNote")}</p>
-            </div>
-            <table className="fees"><tbody>
-              <tr><th scope="row">{t("bn.item")}</th><td className="tnum">{formatEur(listing.priceCents)}</td></tr>
-              {listing.estimatedTotalCents ? (
-                <>
-                  <tr><th scope="row">{t("bn.vat")}</th>
-                    <td className="tnum">{formatEur(listing.estimatedTotalCents - listing.priceCents)}</td></tr>
-                  <tr className="tot"><th scope="row">{t("bn.total")}</th>
-                    <td className="tnum">{formatEur(listing.estimatedTotalCents)}</td></tr>
-                </>
-              ) : null}
-            </tbody></table>
-            {error && <p className="bb-status out">{error}</p>}
-            <button className="btn btn-primary btn-block" type="button" disabled={busy}
-                    onClick={() => void buy()}>
-              {busy ? t("bn.processing") : t("bn.buyAndPay")}
-            </button>
-            <button className="btn btn-outline btn-block" type="button" style={{ marginTop: 8 }}
-                    onClick={() => setConfirm(false)}>{t("bn.cancel")}</button>
-            <p className="note" style={{ textAlign: "center", marginTop: 12 }}>
-              {t("bn.noPremium")}
-            </p>
-          </div>
-        </div>
-      )}
     </section>
   );
 }

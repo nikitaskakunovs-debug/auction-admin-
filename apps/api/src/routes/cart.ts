@@ -283,10 +283,19 @@ export function registerCartRoutes(app: FastifyInstance, ctx: AppContext): void 
         .where(eq(customers.id, bidderId));
       if (c && c.verifiedAt === null) return reply.code(403).send({ ok: false, code: "EMAIL_NOT_VERIFIED" });
     }
-    const body = z.object({ visitor_id: visitorSchema.optional() }).safeParse(req.body ?? {});
+    const body = z
+      .object({
+        visitor_id: visitorSchema.optional(),
+        // Человек волен оформить не всё: неотмеченные лоты остаются лежать.
+        listing_ids: z.array(z.string().uuid()).max(MAX_ITEMS).optional(),
+      })
+      .safeParse(req.body ?? {});
     if (!body.success) return reply.code(400).send({ error: "invalid_body" });
 
-    const { key, entries } = await resolveCart(ctx, { customerId: bidderId, visitorId: body.data.visitor_id ?? null });
+    const { key, entries: allEntries } = await resolveCart(ctx, { customerId: bidderId, visitorId: body.data.visitor_id ?? null });
+    const wanted = body.data.listing_ids ? new Set(body.data.listing_ids) : null;
+    const entries = wanted ? allEntries.filter((e) => wanted.has(e.id)) : allEntries;
+    const kept = wanted ? allEntries.filter((e) => !wanted.has(e.id)) : [];
     if (entries.length === 0) return reply.code(409).send({ error: "cart_empty" });
 
     const rows = await loadRows(entries.map((e) => e.id));
@@ -308,7 +317,7 @@ export function registerCartRoutes(app: FastifyInstance, ctx: AppContext): void 
       }
       if (result.code === "BIDDER_BLOCKED" || result.code === "FEES_OUTSTANDING") {
         // Дело не в лоте, а в аккаунте — корзину не трогаем, оформление стоит.
-        remaining.push(e, ...entries.slice(entries.indexOf(e) + 1));
+        remaining.push(e, ...entries.slice(entries.indexOf(e) + 1), ...kept);
         await writeEntries(ctx, key!, remaining);
         return reply.code(422).send({ ok: false, code: result.code, orders: created });
       }
@@ -317,7 +326,7 @@ export function registerCartRoutes(app: FastifyInstance, ctx: AppContext): void 
       unavailable.push({ listingId: e.id, title: titleOf.get(e.id) ?? "" });
     }
 
-    await writeEntries(ctx, key!, []);
+    await writeEntries(ctx, key!, kept);
     return { ok: true, orders: created, unavailable };
   });
 }
