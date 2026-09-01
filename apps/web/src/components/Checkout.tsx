@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
 import { dateLocale, useT } from "@/lib/i18n";
 import { loginHref } from "@/lib/nav";
-import { adsUserData, orderEcom, purchaseOnce, track } from "@/lib/track";
+import { adsUserData, beginCheckoutOnce, orderEcom, purchaseOnce, track } from "@/lib/track";
 import { useStickyBar } from "@/lib/ui";
 import { formatEur, type MyOrder, type ShippingOption } from "@/lib/types";
 import { Icon } from "./Icon";
@@ -129,7 +129,9 @@ export function Checkout({ orderRef }: { orderRef: string }) {
     if (!order || !meReady || beganRef.current === order.ref) return;
     beganRef.current = order.ref;
     const ec = orderEcom(order);
-    track("begin_checkout", {
+    // Один раз на заказ и с отметкой в браузере: обновление страницы или
+    // возврат со входа не создают второй InitiateCheckout той же сессии.
+    beginCheckoutOnce(order.ref, {
       ...adsUserData({
         email: meContact?.email, name: meContact?.name, phone: order.recipientPhone,
         country: order.shippingTo?.country, zip: order.shippingTo?.zip,

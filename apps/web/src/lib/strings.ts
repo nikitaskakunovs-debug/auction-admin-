@@ -1273,6 +1273,19 @@ export const STRINGS: Record<string, Record<Lang, string>> = {
   "cart.ctaD1": { lv: "Atver grozu un pabeidz apmaksu.", ru: "Откройте корзину и завершите оплату.", en: "Open the cart and finish paying.", et: "Ava ostukorv ja lõpeta makse.", lt: "Atverkite krepšelį ir užbaikite mokėjimą." },
   "cart.ctaBtn1": { lv: "Uz grozu", ru: "В корзину", en: "Go to cart", et: "Ostukorvi", lt: "Į krepšelį" },
   "cart.ctaBtn": { lv: "Apmaksāt kopā", ru: "Оплатить вместе", en: "Pay together", et: "Maksa koos", lt: "Mokėti kartu" },
+  // ── Гостевая корзина: отложить лот можно без входа ───
+  "cart.add": { lv: "Pievienot grozam", ru: "Добавить в корзину", en: "Add to cart", et: "Lisa korvi", lt: "Į krepšelį" },
+  "cart.added": { lv: "Ielikts grozā", ru: "Добавлено в корзину", en: "Added to cart", et: "Korvi lisatud", lt: "Įdėta į krepšelį" },
+  "cart.inCart": { lv: "Jau grozā", ru: "Уже в корзине", en: "Already in the cart", et: "Juba korvis", lt: "Jau krepšelyje" },
+  "cart.open": { lv: "Atvērt grozu", ru: "Открыть корзину", en: "Open the cart", et: "Ava korv", lt: "Atverti krepšelį" },
+  "cart.checkout": { lv: "Noformēt pasūtījumu", ru: "Оформить заказ", en: "Proceed to checkout", et: "Vormista tellimus", lt: "Pateikti užsakymą" },
+  "cart.remove": { lv: "Noņemt", ru: "Убрать", en: "Remove", et: "Eemalda", lt: "Pašalinti" },
+  "cart.gone": { lv: "Šī prece vairs nav pieejama.", ru: "Этот товар больше недоступен.", en: "This item is no longer available.", et: "See toode pole enam saadaval.", lt: "Ši prekė nebeprieinama." },
+  "cart.priceChanged": { lv: "Cena kopš pievienošanas ir mainījusies.", ru: "Цена изменилась с момента добавления.", en: "The price has changed since you added it.", et: "Hind on pärast lisamist muutunud.", lt: "Kaina nuo įdėjimo pasikeitė." },
+  "cart.signinNote": { lv: "Lai pabeigtu pirkumu, ienāc vai reģistrējies — grozs saglabāsies.", ru: "Чтобы завершить покупку, войдите или зарегистрируйтесь — корзина сохранится.", en: "Sign in or register to finish your purchase — the cart is kept for you.", et: "Ostu lõpetamiseks logi sisse või registreeru — korv säilib.", lt: "Norėdami užbaigti pirkimą, prisijunkite arba užsiregistruokite — krepšelis išliks." },
+  "cart.emptyG": { lv: "Grozs ir tukšs", ru: "Корзина пуста", en: "Your cart is empty", et: "Ostukorv on tühi", lt: "Krepšelis tuščias" },
+  "cart.emptyGD": { lv: "Ieliec grozā lotu ar tūlītējas pirkšanas cenu — ienākt varēsi pie noformēšanas.", ru: "Положите в корзину лот с фиксированной ценой — войти можно будет при оформлении.", en: "Add a buy-now lot to the cart — you can sign in at checkout.", et: "Lisa korvi kohe ostetav partii — sisse saad logida vormistamisel.", lt: "Įdėkite į krepšelį lotą su fiksuota kaina — prisijungti galėsite užsakymo metu." },
+  "cart.subG": { lv: "Lotu grozā: {n}.", ru: "Лотов в корзине: {n}.", en: "{n} lots in the cart.", et: "Partiisid korvis: {n}.", lt: "Lotų krepšelyje: {n}." },
 };
 
 /** Перевод без React-контекста — для серверных компонентов. */

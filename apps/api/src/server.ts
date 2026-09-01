@@ -33,6 +33,7 @@ import { registerSearchRoutes } from "./routes/search.js";
 import { registerStockCountRoutes } from "./routes/stockCounts.js";
 import { registerMarketingRoutes } from "./routes/marketing.js";
 import { registerMetaRoutes } from "./routes/meta.js";
+import { registerCartRoutes } from "./routes/cart.js";
 import { registerSellThroughRoutes } from "./routes/sellThrough.js";
 import { registerSupplierRoutes } from "./routes/suppliers.js";
 import { registerViewRoutes } from "./routes/views.js";
@@ -166,6 +167,7 @@ export async function buildServer(ctx: AppContext, opts: { logger?: boolean } = 
   registerMarketingRoutes(app, ctx, perms);
   registerPublicRoutes(app, ctx);
   registerMetaRoutes(app, ctx);
+  registerCartRoutes(app, ctx);
   registerPaymentRoutes(app, ctx);
   registerShippingRoutes(app, ctx, perms);
   registerSearchRoutes(app, ctx, perms);

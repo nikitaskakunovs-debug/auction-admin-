@@ -567,6 +567,24 @@ export function addToCartOnce(ref: string, params: Record<string, unknown>, opts
   trackOnce(`izsoli_ga_atc_${ref}`, "add_to_cart", params, opts);
 }
 
+/** begin_checkout — один раз на checkout-сессию.
+ *
+ *  Ключ — что определяет сессию оформления: номер заказа на странице оплаты,
+ *  идентификатор гостевого оформления в корзине. Обновление страницы, уход на
+ *  вход и возврат обратно — та же сессия, событие не повторяется. */
+export function beginCheckoutOnce(key: string, params: Record<string, unknown>, opts: TrackOptions = {}): void {
+  trackOnce(`izsoli_ga_bc_${key}`, "begin_checkout", params, opts);
+}
+
+/** Отметить checkout-сессию уже учтённой — когда её InitiateCheckout ушёл
+ *  раньше под другим ключом (гостевое оформление породило заказ, и страница
+ *  оплаты не должна отправлять второй). */
+export function markBeginCheckout(key: string): void {
+  try {
+    localStorage.setItem(`izsoli_ga_bc_${key}`, "1");
+  } catch { /* приватный режим — возможен повтор, GA4 переживёт */ }
+}
+
 /** Обновление Google Consent Mode при каждом решении в плашке cookie.
  *  Consent-команды читаются только из arguments-объекта (стиль gtag) —
  *  обычный объект в dataLayer Consent Mode не увидит. */

@@ -16,6 +16,76 @@ import { publicApi } from "./api";
  * в кэше — верный способ однажды показать неправду.
  */
 const KEY = "izsoli_cart_n_v1";
+const VISITOR_KEY = "izsoli_visitor_v1";
+
+/** Идентификатор браузера — тот же, что сшивает согласие на cookie. По нему
+ *  сервер хранит гостевую корзину и сливает её с корзиной аккаунта после
+ *  входа. */
+export function visitorId(): string {
+  try {
+    let v = localStorage.getItem(VISITOR_KEY);
+    if (!v) {
+      v = crypto.randomUUID();
+      localStorage.setItem(VISITOR_KEY, v);
+    }
+    return v;
+  } catch {
+    return "";
+  }
+}
+
+/** Лот корзины, как его отдаёт сервер: суммы посчитаны движком. */
+export interface CartItem {
+  listingId: string;
+  sku: string;
+  title: string;
+  category: string | null;
+  photo: string | null;
+  marketCode: string;
+  quantity: number;
+  currency: string;
+  hammerCents: number;
+  premiumCents: number;
+  vatCents: number;
+  vatRateBp: number;
+  totalCents: number;
+  available: boolean;
+  priceChanged: boolean;
+}
+
+export interface CartView {
+  items: CartItem[];
+  count: number;
+  totalCents: number;
+}
+
+const vq = () => {
+  const v = visitorId();
+  return v ? `?visitor_id=${encodeURIComponent(v)}` : "";
+};
+
+export function cartList(): Promise<CartView> {
+  return publicApi.get<CartView>(`/api/public/cart${vq()}`);
+}
+
+export function cartAdd(listingId: string): Promise<{ ok: boolean; added: boolean; count: number }> {
+  return publicApi.post(`/api/public/cart`, { listing_id: listingId, visitor_id: visitorId() || undefined });
+}
+
+export function cartRemove(listingId: string): Promise<{ ok: boolean; count: number }> {
+  return publicApi.request(`DELETE`, `/api/public/cart/${encodeURIComponent(listingId)}${vq()}`);
+}
+
+export interface CartCheckoutResult {
+  ok: boolean;
+  code?: string;
+  orders: Array<{ ref: string; totalCents: number; listingId: string }>;
+  unavailable?: Array<{ listingId: string; title: string }>;
+}
+
+export function cartCheckout(): Promise<CartCheckoutResult> {
+  return publicApi.post(`/api/public/cart/checkout`, { visitor_id: visitorId() || undefined });
+}
 
 type Fn = () => void;
 const listeners = new Set<Fn>();
@@ -40,24 +110,41 @@ function set(n: number): void {
   listeners.forEach((f) => f());
 }
 
-/** Записать число, уже известное вызывающей стороне.
- *
- *  Кабинет и корзина всё равно загружают список заказов — пусть они и
- *  сообщают правду, вместо того чтобы значок делал собственный запрос за
- *  тем же самым. */
+/** Значок складывается из двух частей: заказы, ждущие оплаты (только у
+ *  вошедших), и отложенные лоты гостевой корзины (у всех). */
+let ordersN = 0;
+let itemsN = 0;
+const publish = () => set(ordersN + itemsN);
+
+/** Число неоплаченных заказов — сообщают экраны, которые их уже загрузили. */
 export function setCartCount(n: number): void {
-  set(n);
+  ordersN = n;
+  publish();
 }
 
-/** Спросить движок, сколько лотов ждёт оплаты. */
+/** Число отложенных лотов — сообщает тот, кто загрузил корзину. */
+export function setCartItemsCount(n: number): void {
+  itemsN = n;
+  publish();
+}
+
+/** Спросить движок, сколько лотов ждёт человека. */
 export function refreshCart(): void {
-  if (!publicApi.hasSession) {
+  if (!visitorId() && !publicApi.hasSession) {
     set(0);
+    return;
+  }
+  void cartList()
+    .then((c) => { itemsN = c.count; publish(); })
+    .catch(() => undefined);
+  if (!publicApi.hasSession) {
+    ordersN = 0;
+    publish();
     return;
   }
   void publicApi
     .get<{ orders: Array<{ status: string }> }>("/api/public/me/orders")
-    .then((r) => set(r.orders.filter((o) => o.status === "awaiting_payment").length))
+    .then((r) => { ordersN = r.orders.filter((o) => o.status === "awaiting_payment").length; publish(); })
     .catch(() => undefined);
 }
 
@@ -67,10 +154,10 @@ function onSession(): void {
   const next = publicApi.bidderId;
   if (next === owner && loaded) return;
   owner = next;
-  if (next === null) {
-    set(0);
-    return;
-  }
+  // После выхода гостевая корзина не очищается: человек мог отложить лоты
+  // до входа, и терять их при выходе нечестно. Правду знает сервер.
+  ordersN = 0;
+  itemsN = 0;
   refreshCart();
 }
 

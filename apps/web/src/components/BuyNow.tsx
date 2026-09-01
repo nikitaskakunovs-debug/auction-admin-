@@ -1,13 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
-import { refreshCart } from "@/lib/cart";
+import { cartAdd, refreshCart } from "@/lib/cart";
 import { conditionLabel } from "@/lib/conditions";
 import { useT } from "@/lib/i18n";
-import { loginHref } from "@/lib/nav";
 import { computeInvoice, marketFees } from "@/lib/fees";
 import { photoWeb, photoThumb } from "@/lib/photos";
 import { addToCartOnce, gaItem, track } from "@/lib/track";
@@ -22,13 +21,13 @@ import { say } from "./Toast";
 export function BuyNow({ listing }: { listing: FixedListing }) {
   const { t } = useT();
   const router = useRouter();
-  const pathname = usePathname();
   const [signedIn, setSignedIn] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [soldOut, setSoldOut] = useState(!!listing.soldOut);
   const [frame, setFrame] = useState(0);
   const [confirm, setConfirm] = useState(false);
+  const [inCart, setInCart] = useState(false);
 
   useEffect(() => {
     setSignedIn(publicApi.hasSession);
@@ -58,6 +57,48 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listing.id]);
 
+  /** Параметры add_to_cart — одни и те же для гостя и для покупки сразу. */
+  const atcParams = () => {
+    const inv = computeInvoice(listing.priceCents, listing.marketCode);
+    const netCents = inv.hammerCents + inv.premiumCents;
+    const item = gaItem({
+      sku: listing.sku, listingId: listing.id, name: listing.title, category: listing.category,
+      netCents, hammerCents: inv.hammerCents, feeCents: inv.premiumCents,
+      vatRateBp: marketFees(listing.marketCode).vatRateBp, grossCents: inv.totalCents,
+    });
+    return {
+      item_id: listing.sku, listing_id: listing.id, item_name: listing.title,
+      value: netCents / 100, currency: "EUR",
+      gross_total: inv.totalCents / 100,
+      commission_value: inv.premiumCents / 100,
+      vat_scheme: "standard",
+      cart_size: 1,
+      cart_gross_total: inv.totalCents / 100,
+      ecommerce: { currency: "EUR", value: netCents / 100, items: [item] },
+    };
+  };
+
+  /** Гость откладывает лот: корзина живёт на сервере, вход не нужен — его
+   *  попросят только при оформлении, с возвратом обратно. */
+  const addToCart = async () => {
+    setBusy(true); setError(null);
+    try {
+      const r = await cartAdd(listing.id);
+      setInCart(true);
+      refreshCart();
+      say(r.added ? t("cart.added") : t("cart.inCart"));
+      // Один раз на лот: повторное нажатие и повторное открытие корзины
+      // второго AddToCart не рождают.
+      if (r.added) addToCartOnce(`listing:${listing.id}`, atcParams());
+    } catch (err) {
+      if (err instanceof PublicApiError && err.status === 409) {
+        setSoldOut(true); setError(t("buy.soldOut"));
+      } else {
+        setError(err instanceof Error ? err.message : "error");
+      }
+    } finally { setBusy(false); }
+  };
+
   const buy = async () => {
     setBusy(true); setError(null);
     try {
@@ -70,23 +111,7 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
       // корзину. Раньше событие жило только на экране общей оплаты, куда
       // покупателя ОДНОГО лота не ведут вовсе, и ступень AddToCart, под
       // которую настраивают кампании Meta и Google, просто отсутствовала.
-      const inv = computeInvoice(listing.priceCents, listing.marketCode);
-      const netCents = inv.hammerCents + inv.premiumCents;
-      const item = gaItem({
-        sku: listing.sku, listingId: listing.id, name: listing.title, category: listing.category,
-        netCents, hammerCents: inv.hammerCents, feeCents: inv.premiumCents,
-        vatRateBp: marketFees(listing.marketCode).vatRateBp, grossCents: inv.totalCents,
-      });
-      const params = {
-        item_id: listing.sku, listing_id: listing.id, item_name: listing.title,
-        value: netCents / 100, currency: "EUR",
-        gross_total: inv.totalCents / 100,
-        commission_value: inv.premiumCents / 100,
-        vat_scheme: "standard",
-        cart_size: 1,
-        cart_gross_total: inv.totalCents / 100,
-        ecommerce: { currency: "EUR", value: netCents / 100, items: [item] },
-      };
+      const params = atcParams();
       // Ссылка на заказ есть — метим по ней, чтобы повторная покупка такого же
       // лота позже событие не потеряла; нет — метим по карточке.
       refreshCart();
@@ -200,8 +225,12 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
             ) : signedIn ? (
               <button className="btn btn-primary btn-lg btn-block" type="button" disabled={busy}
                       aria-haspopup="dialog" onClick={() => setConfirm(true)}>{t("buy.now")}</button>
+            ) : inCart ? (
+              <Link className="btn btn-primary btn-lg btn-block" href="/grozs">{t("cart.open")}</Link>
             ) : (
-              <Link className="btn btn-primary btn-lg btn-block" href={loginHref(pathname)}>{t("buy.signin")}</Link>
+              /* Гостю вход не нужен: лот откладывается в серверную корзину. */
+              <button className="btn btn-primary btn-lg btn-block" type="button" disabled={busy}
+                      onClick={() => void addToCart()}>{t("cart.add")}</button>
             )}
 
             {!soldOut && listing.estimatedTotalCents ? (

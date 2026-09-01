@@ -378,7 +378,15 @@ function UserMenu() {
             </Link>
           ))}
           <button className="dd-nav out" type="button" role="menuitem"
-                  onClick={() => { publicApi.logout(); window.location.href = "/"; }}>
+                  onClick={() => {
+                    publicApi.logout();
+                    // Человек остаётся там, где был: уводить с карточки лота
+                    // на главную при выходе — значит терять его. На главную —
+                    // только со страниц, которых без входа не существует.
+                    const p = window.location.pathname;
+                    if (p.startsWith("/account") || p.startsWith("/apmaksa")) window.location.href = "/";
+                    else window.location.reload();
+                  }}>
             <Ph name="sign-out" size={15} /> {t("ac.signOutFull")}
           </button>
         </div>

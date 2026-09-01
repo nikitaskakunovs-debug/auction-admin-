@@ -1,0 +1,194 @@
+import { items, listings, orders } from "@auction/db";
+import { eq } from "drizzle-orm";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createWorld, type TestWorld } from "./helpers.js";
+
+/**
+ * Гостевая корзина: отложить лот можно без входа, вход нужен только при
+ * оформлении. Проверяем весь контракт: снимок цены, слияние при входе,
+ * недоступность, превращение в заказы и невозможность продать одну вещь двоим.
+ */
+describe("гостевая корзина «Pērc uzreiz»", () => {
+  let world: TestWorld;
+  let n = 0;
+
+  const register = async (email: string) => {
+    const res = await world.server.app.inject({
+      method: "POST",
+      url: "/api/public/auth/register",
+      payload: { email, alias: email.split("@")[0]!.replace(/[^a-z0-9]/gi, ""), password: "Bidder123!" },
+    });
+    expect(res.statusCode).toBe(200);
+    return res.json() as { accessToken: string; bidder: { id: string } };
+  };
+
+  const mkListing = async (priceCents = 12_100) => {
+    n += 1;
+    const [item] = await world.ctx.db
+      .insert(items)
+      .values({ sku: `CART-${n}`, title: `Lote ${n}`, marketCode: "LV", status: "listed", category: "electronics" })
+      .returning({ id: items.id });
+    const [listing] = await world.ctx.db
+      .insert(listings)
+      .values({ itemId: item!.id, type: "fixed", title: `Lote ${n}`, marketCode: "LV", priceCents, status: "published" })
+      .returning({ id: listings.id });
+    return { itemId: item!.id, listingId: listing!.id };
+  };
+
+  const add = (listingId: string, visitor?: string, token?: string) =>
+    world.server.app.inject({
+      method: "POST",
+      url: "/api/public/cart",
+      ...(token ? { headers: { authorization: `Bearer ${token}` } } : {}),
+      payload: { listing_id: listingId, ...(visitor ? { visitor_id: visitor } : {}) },
+    });
+
+  const list = (visitor?: string, token?: string) =>
+    world.server.app.inject({
+      method: "GET",
+      url: `/api/public/cart${visitor ? `?visitor_id=${visitor}` : ""}`,
+      ...(token ? { headers: { authorization: `Bearer ${token}` } } : {}),
+    });
+
+  beforeAll(async () => {
+    world = await createWorld();
+  });
+  afterAll(async () => {
+    if (world) await world.close();
+  });
+
+  it("гость откладывает лот без входа; повтор не задваивает", async () => {
+    const a = await mkListing();
+    const first = await add(a.listingId, "guest-visitor-1");
+    expect(first.statusCode).toBe(200);
+    expect(first.json()).toMatchObject({ ok: true, added: true, count: 1 });
+
+    const again = await add(a.listingId, "guest-visitor-1");
+    expect(again.json()).toMatchObject({ added: false, count: 1 });
+
+    const view = list("guest-visitor-1");
+    const body = (await view).json() as {
+      items: Array<{ totalCents: number; hammerCents: number; premiumCents: number; vatCents: number; available: boolean; quantity: number }>;
+      count: number;
+      totalCents: number;
+    };
+    expect(body.count).toBe(1);
+    expect(body.totalCents).toBe(12_100);
+    const row = body.items[0]!;
+    expect(row.available).toBe(true);
+    expect(row.quantity).toBe(1);
+    // Раскладка та же, что выпишет счёт: части сходятся в витринную цену.
+    expect(row.hammerCents + row.premiumCents + row.vatCents).toBe(row.totalCents);
+  });
+
+  it("что нельзя купить — нельзя и отложить", async () => {
+    const gone = await mkListing();
+    await world.ctx.db.update(listings).set({ status: "archived" }).where(eq(listings.id, gone.listingId));
+    const res = await add(gone.listingId, "guest-visitor-1");
+    expect(res.statusCode).toBe(409);
+    // Без опознания корзины нет вовсе.
+    const anon = await add((await mkListing()).listingId);
+    expect(anon.statusCode).toBe(400);
+  });
+
+  it("удаление убирает лот из корзины", async () => {
+    const b = await mkListing();
+    await add(b.listingId, "guest-visitor-2");
+    const del = await world.server.app.inject({
+      method: "DELETE",
+      url: `/api/public/cart/${b.listingId}?visitor_id=guest-visitor-2`,
+    });
+    expect(del.json()).toMatchObject({ ok: true, count: 0 });
+    const after = (await list("guest-visitor-2")).json() as { count: number };
+    expect(after.count).toBe(0);
+  });
+
+  it("вход сливает гостевую корзину с корзиной аккаунта и не задваивает лот", async () => {
+    const l1 = await mkListing();
+    const l2 = await mkListing();
+    await add(l1.listingId, "guest-visitor-3");
+    await add(l2.listingId, "guest-visitor-3");
+
+    const me = await register("cart.merge@test.lv");
+    // В аккаунте уже лежит тот же l1 — при слиянии он не должен задвоиться.
+    await add(l1.listingId, undefined, me.accessToken);
+
+    const merged = (await list("guest-visitor-3", me.accessToken)).json() as { count: number; items: Array<{ listingId: string }> };
+    expect(merged.count).toBe(2);
+    expect(new Set(merged.items.map((i) => i.listingId))).toEqual(new Set([l1.listingId, l2.listingId]));
+
+    // Гостевая корзина после слияния пуста: лоты теперь принадлежат аккаунту.
+    const guestAfter = (await list("guest-visitor-3")).json() as { count: number };
+    expect(guestAfter.count).toBe(0);
+  });
+
+  it("изменение цены после добавления помечается явно", async () => {
+    const l = await mkListing(10_000);
+    await add(l.listingId, "guest-visitor-4");
+    await world.ctx.db.update(listings).set({ priceCents: 11_000 }).where(eq(listings.id, l.listingId));
+    const view = (await list("guest-visitor-4")).json() as { items: Array<{ priceChanged: boolean; totalCents: number }> };
+    expect(view.items[0]!.priceChanged).toBe(true);
+    // Показывается живая цена движка, не снимок из корзины.
+    expect(view.items[0]!.totalCents).toBe(11_000);
+  });
+
+  it("оформление: заказы создаются, ушедший другому лот к оплате не попадает", async () => {
+    const mine = await mkListing();
+    const contested = await mkListing();
+    const me = await register("cart.buyer@test.lv");
+    await add(mine.listingId, undefined, me.accessToken);
+    await add(contested.listingId, undefined, me.accessToken);
+
+    // Пока человек думал, спорный лот купил другой — напрямую, мимо корзины.
+    const rival = await register("cart.rival@test.lv");
+    const rivalBuy = await world.server.app.inject({
+      method: "POST",
+      url: `/api/public/listings/${contested.listingId}/buy`,
+      headers: { authorization: `Bearer ${rival.accessToken}` },
+    });
+    expect(rivalBuy.statusCode).toBe(200);
+
+    const checkout = await world.server.app.inject({
+      method: "POST",
+      url: "/api/public/cart/checkout",
+      headers: { authorization: `Bearer ${me.accessToken}` },
+      payload: {},
+    });
+    expect(checkout.statusCode).toBe(200);
+    const body = checkout.json() as {
+      ok: boolean;
+      orders: Array<{ ref: string; totalCents: number; listingId: string }>;
+      unavailable: Array<{ listingId: string; title: string }>;
+    };
+    expect(body.ok).toBe(true);
+    expect(body.orders).toHaveLength(1);
+    expect(body.orders[0]!.listingId).toBe(mine.listingId);
+    expect(body.unavailable.map((u) => u.listingId)).toEqual([contested.listingId]);
+
+    // Заказ настоящий и ровно один; спорный лот принадлежит сопернику.
+    const [ord] = await world.ctx.db.select().from(orders).where(eq(orders.ref, body.orders[0]!.ref));
+    expect(ord!.customerId).toBe(me.bidder.id);
+    expect(ord!.status).toBe("awaiting_payment");
+    const contestedOrders = await world.ctx.db.select().from(orders).where(eq(orders.listingId, contested.listingId));
+    expect(contestedOrders).toHaveLength(1);
+    expect(contestedOrders[0]!.customerId).toBe(rival.bidder.id);
+
+    // Корзина после оформления пуста.
+    const after = (await list(undefined, me.accessToken)).json() as { count: number };
+    expect(after.count).toBe(0);
+  });
+
+  it("оформление без входа невозможно, пустая корзина не оформляется", async () => {
+    const anon = await world.server.app.inject({ method: "POST", url: "/api/public/cart/checkout", payload: {} });
+    expect(anon.statusCode).toBe(401);
+
+    const empty = await register("cart.empty@test.lv");
+    const res = await world.server.app.inject({
+      method: "POST",
+      url: "/api/public/cart/checkout",
+      headers: { authorization: `Bearer ${empty.accessToken}` },
+      payload: {},
+    });
+    expect(res.statusCode).toBe(409);
+  });
+});

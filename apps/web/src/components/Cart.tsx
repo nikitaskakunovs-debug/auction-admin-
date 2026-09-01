@@ -9,18 +9,59 @@
  */
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
-import { setCartCount } from "@/lib/cart";
+import { cartCheckout, cartList, cartRemove, setCartCount, setCartItemsCount, type CartItem, type CartView } from "@/lib/cart";
 import { useT } from "@/lib/i18n";
-import { addToCartOnce, adsUserData, orderEcom, track } from "@/lib/track";
+import { loginHref } from "@/lib/nav";
+import { photoThumb } from "@/lib/photos";
+import { addToCartOnce, adsUserData, beginCheckoutOnce, gaItem, markBeginCheckout, orderEcom, track } from "@/lib/track";
 import { formatEur, type MyOrder } from "@/lib/types";
 import { Ph } from "./Ph";
 import { say } from "./Toast";
 
+/** Идентификатор checkout-сессии гостевой корзины. Живёт во вкладке до
+ *  превращения корзины в заказы: уход на вход и возврат обратно, обновление
+ *  страницы — та же сессия, и InitiateCheckout по ней уходит один раз. */
+const CHECKOUT_KEY = "izsoli_checkout_v1";
+function checkoutId(): string {
+  try {
+    let v = sessionStorage.getItem(CHECKOUT_KEY);
+    if (!v) {
+      v = `co-${crypto.randomUUID()}`;
+      sessionStorage.setItem(CHECKOUT_KEY, v);
+    }
+    return v;
+  } catch {
+    return "co-fallback";
+  }
+}
+function clearCheckoutId(): void {
+  try { sessionStorage.removeItem(CHECKOUT_KEY); } catch { /* нет хранилища */ }
+}
+
+/** Товарная строка аналитики из серверного лота корзины: все суммы движка. */
+function itemEcom(i: CartItem) {
+  const netCents = i.hammerCents + i.premiumCents;
+  return {
+    netCents,
+    grossCents: i.totalCents,
+    commissionCents: i.premiumCents,
+    item: gaItem({
+      sku: i.sku, listingId: i.listingId, name: i.title, category: i.category,
+      netCents, hammerCents: i.hammerCents, feeCents: i.premiumCents,
+      vatRateBp: i.vatRateBp, grossCents: i.totalCents,
+    }),
+  };
+}
+
 export function Cart() {
   const { t, lang } = useT();
+  const router = useRouter();
   const [orders, setOrders] = useState<MyOrder[] | null>(null);
+  const [cart, setCart] = useState<CartView | null>(null);
+  const [signedIn, setSignedIn] = useState(publicApi.hasSession);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   /** Контакт для Google Ads Enhanced Conversions — только при согласии. */
@@ -34,6 +75,16 @@ export function Cart() {
   }, []);
 
   const load = useCallback(() => {
+    setSignedIn(publicApi.hasSession);
+    // Отложенные лоты — у всех: гостевая корзина живёт на сервере.
+    void cartList()
+      .then((c) => { setCart(c); setCartItemsCount(c.count); })
+      .catch(() => setCart({ items: [], count: 0, totalCents: 0 }));
+    if (!publicApi.hasSession) {
+      setOrders([]);
+      setCartCount(0);
+      return;
+    }
     void publicApi
       .get<{ orders: MyOrder[] }>("/api/public/me/orders")
       .then((r) => {
@@ -42,24 +93,102 @@ export function Cart() {
         setCartCount(unpaid.length);
         // По умолчанию отмечено всё: чаще всего человек платит за всё сразу.
         setPicked(new Set(unpaid.map((o) => o.ref)));
-        // Аналитика (GTM): просмотр корзины со всеми неоплаченными лотами.
-        // value — сумма «лот + комиссия» без НДС, ровно Σ items[].price.
-        if (unpaid.length > 0) {
-          const ecs = unpaid.map(orderEcom);
-          const net = ecs.reduce((s, e) => s + e.netCents, 0);
-          const gross = ecs.reduce((s, e) => s + e.grossCents, 0) / 100;
-          track("view_cart", {
-            value: net / 100, currency: "EUR",
-            gross_total: gross, cart_gross_total: gross, cart_size: unpaid.length,
-            ecommerce: { currency: "EUR", value: net / 100, items: ecs.map((e) => e.item) },
-          });
-        }
       })
       .catch(() => setOrders([]));
   }, []);
   useEffect(load, [load]);
 
-  if (orders === null) return <section className="wrap" style={{ paddingTop: 24 }} aria-busy="true" />;
+  // Аналитика (GTM): просмотр корзины — отложенные лоты и неоплаченные заказы
+  // вместе, один раз на открытие страницы. value — «лот + комиссия» без НДС.
+  const sawCart = useRef(false);
+  useEffect(() => {
+    if (sawCart.current || orders === null || cart === null) return;
+    const avail = cart.items.filter((i) => i.available);
+    const ecs = [...avail.map(itemEcom), ...orders.map(orderEcom)];
+    if (ecs.length === 0) return;
+    sawCart.current = true;
+    const net = ecs.reduce((s, e) => s + e.netCents, 0);
+    const gross = ecs.reduce((s, e) => s + e.grossCents, 0) / 100;
+    track("view_cart", {
+      value: net / 100, currency: "EUR",
+      gross_total: gross, cart_gross_total: gross, cart_size: ecs.length,
+      ecommerce: { currency: "EUR", value: net / 100, items: ecs.map((e) => e.item) },
+    });
+  }, [orders, cart]);
+
+  /** Убрать отложенный лот — явное действие человека, корзину иначе не чистим. */
+  const removeItem = (i: CartItem) => {
+    void cartRemove(i.listingId)
+      .then(() => {
+        const e = itemEcom(i);
+        track("remove_from_cart", {
+          value: e.netCents / 100, currency: "EUR",
+          gross_total: e.grossCents / 100,
+          commission_value: e.commissionCents / 100,
+          vat_scheme: "standard",
+          ecommerce: { currency: "EUR", value: e.netCents / 100, items: [e.item] },
+        });
+        load();
+      })
+      .catch(() => say(t("acc.payFailed")));
+  };
+
+  /**
+   * «Noformēt pasūtījumu»: гостя отправляем на вход с возвратом сюда — его
+   * корзина никуда не денется, она на сервере. Вошедшему корзина
+   * превращается в заказы; лот, уже ушедший другому, к оплате не попадает,
+   * и об этом говорится прямо.
+   */
+  const [checkingOut, setCheckingOut] = useState(false);
+  const checkoutCart = () => {
+    if (!cart) return;
+    const avail = cart.items.filter((i) => i.available);
+    if (avail.length === 0) return;
+    // InitiateCheckout — один раз на checkout-сессию: возврат со входа или
+    // обновление страницы события не повторяют.
+    const coId = checkoutId();
+    const ecs = avail.map(itemEcom);
+    const net = ecs.reduce((s, e) => s + e.netCents, 0);
+    const gross = ecs.reduce((s, e) => s + e.grossCents, 0) / 100;
+    beginCheckoutOnce(coId, {
+      ...adsUserData({ email: meContact?.email, name: meContact?.name }),
+      value: net / 100, currency: "EUR", cart_size: avail.length,
+      checkout_id: coId,
+      gross_total: gross, cart_gross_total: gross,
+      commission_value: ecs.reduce((s, e) => s + e.commissionCents, 0) / 100,
+      ecommerce: { currency: "EUR", value: net / 100, items: ecs.map((e) => e.item) },
+    });
+    if (!signedIn) {
+      router.push(loginHref("/grozs"));
+      return;
+    }
+    setCheckingOut(true);
+    void cartCheckout()
+      .then((r) => {
+        if (r.unavailable && r.unavailable.length > 0) say(t("cart.gone"));
+        // Страница оплаты не должна отправлять второй InitiateCheckout той
+        // же сессии — заказы из этой корзины уже учтены.
+        for (const o of r.orders) markBeginCheckout(o.ref);
+        clearCheckoutId();
+        if (r.orders.length === 1 && (orders?.length ?? 0) === 0) {
+          window.location.assign(`/apmaksa/${encodeURIComponent(r.orders[0]!.ref)}`);
+          return;
+        }
+        setCheckingOut(false);
+        load();
+      })
+      .catch((e: unknown) => {
+        setCheckingOut(false);
+        if (e instanceof PublicApiError && e.body.code === "EMAIL_NOT_VERIFIED") say(t("lc.verifyFirst"));
+        else if (e instanceof PublicApiError && e.body.code === "FEES_OUTSTANDING") say(t("fees.blockedShort"));
+        else if (e instanceof PublicApiError && e.body.code === "BIDDER_BLOCKED") say(t("buy.blocked"));
+        else say(t("acc.payFailed"));
+      });
+  };
+
+  if (orders === null || cart === null) return <section className="wrap" style={{ paddingTop: 24 }} aria-busy="true" />;
+  const pending = cart.items;
+  const pendingAvail = pending.filter((i) => i.available);
 
   const chosen = orders.filter((o) => picked.has(o.ref));
   const totalCents = chosen.reduce((sum, o) => sum + o.totalCents, 0);
@@ -123,7 +252,9 @@ export function Cart() {
     // Аналитика (GTM): оплата корзины началась — все выбранные лоты.
     const ecs = chosen.map(orderEcom);
     const net = ecs.reduce((s, e) => s + e.netCents, 0);
-    track("begin_checkout", {
+    // Один раз на состав группы: возврат с оплаты и повторное нажатие не
+    // рождают второй InitiateCheckout той же сессии.
+    beginCheckoutOnce(`group:${[...refs].sort().join("+")}`, {
       ...adsUserData({ email: meContact?.email, name: meContact?.name }),
       value: net / 100, currency: "EUR", cart_size: refs.length,
       gross_total: totalCents / 100, cart_gross_total: totalCents / 100,
@@ -144,18 +275,65 @@ export function Cart() {
       <div className="page-head" style={{ alignItems: "flex-start" }}>
         <div>
           <h1 data-hero>{t("cart.title")}</h1>
-          <p className="cnt">{t("cart.sub", { n: orders.length })}</p>
+          <p className="cnt">{orders.length > 0 ? t("cart.sub", { n: orders.length }) : t("cart.subG", { n: pendingAvail.length })}</p>
         </div>
       </div>
 
-      {orders.length === 0 ? (
+      {orders.length === 0 && pending.length === 0 ? (
         <div className="empty">
           <span className="ic" aria-hidden="true"><Ph name="package" size={22} /></span>
-          <h3>{t("cart.emptyT")}</h3>
-          <p>{t("cart.emptyD")}</p>
-          <Link className="btn btn-primary" href="/katalogs">{t("kb.findLots")}</Link>
+          <h3>{signedIn ? t("cart.emptyT") : t("cart.emptyG")}</h3>
+          <p>{signedIn ? t("cart.emptyD") : t("cart.emptyGD")}</p>
+          <Link className="btn btn-primary" href="/katalogs?type=fixed">{t("kb.findLots")}</Link>
         </div>
-      ) : (
+      ) : null}
+
+      {/* ── Отложенные лоты: серверная корзина, работает и без входа ── */}
+      {pending.length > 0 && (
+        <div className="cart-cols" style={{ marginBottom: orders.length > 0 ? 32 : 0 }}>
+          <div className="cart-main">
+            {pending.map((i) => (
+              <div className="cart-row" key={i.listingId} style={i.available ? undefined : { opacity: .55 }}>
+                <span className="cart-pic" aria-hidden="true">
+                  {i.photo ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={photoThumb(i.photo)} alt="" loading="lazy"
+                         style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 8 }} />
+                  ) : <Ph name="package" size={22} />}
+                </span>
+                <span className="t">
+                  <b>{i.title}</b>
+                  <small>{i.sku} · {t("bn.vat")} {formatEur(i.vatCents)} · 1 gab.</small>
+                  {!i.available && <small style={{ color: "var(--live)" }}>{t("cart.gone")}</small>}
+                  {i.priceChanged && <small style={{ color: "var(--live)" }}>{t("cart.priceChanged")}</small>}
+                </span>
+                <b className="sum tnum">{formatEur(i.totalCents)}</b>
+                <button className="btn btn-outline btn-sm" type="button"
+                        aria-label={`${t("cart.remove")}: ${i.title}`}
+                        onClick={() => removeItem(i)}>{t("cart.remove")}</button>
+              </div>
+            ))}
+            {!signedIn && <p className="note">{t("cart.signinNote")}</p>}
+          </div>
+
+          <aside className="cart-side">
+            <p className="g-lbl">{t("cart.summary")}</p>
+            <table className="fees"><tbody>
+              <tr><th scope="row">{t("cart.lotsN", { n: pendingAvail.length })}</th>
+                <td className="tnum">{formatEur(cart.totalCents)}</td></tr>
+              <tr className="tot"><th scope="row">{t("bn.total")}</th>
+                <td className="tnum">{formatEur(cart.totalCents)}</td></tr>
+            </tbody></table>
+            <button className="btn btn-primary" type="button"
+                    disabled={checkingOut || pendingAvail.length === 0} onClick={checkoutCart}>
+              {t("cart.checkout")}
+            </button>
+            <p className="note">{t("bn.noPremium")}</p>
+          </aside>
+        </div>
+      )}
+
+      {orders.length > 0 && (
         <div className="cart-cols">
           <div className="cart-main">
             {orders.map((o) => (
