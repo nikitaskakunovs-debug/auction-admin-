@@ -22,7 +22,6 @@ import { publicApi, PublicApiError } from "@/lib/api";
 import { cartCheckout, cartCheckoutStart, cartList, cartRemove, setCartCount, setCartItemsCount, type CartItem, type CartView } from "@/lib/cart";
 import { useT } from "@/lib/i18n";
 import { loginHref } from "@/lib/nav";
-import { photoThumb } from "@/lib/photos";
 import { addToCartOnce, adsUserData, beginCheckoutOnce, gaItem, markBeginCheckout, orderEcom, track } from "@/lib/track";
 import { formatEur, type MyOrder } from "@/lib/types";
 import { Ph } from "./Ph";
@@ -328,18 +327,16 @@ export function Cart() {
                          onChange={() => togglePending(i)} />
                   <span className="sr">{i.title}</span>
                 </label>
-                <span className="cart-pic" aria-hidden="true">
-                  {i.photo ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={photoThumb(i.photo)} alt="" loading="lazy"
-                         style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 8 }} />
-                  ) : <Ph name="package" size={22} />}
-                </span>
                 <span className="t">
                   <b>{i.title}</b>
                   <small>{i.sku} · {t("bn.vat")} {formatEur(i.vatCents)} · 1 gab.</small>
                   {!i.available && <small style={{ color: "var(--live)" }}>{t("cart.gone")}</small>}
                   {i.priceChanged && <small style={{ color: "var(--live)" }}>{t("cart.priceChanged")}</small>}
+                  {i.available && i.reservedUntil !== null && i.reservedUntil > nowMs && (
+                    <small style={{ color: "var(--brand)", fontWeight: 600 }} suppressHydrationWarning>
+                      {t("cart.rowReserved", { t: mmss(i.reservedUntil - nowMs) })}
+                    </small>
+                  )}
                 </span>
                 <b className="sum tnum">{formatEur(i.totalCents)}</b>
                 <button className="btn btn-outline btn-sm" type="button"
@@ -388,11 +385,6 @@ export function Cart() {
             <button className="btn btn-primary" type="button" disabled={busy || chosenCount === 0} onClick={proceed}>
               {signedIn ? t("cart.pay", { sum: formatEur(totalCents) }) : t("cart.checkout")}
             </button>
-            {reservedUntil && reserveLeftMs > 0 && (
-              <p className="note" style={{ color: "var(--brand)", fontWeight: 600 }} suppressHydrationWarning>
-                {t("cart.reservedFor", { t: mmss(reserveLeftMs) })}
-              </p>
-            )}
             {chosenPending.length > 0 && <p className="note">{t("cart.shipLater")}</p>}
             {chosenCount > 1 && <p className="note">{t("cart.oneCharge")}</p>}
             <p className="note">{t("bn.noPremium")}</p>

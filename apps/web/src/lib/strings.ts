@@ -1289,6 +1289,8 @@ export const STRINGS: Record<string, Record<Lang, string>> = {
   // ── Поштучный остаток и резерв на оформлении ───
   "bn.stock": { lv: "Noliktavā: {n} gab.", ru: "В наличии: {n} шт.", en: "In stock: {n}", et: "Laos: {n} tk", lt: "Sandėlyje: {n} vnt." },
   "cart.reservedFor": { lv: "Loti rezervēti tev vēl {t}", ru: "Лоты зарезервированы за вами ещё {t}", en: "Your lots are reserved for {t}", et: "Partiid on sulle broneeritud veel {t}", lt: "Lotai jums rezervuoti dar {t}" },
+  "cart.added10": { lv: "Ielikts grozā — lots rezervēts tev 10 minūtes", ru: "Добавлено — лот закреплён за вами на 10 минут", en: "Added — the lot is held for you for 10 minutes", et: "Korvi lisatud — partii on sulle broneeritud 10 minutiks", lt: "Įdėta — lotas jums rezervuotas 10 minučių" },
+  "cart.rowReserved": { lv: "Rezervēts tev vēl {t}", ru: "Зарезервирован за вами ещё {t}", en: "Reserved for you for {t}", et: "Broneeritud sulle veel {t}", lt: "Rezervuota jums dar {t}" },
   "cart.shipLater": { lv: "Piegādi jaunajiem lotiem izvēlēsies apmaksas solī.", ru: "Доставку для новых лотов выберете на шаге оплаты.", en: "You will choose delivery for the new lots at the payment step.", et: "Uute partiide tarne valid makse sammul.", lt: "Naujų lotų pristatymą pasirinksite mokėjimo žingsnyje." },
   "cart.allReserved": { lv: "Visas vienības šobrīd tiek noformētas. Pamēģini pēc pāris minūtēm.", ru: "Все единицы сейчас оформляются другими. Попробуйте через пару минут.", en: "Every unit is being checked out right now. Try again in a couple of minutes.", et: "Kõik ühikud on praegu vormistamisel. Proovi paari minuti pärast uuesti.", lt: "Visi vienetai šiuo metu forminami. Pabandykite po poros minučių." },
 };

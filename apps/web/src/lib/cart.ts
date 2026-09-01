@@ -72,7 +72,7 @@ export function cartList(): Promise<CartView> {
   return publicApi.get<CartView>(`/api/public/cart${vq()}`);
 }
 
-export function cartAdd(listingId: string): Promise<{ ok: boolean; added: boolean; count: number }> {
+export function cartAdd(listingId: string): Promise<{ ok: boolean; added: boolean; count: number; reservedUntil: number | null }> {
   return publicApi.post(`/api/public/cart`, { listing_id: listingId, visitor_id: visitorId() || undefined });
 }
 

@@ -93,7 +93,9 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
         router.push("/grozs");
         return;
       }
-      say(r.added ? t("cart.added") : t("cart.inCart"));
+      // Резерв стартует с добавления — человека сразу предупреждают,
+      // сколько у него времени на завершение заказа.
+      say(!r.added ? t("cart.inCart") : r.reservedUntil ? t("cart.added10") : t("cart.added"));
     } catch (err) {
       if (err instanceof PublicApiError && err.status === 409) {
         setSoldOut(true); setError(t("buy.soldOut"));

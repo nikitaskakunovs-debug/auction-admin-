@@ -215,7 +215,20 @@ export function registerCartRoutes(app: FastifyInstance, ctx: AppContext): void 
     }
     // Запись освежает срок хранения и при повторном добавлении.
     await writeEntries(ctx, key!, entries);
-    return { ok: true, added, count: entries.length };
+
+    // Счётчик стартует прямо здесь: положил в корзину — единица закреплена
+    // на десять минут, и человека честно предупреждают, сколько у него
+    // времени на завершение заказа. Если весь остаток уже разобран другими
+    // оформляющими, лот всё равно ложится в корзину, но без резерва.
+    const holder = ids.visitorId ?? ids.customerId!;
+    const also = [ids.customerId ?? ""].filter(Boolean);
+    const reservedUntil = await reserveUnit(ctx, {
+      listingId: row.listing.id,
+      holder,
+      also,
+      quantity: row.listing.quantity,
+    });
+    return { ok: true, added, count: entries.length, reservedUntil };
   });
 
   app.delete("/api/public/cart/:listingId", async (req, reply) => {

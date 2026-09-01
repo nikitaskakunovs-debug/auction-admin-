@@ -62,6 +62,8 @@ describe("гостевая корзина «Pērc uzreiz»", () => {
     const first = await add(a.listingId, "guest-visitor-1");
     expect(first.statusCode).toBe(200);
     expect(first.json()).toMatchObject({ ok: true, added: true, count: 1 });
+    // Счётчик стартует с добавления: единица закреплена на десять минут.
+    expect((first.json() as { reservedUntil: number | null }).reservedUntil).toBeGreaterThan(world.ctx.now().getTime());
 
     const again = await add(a.listingId, "guest-visitor-1");
     expect(again.json()).toMatchObject({ added: false, count: 1 });
@@ -139,14 +141,18 @@ describe("гостевая корзина «Pērc uzreiz»", () => {
     await add(mine.listingId, undefined, me.accessToken);
     await add(contested.listingId, undefined, me.accessToken);
 
-    // Пока человек думал, спорный лот купил другой — напрямую, мимо корзины.
+    // Пока резерв жив, лот у человека не отнять; но он думал дольше десяти
+    // минут — резерв истёк, и спорный лот купил другой, мимо корзины.
     const rival = await register("cart.rival@test.lv");
-    const rivalBuy = await world.server.app.inject({
-      method: "POST",
-      url: `/api/public/listings/${contested.listingId}/buy`,
-      headers: { authorization: `Bearer ${rival.accessToken}` },
-    });
-    expect(rivalBuy.statusCode).toBe(200);
+    const rivalBuy = () =>
+      world.server.app.inject({
+        method: "POST",
+        url: `/api/public/listings/${contested.listingId}/buy`,
+        headers: { authorization: `Bearer ${rival.accessToken}` },
+      });
+    expect((await rivalBuy()).statusCode).toBe(409);
+    world.setNow(new Date(world.ctx.now().getTime() + 11 * 60_000));
+    expect((await rivalBuy()).statusCode).toBe(200);
 
     const checkout = await world.server.app.inject({
       method: "POST",
@@ -176,6 +182,28 @@ describe("гостевая корзина «Pērc uzreiz»", () => {
     // Корзина после оформления пуста.
     const after = (await list(undefined, me.accessToken)).json() as { count: number };
     expect(after.count).toBe(0);
+    world.setNow(null);
+  });
+
+  it("оформляется только отмеченное — остальное остаётся лежать", async () => {
+    const a = await mkListing();
+    const b = await mkListing();
+    const me = await register("cart.subset@test.lv");
+    await add(a.listingId, undefined, me.accessToken);
+    await add(b.listingId, undefined, me.accessToken);
+
+    const checkout = await world.server.app.inject({
+      method: "POST",
+      url: "/api/public/cart/checkout",
+      headers: { authorization: `Bearer ${me.accessToken}` },
+      payload: { listing_ids: [a.listingId] },
+    });
+    expect(checkout.statusCode).toBe(200);
+    const body = checkout.json() as { orders: Array<{ listingId: string }> };
+    expect(body.orders.map((o) => o.listingId)).toEqual([a.listingId]);
+
+    const after = (await list(undefined, me.accessToken)).json() as { items: Array<{ listingId: string }> };
+    expect(after.items.map((i) => i.listingId)).toEqual([b.listingId]);
   });
 
   it("остаток больше единицы: продажа списывает одну, лот живёт до последней", async () => {
