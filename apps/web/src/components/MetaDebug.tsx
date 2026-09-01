@@ -146,8 +146,8 @@ export function MetaDebug() {
               <tr key={r.eventId} style={{ borderTop: "1px solid #232b23" }}>
                 <td style={{ whiteSpace: "nowrap", paddingRight: 8 }}>{r.at}</td>
                 <td style={{ paddingRight: 8 }}>{r.event}</td>
-                <td style={{ paddingRight: 8, color: r.server === "ушло" ? "#b9e6a1" : "#e8d48a" }}>{r.server}</td>
-                <td style={{ color: r.browser.startsWith("ушло") ? "#b9e6a1" : "#ff9a8a" }}>{r.browser}</td>
+                <td style={{ paddingRight: 8, color: TONE[r.server === "ушло" ? "ok" : "warn"] }}>{r.server}</td>
+                <td style={{ color: TONE[r.browser.startsWith("ушло") ? "ok" : r.browser.startsWith("ждём") ? "warn" : "bad"] }}>{r.browser}</td>
               </tr>
             ))}
           </tbody>

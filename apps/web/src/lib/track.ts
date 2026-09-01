@@ -315,7 +315,10 @@ export function track(event: string, params: Record<string, unknown> = {}, opts:
   }
   const server = mirrorToMeta(event, eventId, safe);
   if (META_NAME[event]) {
-    noteTrace(event, eventId, server, !layer ? "нет dataLayer" : pixelReady() ? "пиксель готов" : "fbq нет");
+    noteTrace(
+      event, eventId, server,
+      !layer ? "нет dataLayer" : pixelReady() ? "ушло в GTM, пиксель жив" : "GTM принял, но fbq нет",
+    );
   }
 }
 
