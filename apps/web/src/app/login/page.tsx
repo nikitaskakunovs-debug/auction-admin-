@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { publicApi } from "@/lib/api";
 import { useT } from "@/lib/i18n";
+import { safeNext } from "@/lib/nav";
 import { track } from "@/lib/track";
 import { AuthCard } from "@/components/authUi";
 import { SocialAuth } from "@/components/SocialAuth";
@@ -12,7 +13,8 @@ import Link from "next/link";
 export default function LoginPage() {
   const { t } = useT();
   const router = useRouter();
-  const next = useSearchParams().get("next") ?? "/";
+  // Только внутренний адрес: next из строки запроса пишет кто угодно.
+  const next = safeNext(useSearchParams().get("next"));
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -46,7 +48,7 @@ export default function LoginPage() {
       </form>
       <SocialAuth next={next} />
       <p className="auth-alt">
-        {t("auth.noAccount")} <Link href="/register">{t("nav.register")}</Link>
+        {t("auth.noAccount")} <Link href={`/register?next=${encodeURIComponent(next)}`}>{t("nav.register")}</Link>
         {" · "}
         <Link href="/forgot-password">{t("auth.forgot")}</Link>
       </p>

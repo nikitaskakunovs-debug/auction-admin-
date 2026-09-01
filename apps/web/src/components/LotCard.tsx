@@ -7,6 +7,7 @@ import { publicApi, PublicApiError } from "@/lib/api";
 import { conditionLabel } from "@/lib/conditions";
 import { increment } from "@/lib/fees";
 import { dateLocale, useT } from "@/lib/i18n";
+import { loginHref } from "@/lib/nav";
 import { photoThumb } from "@/lib/photos";
 import { formatEur, type FixedListing, type PublicAuction } from "@/lib/types";
 import { alertStore } from "@/lib/ui";
@@ -121,7 +122,7 @@ export function LotCard({ lot }: { lot: CardLot }) {
   const bid = async (e: React.MouseEvent) => {
     stop(e);
     if (settled || over) { say(t("lc.ended")); return; }
-    if (!publicApi.hasSession) { router.push(`/login?next=${href}`); return; }
+    if (!publicApi.hasSession) { router.push(loginHref(href)); return; }
     setBusy(true);
     try {
       const r = await publicApi.post<{ youLead: boolean; currentPriceCents: number; extended: boolean }>(

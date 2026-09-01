@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
 import { refreshCart } from "@/lib/cart";
 import { conditionLabel } from "@/lib/conditions";
 import { useT } from "@/lib/i18n";
+import { loginHref } from "@/lib/nav";
 import { computeInvoice, marketFees } from "@/lib/fees";
 import { photoWeb, photoThumb } from "@/lib/photos";
 import { addToCartOnce, gaItem, track } from "@/lib/track";
@@ -21,6 +22,7 @@ import { say } from "./Toast";
 export function BuyNow({ listing }: { listing: FixedListing }) {
   const { t } = useT();
   const router = useRouter();
+  const pathname = usePathname();
   const [signedIn, setSignedIn] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -199,7 +201,7 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
               <button className="btn btn-primary btn-lg btn-block" type="button" disabled={busy}
                       aria-haspopup="dialog" onClick={() => setConfirm(true)}>{t("buy.now")}</button>
             ) : (
-              <Link className="btn btn-primary btn-lg btn-block" href="/login">{t("buy.signin")}</Link>
+              <Link className="btn btn-primary btn-lg btn-block" href={loginHref(pathname)}>{t("buy.signin")}</Link>
             )}
 
             {!soldOut && listing.estimatedTotalCents ? (

@@ -2,9 +2,11 @@
 
 import Link from "next/link";
 import { BrandMark } from "@/components/BrandMark";
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
 import { dateLocale, useT } from "@/lib/i18n";
+import { loginHref } from "@/lib/nav";
 import { adsUserData, orderEcom, purchaseOnce, track } from "@/lib/track";
 import { useStickyBar } from "@/lib/ui";
 import { formatEur, type MyOrder, type ShippingOption } from "@/lib/types";
@@ -63,6 +65,7 @@ function PayStep({ n, label, value, done, open, onOpen, editLabel, children }: {
 }
 
 export function Checkout({ orderRef }: { orderRef: string }) {
+  const pathname = usePathname();
   const { t, lang } = useT();
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const [order, setOrder] = useState<MyOrder | null>(null);
@@ -286,7 +289,7 @@ export function Checkout({ orderRef }: { orderRef: string }) {
         <div className="empty">
           <span className="ic" aria-hidden="true"><Icon name="shield" /></span>
           <h3>{t("a.signinToBid")}</h3>
-          <Link className="btn btn-primary" href="/login">{t("nav.signin")}</Link>
+          <Link className="btn btn-primary" href={loginHref(pathname)}>{t("nav.signin")}</Link>
         </div>
       </section>
     );

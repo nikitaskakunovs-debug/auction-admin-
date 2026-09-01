@@ -17,6 +17,7 @@ import { VerifyNotice } from "@/components/VerifyNotice";
 import { publicApi } from "@/lib/api";
 import { setCartCount } from "@/lib/cart";
 import { dateLocale, useT, type Lang } from "@/lib/i18n";
+import { loginHref } from "@/lib/nav";
 import { addToCartOnce, adsUserData, orderEcom, purchaseOnce, track } from "@/lib/track";
 import { photoThumb } from "@/lib/photos";
 import { formatEur, type MyOrder } from "@/lib/types";
@@ -189,7 +190,7 @@ export default function AccountPage() {
           <h3>{t("a.signinToBid")}</h3>
           <p>{t("ac.signinNeeded")}</p>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
-            <Link className="btn btn-primary" href="/login">{t("nav.signin")}</Link>
+            <Link className="btn btn-primary" href={loginHref("/account")}>{t("nav.signin")}</Link>
             <Link className="btn btn-outline" href="/register">{t("nav.register")}</Link>
           </div>
         </div>

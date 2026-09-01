@@ -33,8 +33,10 @@ export default function TelegramLoginPage() {
     const forward = (user: Record<string, string | number>) => {
       const p = new URLSearchParams();
       for (const [k, v] of Object.entries(user)) p.set(k, String(v));
-      const next = new URLSearchParams(window.location.search).get("next") ?? "/account";
-      p.set("redirect", `${window.location.origin}${next.startsWith("/") ? next : "/account"}`);
+      const raw = new URLSearchParams(window.location.search).get("next");
+      // safeNext не пускает «//evil.lv» — startsWith("/") пропускал.
+      const next = raw && /^\/(?!\/)/.test(raw) ? raw : "/account";
+      p.set("redirect", `${window.location.origin}${next}`);
       window.location.assign(`${PUBLIC_API_URL}/api/public/auth/oauth/telegram/callback?${p.toString()}`);
     };
     (window as unknown as { onTelegramAuth: typeof forward }).onTelegramAuth = forward;

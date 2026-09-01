@@ -7,6 +7,7 @@ import { PUBLIC_API_URL } from "@/lib/config";
 import { conditionLabel } from "@/lib/conditions";
 import { increment, marketFees } from "@/lib/fees";
 import { useT } from "@/lib/i18n";
+import { loginHref } from "@/lib/nav";
 import { photoWeb } from "@/lib/photos";
 import { useStickyBar } from "@/lib/ui";
 import { formatEur, type AuctionDetail, type PublicAuction } from "@/lib/types";
@@ -232,7 +233,7 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
                   {t("lc.bid")}<span className="tnum">{formatEur(ask)}</span>
                 </button>
               ) : (
-                <Link className="btn btn-primary btn-lg" href="/login">{t("a.signinToBid")}</Link>
+                <Link className="btn btn-primary btn-lg" href={loginHref("/tiesraide")}>{t("a.signinToBid")}</Link>
               )}
               {left > 0 && (
                 <button className="btn btn-outline btn-lg" type="button"
@@ -305,7 +306,7 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
               {t("lc.bid")}<span className="tnum">{formatEur(ask)}</span>
             </button>
           ) : (
-            <Link className="btn btn-primary" href="/login?next=/tiesraide">{t("a.signinToBid")}</Link>
+            <Link className="btn btn-primary" href={loginHref("/tiesraide")}>{t("a.signinToBid")}</Link>
           )}
         </div>
       )}

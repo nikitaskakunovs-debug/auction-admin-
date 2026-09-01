@@ -323,10 +323,12 @@ function noteTrace(event: string, eventId: string, server: string, browser: stri
  * учтено сервером, и это ровно тот случай, когда Server-only законен.
  */
 const PIXEL_WAIT_MS = 20_000;
-function whenPixelReady(run: () => void, trace?: MetaTrace): void {
+/** `run` возвращает false, если отправка отменена — тогда дневник не трогаем:
+ *  причину отмены run записал сам. */
+function whenPixelReady(run: () => boolean | void, trace?: MetaTrace): void {
   if (pixelReady()) {
-    run();
-    if (trace) { trace.browser = "ушло сразу"; ping(); }
+    const sent = run() !== false;
+    if (trace && sent) { trace.browser = "ушло сразу"; ping(); }
     return;
   }
   let waited = 0;
@@ -334,8 +336,8 @@ function whenPixelReady(run: () => void, trace?: MetaTrace): void {
     waited += 100;
     if (pixelReady()) {
       clearInterval(timer);
-      run();
-      if (trace) { trace.browser = `ушло через ${(waited / 1000).toFixed(1)} с`; ping(); }
+      const sent = run() !== false;
+      if (trace && sent) { trace.browser = `ушло через ${(waited / 1000).toFixed(1)} с`; ping(); }
     } else if (waited >= PIXEL_WAIT_MS) {
       clearInterval(timer);
       if (trace) { trace.browser = "fbq так и не появился"; ping(); }
@@ -416,19 +418,31 @@ export function track(event: string, params: Record<string, unknown> = {}, opts:
  * eventID. Имя события новое: ни один существующий триггер GA4 его не
  * слушает, так что настройка GA4 при этом не задета.
  */
+let pageViewSeq = 0;
 export function trackPageView(): void {
   if (process.env.NEXT_PUBLIC_META_PAGEVIEW !== "1") return;
   const eventId = newEventId("page_view");
+  const seq = ++pageViewSeq;
 
   // Серверную копию отправляем сразу: она ни от чего в браузере не зависит и
   // дойдёт даже там, где пиксель заблокирован.
   const server = mirrorToMeta("page_view", eventId, {});
 
-  // Браузерную — когда пиксель готов принять вызов.
+  // Браузерную — когда пиксель готов принять вызов. Если человек успел уйти
+  // на другую страницу, отложенный просмотр НЕ отправляем: он ушёл бы с
+  // адресом уже новой страницы, и в dataLayer оказались бы два meta_page_view
+  // на один переход — свой и запоздавший чужой. Актуален только последний.
   const layer = dl();
   const trace = noteTrace("page_view", eventId, server, layer ? "ждём fbq…" : "нет dataLayer");
   if (!layer) return;
-  whenPixelReady(() => layer.push({ event: "meta_page_view", event_id: eventId }), trace);
+  whenPixelReady(() => {
+    if (seq !== pageViewSeq) {
+      trace.browser = "отменён — человек уже на другой странице";
+      ping();
+      return false;
+    }
+    layer.push({ event: "meta_page_view", event_id: eventId });
+  }, trace);
 }
 
 /** Товарная строка GA4 (items[]) по ТЗ аналитики:

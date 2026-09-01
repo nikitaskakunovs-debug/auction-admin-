@@ -9,6 +9,7 @@ import { useT } from "@/lib/i18n";
 import type { Country } from "@/lib/country";
 import { alertStore, useRail, useReveal } from "@/lib/ui";
 import { cartStore } from "@/lib/cart";
+import { loginHref } from "@/lib/nav";
 import { trackPageView } from "@/lib/track";
 import { watchStore } from "@/lib/watch";
 import { markAlertsSeen, relTime, type MyNotification } from "./account/data";
@@ -207,7 +208,7 @@ export function Chrome({ country = "LV" }: { country?: Country }) {
               <UserMenu />
             ) : (
               <>
-                <Link className="btn btn-outline btn-sm keep" href="/login">{t("nav.signin")}</Link>
+                <Link className="btn btn-outline btn-sm keep" href={loginHref(path)}>{t("nav.signin")}</Link>
                 <Link className="btn btn-primary btn-sm" href="/register">{t("nav.register")}</Link>
               </>
             )}

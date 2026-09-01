@@ -1,8 +1,10 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
 import { useT } from "@/lib/i18n";
+import { safeNext } from "@/lib/nav";
 import { track } from "@/lib/track";
 import { AuthCard } from "@/components/authUi";
 import { SocialAuth } from "@/components/SocialAuth";
@@ -11,6 +13,9 @@ import Link from "next/link";
 
 export default function RegisterPage() {
   const { t } = useT();
+  // Куда вернуть после входа через соцсеть; регистрация почтой уходит на
+  // подтверждение e-mail, и там возврат теряет смысл.
+  const next = safeNext(useSearchParams().get("next"));
   const [email, setEmail] = useState("");
   const [alias, setAlias] = useState("");
   const [password, setPassword] = useState("");
@@ -82,9 +87,9 @@ export default function RegisterPage() {
         <button className="btn btn-primary btn-lg btn-block" type="submit"
                 disabled={busy || !email || !aliasOk || password.length < 8}>{t("auth.register")}</button>
       </form>
-      <SocialAuth />
+      <SocialAuth next={next} />
       <p className="auth-alt">
-        {t("auth.haveAccount")} <Link href="/login">{t("auth.signin")}</Link>
+        {t("auth.haveAccount")} <Link href={`/login?next=${encodeURIComponent(next)}`}>{t("auth.signin")}</Link>
       </p>
     </AuthCard>
   );

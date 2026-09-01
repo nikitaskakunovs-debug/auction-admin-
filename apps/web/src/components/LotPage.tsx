@@ -7,6 +7,7 @@ import { PUBLIC_API_URL } from "@/lib/config";
 import { conditionLabel } from "@/lib/conditions";
 import { computeInvoice, increment, marketFees } from "@/lib/fees";
 import { dateLocale, useT } from "@/lib/i18n";
+import { loginHref } from "@/lib/nav";
 import { photoWeb, photoThumb } from "@/lib/photos";
 import { formatEur, type AuctionDetail, type PublicAuction } from "@/lib/types";
 import { gaItem, track } from "@/lib/track";
@@ -543,7 +544,7 @@ export function LotPage({
                 </div>
               ) : (
                 <div>
-                  <Link className="btn btn-primary btn-lg btn-block" href="/login">{t("a.signinToBid")}</Link>
+                  <Link className="btn btn-primary btn-lg btn-block" href={loginHref(`/auction/${a.id}`)}>{t("a.signinToBid")}</Link>
                   <p className="fine tnum">
                     {t("lp.minNext", { min: formatEur(minNext), inc: formatEur(inc),
                       prem: fees.buyerPremiumBp / 100, vat: fees.vatRateBp / 100 })}
@@ -648,7 +649,7 @@ export function LotPage({
               {t("lc.bid")}<span className="tnum">{formatEur(minNext)}</span>
             </button>
           ) : (
-            <Link className="btn btn-primary" href={`/login?next=/auction/${a.id}`}>{t("a.signinToBid")}</Link>
+            <Link className="btn btn-primary" href={loginHref(`/auction/${a.id}`)}>{t("a.signinToBid")}</Link>
           )}
         </div>
       )}
