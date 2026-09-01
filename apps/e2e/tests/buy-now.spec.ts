@@ -6,6 +6,9 @@ async function registerViaUi(page: Page, alias: string): Promise<void> {
   await page.fill('input[placeholder*="Alias"], input[placeholder*="Segvārds"]', alias);
   await page.fill('input[type="password"]', "Bidder123!");
   await page.click('button[type="submit"]');
+  // Дождаться фактического входа (аватар в шапке): без этого следующий
+  // переход случается гостем, и корзина показывает гостевую кнопку.
+  await expect(page.locator(".ava-btn")).toBeVisible();
   // Почту подтверждаем в базе: без этого ставки и покупка закрыты.
   await verifyEmailDb(`${alias}@e2e.test`);
 }
@@ -32,7 +35,8 @@ test("fixed-price: guest cart → register at checkout → order is born in the 
   // оплату: заказ рождается только на этом шаге.
   await page.goto("/grozs");
   await expect(page.locator(".cart-row b", { hasText: title })).toBeVisible();
-  await page.click("text=/Pay |Apmaksāt /");
+  // Кнопка итога — одна; по классу, чтобы не зависеть от языка и суммы.
+  await page.click(".cart-side button.btn-primary");
   await expect(page).toHaveURL(/\/apmaksa\/A-\d+/);
 
   // The listing is now sold out for the next visitor.
