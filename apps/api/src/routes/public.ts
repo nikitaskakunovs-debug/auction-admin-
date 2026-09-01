@@ -426,8 +426,16 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
     const { id } = req.params as { id: string };
     const result = await placeBid(ctx, { auctionId: id, customerId: bidderId, maxCents: body.data.maxCents });
     if (!result.ok) return reply.code(422).send(result);
+    // Первая ли это успешная ставка человека вообще — сигнал активации для
+    // рекламы (FirstBidPlaced против BidPlaced). Решает движок по журналу
+    // ставок, витрина только передаёт дальше.
+    const [bidTally] = await ctx.db
+      .select({ n: sql<string>`count(*)` })
+      .from(bids)
+      .where(and(eq(bids.customerId, bidderId), isNull(bids.voidedAt)));
     return {
       ok: true,
+      firstBid: Number(bidTally?.n ?? 0) <= 1,
       currentPriceCents: result.currentPriceCents,
       youLead: result.leaderCustomerId === bidderId,
       leaderAlias: result.leaderAlias,

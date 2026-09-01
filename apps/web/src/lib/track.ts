@@ -24,7 +24,7 @@ const dl = (): DataLayer | null => {
  *  таким событием ключ обнуляется — даже если карточка товара не собралась:
  *  иначе GTM рекурсивно домешает товар из прошлого события (парка вместо
  *  зāģis — реальный случай с теста). */
-const ECOM_EVENTS = new Set(["view_item", "add_to_cart", "view_cart", "begin_checkout", "purchase"]);
+const ECOM_EVENTS = new Set(["view_item", "add_to_cart", "view_cart", "begin_checkout", "purchase", "place_bid"]);
 
 /** Поисковую строку человек пишет сам — иногда это его же почта или телефон.
  *  Отправлять такое в аналитику нельзя (политика Google и GDPR), поэтому
@@ -97,8 +97,16 @@ function marketingAllowed(): boolean {
  * оплаты, и присылать её со слов браузера значило бы разрешить рисовать
  * конверсии.
  */
+/** Имя Meta-события. Ставка — особый случай: первая успешная ставка человека
+ *  уходит как FirstBidPlaced (сигнал активации для рекламы), остальные — как
+ *  BidPlaced. Кто первая — решает движок (params.first_bid из ответа API). */
+function metaNameOf(event: string, params: Record<string, unknown>): string | undefined {
+  if (event === "place_bid") return params.first_bid === true ? "FirstBidPlaced" : "BidPlaced";
+  return META_NAME[event];
+}
+
 function mirrorToMeta(event: string, eventId: string, params: Record<string, unknown>): string {
-  const name = META_NAME[event];
+  const name = metaNameOf(event, params);
   if (!name) return "нет у Meta";
   if (name === "Purchase") return "только сервер";
   if (!marketingAllowed()) return "нет согласия";
@@ -399,7 +407,7 @@ export function track(event: string, params: Record<string, unknown> = {}, opts:
     opts.onDone();
   }
   const server = mirrorToMeta(event, eventId, safe);
-  if (META_NAME[event]) {
+  if (metaNameOf(event, safe)) {
     noteTrace(
       event, eventId, server,
       !layer ? "нет dataLayer" : pixelReady() ? "ушло в GTM, пиксель жив" : "GTM принял, но fbq нет",

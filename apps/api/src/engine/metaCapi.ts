@@ -34,6 +34,10 @@ export const META_EVENTS = [
   "Purchase",
   "CompleteRegistration",
   "Login",
+  // Кастомные события ставок (по задаче IT): первая успешная ставка
+  // человека и все последующие. Имена согласованы для Browser и CAPI.
+  "FirstBidPlaced",
+  "BidPlaced",
 ] as const;
 export type MetaEventName = (typeof META_EVENTS)[number];
 

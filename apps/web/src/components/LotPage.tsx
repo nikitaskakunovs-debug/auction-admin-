@@ -194,7 +194,7 @@ export function LotPage({
   const placeBid = async () => {
     setBusy(true); setNotice(null);
     try {
-      const r = await publicApi.post<{ youLead: boolean; currentPriceCents: number; extended: boolean }>(
+      const r = await publicApi.post<{ youLead: boolean; currentPriceCents: number; extended: boolean; firstBid?: boolean }>(
         `/api/public/auctions/${a.id}/bids`, { maxCents: amount },
       );
       setConfirm(false);
@@ -211,7 +211,29 @@ export function LotPage({
         : { text: `${t("a.outbid")} — ${formatEur(r.currentPriceCents)}`, tone: "out" });
       say(r.youLead ? t("a.youLead") : t("a.outbid"));
       if (r.extended) say(t("a.extended"));
-      track("place_bid", { item_id: a.sku, listing_id: a.id, value: amount / 100, currency: "EUR", lead: r.youLead });
+      // Аналитика (GTM): успешная ставка. value — молоток + комиссия БЕЗ НДС
+      // (единая арифметика движка), сама ставка отдельно в bid_amount.
+      // Неудачная ставка события не рождает — мы в ветке успеха.
+      {
+        const bidInv = computeInvoice(amount, a.marketCode);
+        const bidNet = bidInv.hammerCents + bidInv.premiumCents;
+        track("place_bid", {
+          item_id: a.sku, listing_id: a.id, item_name: a.title, item_category: a.category,
+          sale_type: "auction",
+          first_bid: r.firstBid === true,
+          bid_amount: amount / 100,
+          value: bidNet / 100, currency: "EUR", lead: r.youLead,
+          ecommerce: {
+            currency: "EUR", value: bidNet / 100,
+            items: [gaItem({
+              sku: a.sku, listingId: a.id, name: a.title, category: a.category,
+              netCents: bidNet, hammerCents: bidInv.hammerCents, feeCents: bidInv.premiumCents,
+              vatRateBp: marketFees(a.marketCode).vatRateBp, grossCents: bidInv.totalCents,
+              saleType: "auction",
+            })],
+          },
+        });
+      }
       await reload();
     } catch (err) {
       if (err instanceof PublicApiError && err.body.code === "EMAIL_NOT_VERIFIED") {

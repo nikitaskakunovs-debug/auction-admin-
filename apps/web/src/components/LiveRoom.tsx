@@ -5,10 +5,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
 import { PUBLIC_API_URL } from "@/lib/config";
 import { conditionLabel } from "@/lib/conditions";
-import { increment, marketFees } from "@/lib/fees";
+import { computeInvoice, increment, marketFees } from "@/lib/fees";
 import { useT } from "@/lib/i18n";
 import { loginHref } from "@/lib/nav";
 import { photoWeb } from "@/lib/photos";
+import { gaItem, track } from "@/lib/track";
 import { useStickyBar } from "@/lib/ui";
 import { formatEur, type AuctionDetail, type PublicAuction } from "@/lib/types";
 import { Icon } from "./Icon";
@@ -143,13 +144,35 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
   const bid = async () => {
     setBusy(true); setNotice(null);
     try {
-      const r = await publicApi.post<{ youLead: boolean; currentPriceCents: number; extended: boolean }>(
+      const r = await publicApi.post<{ youLead: boolean; currentPriceCents: number; extended: boolean; firstBid?: boolean }>(
         `/api/public/auctions/${stage.id}/bids`, { maxCents: ask },
       );
       setNotice(r.youLead
         ? { text: t("a.youLead"), tone: "win" }
         : { text: `${t("a.outbid")} — ${formatEur(r.currentPriceCents)}`, tone: "out" });
       say(r.youLead ? t("a.youLead") : t("a.outbid"));
+      // Аналитика (GTM): ставка из зала торгов — то же событие, что и с
+      // карточки лота: value без НДС, ставка отдельно, тип решает движок.
+      {
+        const bidInv = computeInvoice(ask, stage.marketCode);
+        const bidNet = bidInv.hammerCents + bidInv.premiumCents;
+        track("place_bid", {
+          item_id: stage.sku, listing_id: stage.id, item_name: stage.title, item_category: stage.category,
+          sale_type: "auction",
+          first_bid: r.firstBid === true,
+          bid_amount: ask / 100,
+          value: bidNet / 100, currency: "EUR", lead: r.youLead,
+          ecommerce: {
+            currency: "EUR", value: bidNet / 100,
+            items: [gaItem({
+              sku: stage.sku, listingId: stage.id, name: stage.title, category: stage.category,
+              netCents: bidNet, hammerCents: bidInv.hammerCents, feeCents: bidInv.premiumCents,
+              vatRateBp: marketFees(stage.marketCode).vatRateBp, grossCents: bidInv.totalCents,
+              saleType: "auction",
+            })],
+          },
+        });
+      }
       await load(stage.id);
     } catch (err) {
       if (err instanceof PublicApiError && err.body.code === "EMAIL_NOT_VERIFIED") {

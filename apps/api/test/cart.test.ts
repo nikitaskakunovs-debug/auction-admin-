@@ -1,7 +1,7 @@
 import { auctions, items, listings, orders } from "@auction/db";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createWorld, type TestWorld } from "./helpers.js";
+import { createLiveAuction, createWorld, loginAs, type TestWorld } from "./helpers.js";
 
 /**
  * Гостевая корзина: отложить лот можно без входа, вход нужен только при
@@ -234,6 +234,29 @@ describe("гостевая корзина «Pērc uzreiz»", () => {
     expect(byRef.get("A-8801")).toBe("auction");
     const bought = (checkout.json() as { orders: Array<{ ref: string }> }).orders[0]!.ref;
     expect(byRef.get(bought)).toBe("buy_now");
+  });
+
+  it("первая успешная ставка помечается firstBid — сигнал FirstBidPlaced", async () => {
+    const me = await register("cart.firstbid@test.lv");
+    const adminToken = await loginAs(world, "super@auction.test");
+    const a1 = await createLiveAuction(world, adminToken, { startPriceCents: 1_000 });
+    const a2 = await createLiveAuction(world, adminToken, { startPriceCents: 1_000 });
+    const bid = (auctionId: string, maxCents: number) =>
+      world.server.app.inject({
+        method: "POST",
+        url: `/api/public/auctions/${auctionId}/bids`,
+        headers: { authorization: `Bearer ${me.accessToken}` },
+        payload: { maxCents },
+      });
+
+    const first = await bid(a1.auctionId, 2_000);
+    expect(first.statusCode).toBe(200);
+    expect((first.json() as { firstBid: boolean }).firstBid).toBe(true);
+
+    // Вторая ставка — даже на другом аукционе — уже не первая.
+    const second = await bid(a2.auctionId, 2_000);
+    expect(second.statusCode).toBe(200);
+    expect((second.json() as { firstBid: boolean }).firstBid).toBe(false);
   });
 
   it("оформляется только отмеченное — остальное остаётся лежать", async () => {
