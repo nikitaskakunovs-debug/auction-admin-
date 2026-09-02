@@ -147,7 +147,7 @@ export async function enqueueMarketing(
   }
 
   const lang = langFor(person.lang, person.country);
-  const { subject, text, html } = renderNotification(
+  const { subject, text, html } = await renderNotification(
     ctx,
     args.type,
     lang,

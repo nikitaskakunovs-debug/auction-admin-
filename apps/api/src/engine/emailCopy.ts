@@ -32,12 +32,21 @@ export type NotificationType =
   | "refunded"
   | "checked_in"
   | "saved_search_hits"
-  | "watchlist_ending";
+  | "watchlist_ending"
+  // ── Lifecycle-письма плана v15 (маркетинг + сегментация) ──
+  | "welcome_reminder"
+  | "inactive_nudge"
+  | "winback_offer"
+  | "lost_bid_similar"
+  | "review_request"
+  | "referral_invite";
 
 export const NOTIFICATION_TYPES: NotificationType[] = [
   "verify_email", "outbid", "won", "purchased", "payment_reminder", "order_paid",
   "pickup_ready", "pickup_reminder", "no_pickup_cancelled", "unpaid_cancelled",
   "shipped", "refunded", "checked_in", "saved_search_hits", "watchlist_ending",
+  "welcome_reminder", "inactive_nudge", "winback_offer", "lost_bid_similar",
+  "review_request", "referral_invite",
 ];
 
 export interface TemplateInput {
@@ -74,6 +83,21 @@ export interface TemplateInput {
   searchName?: string | undefined;
   /** Сколько нашлось всего, если в письме показан не весь список. */
   totalCount?: number | undefined;
+  /** Промокод (welcome / win-back): сам код, процент и срок действия.
+   *  Числа приходят из marketing_settings — в шаблонах их не зашивать. */
+  promoCode?: string | undefined;
+  promoPercent?: number | undefined;
+  promoDeadline?: Date | undefined;
+  /** Баллы лояльности: начислено этим заказом и текущий баланс (в центах). */
+  pointsEarnedCents?: number | undefined;
+  pointsBalanceCents?: number | undefined;
+  /** Реферальная программа: личная ссылка и размеры наград (в центах). */
+  referralUrl?: string | undefined;
+  referralSignupCents?: number | undefined;
+  referralOrderCents?: number | undefined;
+  referralPercent?: number | undefined;
+  /** Человеческое название категории — для писем «похожие лоты». */
+  categoryLabel?: string | undefined;
 }
 
 /** Links and addresses the copy needs; supplied by config, never hard-coded. */
@@ -263,15 +287,37 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
         ru: "Подтвердите свою почту — Izsoli.lv",
         en: "Confirm your e-mail — Izsoli.lv",
       }[lang];
+      // Приветственный код −N% (IZ-P01): сервисная часть этого же письма,
+      // отдельной отправки нет. Появляется, когда движок его выпустил.
+      const promo = i.promoCode
+        ? {
+            lv: `\n\nDāvana pirmajam pirkumam: kods ${i.promoCode} dod −${i.promoPercent ?? 10}% jebkurai precei${i.promoDeadline ? ` līdz ${fmtDate(i.promoDeadline, "lv")}` : ""}.`,
+            ru: `\n\nПодарок на первую покупку: код ${i.promoCode} даёт −${i.promoPercent ?? 10}% на любой товар${i.promoDeadline ? ` до ${fmtDate(i.promoDeadline, "ru")}` : ""}.`,
+            en: `\n\nA first-purchase gift: code ${i.promoCode} gives ${i.promoPercent ?? 10}% off anything${i.promoDeadline ? ` until ${fmtDate(i.promoDeadline, "en")}` : ""}.`,
+          }[lang]
+        : "";
       const text = {
-        lv: `Sveiki, ${i.alias}!\n\nApstiprini savu e-pastu, lai varētu solīt un pirkt: ${i.actionUrl}\nSaite derīga 24 stundas. Ja kontu neveidoji tu — vienkārši ignorē šo vēstuli.\n\n[verify_email]`,
-        ru: `Здравствуйте, ${i.alias}!\n\nПодтвердите почту, чтобы делать ставки и покупать: ${i.actionUrl}\nСсылка действует 24 часа. Если аккаунт создавали не вы — просто игнорируйте письмо.\n\n[verify_email]`,
-        en: `Hi ${i.alias},\n\nConfirm your e-mail to bid and buy: ${i.actionUrl}\nThe link is valid for 24 hours. If you did not create this account, just ignore this message.\n\n[verify_email]`,
+        lv: `Sveiki, ${i.alias}!\n\nApstiprini savu e-pastu, lai varētu solīt un pirkt: ${i.actionUrl}\nSaite derīga 24 stundas. Ja kontu neveidoji tu — vienkārši ignorē šo vēstuli.${promo}\n\n[verify_email]`,
+        ru: `Здравствуйте, ${i.alias}!\n\nПодтвердите почту, чтобы делать ставки и покупать: ${i.actionUrl}\nСсылка действует 24 часа. Если аккаунт создавали не вы — просто игнорируйте письмо.${promo}\n\n[verify_email]`,
+        en: `Hi ${i.alias},\n\nConfirm your e-mail to bid and buy: ${i.actionUrl}\nThe link is valid for 24 hours. If you did not create this account, just ignore this message.${promo}\n\n[verify_email]`,
       }[lang];
       return {
         subject,
         text,
         spec: {
+          ...(i.promoCode
+            ? {
+                code: {
+                  label: { lv: "DĀVANA: ATLAIDES KODS", ru: "ПОДАРОК: КОД СКИДКИ", en: "GIFT: DISCOUNT CODE" }[lang],
+                  value: i.promoCode,
+                  note: {
+                    lv: `−${i.promoPercent ?? 10}% pirmajam pirkumam${i.promoDeadline ? ` · līdz ${fmtDate(i.promoDeadline, "lv")}` : ""}`,
+                    ru: `−${i.promoPercent ?? 10}% на первую покупку${i.promoDeadline ? ` · до ${fmtDate(i.promoDeadline, "ru")}` : ""}`,
+                    en: `${i.promoPercent ?? 10}% off your first purchase${i.promoDeadline ? ` · until ${fmtDate(i.promoDeadline, "en")}` : ""}`,
+                  }[lang],
+                },
+              }
+            : {}),
           preheader: { lv: "Saite derīga 24 stundas", ru: "Ссылка действует 24 часа", en: "The link is valid for 24 hours" }[lang],
           headline: { lv: "APSTIPRINI E-PASTU", ru: "ПОДТВЕРДИТЕ ПОЧТУ", en: "CONFIRM YOUR E-MAIL" }[lang],
           headlineTone: "accent",
@@ -418,12 +464,21 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
 
     // ── Money arrived ───────────────────────────────────────────────────────
     case "order_paid": {
+      // Баллы лояльности (IZ-P06): транзакционный абзац в письме об оплате —
+      // первый момент, когда система баллов становится осязаемой (MD §5a.3).
+      const pts = i.pointsEarnedCents
+        ? {
+            lv: `\n\nPar šo pirkumu tev ieskaitīti ${moneyIn(i.pointsEarnedCents, "lv")} punktos (kopā: ${moneyIn(i.pointsBalanceCents ?? i.pointsEarnedCents, "lv")}). 1 punkts = 1 € atlaide nākamajam pirkumam: ${ctx.siteUrl}/punkti`,
+            ru: `\n\nЗа эту покупку вам начислено ${moneyIn(i.pointsEarnedCents, "ru")} баллами (всего: ${moneyIn(i.pointsBalanceCents ?? i.pointsEarnedCents, "ru")}). 1 балл = скидка 1 € на следующую покупку: ${ctx.siteUrl}/punkti`,
+            en: `\n\nThis purchase earned you ${moneyIn(i.pointsEarnedCents, "en")} in points (balance: ${moneyIn(i.pointsBalanceCents ?? i.pointsEarnedCents, "en")}). 1 point = €1 off a future order: ${ctx.siteUrl}/punkti`,
+          }[lang]
+        : "";
       return {
         subject: { lv: `Apmaksa saņemta — ${i.orderRef}`, ru: `Оплата получена — ${i.orderRef}`, en: `Payment received — ${i.orderRef}` }[lang],
         text: {
-          lv: `Sveiki, ${i.alias}!\n\nMēs saņēmām apmaksu par pasūtījumu ${i.orderRef} (${moneyIn(i.totalCents, lang)}). Paldies!\n\n[order_paid]`,
-          ru: `Здравствуйте, ${i.alias}!\n\nМы получили оплату по заказу ${i.orderRef} (${moneyIn(i.totalCents, lang)}). Спасибо!\n\n[order_paid]`,
-          en: `Hi ${i.alias},\n\nWe received payment for order ${i.orderRef} (${moneyIn(i.totalCents, lang)}). Thank you!\n\n[order_paid]`,
+          lv: `Sveiki, ${i.alias}!\n\nMēs saņēmām apmaksu par pasūtījumu ${i.orderRef} (${moneyIn(i.totalCents, lang)}). Paldies!${pts}\n\n[order_paid]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nМы получили оплату по заказу ${i.orderRef} (${moneyIn(i.totalCents, lang)}). Спасибо!${pts}\n\n[order_paid]`,
+          en: `Hi ${i.alias},\n\nWe received payment for order ${i.orderRef} (${moneyIn(i.totalCents, lang)}). Thank you!${pts}\n\n[order_paid]`,
         }[lang],
         spec: {
           preheader: { lv: `${moneyIn(i.totalCents, lang)} saņemti · paldies!`, ru: `${moneyIn(i.totalCents, lang)} получены · спасибо!`, en: `${moneyIn(i.totalCents, lang)} received · thank you!` }[lang],
@@ -447,6 +502,17 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
                 en: "we will send the collection code in a separate email as soon as the lot is ready.",
               }[lang],
             },
+            ...(i.pointsEarnedCents
+              ? [{
+                  title: { lv: "Tavi punkti:", ru: "Ваши баллы:", en: "Your points:" }[lang],
+                  text: {
+                    lv: `par šo pirkumu ieskaitīti ${moneyIn(i.pointsEarnedCents, "lv")} punktos (kopā ${moneyIn(i.pointsBalanceCents ?? i.pointsEarnedCents, "lv")}). 1 punkts = 1 € atlaide nākamajam pirkumam.`,
+                    ru: `за эту покупку начислено ${moneyIn(i.pointsEarnedCents, "ru")} баллами (всего ${moneyIn(i.pointsBalanceCents ?? i.pointsEarnedCents, "ru")}). 1 балл = скидка 1 € на следующую покупку.`,
+                    en: `this purchase earned ${moneyIn(i.pointsEarnedCents, "en")} in points (balance ${moneyIn(i.pointsBalanceCents ?? i.pointsEarnedCents, "en")}). 1 point = €1 off a future order.`,
+                  }[lang],
+                  tone: "ok" as const,
+                }]
+              : []),
           ],
           footNote: i.orderRef,
           labels,
@@ -830,6 +896,196 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
         },
       };
     }
+
+    // ── v15: напоминание о неиспользованном welcome-коде (IZ-P02) ──────────
+    case "welcome_reminder": {
+      const pct = i.promoPercent ?? 10;
+      const code = i.promoCode ?? "";
+      const till = fmtDate(i.promoDeadline, lang);
+      return {
+        subject: {
+          lv: `Tava atlaide −${pct}% vēl gaida — derīga līdz ${till}`,
+          ru: `Ваша скидка −${pct}% ещё ждёт — действует до ${till}`,
+          en: `Your ${pct}% discount is still waiting — valid until ${till}`,
+        }[lang],
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nTavs atlaides kods pirmajam pirkumam vēl nav izmantots:\n\n${code} — −${pct}% jebkurai precei, derīgs līdz ${till}.\n\nIzvēlies preci: ${ctx.siteUrl}/katalogs\n\n[welcome_reminder]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nВаш код скидки на первую покупку ещё не использован:\n\n${code} — −${pct}% на любой товар, действует до ${till}.\n\nВыбрать товар: ${ctx.siteUrl}/katalogs\n\n[welcome_reminder]`,
+          en: `Hi ${i.alias},\n\nYour first-purchase discount code is still unused:\n\n${code} — ${pct}% off anything, valid until ${till}.\n\nPick something: ${ctx.siteUrl}/katalogs\n\n[welcome_reminder]`,
+        }[lang],
+        spec: {
+          preheader: { lv: `Kods ${code} derīgs līdz ${till}`, ru: `Код ${code} действует до ${till}`, en: `Code ${code} valid until ${till}` }[lang],
+          headline: { lv: `TAVA ATLAIDE −${pct}%`, ru: `ВАША СКИДКА −${pct}%`, en: `YOUR ${pct}% DISCOUNT` }[lang],
+          headlineTone: "accent",
+          greeting: hi,
+          intro: {
+            lv: `Reģistrējoties tu saņēmi −${pct}% pirmajam pirkumam. Kods vēl nav izmantots — un drīz beigsies.`,
+            ru: `При регистрации вы получили −${pct}% на первую покупку. Код ещё не использован — и скоро сгорит.`,
+            en: `You received ${pct}% off your first purchase when you signed up. The code is still unused — and about to expire.`,
+          }[lang],
+          code: { label: { lv: "ATLAIDES KODS", ru: "КОД СКИДКИ", en: "DISCOUNT CODE" }[lang], value: code, note: { lv: `Derīgs līdz ${till}`, ru: `Действует до ${till}`, en: `Valid until ${till}` }[lang] },
+          cta: { label: { lv: "Izvēlēties preci", ru: "Выбрать товар", en: "Pick something" }[lang], url: `${ctx.siteUrl}/katalogs` },
+          labels,
+        },
+      };
+    }
+
+    // ── v15: 14 дней тишины — топ-лоты любимой категории (IZ-P03) ─────────
+    case "inactive_nudge": {
+      const lots = i.lots ?? [];
+      const cat = i.categoryLabel ?? "";
+      const listText = lots.map((l) => `• ${l.title} — ${moneyIn(l.priceCents, lang)}`).join("\n");
+      return {
+        subject: cat
+          ? { lv: `Jaunumi kategorijā ${cat}`, ru: `Новинки в категории «${cat}»`, en: `New in ${cat}` }[lang]
+          : { lv: "Šobrīd izsolē — atlasīts tev", ru: "Сейчас на торгах — подборка для вас", en: "On the block right now — picked for you" }[lang],
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nKamēr tevis nebija, izsolē parādījās loti, kas varētu interesēt:\n\n${listText}\n\nSkatīt: ${ctx.siteUrl}/katalogs\n\n[inactive_nudge]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nПока вас не было, на торгах появились лоты, которые могут быть интересны:\n\n${listText}\n\nСмотреть: ${ctx.siteUrl}/katalogs\n\n[inactive_nudge]`,
+          en: `Hi ${i.alias},\n\nWhile you were away, lots you might like have come up:\n\n${listText}\n\nHave a look: ${ctx.siteUrl}/katalogs\n\n[inactive_nudge]`,
+        }[lang],
+        spec: {
+          preheader: { lv: "Atlasīti loti pēc tavām interesēm", ru: "Лоты, подобранные по вашим интересам", en: "Lots picked around your interests" }[lang],
+          headline: { lv: "TEV VARĒTU PATIKT", ru: "ВАМ МОЖЕТ ПОНРАВИТЬСЯ", en: "YOU MIGHT LIKE THESE" }[lang],
+          headlineTone: "accent",
+          greeting: hi,
+          intro: cat
+            ? { lv: `Kategorijā «${cat}», kuru skaties visbiežāk, ir jauni loti. Cena — galīgā, bez piemaksām.`, ru: `В категории «${cat}», которую вы смотрите чаще всего, новые лоты. Цена финальная, без доплат.`, en: `New lots in ${cat} — the category you browse most. The price you see is final.` }[lang]
+            : { lv: "Šobrīd izsolē ir loti, kas sasaucas ar tavām interesēm.", ru: "Сейчас на торгах есть лоты, созвучные вашим интересам.", en: "There are lots on the block right now that match your interests." }[lang],
+          facts: lots.map((l) => ({ label: `${l.title}:`, value: moneyIn(l.priceCents, lang) })),
+          cta: { label: { lv: "Skatīt katalogu", ru: "Смотреть каталог", en: "Browse the catalogue" }[lang], url: `${ctx.siteUrl}/katalogs` },
+          labels,
+        },
+      };
+    }
+
+    // ── v15: win-back спящему клиенту с личным кодом (IZ-P11) ─────────────
+    case "winback_offer": {
+      const pct = i.promoPercent ?? 15;
+      const code = i.promoCode ?? "";
+      const till = fmtDate(i.promoDeadline, lang);
+      const cat = i.categoryLabel;
+      return {
+        subject: cat
+          ? { lv: `−${pct}% kategorijā ${cat} — tikai tev`, ru: `−${pct}% в категории «${cat}» — только для вас`, en: `${pct}% off in ${cat} — just for you` }[lang]
+          : { lv: `Sen neredzēts — −${pct}% nākamajam pirkumam`, ru: `Давно не виделись — −${pct}% на следующую покупку`, en: `It has been a while — ${pct}% off your next purchase` }[lang],
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nSen neesi pie mums iegriezies. Atgriešanās dāvana:\n\n${code} — −${pct}%${cat ? ` kategorijā «${cat}»` : ""}, derīgs līdz ${till}.\n\nSkatīt lotus: ${ctx.siteUrl}/katalogs\n\n[winback_offer]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nВы давно к нам не заглядывали. Подарок на возвращение:\n\n${code} — −${pct}%${cat ? ` в категории «${cat}»` : ""}, действует до ${till}.\n\nСмотреть лоты: ${ctx.siteUrl}/katalogs\n\n[winback_offer]`,
+          en: `Hi ${i.alias},\n\nIt has been a while. A welcome-back gift:\n\n${code} — ${pct}% off${cat ? ` in ${cat}` : ""}, valid until ${till}.\n\nSee the lots: ${ctx.siteUrl}/katalogs\n\n[winback_offer]`,
+        }[lang],
+        spec: {
+          preheader: { lv: `Personīgs kods ${code} līdz ${till}`, ru: `Личный код ${code} до ${till}`, en: `Personal code ${code} until ${till}` }[lang],
+          headline: { lv: "ATGRIEŠANĀS DĀVANA", ru: "ПОДАРОК НА ВОЗВРАЩЕНИЕ", en: "A WELCOME-BACK GIFT" }[lang],
+          headlineTone: "accent",
+          greeting: hi,
+          intro: cat
+            ? { lv: `Kopš pēdējā pirkuma kategorijā «${cat}» ir daudz jauna. Šis kods ir personīgs un der tikai tev.`, ru: `С вашей последней покупки в категории «${cat}» много нового. Этот код личный и действует только для вас.`, en: `A lot has arrived in ${cat} since your last purchase. This code is personal to you.` }[lang]
+            : { lv: "Kopš pēdējā pirkuma pie mums ir daudz jauna. Šis kods ir personīgs un der tikai tev.", ru: "С вашей последней покупки у нас много нового. Этот код личный и действует только для вас.", en: "A lot has arrived since your last purchase. This code is personal to you." }[lang],
+          code: { label: { lv: "TAVS KODS", ru: "ВАШ КОД", en: "YOUR CODE" }[lang], value: code, note: { lv: `−${pct}% · līdz ${till}`, ru: `−${pct}% · до ${till}`, en: `${pct}% off · until ${till}` }[lang] },
+          cta: { label: { lv: "Skatīt lotus", ru: "Смотреть лоты", en: "See the lots" }[lang], url: `${ctx.siteUrl}/katalogs` },
+          labels,
+        },
+      };
+    }
+
+    // ── v15: похожие лоты после проигранных торгов (IZ-P05) ───────────────
+    case "lost_bid_similar": {
+      const lots = i.lots ?? [];
+      const listText = lots.map((l) => `• ${l.title} — ${moneyIn(l.priceCents, lang)}`).join("\n");
+      return {
+        subject: {
+          lv: `Šī izsole aizgāja citam — bet ir līdzīgi loti`,
+          ru: `Этот лот ушёл другому — но есть похожие`,
+          en: `That one got away — but there are similar lots`,
+        }[lang],
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nIzsole "${i.lotTitle}" noslēdzās bez tavas uzvaras. Šobrīd solās līdzīgi loti:\n\n${listText}\n\nSkatīt: ${ctx.siteUrl}/katalogs\n\n[lost_bid_similar]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nТорги «${i.lotTitle}» завершились не в вашу пользу. Сейчас на торгах похожие лоты:\n\n${listText}\n\nСмотреть: ${ctx.siteUrl}/katalogs\n\n[lost_bid_similar]`,
+          en: `Hi ${i.alias},\n\nThe auction for "${i.lotTitle}" closed without you. Similar lots are on the block right now:\n\n${listText}\n\nHave a look: ${ctx.siteUrl}/katalogs\n\n[lost_bid_similar]`,
+        }[lang],
+        spec: {
+          preheader: { lv: "Līdzīgi loti vēl solās", ru: "Похожие лоты ещё торгуются", en: "Similar lots are still open" }[lang],
+          headline: { lv: "VĒL NAV PAR VĒLU", ru: "ЕЩЁ НЕ ПОЗДНО", en: "NOT TOO LATE" }[lang],
+          headlineTone: "accent",
+          greeting: hi,
+          intro: {
+            lv: `"${i.lotTitle}" aizgāja citam solītājam — bet līdzīgi loti vēl ir spēlē.`,
+            ru: `«${i.lotTitle}» достался другому участнику — но похожие лоты ещё в игре.`,
+            en: `"${i.lotTitle}" went to another bidder — but similar lots are still in play.`,
+          }[lang],
+          facts: lots.map((l) => ({ label: `${l.title}:`, value: moneyIn(l.priceCents, lang) })),
+          cta: { label: { lv: "Skatīt līdzīgos", ru: "Смотреть похожие", en: "See similar lots" }[lang], url: `${ctx.siteUrl}/katalogs` },
+          labels,
+        },
+      };
+    }
+
+    // ── v15: запрос отзыва после выдачи (IZ-P07) ──────────────────────────
+    case "review_request": {
+      const url = i.actionUrl ?? ctx.siteUrl;
+      return {
+        subject: {
+          lv: `Kā tev ar pirkumu «${i.lotTitle}»?`,
+          ru: `Как вам покупка «${i.lotTitle}»?`,
+          en: `How is your "${i.lotTitle}"?`,
+        }[lang],
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nCeram, ka «${i.lotTitle}» (pasūtījums ${i.orderRef}) tevi priecē. Īss atsauksme palīdz gan mums, gan nākamajiem pircējiem: ${url}\n\n[review_request]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nНадеемся, «${i.lotTitle}» (заказ ${i.orderRef}) вас радует. Короткий отзыв помогает и нам, и следующим покупателям: ${url}\n\n[review_request]`,
+          en: `Hi ${i.alias},\n\nWe hope you are enjoying "${i.lotTitle}" (order ${i.orderRef}). A short review helps us and the next buyers alike: ${url}\n\n[review_request]`,
+        }[lang],
+        spec: {
+          preheader: { lv: "Divas minūtes — un tavs viedoklis palīdz citiem", ru: "Две минуты — и ваше мнение поможет другим", en: "Two minutes — and your view helps others" }[lang],
+          headline: { lv: "PASTĀSTI, KĀ SANĀCA", ru: "РАССКАЖИТЕ, КАК ВСЁ ПРОШЛО", en: "TELL US HOW IT WENT" }[lang],
+          headlineTone: "accent",
+          greeting: hi,
+          intro: {
+            lv: `Pirkums «${i.lotTitle}» ir pie tevis. Ja atradīsi divas minūtes atsauksmei — mēs to tiešām izlasām, un nākamajiem pircējiem tā ir zelta vērtē.`,
+            ru: `Покупка «${i.lotTitle}» уже у вас. Если найдёте две минуты на отзыв — мы правда его читаем, а следующим покупателям он на вес золота.`,
+            en: `Your purchase "${i.lotTitle}" is with you now. If you can spare two minutes for a review — we genuinely read them, and future buyers rely on them.`,
+          }[lang],
+          facts: i.orderRef ? [{ label: w(W.orderNo, lang), value: i.orderRef }] : [],
+          cta: { label: { lv: "Atstāt atsauksmi", ru: "Оставить отзыв", en: "Leave a review" }[lang], url },
+          labels,
+        },
+      };
+    }
+
+    // ── v15: приглашение в реферальную программу (IZ-P04) ─────────────────
+    case "referral_invite": {
+      const url = i.referralUrl ?? ctx.siteUrl;
+      const s = moneyIn(i.referralSignupCents, lang);
+      const o = moneyIn(i.referralOrderCents, lang);
+      const pct = i.referralPercent ?? 15;
+      return {
+        subject: {
+          lv: "Uzaicini draugu — nopelni punktus",
+          ru: "Пригласите друга — заработайте баллы",
+          en: "Invite a friend — earn points",
+        }[lang],
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nTev acīmredzot pie mums patīk — uzaicini draugu! Draugs saņem −${pct}% pirmajam pirkumam, tu — ${s} punktos par viņa reģistrāciju un vēl ${o}, kad viņš izdara pirmo pirkumu.\n\nTava personīgā saite: ${url}\n\n[referral_invite]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nПохоже, вам у нас нравится — пригласите друга! Друг получит −${pct}% на первую покупку, вы — ${s} баллами за его регистрацию и ещё ${o}, когда он совершит первую покупку.\n\nВаша личная ссылка: ${url}\n\n[referral_invite]`,
+          en: `Hi ${i.alias},\n\nIt looks like you are enjoying izsoli.lv — invite a friend! They get ${pct}% off their first purchase; you get ${s} in points when they sign up and another ${o} when they make their first purchase.\n\nYour personal link: ${url}\n\n[referral_invite]`,
+        }[lang],
+        spec: {
+          preheader: { lv: `Draugam −${pct}%, tev punkti`, ru: `Другу −${pct}%, вам баллы`, en: `${pct}% for them, points for you` }[lang],
+          headline: { lv: "UZAICINI DRAUGU", ru: "ПРИГЛАСИТЕ ДРУГА", en: "INVITE A FRIEND" }[lang],
+          headlineTone: "accent",
+          greeting: hi,
+          intro: {
+            lv: `Draugs saņem −${pct}% pirmajam pirkumam. Tu nopelni ${s}, kad viņš apstiprina e-pastu, un vēl ${o}, kad viņš izdara pirmo pirkumu.`,
+            ru: `Друг получает −${pct}% на первую покупку. Вы зарабатываете ${s}, когда он подтвердит почту, и ещё ${o} после его первой покупки.`,
+            en: `Your friend gets ${pct}% off their first purchase. You earn ${s} when they confirm their e-mail and another ${o} after their first purchase.`,
+          }[lang],
+          facts: [],
+          cta: { label: { lv: "Dalīties ar saiti", ru: "Поделиться ссылкой", en: "Share your link" }[lang], url },
+          ctaNote: url,
+          labels,
+        },
+      };
+    }
   }
 }
 
@@ -888,6 +1144,30 @@ export function sampleInput(type: NotificationType, opts: { online?: boolean } =
           { title: "Dyson V15 putekļsūcējs", priceCents: 18_900, endsAt: new Date(Date.now() + 9 * 3_600_000) },
         ],
       };
+    case "welcome_reminder":
+      return { ...base, orderRef: undefined, totalCents: undefined, promoCode: "SVEIKI10", promoPercent: 10, promoDeadline: inFiveDays };
+    case "winback_offer":
+      return { ...base, orderRef: undefined, totalCents: undefined, promoCode: "ATPAKAL15", promoPercent: 15, promoDeadline: new Date(Date.now() + 14 * 86_400_000), categoryLabel: "Pulksteņi" };
+    case "inactive_nudge":
+      return {
+        ...base, orderRef: undefined, totalCents: undefined, categoryLabel: "Elektronika",
+        lots: [
+          { title: "Sony WH-1000XM5 austiņas", priceCents: 21_900 },
+          { title: "iPad Air M2, 128 GB", priceCents: 54_900 },
+        ],
+      };
+    case "lost_bid_similar":
+      return {
+        ...base, orderRef: undefined, totalCents: undefined,
+        lots: [
+          { title: "Omega Speedmaster, 1998", priceCents: 289_000 },
+          { title: "Longines Conquest, 2015", priceCents: 96_000 },
+        ],
+      };
+    case "review_request":
+      return { ...base, actionUrl: "https://izsoli.lv/atsauksme?order=A-1042" };
+    case "referral_invite":
+      return { ...base, orderRef: undefined, totalCents: undefined, referralUrl: "https://izsoli.lv/?ref=ELINA7", referralSignupCents: 500, referralOrderCents: 1_000, referralPercent: 15 };
     default:
       return base;
   }

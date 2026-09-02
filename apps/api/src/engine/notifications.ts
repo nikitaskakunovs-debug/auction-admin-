@@ -1,4 +1,5 @@
-import { customers, notificationPrefs, notifications, type Db } from "@auction/db";
+import { customers, emailTemplateOverrides, notificationPrefs, notifications, type Db } from "@auction/db";
+import { formatEur } from "@auction/domain";
 import { and, asc, eq, isNull, lte, or, sql } from "drizzle-orm";
 import type { AppContext } from "../context.js";
 import {
@@ -104,8 +105,99 @@ const UNSUB_COPY: Record<Lang, { label: string; note: string }> = {
   },
 };
 
+/* ── CMS-переопределения шаблонов (MD §9) ─────────────────────────────────
+ * Каждый текст письма можно поправить из админки. Правка хранится в
+ * email_template_overrides; пустое поле означает «взять из кода». Плейсхолдеры
+ * вида {alias} подставляются здесь — теми же форматтерами, что в кодовых
+ * шаблонах, чтобы деньги и даты выглядели одинаково на всех языках. */
+
+const fmtMoney = (c: number | undefined, lang: Lang): string => {
+  if (c === undefined) return "";
+  const en = formatEur(c);
+  if (lang === "en") return en;
+  const [whole = "0", frac = "00"] = en.replace(/^-?€/, "").split(".");
+  return `${en.startsWith("-") ? "−" : ""}${whole.replace(/,/g, " ")},${frac} €`;
+};
+const fmtDay = (d: Date | undefined, lang: Lang): string => {
+  if (!d) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const s = `${pad(d.getUTCDate())}.${pad(d.getUTCMonth() + 1)}.${d.getUTCFullYear()}`;
+  return lang === "lv" ? `${s}.` : s;
+};
+
+/** Подстановка плейсхолдеров админского текста. Неизвестные — остаются как
+ *  есть (видно в превью, ничего не падает). */
+export function fillPlaceholders(tpl: string, i: TemplateInput, ctx: AppContext, lang: Lang): string {
+  const cc = copyContext(ctx);
+  const map: Record<string, string> = {
+    alias: i.alias,
+    lotTitle: i.lotTitle ?? "",
+    orderRef: i.orderRef ?? "",
+    amount: fmtMoney(i.amountCents, lang),
+    total: fmtMoney(i.totalCents, lang),
+    fee: fmtMoney(i.feeCents, lang),
+    refund: fmtMoney(i.refundCents, lang),
+    deadline: fmtDay(i.deadline, lang),
+    pickupCode: i.pickupCode ?? "",
+    carrier: i.carrier ?? "",
+    trackingUrl: i.trackingUrl ?? "",
+    machineName: i.machineName ?? "",
+    ticketNumber: i.ticketNumber !== undefined ? String(i.ticketNumber) : "",
+    reason: i.reason ?? "",
+    actionUrl: i.actionUrl ?? "",
+    payUrl: i.payUrl ?? "",
+    searchName: i.searchName ?? "",
+    promoCode: i.promoCode ?? "",
+    promoPercent: i.promoPercent !== undefined ? String(i.promoPercent) : "",
+    promoDeadline: fmtDay(i.promoDeadline, lang),
+    pointsEarned: fmtMoney(i.pointsEarnedCents, lang),
+    pointsBalance: fmtMoney(i.pointsBalanceCents, lang),
+    referralUrl: i.referralUrl ?? "",
+    referralSignup: fmtMoney(i.referralSignupCents, lang),
+    referralOrder: fmtMoney(i.referralOrderCents, lang),
+    referralPercent: i.referralPercent !== undefined ? String(i.referralPercent) : "",
+    categoryLabel: i.categoryLabel ?? "",
+    siteUrl: cc.siteUrl,
+    ordersUrl: cc.ordersUrl,
+    lots: (i.lots ?? []).map((l) => `• ${l.title} — ${fmtMoney(l.priceCents, lang)}`).join("\n"),
+  };
+  return tpl.replace(/\{(\w+)\}/g, (m, key: string) => (key in map ? map[key]! : m));
+}
+
+interface TplOverride { subject: string | null; body: string | null; html: string | null }
+const OVERRIDE_CACHE_MS = 60_000;
+const overrideCache = new Map<string, { at: number; row: TplOverride | null }>();
+
+export function invalidateTemplateOverrideCache(): void {
+  overrideCache.clear();
+}
+
+async function loadOverride(ctx: AppContext, type: string, lang: string): Promise<TplOverride | null> {
+  const key = `${type}:${lang}`;
+  const hit = overrideCache.get(key);
+  const now = Date.now();
+  if (hit && now - hit.at < OVERRIDE_CACHE_MS) return hit.row;
+  let row: TplOverride | null = null;
+  try {
+    const [r] = await ctx.db
+      .select({
+        subject: emailTemplateOverrides.subject,
+        body: emailTemplateOverrides.body,
+        html: emailTemplateOverrides.html,
+        enabled: emailTemplateOverrides.enabled,
+      })
+      .from(emailTemplateOverrides)
+      .where(and(eq(emailTemplateOverrides.type, type), eq(emailTemplateOverrides.lang, lang)));
+    row = r && r.enabled ? { subject: r.subject, body: r.body, html: r.html } : null;
+  } catch {
+    // Правки — удобство, не обязанность: сбой чтения не должен ронять письмо.
+  }
+  overrideCache.set(key, { at: now, row });
+  return row;
+}
+
 /** Subject + both bodies for one message. */
-export function renderNotification(
+export async function renderNotification(
   ctx: AppContext,
   type: NotificationType,
   lang: Lang,
@@ -113,20 +205,48 @@ export function renderNotification(
   /** Идентификатор клиента для маркетинговых писем: с ним в подвал ляжет
    *  видимая ссылка отписки. Для сервисных писем не передаётся. */
   marketingFor?: string,
-): { subject: string; text: string; html: string } {
+  /** Для превью в админке: не подхватывать правки из базы. */
+  opts: { skipOverride?: boolean } = {},
+): Promise<{ subject: string; text: string; html: string }> {
   const copy: Rendered = renderCopy(type, lang, input, copyContext(ctx));
   const base = ctx.config.storefrontBaseUrl;
   const unsub = marketingFor
     ? { ...UNSUB_COPY[lang], url: unsubscribeUrl(marketingFor, ctx.config.jwtSecret, base) }
     : undefined;
-  const spec = unsub ? { ...copy.spec, unsubscribe: unsub } : copy.spec;
+
+  // Правки из админки: тема и текст меняются, функциональные блоки письма
+  // (кнопка оплаты, код выдачи, суммы) остаются из кода — админ не может
+  // случайно оторвать у счёта кнопку «оплатить».
+  const override = opts.skipOverride ? null : await loadOverride(ctx, type, lang);
+  let subject = copy.subject;
+  let text = copy.text;
+  let spec = copy.spec;
+  if (override?.subject) subject = fillPlaceholders(override.subject, input, ctx, lang);
+  if (override?.body) {
+    const filled = fillPlaceholders(override.body, input, ctx, lang);
+    const paras = filled.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+    text = `${filled}\n\n[${type}]`;
+    spec = {
+      ...spec,
+      intro: paras[0] ?? spec.intro,
+      notes: paras.slice(1).map((p) => ({ text: p })),
+    };
+  }
+
+  const specWithUnsub = unsub ? { ...spec, unsubscribe: unsub } : spec;
   // Ссылка отписки помечена своей меткой: отписки в отчёте видны отдельно от
   // переходов в каталог, а utm-подстановка её не трогает.
   const textUnsub = unsub ? `\n\n---\n${unsub.note}\n${unsub.label}: ${unsub.url}` : "";
+  // Полный HTML-блок из админки заменяет собранное письмо целиком; ссылка
+  // отписки дописывается и к нему — законная обязанность, не оформление.
+  const html = override?.html
+    ? fillPlaceholders(override.html, input, ctx, lang) +
+      (unsub ? `<p style="font-size:12px;color:#888;">${unsub.note}<br/><a href="${unsub.url}">${unsub.label}</a></p>` : "")
+    : renderEmailHtml(specWithUnsub, emailBrand(ctx));
   return {
-    subject: copy.subject,
-    text: tagEmailLinks(copy.text, type, base, "&") + textUnsub,
-    html: tagEmailLinks(renderEmailHtml(spec, emailBrand(ctx)), type, base, "&amp;"),
+    subject,
+    text: tagEmailLinks(text, type, base, "&") + textUnsub,
+    html: tagEmailLinks(html, type, base, "&amp;"),
   };
 }
 
@@ -172,7 +292,7 @@ export async function enqueueNotification(
 
   const lang = langFor(recipient.lang, recipient.country);
   // The greeting name always comes from the current record, never the caller.
-  const { subject, text, html } = renderNotification(ctx, args.type, lang, {
+  const { subject, text, html } = await renderNotification(ctx, args.type, lang, {
     ...args.template,
     alias: recipient.alias,
   });

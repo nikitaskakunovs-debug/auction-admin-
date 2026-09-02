@@ -33,10 +33,10 @@ describe("designed emails", () => {
     world.email.sent.length = 0;
   });
 
-  it("renders every type in every language, with the button and the facts intact", () => {
+  it("renders every type in every language, with the button and the facts intact", async () => {
     for (const type of NOTIFICATION_TYPES) {
       for (const lang of LANGS) {
-        const r = renderNotification(world.ctx, type, lang, sampleInput(type));
+        const r = await renderNotification(world.ctx, type, lang, sampleInput(type));
         expect(r.subject.length, `${type}/${lang} subject`).toBeGreaterThan(5);
         expect(r.text.length, `${type}/${lang} text`).toBeGreaterThan(20);
         expect(r.html, `${type}/${lang} is a full document`).toContain("<!doctype html>");
@@ -50,26 +50,26 @@ describe("designed emails", () => {
     }
   });
 
-  it("puts the money and the deadline in both bodies, not just the pretty one", () => {
-    const r = renderNotification(world.ctx, "won", "lv", sampleInput("won", { online: true }));
+  it("puts the money and the deadline in both bodies, not just the pretty one", async () => {
+    const r = await renderNotification(world.ctx, "won", "lv", sampleInput("won", { online: true }));
     expect(r.text).toContain("251,56"); // total, plain text
     expect(r.html).toContain("251,56"); // total, designed
     expect(r.html).toContain("A-1042"); // order ref
     expect(r.html).toContain("Apmaksāt"); // the button
   });
 
-  it("only offers ways to pay that the site can actually take", () => {
+  it("only offers ways to pay that the site can actually take", async () => {
     // Providers off — as production has been all along. The button must not
     // promise a checkout that cannot be produced.
     const dark = { ...world.ctx, klix: null, inbank: null } as typeof world.ctx;
-    const off = renderNotification(dark, "won", "lv", { ...sampleInput("won"), payUrl: null });
+    const off = await renderNotification(dark, "won", "lv", { ...sampleInput("won"), payUrl: null });
     expect(off.html, "no Klix named while Klix is off").not.toContain("Klix");
     expect(off.html).toContain("Apmaksa pie letes");
     expect(off.html, "the button says what it actually does").toContain("Skatīt pasūtījumu");
     expect(off.html).not.toContain("Apmaksāt 251,56");
 
     // With a provider on and a live link, the button is the checkout itself.
-    const on = renderNotification(world.ctx, "won", "lv", {
+    const on = await renderNotification(world.ctx, "won", "lv", {
       ...sampleInput("won", { online: true }),
     });
     expect(on.html).toContain("Apmaksāt 251,56");
@@ -77,16 +77,16 @@ describe("designed emails", () => {
     expect(on.html).toContain("/api/public/pay/A-1042");
   });
 
-  it("carries the collection code in the pickup emails", () => {
+  it("carries the collection code in the pickup emails", async () => {
     for (const lang of LANGS) {
-      const r = renderNotification(world.ctx, "pickup_ready", lang, sampleInput("pickup_ready"));
+      const r = await renderNotification(world.ctx, "pickup_ready", lang, sampleInput("pickup_ready"));
       expect(r.text).toContain("418209");
       expect(r.html).toContain("418209");
     }
   });
 
-  it("escapes a lot title rather than letting it write markup", () => {
-    const r = renderNotification(world.ctx, "won", "lv", {
+  it("escapes a lot title rather than letting it write markup", async () => {
+    const r = await renderNotification(world.ctx, "won", "lv", {
       ...sampleInput("won"),
       lotTitle: '<img src=x onerror="alert(1)">Ļoti "īpaša" prece & co',
     });
@@ -95,8 +95,8 @@ describe("designed emails", () => {
     expect(r.html).toContain("&amp; co");
   });
 
-  it("renders a dead button rather than a live one for a link we would never send", () => {
-    const r = renderNotification(world.ctx, "won", "lv", {
+  it("renders a dead button rather than a live one for a link we would never send", async () => {
+    const r = await renderNotification(world.ctx, "won", "lv", {
       ...sampleInput("won"),
       payUrl: "javascript:alert(1)",
     });

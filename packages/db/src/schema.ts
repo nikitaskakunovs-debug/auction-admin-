@@ -821,6 +821,13 @@ export const orders = pgTable(
     } | null>(),
     /** Аванс, зачтённый в этот заказ: провайдеру ушла сумма за вычетом его. */
     creditAppliedCents: integer("credit_applied_cents").notNull().default(0),
+    /** Баллы лояльности, зачтённые в заказ (в центах) — как аванс, но со
+     * своим журналом и потолком в долях от итога (marketing_settings). */
+    pointsAppliedCents: integer("points_applied_cents").notNull().default(0),
+    /** Применённый промокод и удержанная им скидка. Итог заказа уже СО
+     * скидкой; поля хранят след для отчёта и повторной проверки лимитов. */
+    promoCodeId: uuid("promo_code_id"),
+    promoDiscountCents: integer("promo_discount_cents").notNull().default(0),
     /** Снимок ПЕРВОГО касания клиента на момент заказа — кто его когда-то
      * привёл. Остаётся даже после удаления аккаунта: отчёт по кампаниям не
      * должен обнуляться от того, что человек ушёл. */
@@ -1622,4 +1629,286 @@ export const notificationPrefs = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("notification_prefs_pk").on(t.customerId, t.event)],
+);
+
+/* ═══════════════════ Маркетинг и сегментация (план v15) ═══════════════════ */
+
+/**
+ * Настройки маркетинга — числа, зашитые раньше в тексты: проценты скидок,
+ * сроки действия, баллы. Правятся из админки без деплоя (MD §9). Значение —
+ * jsonb: число, строка или объект. Ключи и умолчания — в engine/settings.ts.
+ */
+export const marketingSettings = pgTable("marketing_settings", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedBy: text("updated_by"),
+});
+
+/**
+ * Правки текстов писем из админки. Строка = один шаблон на одном языке;
+ * пустое поле (null) означает «взять из кода». Плейсхолдеры {alias},
+ * {orderRef}, {amount}… — те же, что в кодовых шаблонах.
+ */
+export const emailTemplateOverrides = pgTable(
+  "email_template_overrides",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Тип письма (verify_email, won, …) — включая новые lifecycle-типы. */
+    type: text("type").notNull(),
+    lang: text("lang").notNull(),
+    subject: text("subject"),
+    /** Абзацы письма, разделитель — пустая строка. */
+    body: text("body"),
+    /** Необязательный сырой HTML контент-блока вместо собранного из body. */
+    html: text("html"),
+    enabled: boolean("enabled").notNull().default(true),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedBy: text("updated_by"),
+  },
+  (t) => [uniqueIndex("email_tpl_override_pk").on(t.type, t.lang)],
+);
+
+/**
+ * Правки строк интерфейса витрины. Ключ — тот же, что в lib/strings.ts
+ * (например «cart.add»); витрина накладывает правки поверх кода. Позволяет
+ * менять ЛЮБОЙ видимый текст сайта из админки без деплоя.
+ */
+export const uiStringOverrides = pgTable(
+  "ui_string_overrides",
+  {
+    key: text("key").notNull(),
+    lang: text("lang").notNull(),
+    text: text("text").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedBy: text("updated_by"),
+  },
+  (t) => [uniqueIndex("ui_string_overrides_pk").on(t.key, t.lang)],
+);
+
+/** Журнал событий поведения до покупки (MD §1.1). Только запись; читает его
+ *  один ночной пересчёт статистики, интерфейсы — никогда. */
+export const userEvents = pgTable(
+  "user_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    /** view_lot | add_wishlist | place_bid | lost_bid | won_bid | abandon_checkout | viewed_category */
+    eventType: text("event_type").notNull(),
+    category: text("category"),
+    listingId: uuid("listing_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("user_events_customer_idx").on(t.customerId, t.createdAt)],
+);
+
+/** Ночная сводка интересов по категориям (MD §1.2). */
+export const userCategoryStats = pgTable(
+  "user_category_stats",
+  {
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    category: text("category").notNull(),
+    purchaseCount: integer("purchase_count").notNull().default(0),
+    totalSpentCents: integer("total_spent_cents").notNull().default(0),
+    lastPurchaseAt: timestamp("last_purchase_at", { withTimezone: true }),
+    viewCount: integer("view_count").notNull().default(0),
+    wishlistCount: integer("wishlist_count").notNull().default(0),
+    lostBidCount: integer("lost_bid_count").notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("user_category_stats_pk").on(t.customerId, t.category)],
+);
+
+/** RFM-оценка клиента, пересчитывается ночью (MD §1.2). */
+export const userRfm = pgTable("user_rfm", {
+  customerId: uuid("customer_id")
+    .primaryKey()
+    .references(() => customers.id, { onDelete: "cascade" }),
+  recencyDays: integer("recency_days"),
+  frequency: integer("frequency").notNull().default(0),
+  monetaryCents: integer("monetary_cents").notNull().default(0),
+  /** 1–5 по каждой оси, квинтили. */
+  rScore: integer("r_score"),
+  fScore: integer("f_score"),
+  mScore: integer("m_score"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Сегменты — правило в JSON, участники материализуются ночью (MD §1.3, §2). */
+export const segments = pgTable("segments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  rule: jsonb("rule").$type<{
+    match: "all" | "any";
+    conditions: Array<{ field: string; op: string; value: number; category?: string }>;
+  }>().notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const segmentMembers = pgTable(
+  "segment_members",
+  {
+    segmentId: uuid("segment_id")
+      .notNull()
+      .references(() => segments.id, { onDelete: "cascade" }),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    computedAt: timestamp("computed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("segment_members_pk").on(t.segmentId, t.customerId)],
+);
+
+/** Кампании: ручная рассылка на сегмент или авто по событию (MD §1.4, §7.3). */
+export const campaigns = pgTable("campaigns", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  /** Пока реализован только email; поле — на вырост. */
+  channel: text("channel").notNull().default("email"),
+  segmentId: uuid("segment_id").references(() => segments.id, { onDelete: "set null" }),
+  /** subject + body с плейсхолдерами, на трёх языках. */
+  content: jsonb("content").$type<Record<string, { subject: string; body: string }>>().notNull(),
+  status: text("status").notNull().default("draft"), // draft | scheduled | sending | sent | archived
+  scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
+  sentAt: timestamp("sent_at", { withTimezone: true }),
+  stats: jsonb("stats").$type<{ queued?: number; skipped?: number }>().notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Промокоды (MD §1.5): ручные и автоматические (welcome / referral / winback). */
+export const promoCodes = pgTable(
+  "promo_codes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    code: text("code").notNull(),
+    /** percent | fixed | free_shipping */
+    type: text("type").notNull(),
+    /** percent: 0–100; fixed: центы. */
+    value: integer("value").notNull(),
+    minOrderCents: integer("min_order_cents"),
+    category: text("category"),
+    segmentId: uuid("segment_id").references(() => segments.id, { onDelete: "set null" }),
+    usageLimitTotal: integer("usage_limit_total"),
+    usageLimitPerUser: integer("usage_limit_per_user"),
+    usedCount: integer("used_count").notNull().default(0),
+    validFrom: timestamp("valid_from", { withTimezone: true }),
+    validTo: timestamp("valid_to", { withTimezone: true }),
+    isActive: boolean("is_active").notNull().default(true),
+    /** manual | welcome_auto | referral_referred | winback */
+    source: text("source").notNull().default("manual"),
+    /** Личный код: применим только этим аккаунтом. */
+    customerId: uuid("customer_id").references(() => customers.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("promo_codes_code_idx").on(t.code), index("promo_codes_customer_idx").on(t.customerId)],
+);
+
+/** Использования промокодов — для лимитов per-user и статистики. */
+export const promoRedemptions = pgTable(
+  "promo_redemptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    promoId: uuid("promo_id")
+      .notNull()
+      .references(() => promoCodes.id, { onDelete: "cascade" }),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    orderRef: text("order_ref").notNull(),
+    discountCents: integer("discount_cents").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("promo_redemptions_promo_idx").on(t.promoId), index("promo_redemptions_customer_idx").on(t.customerId)],
+);
+
+/** Баллы лояльности: счёт + журнал, те же инварианты, что у аванса. */
+export const loyaltyAccounts = pgTable(
+  "loyalty_accounts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    /** Баллы в центах (1 балл = 100), чтобы не плодить вторую арифметику. */
+    balanceCents: integer("balance_cents").notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("loyalty_accounts_customer_idx").on(t.customerId)],
+);
+
+export const loyaltyLedger = pgTable(
+  "loyalty_ledger",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => loyaltyAccounts.id, { onDelete: "cascade" }),
+    /** purchase | referral_signup | referral_order | manual | redemption */
+    reason: text("reason").notNull(),
+    /** Плюс — начисление, минус — списание. */
+    amountCents: integer("amount_cents").notNull(),
+    orderRef: text("order_ref"),
+    referralId: uuid("referral_id"),
+    note: text("note").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("loyalty_ledger_account_idx").on(t.accountId)],
+);
+
+/** Рефералы (MD §1.6.1): двухступенчатая награда, антифрод по IP. */
+export const referrals = pgTable(
+  "referrals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    referrerCustomerId: uuid("referrer_customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    referredCustomerId: uuid("referred_customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    /** pending | signup_rewarded | order_rewarded */
+    status: text("status").notNull().default("pending"),
+    signupRewardedAt: timestamp("signup_rewarded_at", { withTimezone: true }),
+    orderRewardedAt: timestamp("order_rewarded_at", { withTimezone: true }),
+    /** Совпал IP при регистрации — награды придерживаются до ручной проверки. */
+    fraudFlag: boolean("fraud_flag").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("referrals_referred_idx").on(t.referredCustomerId),
+    index("referrals_referrer_idx").on(t.referrerCustomerId),
+  ],
+);
+
+/** Личный реферальный код клиента (короткий, для ссылки «Uzaicini draugu»). */
+export const referralCodes = pgTable(
+  "referral_codes",
+  {
+    customerId: uuid("customer_id")
+      .primaryKey()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    code: text("code").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("referral_codes_code_idx").on(t.code)],
+);
+
+/** Отметки lifecycle-писем: кто какое авто-письмо уже получил (dedupe). */
+export const lifecycleMarks = pgTable(
+  "lifecycle_marks",
+  {
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    /** welcome_d3 | inactive_d14 | winback_YYYY-MM-DD | review:{orderRef} | … */
+    mark: text("mark").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("lifecycle_marks_pk").on(t.customerId, t.mark)],
 );
