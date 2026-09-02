@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { originForHost } from "@/lib/country";
 import { jsonLdScript } from "@/lib/jsonld";
 import { HomeSections } from "@/components/HomeSections";
+import { QuietBanner } from "@/components/QuietBanner";
 
 export const dynamic = "force-dynamic";
 
@@ -57,6 +58,9 @@ export default async function HomePage() {
   return (
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdScript(jsonLd) }} />
+      {/* Тихая строка: корзина ждёт / баланс баллов / личный код — не
+          поп-ап, закрывается на сутки (MD §5a.4, §7.9). */}
+      <QuietBanner />
       <HomeSections auctions={auctions} listings={listings} />
     </>
   );

@@ -87,11 +87,43 @@ export interface CartCheckoutResult {
   unavailable?: Array<{ listingId: string; title: string }>;
 }
 
-export function cartCheckout(listingIds?: string[]): Promise<CartCheckoutResult> {
+export function cartCheckout(listingIds?: string[], promoCode?: string): Promise<CartCheckoutResult> {
   return publicApi.post(`/api/public/cart/checkout`, {
     visitor_id: visitorId() || undefined,
     ...(listingIds && listingIds.length > 0 ? { listing_ids: listingIds } : {}),
+    ...(promoCode ? { promo_code: promoCode } : {}),
   });
+}
+
+export interface PromoCheck {
+  ok: boolean;
+  reason?: string;
+  code?: string;
+  discountCents?: number;
+  perLine?: Record<string, number>;
+}
+
+/** Живая проверка промокода против текущей корзины — считает, не списывает. */
+export function cartPromoCheck(promoCode: string, listingIds?: string[]): Promise<PromoCheck> {
+  return publicApi.post(`/api/public/cart/promo`, {
+    promo_code: promoCode,
+    visitor_id: visitorId() || undefined,
+    ...(listingIds && listingIds.length > 0 ? { listing_ids: listingIds } : {}),
+  });
+}
+
+export interface MyPromoCode {
+  code: string;
+  type: string;
+  value: number;
+  source: string;
+  category: string | null;
+  validTo: string | null;
+}
+
+/** Личные неиспользованные коды (welcome / win-back) — для подсказки в грозсе. */
+export function myPromoCodes(): Promise<{ codes: MyPromoCode[] }> {
+  return publicApi.get(`/api/public/me/promo-codes`);
 }
 
 export interface CartReserveResult {

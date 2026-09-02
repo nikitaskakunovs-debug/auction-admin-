@@ -17,6 +17,7 @@ import { SETTINGS } from "./i18n/settings.js";
 import { SHELL } from "./i18n/shell.js";
 import { MARKETING } from "./i18n/marketing.js";
 import { ATTRIBUTION } from "./i18n/attribution.js";
+import { GROWTH } from "./i18n/growth.js";
 import { WHSTATS } from "./i18n/whstats.js";
 
 /**
@@ -369,6 +370,7 @@ const ALL = {
   ...WHSTATS,
   ...MARKETING,
   ...ATTRIBUTION,
+  ...GROWTH,
   ...CUSTOMERS,
   ...FINANCE,
   ...FRONTDESK,

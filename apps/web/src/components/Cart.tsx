@@ -19,7 +19,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
-import { cartCheckout, cartCheckoutStart, cartList, cartRemove, setCartCount, setCartItemsCount, type CartItem, type CartView } from "@/lib/cart";
+import { cartCheckout, cartCheckoutStart, cartList, cartPromoCheck, cartRemove, myPromoCodes, setCartCount, setCartItemsCount, type CartItem, type CartView, type MyPromoCode } from "@/lib/cart";
 import { useT } from "@/lib/i18n";
 import { loginHref } from "@/lib/nav";
 import { addToCartOnce, adsUserData, beginCheckoutOnce, gaItem, markBeginCheckout, orderEcom, saleTypeOf, track } from "@/lib/track";
@@ -77,6 +77,19 @@ export function Cart() {
   const [busy, setBusy] = useState(false);
   /** Контакт для Google Ads Enhanced Conversions — только при согласии. */
   const [meContact, setMeContact] = useState<{ email: string; name: string | null } | null>(null);
+  /* Промокод (план v15): поле, применённая скидка и личные коды для
+   * подсказки «у тебя лежит −10%». Скидка действует на отложенные лоты —
+   * заказы уже выписаны со своим итогом. */
+  const [promoInput, setPromoInput] = useState("");
+  const [promo, setPromo] = useState<{ code: string; discountCents: number } | null>(null);
+  const [promoErr, setPromoErr] = useState<string | null>(null);
+  const [promoBusy, setPromoBusy] = useState(false);
+  const [myCodes, setMyCodes] = useState<MyPromoCode[]>([]);
+
+  useEffect(() => {
+    if (!publicApi.hasSession) return;
+    void myPromoCodes().then((r) => setMyCodes(r.codes)).catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     void publicApi
@@ -180,6 +193,42 @@ export function Cart() {
     return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
   };
 
+  /** Проверить и применить код тем же путём, что и настоящий чекаут. */
+  const applyPromo = useCallback((codeRaw: string, ids: string[]) => {
+    const code = codeRaw.trim().toUpperCase();
+    if (!code || ids.length === 0) return;
+    setPromoBusy(true); setPromoErr(null);
+    void cartPromoCheck(code, ids)
+      .then((r) => {
+        if (r.ok && r.code && typeof r.discountCents === "number") {
+          setPromo({ code: r.code, discountCents: r.discountCents });
+          setPromoInput(r.code);
+        } else {
+          setPromo(null);
+          setPromoErr(
+            r.reason === "expired" ? "cart.promoExpired"
+            : r.reason === "not_yours" ? "cart.promoNotYours"
+            : r.reason === "min_order" ? "cart.promoMinOrder"
+            : r.reason === "category" ? "cart.promoCategory"
+            : r.reason === "usage_limit" || r.reason === "user_limit" ? "cart.promoUsed"
+            : "cart.promoInvalid");
+        }
+      })
+      .catch(() => { setPromo(null); setPromoErr("cart.promoInvalid"); })
+      .finally(() => setPromoBusy(false));
+  }, []);
+
+  // Смена состава корзины меняет и скидку — пересчитываем применённый код.
+  const chosenIdsKey = cart
+    ? cart.items.filter((i) => i.available && pickedPending.has(i.listingId)).map((i) => i.listingId).sort().join(",")
+    : "";
+  useEffect(() => {
+    if (!promo) return;
+    if (!chosenIdsKey) { setPromo(null); return; }
+    applyPromo(promo.code, chosenIdsKey.split(","));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chosenIdsKey]);
+
   if (orders === null || cart === null) return <section className="wrap" style={{ paddingTop: 24 }} aria-busy="true" />;
 
   const pending = cart.items;
@@ -188,10 +237,15 @@ export function Cart() {
   const chosenCount = chosenPending.length + chosenOrders.length;
 
   const shipCents = chosenOrders.reduce((sum, o) => sum + o.shippingCents + o.handlingCents, 0);
+  const promoCents = promo && chosenPending.length > 0 ? promo.discountCents : 0;
   const totalCents =
     chosenPending.reduce((sum, i) => sum + i.totalCents, 0) +
-    chosenOrders.reduce((sum, o) => sum + o.totalCents, 0);
-  const goodsCents = totalCents - shipCents;
+    chosenOrders.reduce((sum, o) => sum + o.totalCents, 0) -
+    promoCents;
+  const goodsCents = totalCents - shipCents + promoCents;
+
+  /** Личный код, который стоит подсказать (ещё не применён). */
+  const hint = myCodes.find((c) => c.type === "percent" && (!promo || promo.code !== c.code));
 
   /** Галочка на заказе или отложенном лоте: снял — remove_from_cart, вернул —
    *  add_to_cart один раз на лот (отметка не даёт раздуть воронку). */
@@ -288,7 +342,7 @@ export function Cart() {
       toPay(orderRefs);
       return;
     }
-    void cartCheckout(chosenPending.map((i) => i.listingId))
+    void cartCheckout(chosenPending.map((i) => i.listingId), promo?.code)
       .then((r) => {
         if (r.unavailable && r.unavailable.length > 0) say(t("cart.gone"));
         // Страница оплаты не должна отправлять второй InitiateCheckout той
@@ -383,9 +437,52 @@ export function Cart() {
 
           <aside className="cart-side">
             <p className="g-lbl">{t("cart.summary")}</p>
+
+            {/* Подсказка о личном коде: не применяем молча (MD §1.5.1) —
+                предлагаем кнопкой, решает человек. */}
+            {signedIn && chosenPending.length > 0 && hint && !promo && (
+              <p className="note" style={{ background: "var(--bg-2, #f4f7f1)", padding: "8px 10px", borderRadius: 8 }}>
+                {t("cart.promoBanner", { n: hint.value, code: hint.code })}{" "}
+                <button className="link" type="button" style={{ background: "none", border: 0, padding: 0, cursor: "pointer", textDecoration: "underline" }}
+                        onClick={() => applyPromo(hint.code, chosenPending.map((i) => i.listingId))}>
+                  {t("cart.promoUse")}
+                </button>
+              </p>
+            )}
+
+            {/* Поле промокода — только для отложенных лотов: выписанные
+                заказы уже несут свой итог. */}
+            {signedIn && chosenPending.length > 0 && (
+              <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+                <input
+                  style={{ flex: 1, minWidth: 0 }}
+                  placeholder={t("cart.promo")}
+                  value={promoInput}
+                  onChange={(e) => { setPromoInput(e.target.value.toUpperCase()); setPromoErr(null); }}
+                  onKeyDown={(e) => { if (e.key === "Enter") applyPromo(promoInput, chosenPending.map((i) => i.listingId)); }}
+                />
+                {promo ? (
+                  <button className="btn btn-outline btn-sm" type="button"
+                          onClick={() => { setPromo(null); setPromoInput(""); setPromoErr(null); }}>
+                    {t("cart.remove")}
+                  </button>
+                ) : (
+                  <button className="btn btn-outline btn-sm" type="button" disabled={promoBusy || !promoInput.trim()}
+                          onClick={() => applyPromo(promoInput, chosenPending.map((i) => i.listingId))}>
+                    {t("cart.promoApply")}
+                  </button>
+                )}
+              </div>
+            )}
+            {promoErr && <p className="note" style={{ color: "var(--live)" }}>{t(promoErr)}</p>}
+
             <table className="fees"><tbody>
               <tr><th scope="row">{t("cart.lotsN", { n: chosenCount })}</th>
                 <td className="tnum">{formatEur(goodsCents)}</td></tr>
+              {promoCents > 0 && promo && (
+                <tr><th scope="row">{t("cart.promoRow", { code: promo.code })}</th>
+                  <td className="tnum">−{formatEur(promoCents)}</td></tr>
+              )}
               {shipCents > 0 && (
                 <tr><th scope="row">{t("f.delivery")}</th><td className="tnum">{formatEur(shipCents)}</td></tr>
               )}

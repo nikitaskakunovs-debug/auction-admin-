@@ -16,7 +16,11 @@ export default function RegisterPage() {
   const router = useRouter();
   // Куда вернуть после входа через соцсеть; регистрация почтой уходит на
   // подтверждение e-mail, и там возврат теряет смысл.
-  const next = safeNext(useSearchParams().get("next"));
+  const params = useSearchParams();
+  const next = safeNext(params.get("next"));
+  // Реферальная ссылка «Uzaicini draugu»: код тихо едет с регистрацией —
+  // друг получает повышенную приветственную скидку, пригласивший — баллы.
+  const refCode = /^[A-Z0-9-]{3,24}$/i.test(params.get("ref") ?? "") ? params.get("ref")! : null;
   const [email, setEmail] = useState("");
   const [alias, setAlias] = useState("");
   const [password, setPassword] = useState("");
@@ -49,7 +53,10 @@ export default function RegisterPage() {
     setBusy(true);
     setError(null);
     try {
-      const bidder = await publicApi.register({ email: email.trim().toLowerCase(), alias: aliasTrim, password, country, marketingOptIn: marketing });
+      const bidder = await publicApi.register({
+        email: email.trim().toLowerCase(), alias: aliasTrim, password, country, marketingOptIn: marketing,
+        ...(refCode ? { ref: refCode } : {}),
+      });
       track("sign_up", { method: "email", user_id: bidder.id });
       setDone(true);
     } catch (err) {
