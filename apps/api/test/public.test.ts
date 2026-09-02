@@ -145,10 +145,19 @@ describe("public browsing hygiene", () => {
       bids: Array<{ alias: string; amountCents: number; isYou: boolean }>;
     };
     expect(body.auction.currentPriceCents).toBe(1_000);
-    expect(body.minNextBidCents).toBe(1_100); // +€1 tier
+    // Смотрит сам лидер: его минимум — чистый шаг выше собственного
+    // максимума (€50), а не «цена + шаг» соперника, который движок ему
+    // всё равно отвергнет.
+    expect(body.minNextBidCents).toBe(5_100);
     expect(body.bids[0]!.isYou).toBe(true);
-    expect(res.body).not.toContain("maxCents");
     expect(res.body).not.toContain("customerId");
+
+    // Гостю — обычный минимум по шагу и никаких чужих максимумов.
+    const anon = await world.server.app.inject({ method: "GET", url: `/api/public/auctions/${auctionId}` });
+    const anonBody = anon.json() as { minNextBidCents: number; myMaxCents: number | null };
+    expect(anonBody.minNextBidCents).toBe(1_100); // +€1 tier
+    expect(anonBody.myMaxCents).toBeNull();
+    expect(anon.body).not.toContain("maxCents");
   });
 });
 
@@ -187,6 +196,17 @@ describe("the real bid path", () => {
     const low = await bidAs(b.accessToken, 9_000);
     expect(low.statusCode).toBe(422);
     expect(low.json()).toMatchObject({ code: "NOT_ABOVE_OWN_MAX", minAcceptableCents: 12_001 });
+
+    // The leader's own detail view quotes a personal minimum: a clean step
+    // above their own max — not the challenger's "price + step" the engine
+    // would refuse from them. Challengers keep the standard minimum.
+    const detailUrl = `/api/public/auctions/${auctionId}`;
+    const asLeader = (await world.server.app.inject({ method: "GET", url: detailUrl, headers: auth(b.accessToken) }))
+      .json() as { minNextBidCents: number; myMaxCents: number | null };
+    expect(asLeader).toMatchObject({ minNextBidCents: 12_500, myMaxCents: 12_000 });
+    const asRival = (await world.server.app.inject({ method: "GET", url: detailUrl, headers: auth(a.accessToken) }))
+      .json() as { minNextBidCents: number; myMaxCents: number | null };
+    expect(asRival).toMatchObject({ minNextBidCents: 6_000, myMaxCents: null });
 
     // Unauthenticated bids are rejected.
     const anon = await world.server.app.inject({

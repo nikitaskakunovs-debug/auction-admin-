@@ -33,7 +33,11 @@ export interface PublicBid {
 
 export interface AuctionDetail {
   auction: PublicAuction;
+  /** Для лидера — персональный минимум (выше собственного максимума,
+   *  округлён до чистого шага); для остальных — цена + шаг. */
   minNextBidCents: number;
+  /** Собственный скрытый максимум — приходит только самому лидеру. */
+  myMaxCents?: number | null;
   /** Current price + buyer premium + VAT — what winning right now costs. */
   estimatedTotalCents: number;
   bids: PublicBid[];

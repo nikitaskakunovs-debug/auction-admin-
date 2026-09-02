@@ -409,9 +409,14 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
       .limit(100);
 
     const me = req.bidder?.sub ?? null;
+    const iLead = me !== null && row.auction.leaderCustomerId === me && row.auction.leaderMaxCents !== null;
     return {
       auction: publicAuction(row),
-      minNextBidCents: await minNext(row),
+      minNextBidCents: await minNext(row, iLead ? row.auction.leaderMaxCents! : null),
+      // Собственный максимум — только самому лидеру. Без него витрина
+      // предлагала лидеру «минимум соперника», который для него самого
+      // не проходит («выше собственного максимума»).
+      myMaxCents: iLead ? row.auction.leaderMaxCents : null,
       // What the current price actually costs the winner (hammer + buyer
       // premium + VAT) — drives the Pay Later monthly-payment calculator.
       estimatedTotalCents: await estimatedTotal(row),
@@ -427,12 +432,22 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
     };
   });
 
-  async function minNext(row: { auction: typeof auctions.$inferSelect; listing: typeof listings.$inferSelect }) {
+  /** Минимальная следующая ставка. Для лидера — персональная: движок
+   *  принимает от него только сумму выше его собственного максимума, и
+   *  общий «цена + шаг» может оказаться ниже. Подсказку округляем вверх до
+   *  чистого шага, чтобы не предлагать человеку суммы вроде 155,11 €. */
+  async function minNext(
+    row: { auction: typeof auctions.$inferSelect; listing: typeof listings.$inferSelect },
+    myMaxCents: number | null = null,
+  ) {
     const { incrementAt } = await import("@auction/domain");
     const { markets } = await import("@auction/db");
     if (row.auction.currentPriceCents === null) return row.listing.startPriceCents ?? 0;
     const [market] = await ctx.db.select().from(markets).where(eq(markets.code, row.listing.marketCode));
-    return row.auction.currentPriceCents + incrementAt(row.auction.currentPriceCents, market!.incrementTable);
+    const inc = incrementAt(row.auction.currentPriceCents, market!.incrementTable);
+    const standard = row.auction.currentPriceCents + inc;
+    if (myMaxCents === null || standard > myMaxCents) return standard;
+    return Math.ceil((myMaxCents + 1) / inc) * inc;
   }
 
   /** Итог по текущей цене. Цена — финальная (комиссия и НДС внутри),

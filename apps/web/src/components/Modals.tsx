@@ -2,7 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { computeInvoice, marketFees } from "@/lib/fees";
 import { useT } from "@/lib/i18n";
+import { formatEur } from "@/lib/types";
 import { Icon } from "./Icon";
 import { say } from "./Toast";
 
@@ -13,11 +15,17 @@ import { say } from "./Toast";
  *  ценой — на /listing/<id>. Раньше всё уходило на /auction/, и ссылка на
  *  «Pirkt tagad»-товар вела в «Šādas lapas nav». */
 type ShareLot = { id: string; sku: string; title: string; icon?: string; kind?: "auction" | "fixed" };
-type State = { scale: string | null; share: ShareLot | null };
+/** Подтверждение быстрой ставки из карточки: та же раскладка суммы, что в
+ *  окне на странице лота. Саму ставку кладёт вызвавший через onConfirm —
+ *  тосты об исходе тоже на его совести. */
+type BidConfirm = { sku: string; title: string; marketCode: string; amountCents: number; onConfirm: () => Promise<void> };
+type State = { scale: string | null; share: ShareLot | null; bid: BidConfirm | null };
 
+const CLOSED: State = { scale: null, share: null, bid: null };
 let setState: ((s: State) => void) | null = null;
-export function openScale(grade: string) { setState?.({ scale: grade, share: null }); }
-export function openShare(lot: ShareLot) { setState?.({ scale: null, share: lot }); }
+export function openScale(grade: string) { setState?.({ ...CLOSED, scale: grade }); }
+export function openShare(lot: ShareLot) { setState?.({ ...CLOSED, share: lot }); }
+export function openBidConfirm(bid: BidConfirm) { setState?.({ ...CLOSED, bid }); }
 
 const SCALE: Array<[string, string, string]> = [
   ["A+", "scale.aPlus", "scale.aPlusD"],
@@ -31,13 +39,15 @@ const FOCUSABLE = 'a[href],button:not([disabled]),input,select,textarea,[tabinde
 
 export function Modals() {
   const { t } = useT();
-  const [state, set] = useState<State>({ scale: null, share: null });
+  const [state, set] = useState<State>(CLOSED);
   const [copied, setCopied] = useState(false);
+  const [busy, setBusy] = useState(false);
   const card = useRef<HTMLDivElement>(null);
   const restore = useRef<HTMLElement | null>(null);
-  const open = state.scale !== null || state.share !== null;
+  const open = state.scale !== null || state.share !== null || state.bid !== null;
 
   useEffect(() => { setState = set; return () => { setState = null; }; }, []);
+  useEffect(() => { setBusy(false); }, [state.bid]);
 
   // Ловушка фокуса, Escape и возврат фокуса на кнопку, из которой открыли.
   useEffect(() => {
@@ -46,7 +56,7 @@ export function Modals() {
     document.body.classList.add("no-scroll");
     card.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { set({ scale: null, share: null }); return; }
+      if (e.key === "Escape") { set(CLOSED); return; }
       if (e.key !== "Tab" || !card.current) return;
       const f = Array.from(card.current.querySelectorAll<HTMLElement>(FOCUSABLE))
         .filter((n) => n.offsetParent !== null);
@@ -63,7 +73,7 @@ export function Modals() {
     };
   }, [open]);
 
-  const close = () => set({ scale: null, share: null });
+  const close = () => set(CLOSED);
 
   if (state.scale !== null) {
     return (
@@ -91,6 +101,48 @@ export function Modals() {
           <Link className="btn btn-primary btn-block" href="/conditions" onClick={close}>
             {t("scale.handbook")} <Icon name="arrow" size={16} />
           </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (state.bid) {
+    const b = state.bid;
+    const inv = computeInvoice(b.amountCents, b.marketCode);
+    const fees = marketFees(b.marketCode);
+    const go = async () => {
+      setBusy(true);
+      try { await b.onConfirm(); } finally { setBusy(false); close(); }
+    };
+    return (
+      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="m-cbid-t">
+        <div className="modal-bd" onClick={close} />
+        <div className="modal-card" ref={card}>
+          <div className="modal-head">
+            <div>
+              <span className="kicker">{t("lp.confirmKicker")} · {b.sku}</span>
+              <h3 id="m-cbid-t">{b.title}</h3>
+            </div>
+            <button className="modal-x" type="button" aria-label={t("nav.close")} onClick={close}><Icon name="x" /></button>
+          </div>
+          <div className="sum">
+            <p className="sum-lab">{t("lp.yourMaxBid")}</p>
+            <p className="sum-amt tnum">{formatEur(b.amountCents)}</p>
+          </div>
+          <table className="fees"><tbody>
+            <tr><th scope="row">{t("lp.ifYouWin")}</th><td className="tnum">{formatEur(inv.hammerCents)}</td></tr>
+            <tr><th scope="row">{t("lp.premium", { n: fees.buyerPremiumBp / 100 })}</th><td className="tnum">{formatEur(inv.premiumCents)}</td></tr>
+            <tr><th scope="row">PVN ({fees.vatRateBp / 100} %)</th><td className="tnum">{formatEur(inv.vatCents)}</td></tr>
+            <tr className="tot"><th scope="row">{t("lp.totalIfWin")}</th><td className="tnum">{formatEur(inv.totalCents)}</td></tr>
+          </tbody></table>
+          <button className="btn btn-primary btn-block" type="button" disabled={busy} style={{ marginTop: 12 }}
+                  onClick={() => void go()}>
+            {busy ? t("lp.sending") : t("lp.confirmBid")}
+          </button>
+          <button className="btn btn-outline btn-block" type="button" style={{ marginTop: 8 }} onClick={close}>
+            {t("nav.cancel")}
+          </button>
+          <p className="note" style={{ textAlign: "center", marginTop: 12 }}>{t("lp.bindingNote")}</p>
         </div>
       </div>
     );

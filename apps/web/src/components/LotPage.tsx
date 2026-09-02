@@ -150,11 +150,17 @@ export function LotPage({
   }, [a.id]);
 
   useEffect(() => {
-    setSignedIn(publicApi.hasSession);
-    const fn = () => setSignedIn(publicApi.hasSession);
+    // Личные поля деталей (свой максимум, персональный минимум лидера)
+    // сервер отдаёт только с токеном — серверный рендер страницы их не
+    // знает, поэтому вошедшему перечитываем лот сразу.
+    const fn = () => {
+      setSignedIn(publicApi.hasSession);
+      if (publicApi.hasSession) void reload();
+    };
+    fn();
     publicApi.listeners.add(fn);
     return () => { publicApi.listeners.delete(fn); };
-  }, []);
+  }, [reload]);
 
   // Живые обновления по WebSocket, с переподключением.
   const reloadRef = useRef(reload);
@@ -266,7 +272,9 @@ export function LotPage({
   const myTop = detail.bids.find((b) => b.isYou);
   const iLead = detail.bids[0]?.isYou === true && !detail.bids[0]?.outbid;
 
-  const quick = [minNext, price + inc * 2, price + inc * 5];
+  // Ступени от персонального минимума: у лидера он выше «цены + шаг», и
+  // старые ступени от цены предлагали бы ему суммы ниже его же максимума.
+  const quick = [minNext, minNext + inc, minNext + inc * 4];
 
 
   useStickyBar(live && !over && !bidVisible);
@@ -559,6 +567,11 @@ export function LotPage({
                     {t("lp.minNext", { min: formatEur(minNext), inc: formatEur(inc),
                       prem: fees.buyerPremiumBp / 100, vat: fees.vatRateBp / 100 })}
                   </p>
+                  {/* Лидеру — его собственный скрытый максимум: без этого
+                      «поднять ставку» выглядит как отказ без причины. */}
+                  {detail.myMaxCents != null && (
+                    <p className="fine tnum">{t("a.myMaxNow", { sum: formatEur(detail.myMaxCents) })}</p>
+                  )}
 
                   {rep.buyNowCents ? (
                     <>

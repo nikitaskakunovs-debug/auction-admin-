@@ -14,7 +14,7 @@ import { alertStore } from "@/lib/ui";
 import { watchStore } from "@/lib/watch";
 import { Icon } from "./Icon";
 import { useNowVisible, formatLeft } from "./Countdown";
-import { openScale, openShare } from "./Modals";
+import { openBidConfirm, openScale, openShare } from "./Modals";
 import { say } from "./Toast";
 
 /** Карточка лота утверждённого макета.
@@ -118,22 +118,35 @@ export function LotCard({ lot }: { lot: CardLot }) {
   const swipe = useRef(0);
 
   /** Ставка прямо из карточки — как `[data-bid]` в макете.
-   *  Без сессии уводим на вход, сохранив адрес лота. */
-  const bid = async (e: React.MouseEvent) => {
+   *  Без сессии уводим на вход, сохранив адрес лота.
+   *  Ставка — обязательство: и здесь сначала окно подтверждения с той же
+   *  раскладкой суммы, что на странице лота, а не списание одним касанием. */
+  const bid = (e: React.MouseEvent) => {
     stop(e);
     if (settled || over) { say(t("lc.ended")); return; }
     if (!publicApi.hasSession) { router.push(loginHref(href)); return; }
+    openBidConfirm({ sku: lot.sku, title: lot.title, marketCode: lot.marketCode, amountCents: ask, onConfirm: place });
+  };
+
+  const place = async () => {
     setBusy(true);
     try {
-      const r = await publicApi.post<{ youLead: boolean; currentPriceCents: number; extended: boolean }>(
+      const r = await publicApi.post<{ youLead: boolean; currentPriceCents: number; extended: boolean; priceChanged?: boolean }>(
         `/api/public/auctions/${lot.id}/bids`, { maxCents: ask },
       );
       setLive({ price: r.currentPriceCents, bids: bidCount + 1, youLead: r.youLead });
-      say(r.youLead ? t("lc.accepted", { sum: formatEur(r.currentPriceCents) }) : t("a.outbid"));
+      // Лидер поднял собственный максимум: цена стоит — объясняем, иначе
+      // «Pieņemts» с прежней ценой выглядит как несработавшая ставка.
+      if (r.youLead && r.priceChanged === false) say(t("a.maxRaised", { sum: formatEur(ask) }));
+      else say(r.youLead ? t("lc.accepted", { sum: formatEur(r.currentPriceCents) }) : t("a.outbid"));
       if (r.extended) say(t("a.extended"));
     } catch (err) {
       if (err instanceof PublicApiError && err.body.code === "EMAIL_NOT_VERIFIED") {
         say(t("lc.verifyFirst"));
+      } else if (err instanceof PublicApiError && err.body.code === "NOT_ABOVE_OWN_MAX" && typeof err.body.minAcceptableCents === "number") {
+        // Быстрая ставка из карточки не знает чужих максимумов: лидер сам
+        // себя не перебьёт — объясняем, а не пугаем минимумом в центах.
+        say(t("a.aboveOwnMax", { sum: formatEur(Number(err.body.minAcceptableCents) - 1) }));
       } else if (err instanceof PublicApiError && typeof err.body.minAcceptableCents === "number") {
         say(`${t("a.minBid")}: ${formatEur(err.body.minAcceptableCents)}`);
       } else {
