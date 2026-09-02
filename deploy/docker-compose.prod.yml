@@ -166,6 +166,10 @@ services:
         # иначе просмотр посчитается дважды. Значение попадает в сборку, а не
         # в рантайм, поэтому смена требует пересборки web.
         NEXT_PUBLIC_META_PAGEVIEW: ${NEXT_PUBLIC_META_PAGEVIEW:-0}
+        # Google AdSense: базовый скрипт в <head> (верификация сайта).
+        # Auto Ads не включаются; рекламные места — только будущими
+        # <AdSenseSlot /> под отдельным флагом.
+        NEXT_PUBLIC_ADSENSE_CLIENT: ${NEXT_PUBLIC_ADSENSE_CLIENT:-ca-pub-9932986165940423}
     restart: unless-stopped
     depends_on:
       - api

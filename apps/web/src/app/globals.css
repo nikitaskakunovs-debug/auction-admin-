@@ -2753,3 +2753,10 @@ footer .f-pill{border:0;font:inherit;cursor:pointer}
 .cart-cta .t b{font-size:15.5px}
 .cart-cta .t small{font-size:13px;color:var(--text-2)}
 @media (max-width:560px){.cart-cta .btn{width:100%;justify-content:center}}
+
+/* ── Google AdSense: управляемые места ─────────────────────────────────
+   Слот резервирует высоту сам (inline minHeight); здесь — только показ по
+   устройствам. Никакой рекламы поверх навигации и кнопок: слот — обычный
+   блок в потоке документа. */
+@media (max-width:767px){.ad-slot.ad-desktop{display:none !important}}
+@media (min-width:768px){.ad-slot.ad-mobile{display:none !important}}

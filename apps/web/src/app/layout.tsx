@@ -64,6 +64,17 @@ const GTM_ID = /^GTM-[A-Z0-9]+$/.test(process.env.NEXT_PUBLIC_GTM_ID ?? "")
   ? process.env.NEXT_PUBLIC_GTM_ID!
   : null;
 
+/** Google AdSense — базовый скрипт: верификация сайта и будущие
+ *  контролируемые размещения. Включается только когда сборке передан
+ *  издатель (NEXT_PUBLIC_ADSENSE_CLIENT) — dev, CI и предпросмотры живут
+ *  без внешних тегов. Auto Ads НЕ включены: сам скрипт рекламу не рисует,
+ *  блок появится лишь там, где явно поставлен <AdSenseSlot /> и включён
+ *  отдельный флаг показа. Идентификатор издателя — публичный (он и так
+ *  виден в ads.txt), подменять или проксировать скрипт нельзя. */
+const ADSENSE_CLIENT = /^ca-pub-\d{5,20}$/.test(process.env.NEXT_PUBLIC_ADSENSE_CLIENT ?? "")
+  ? process.env.NEXT_PUBLIC_ADSENSE_CLIENT!
+  : null;
+
 /** Возврат после соцвхода приходит с токенами во фрагменте (#a=…&r=…), а от
  *  Telegram — с #tgAuthResult=<base64>, внутри которого имя человека. GA4
  *  пишет page_location вместе с фрагментом, поэтому снимать его в React
@@ -149,6 +160,15 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         {/* Строго до GTM: снимаем токены соцвхода из адреса. */}
         <script dangerouslySetInnerHTML={{ __html: authFragmentGuard }} />
         {gtmBootstrap && <script dangerouslySetInnerHTML={{ __html: gtmBootstrap }} />}
+        {/* AdSense: один экземпляр на страницу, в head, async — SPA-переходы
+            Next скрипт не дублируют, layout рендерится один раз. */}
+        {ADSENSE_CLIENT && (
+          <script
+            async
+            src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_CLIENT}`}
+            crossOrigin="anonymous"
+          />
+        )}
       </head>
       <body>
         {GTM_ID && (
