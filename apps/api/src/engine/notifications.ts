@@ -172,14 +172,18 @@ export function invalidateTemplateOverrideCache(): void {
   overrideCache.clear();
 }
 
-async function loadOverride(ctx: AppContext, type: string, lang: string): Promise<TplOverride | null> {
+async function loadOverride(
+  db: Pick<Db, "select">,
+  type: string,
+  lang: string,
+): Promise<TplOverride | null> {
   const key = `${type}:${lang}`;
   const hit = overrideCache.get(key);
   const now = Date.now();
   if (hit && now - hit.at < OVERRIDE_CACHE_MS) return hit.row;
   let row: TplOverride | null = null;
   try {
-    const [r] = await ctx.db
+    const [r] = await db
       .select({
         subject: emailTemplateOverrides.subject,
         body: emailTemplateOverrides.body,
@@ -205,8 +209,11 @@ export async function renderNotification(
   /** Идентификатор клиента для маркетинговых писем: с ним в подвал ляжет
    *  видимая ссылка отписки. Для сервисных писем не передаётся. */
   marketingFor?: string,
-  /** Для превью в админке: не подхватывать правки из базы. */
-  opts: { skipOverride?: boolean } = {},
+  /** skipOverride — превью кодового варианта в админке. db — ЧЕЙ рукой
+   *  читать правку: вызов изнутри транзакции обязан передать её же, иначе
+   *  чтение возьмёт второе соединение пула и при полусотне параллельных
+   *  ставок пул кончится намертво. */
+  opts: { skipOverride?: boolean; db?: Pick<Db, "select"> } = {},
 ): Promise<{ subject: string; text: string; html: string }> {
   const copy: Rendered = renderCopy(type, lang, input, copyContext(ctx));
   const base = ctx.config.storefrontBaseUrl;
@@ -217,7 +224,7 @@ export async function renderNotification(
   // Правки из админки: тема и текст меняются, функциональные блоки письма
   // (кнопка оплаты, код выдачи, суммы) остаются из кода — админ не может
   // случайно оторвать у счёта кнопку «оплатить».
-  const override = opts.skipOverride ? null : await loadOverride(ctx, type, lang);
+  const override = opts.skipOverride ? null : await loadOverride(opts.db ?? ctx.db, type, lang);
   let subject = copy.subject;
   let text = copy.text;
   let spec = copy.spec;
@@ -292,10 +299,13 @@ export async function enqueueNotification(
 
   const lang = langFor(recipient.lang, recipient.country);
   // The greeting name always comes from the current record, never the caller.
-  const { subject, text, html } = await renderNotification(ctx, args.type, lang, {
-    ...args.template,
-    alias: recipient.alias,
-  });
+  const { subject, text, html } = await renderNotification(
+    ctx, args.type, lang,
+    { ...args.template, alias: recipient.alias },
+    undefined,
+    // Читаем правки рукой вызывающей транзакции — не вторым соединением.
+    { db: tx },
+  );
   await tx
     .insert(notifications)
     .values({

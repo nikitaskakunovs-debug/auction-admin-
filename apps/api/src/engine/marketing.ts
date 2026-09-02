@@ -173,6 +173,7 @@ export async function enqueueMarketing(
       lang,
       { ...args.template, alias: person.alias },
       args.customerId,
+      { db: tx },
     ));
   }
   const scheduledFor = afterQuietHours(now);

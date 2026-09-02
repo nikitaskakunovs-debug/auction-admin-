@@ -96,6 +96,11 @@ export function Checkout({ orderRef }: { orderRef: string }) {
   // Аванс (№ 72): остаток на счету и переключатель «использовать».
   const [creditCents, setCreditCents] = useState(0);
   const [useCredit, setUseCredit] = useState(true);
+  // Баллы лояльности (план v15): баланс, потолок (доля итога) и переключатель.
+  // По умолчанию выключены — списание баллов должно быть осознанным выбором.
+  const [pointsCents, setPointsCents] = useState(0);
+  const [pointsMaxBp, setPointsMaxBp] = useState(5000);
+  const [usePoints, setUsePoints] = useState(false);
   const [meWho, setMeWho] = useState<string | null>(null);
   /** Для Google Ads Enhanced Conversions (user_data) — только при согласии.
    *  meReady = ответ /auth/me получен (успех или отказ): begin_checkout ждёт
@@ -159,6 +164,9 @@ export function Checkout({ orderRef }: { orderRef: string }) {
     if (!signedIn) return;
     void publicApi.get<{ balanceCents: number }>("/api/public/me/credit")
       .then((r) => setCreditCents(r.balanceCents))
+      .catch(() => undefined);
+    void publicApi.get<{ balanceCents: number; redeemMaxBp: number }>("/api/public/me/points")
+      .then((r) => { setPointsCents(r.balanceCents); setPointsMaxBp(r.redeemMaxBp); })
       .catch(() => undefined);
     void publicApi.get<{ bidder: { alias: string; email: string; name: string | null; company: string | null } }>("/api/public/auth/me")
       .then((r) => {
@@ -229,7 +237,11 @@ export function Checkout({ orderRef }: { orderRef: string }) {
     try {
       const r = await publicApi.post<{ checkoutUrl?: string; paid?: boolean }>(
         `/api/public/orders/${encodeURIComponent(orderRef)}/pay`,
-        { language: lang, provider: pay, ...(creditCents > 0 && useCredit ? { useCredit: true } : {}) },
+        {
+          language: lang, provider: pay,
+          ...(creditCents > 0 && useCredit ? { useCredit: true } : {}),
+          ...(pointsApplied > 0 ? { usePoints: true } : {}),
+        },
       );
       setSubmitted(true);
       track("add_payment_info", {
@@ -325,7 +337,13 @@ export function Checkout({ orderRef }: { orderRef: string }) {
   const insuranceCents = insured && method !== "pickup" ? insuranceQuoteCents : 0;
   const gross = goodsCents + shipCost + insuranceCents;
   const creditApplied = creditCents > 0 && useCredit ? Math.min(creditCents, gross) : 0;
-  const total = gross - creditApplied;
+  // Баллы: целыми евро, не больше потолка из настроек и не больше остатка
+  // после аванса — та же арифметика, что на сервере, чтобы суммы совпадали.
+  const pointsCap = Math.floor((gross * pointsMaxBp) / 10_000);
+  const pointsApplied = usePoints && pointsCents > 0
+    ? Math.floor(Math.min(pointsCents, pointsCap, gross - creditApplied) / 100) * 100
+    : 0;
+  const total = gross - creditApplied - pointsApplied;
 
   // Шаги оформления: заполненный сворачивается на телефоне (веб не меняется).
   const deliveryReady = Boolean(method) && (!provider || Boolean(machineId)) && (!needsAddress || addrReady);
@@ -476,6 +494,24 @@ export function Checkout({ orderRef }: { orderRef: string }) {
               </fieldset>
             )}
 
+            {/* Баллы лояльности: списываются целыми евро, потолок — доля
+                итога из настроек; заказ целиком баллами не закрывается. */}
+            {pointsCents >= 100 && (
+              <fieldset className="card-b">
+                <legend><h2>{t("pts.title")}</h2></legend>
+                <label className="opt credit">
+                  <input type="checkbox" checked={usePoints} onChange={(e) => setUsePoints(e.target.checked)} />
+                  <span>
+                    <b>{t("pts.use", {
+                      sum: formatEur(Math.floor(Math.min(pointsCents, pointsCap, gross - creditApplied) / 100) * 100),
+                      bal: formatEur(pointsCents),
+                    })}</b>
+                    <small>{t("pts.note", { pct: Math.round(pointsMaxBp / 100) })}</small>
+                  </span>
+                </label>
+              </fieldset>
+            )}
+
             <PayStep n={2} label={t("co.recipient")} value={recipientValue} done={recipientReady}
                      open={openStep === 2} onOpen={() => setOpenStep(2)} editLabel={t("ac.change")}>
             <fieldset className="card-b">
@@ -585,6 +621,9 @@ export function Checkout({ orderRef }: { orderRef: string }) {
                 )}
                 {creditApplied > 0 && (
                   <tr><th scope="row">{t("kb.creditRow")}</th><td className="tnum">−{formatEur(creditApplied)}</td></tr>
+                )}
+                {pointsApplied > 0 && (
+                  <tr><th scope="row">{t("pts.row")}</th><td className="tnum">−{formatEur(pointsApplied)}</td></tr>
                 )}
                 <tr className="tot"><th scope="row">{t("bn.total")}</th><td className="tnum">{formatEur(total)}</td></tr>
               </tbody></table>
