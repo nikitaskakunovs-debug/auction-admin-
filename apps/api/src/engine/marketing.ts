@@ -2,8 +2,10 @@ import { customerFees, customers, notifications } from "@auction/db";
 import { and, count, desc, eq, gte, isNull, sql } from "drizzle-orm";
 import type { AppContext } from "../context.js";
 import type { Db } from "@auction/db";
-import { langFor, renderNotification } from "./notifications.js";
-import type { NotificationType, TemplateInput } from "./emailCopy.js";
+import { emailBrand, langFor, renderNotification } from "./notifications.js";
+import { renderEmailHtml } from "./emailLayout.js";
+import { unsubscribeUrl } from "./unsubscribe.js";
+import type { Lang, NotificationType, TemplateInput } from "./emailCopy.js";
 
 /**
  * Планировщик маркетинговых писем.
@@ -76,8 +78,11 @@ export async function enqueueMarketing(
   tx: Tx,
   args: {
     customerId: string;
-    type: NotificationType;
+    /** «campaign» — свободное письмо конструктора кампаний (MD §1.4). */
+    type: NotificationType | "campaign";
     template: TemplateInput;
+    /** Кампания: тема и текст по языкам, вместо кодового шаблона. */
+    custom?: Record<string, { subject: string; body: string }>;
     /** Ключ идемпотентности: одно письмо на событие, а не на каждый проход крона. */
     dedupeKey: string;
     /**
@@ -147,13 +152,29 @@ export async function enqueueMarketing(
   }
 
   const lang = langFor(person.lang, person.country);
-  const { subject, text, html } = await renderNotification(
-    ctx,
-    args.type,
-    lang,
-    { ...args.template, alias: person.alias },
-    args.customerId,
-  );
+  let subject: string;
+  let text: string;
+  let html: string;
+  if (args.type === "campaign") {
+    // Кампания: тема и текст заданы в конструкторе; берём язык получателя с
+    // фолбэком, оборачиваем в фирменный HTML и ОБЯЗАТЕЛЬНО даём отписку.
+    const content = args.custom?.[lang] ?? args.custom?.lv ?? args.custom?.en;
+    if (!content) return { ok: false, skip: "duplicate" };
+    const rendered = renderCampaignEmail(ctx, {
+      lang, alias: person.alias, subject: content.subject, body: content.body, customerId: args.customerId,
+    });
+    subject = rendered.subject;
+    text = rendered.text;
+    html = rendered.html;
+  } else {
+    ({ subject, text, html } = await renderNotification(
+      ctx,
+      args.type,
+      lang,
+      { ...args.template, alias: person.alias },
+      args.customerId,
+    ));
+  }
   const scheduledFor = afterQuietHours(now);
 
   const rows = await tx
@@ -174,6 +195,51 @@ export async function enqueueMarketing(
     .returning({ id: notifications.id });
   if (rows.length === 0) return { ok: false, skip: "duplicate" };
   return { ok: true, scheduledFor };
+}
+
+/** Письмо кампании: свободные тема и текст из конструктора, фирменная
+ *  обёртка, обязательная отписка. Плейсхолдер поддерживается один — {alias}. */
+function renderCampaignEmail(
+  ctx: AppContext,
+  args: { lang: Lang; alias: string; subject: string; body: string; customerId: string },
+): { subject: string; text: string; html: string } {
+  const L = args.lang;
+  const unsubUrl = unsubscribeUrl(args.customerId, ctx.config.jwtSecret, ctx.config.storefrontBaseUrl);
+  const unsub = {
+    url: unsubUrl,
+    label: { lv: "Atteikties no jaunumiem", ru: "Отписаться от рассылки", en: "Unsubscribe from updates" }[L],
+    note: {
+      lv: "Šo vēstuli saņēmāt, jo piekritāt jaunumiem izsoli.lv.",
+      ru: "Письмо пришло, потому что вы согласились получать новости izsoli.lv.",
+      en: "You received this because you agreed to updates from izsoli.lv.",
+    }[L],
+  };
+  const subject = args.subject.replace(/\{alias\}/g, args.alias);
+  const bodyFilled = args.body.replace(/\{alias\}/g, args.alias);
+  const paras = bodyFilled.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+  const greeting = `${{ lv: "Sveicināti", ru: "Здравствуйте", en: "Hello" }[L]}, ${args.alias}!`;
+  const html = renderEmailHtml(
+    {
+      preheader: (paras[0] ?? "").slice(0, 120),
+      headline: subject.slice(0, 80).toUpperCase(),
+      headlineTone: "accent",
+      greeting,
+      intro: paras[0] ?? "",
+      notes: paras.slice(1).map((text) => ({ text })),
+      cta: {
+        label: { lv: "Skatīt izsoles", ru: "Смотреть лоты", en: "See the lots" }[L],
+        url: ctx.config.storefrontBaseUrl,
+      },
+      labels: {
+        follow: { lv: "Seko mums", ru: "Мы в соцсетях", en: "Follow us" }[L],
+        review: { lv: "Atstāj atsauksmi", ru: "Оставить отзыв", en: "Leave a review" }[L],
+      },
+      unsubscribe: unsub,
+    },
+    emailBrand(ctx),
+  );
+  const text = `${greeting}\n\n${bodyFilled}\n\n[campaign]\n\n---\n${unsub.note}\n${unsub.label}: ${unsub.url}`;
+  return { subject, text, html };
 }
 
 /** Отписка по ссылке из письма. Идемпотентна: повторный клик ничего не портит. */

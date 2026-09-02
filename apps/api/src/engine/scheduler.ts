@@ -79,6 +79,11 @@ export class AuctionScheduler {
         // Письма по просьбе: новые лоты под сохранённые поиски и вэлмес на
         // исходе (раз в 30 минут — чаще некуда, письма всё равно суточные).
         await phase("marketingCrons", () => this.marketingCrons());
+        // Ночной пакет роста (план v15): сводка интересов, RFM, сегменты,
+        // lifecycle-письма. Раз в сутки, ранним утром.
+        await phase("growthNightly", () => this.growthNightly());
+        // Кампании конструктора: раз в минуту смотрим, не пора ли слать.
+        await phase("campaigns", () => this.campaignsDue());
         // Drain the outbox last so this tick's enqueues go out promptly.
         await phase("dispatchNotifications", () => dispatchNotifications(this.ctx));
       } finally {
@@ -126,6 +131,26 @@ export class AuctionScheduler {
     const { runSavedSearchAlerts, runWatchlistEndingAlerts } = await import("./marketingCrons.js");
     await runSavedSearchAlerts(this.ctx).catch((err) => console.error("saved search alerts failed", err));
     await runWatchlistEndingAlerts(this.ctx).catch((err) => console.error("watchlist alerts failed", err));
+  }
+
+  /** Ночной пересчёт роста: раз в сутки, между 01:00 и 06:00 UTC (03:00–08:00
+   *  по Риге) — статистика ночная, письма всё равно задержит тишина. */
+  private async growthNightly(): Promise<void> {
+    const hour = this.ctx.now().getUTCHours();
+    if (hour < 1 || hour >= 6) return;
+    const day = this.ctx.now().toISOString().slice(0, 10);
+    const marker = await this.ctx.redis.set(`growth:${day}`, "1", "PX", 26 * 3600 * 1000, "NX");
+    if (marker !== "OK") return;
+    const { runNightlyGrowth } = await import("./growth.js");
+    await runNightlyGrowth(this.ctx).catch((err) => console.error("nightly growth failed", err));
+  }
+
+  /** Кампании со scheduledAt в прошлом — раз в минуту. */
+  private async campaignsDue(): Promise<void> {
+    const marker = await this.ctx.redis.set("campaigns:due", "1", "PX", 60 * 1000, "NX");
+    if (marker !== "OK") return;
+    const { dispatchCampaigns } = await import("./growth.js");
+    await dispatchCampaigns(this.ctx).catch((err) => console.error("campaign dispatch failed", err));
   }
 
   /** Jira → panel sync, guarded by a 5-minute Redis marker. */

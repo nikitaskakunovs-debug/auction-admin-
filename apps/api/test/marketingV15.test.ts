@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
-import { customers, items, listings, loyaltyAccounts, notifications, orders, promoCodes, referralCodes, referrals } from "@auction/db";
+import { campaigns, customers, items, listings, loyaltyAccounts, notifications, orders, promoCodes, referralCodes, referrals, segments, userCategoryStats, userRfm } from "@auction/db";
 import { and, desc, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { dispatchCampaigns, evaluateSegment, rebuildStats, recomputeSegments, runWelcomeReminders } from "../src/engine/growth.js";
 import { movePoints } from "../src/engine/loyalty.js";
 import { settleOrderPaid } from "../src/engine/settlement.js";
 import { createWorld, type TestWorld } from "./helpers.js";
@@ -243,6 +244,96 @@ describe("маркетинг v15: welcome-код, промо, баллы, реф
     expect(r!.status).toBe("pending"); // награда придержана до ручной проверки
     const [acc] = await world.ctx.db.select().from(loyaltyAccounts).where(eq(loyaltyAccounts.customerId, solo.bidder.id));
     expect(acc?.balanceCents ?? 0).toBe(0);
+  });
+
+  it("ночная сводка строит интересы и RFM, сегмент собирает участников", async () => {
+    // У Дины из предыдущего теста есть оплаченные заказы в electronics.
+    await rebuildStats(world.ctx);
+    const [dina] = await world.ctx.db.select().from(customers).where(eq(customers.email, "dina@v15.test"));
+    const stats = await world.ctx.db.select().from(userCategoryStats).where(eq(userCategoryStats.customerId, dina!.id));
+    const ele = stats.find((s) => s.category === "electronics");
+    expect(ele).toBeTruthy();
+    expect(ele!.purchaseCount).toBeGreaterThanOrEqual(2);
+    const [rfm] = await world.ctx.db.select().from(userRfm).where(eq(userRfm.customerId, dina!.id));
+    expect(rfm).toBeTruthy();
+    expect(rfm!.frequency).toBeGreaterThanOrEqual(2);
+
+    const members = await evaluateSegment(world.ctx, {
+      match: "all",
+      conditions: [{ field: "category_purchase_count", op: ">=", value: 2, category: "electronics" }],
+    });
+    expect(members).toContain(dina!.id);
+    const none = await evaluateSegment(world.ctx, {
+      match: "all",
+      conditions: [{ field: "category_purchase_count", op: ">=", value: 99, category: "electronics" }],
+    });
+    expect(none).not.toContain(dina!.id);
+  });
+
+  it("кампания уходит сегменту с барьерами согласия и фиксирует статистику", async () => {
+    const [dina] = await world.ctx.db.select().from(customers).where(eq(customers.email, "dina@v15.test"));
+    // Дина согласна на маркетинг; Борис (без согласия) — контрольная группа.
+    await world.ctx.db.update(customers).set({ marketingOptIn: true }).where(eq(customers.id, dina!.id));
+    const [seg] = await world.ctx.db
+      .insert(segments)
+      .values({
+        name: "Электроника 2+",
+        rule: { match: "all", conditions: [{ field: "category_purchase_count", op: ">=", value: 2, category: "electronics" }] },
+      })
+      .returning();
+    await recomputeSegments(world.ctx);
+    const [camp] = await world.ctx.db
+      .insert(campaigns)
+      .values({
+        name: "Тестовая кампания",
+        segmentId: seg!.id,
+        status: "scheduled",
+        scheduledAt: new Date(Date.now() - 60_000),
+        content: {
+          lv: { subject: "Sveiki, {alias}!", body: "Jauni loti elektronikā.\n\nApskati katalogu." },
+          ru: { subject: "Привет, {alias}!", body: "Новые лоты в электронике.\n\nЗагляните в каталог." },
+          en: { subject: "Hi {alias}!", body: "New electronics lots.\n\nHave a look." },
+        },
+      })
+      .returning();
+    await dispatchCampaigns(world.ctx);
+    const [after] = await world.ctx.db.select().from(campaigns).where(eq(campaigns.id, camp!.id));
+    expect(after!.status).toBe("sent");
+    expect((after!.stats as { queued?: number }).queued).toBe(1);
+    const [letter] = await world.ctx.db
+      .select()
+      .from(notifications)
+      .where(and(eq(notifications.customerId, dina!.id), eq(notifications.type, "campaign")))
+      .limit(1);
+    expect(letter).toBeTruthy();
+    expect(letter!.kind).toBe("marketing");
+    expect(letter!.body).toContain("[campaign]");
+    expect(letter!.body).toMatch(/Atteikties no jaunumiem|Отписаться от рассылки|Unsubscribe from updates/);
+  });
+
+  it("напоминание о welcome-коде уходит на 3-й день и только раз", async () => {
+    const g = await register("gita@v15.test", { marketingOptIn: true });
+    await verify(g.bidder.id);
+    // Прошло 3,5 дня: человек в окне напоминания, код не использован.
+    world.setNow(new Date(Date.now() + 3.5 * 86_400_000));
+    try {
+      await runWelcomeReminders(world.ctx);
+      const letters = await world.ctx.db
+        .select()
+        .from(notifications)
+        .where(and(eq(notifications.customerId, g.bidder.id), eq(notifications.type, "welcome_reminder")));
+      expect(letters.length).toBe(1);
+      expect(letters[0]!.kind).toBe("marketing");
+      // Второй проход крона второго письма не рождает.
+      await runWelcomeReminders(world.ctx);
+      const again = await world.ctx.db
+        .select()
+        .from(notifications)
+        .where(and(eq(notifications.customerId, g.bidder.id), eq(notifications.type, "welcome_reminder")));
+      expect(again.length).toBe(1);
+    } finally {
+      world.setNow(null);
+    }
   });
 
   it("минус больше остатка баллов отвергается", async () => {

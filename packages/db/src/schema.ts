@@ -1744,7 +1744,7 @@ export const segments = pgTable("segments", {
   name: text("name").notNull(),
   rule: jsonb("rule").$type<{
     match: "all" | "any";
-    conditions: Array<{ field: string; op: string; value: number; category?: string }>;
+    conditions: Array<{ field: string; op: string; value: number; category?: string | undefined }>;
   }>().notNull(),
   isActive: boolean("is_active").notNull().default(true),
   createdBy: text("created_by"),

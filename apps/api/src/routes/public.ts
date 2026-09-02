@@ -47,6 +47,7 @@ import { placeBid } from "../engine/bids.js";
 import { InsufficientCreditError, getOrCreateCredit, moveCredit } from "../engine/credits.js";
 import { renderInvoiceHtml, type InvoiceData } from "../engine/invoices.js";
 import { renderInvoicePdf } from "../engine/invoicePdf.js";
+import { ensureReferralCode, logUserEvent } from "../engine/growth.js";
 import { getOrCreateLoyalty, movePoints } from "../engine/loyalty.js";
 import { applyUnsubscribe } from "../engine/marketing.js";
 import { enqueueNotification } from "../engine/notifications.js";
@@ -465,6 +466,8 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
       .limit(100);
 
     const me = req.bidder?.sub ?? null;
+    // v15: журнал поведения — просмотр лота вошедшим (write-only, мимо UI).
+    if (me) logUserEvent(ctx, { customerId: me, eventType: "view_lot", category: row.item.category, listingId: row.listing.id });
     const iLead = me !== null && row.auction.leaderCustomerId === me && row.auction.leaderMaxCents !== null;
     return {
       auction: publicAuction(row),
@@ -531,6 +534,10 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
       .select({ n: sql<string>`count(*)` })
       .from(bids)
       .where(and(eq(bids.customerId, bidderId), isNull(bids.voidedAt)));
+    // v15: журнал поведения — успешная ставка (мимо критического пути).
+    void lotCategory(id).then((lot) => {
+      if (lot) logUserEvent(ctx, { customerId: bidderId, eventType: "place_bid", category: lot.category, listingId: lot.listingId });
+    }).catch(() => undefined);
     return {
       ok: true,
       // Идентификатор события аналитики — рождается на сервере вместе с
@@ -1001,6 +1008,25 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
     };
   });
 
+
+  /** Категория лота по id витрины (листинг или аукцион) — для журнала
+   *  поведения. Лёгкий запрос, зовётся мимо критического пути. */
+  async function lotCategory(anyId: string): Promise<{ category: string | null; listingId: string } | null> {
+    const [byListing] = await ctx.db
+      .select({ category: items.category, listingId: listings.id })
+      .from(listings)
+      .innerJoin(items, eq(listings.itemId, items.id))
+      .where(eq(listings.id, anyId));
+    if (byListing) return byListing;
+    const [byAuction] = await ctx.db
+      .select({ category: items.category, listingId: listings.id })
+      .from(auctions)
+      .innerJoin(listings, eq(auctions.listingId, listings.id))
+      .innerJoin(items, eq(listings.itemId, items.id))
+      .where(eq(auctions.id, anyId));
+    return byAuction ?? null;
+  }
+
   app.get("/api/public/listings/:id", async (req, reply) => {
     const { id } = req.params as { id: string };
     const [row] = await ctx.db
@@ -1119,27 +1145,12 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
   app.get("/api/public/me/referral", async (req, reply) => {
     const bidderId = requireBidder(req, reply);
     if (!bidderId) return;
-    let [row] = await ctx.db.select().from(referralCodes).where(eq(referralCodes.customerId, bidderId));
-    if (!row) {
-      // Короткий код без похожих символов; коллизия — новая попытка.
-      const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-      for (let attempt = 0; attempt < 5 && !row; attempt += 1) {
-        let code = "";
-        for (let i = 0; i < 8; i += 1) code += alphabet[Math.floor(Math.random() * alphabet.length)];
-        const [made] = await ctx.db
-          .insert(referralCodes)
-          .values({ customerId: bidderId, code })
-          .onConflictDoNothing()
-          .returning();
-        if (made) row = made;
-      }
-      if (!row) [row] = await ctx.db.select().from(referralCodes).where(eq(referralCodes.customerId, bidderId));
-    }
+    const code = await ensureReferralCode(ctx, bidderId);
     const s = await getSettings(ctx);
     const mine = await ctx.db.select().from(referrals).where(eq(referrals.referrerCustomerId, bidderId));
     return {
-      code: row!.code,
-      url: `${ctx.config.storefrontBaseUrl}/register?ref=${row!.code}`,
+      code,
+      url: `${ctx.config.storefrontBaseUrl}/register?ref=${code}`,
       rewards: {
         signupCents: s.referral_signup_points_cents,
         orderCents: s.referral_order_points_cents,
@@ -1729,6 +1740,10 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
     const rows = await watchRows(bidderId, [id]);
     if (rows.length === 0) return reply.code(404).send({ error: "not_found" });
     await ctx.db.insert(watchlist).values(rows).onConflictDoNothing();
+    // v15: журнал поведения — сердечко поставлено.
+    void lotCategory(id).then((lot) => {
+      if (lot) logUserEvent(ctx, { customerId: bidderId, eventType: "add_wishlist", category: lot.category, listingId: lot.listingId });
+    }).catch(() => undefined);
     return { ok: true };
   });
 

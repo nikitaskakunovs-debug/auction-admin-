@@ -1,5 +1,6 @@
 import {
   auctions,
+  bids,
   counters,
   customers,
   items,
@@ -15,7 +16,7 @@ import {
   type AuctionStatus,
   type ItemStatus,
 } from "@auction/domain";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { writeAudit, SYSTEM_ACTOR, type Actor } from "../audit.js";
 import { publishAuctionEvent, type AppContext } from "../context.js";
 import { issueInvoice } from "./invoices.js";
@@ -194,6 +195,44 @@ export async function closeAuction(
         orderId: result.slack.orderId,
       });
     }
+    // v15: журнал поведения (won_bid / lost_bid) и письмо «похожие лоты»
+    // проигравшим (IZ-P05). После коммита и мимо критического пути: сбой
+    // аналитики не имеет права трогать закрытие торгов.
+    void (async () => {
+      const { logUserEvent, sendLostBidSimilar } = await import("./growth.js");
+      const [row] = await ctx.db
+        .select({
+          winner: auctions.leaderCustomerId,
+          priceCents: auctions.currentPriceCents,
+          title: listings.title,
+          category: items.category,
+          listingId: listings.id,
+        })
+        .from(auctions)
+        .innerJoin(listings, eq(auctions.listingId, listings.id))
+        .innerJoin(items, eq(listings.itemId, items.id))
+        .where(eq(auctions.id, auctionId));
+      if (!row) return;
+      const everyone = await ctx.db
+        .selectDistinct({ customerId: bids.customerId })
+        .from(bids)
+        .where(and(eq(bids.auctionId, auctionId), isNull(bids.voidedAt)));
+      const won = result.status === "ended_won" ? row.winner : null;
+      const losers = everyone.map((b) => b.customerId).filter((id) => id !== won);
+      if (won) logUserEvent(ctx, { customerId: won, eventType: "won_bid", category: row.category, listingId: row.listingId });
+      for (const id of losers) {
+        logUserEvent(ctx, { customerId: id, eventType: "lost_bid", category: row.category, listingId: row.listingId });
+      }
+      if (row.priceCents !== null) {
+        await sendLostBidSimilar(ctx, {
+          auctionId,
+          lotTitle: row.title,
+          category: row.category,
+          priceCents: row.priceCents,
+          loserIds: losers,
+        });
+      }
+    })().catch(() => undefined);
   }
   return result;
 }

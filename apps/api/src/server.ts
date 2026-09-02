@@ -32,6 +32,7 @@ import { registerReceivingRoutes } from "./routes/receiving.js";
 import { registerSearchRoutes } from "./routes/search.js";
 import { registerStockCountRoutes } from "./routes/stockCounts.js";
 import { registerMarketingRoutes } from "./routes/marketing.js";
+import { registerMarketingAdminRoutes } from "./routes/marketingAdmin.js";
 import { registerMetaRoutes } from "./routes/meta.js";
 import { registerCartRoutes } from "./routes/cart.js";
 import { registerSellThroughRoutes } from "./routes/sellThrough.js";
@@ -169,6 +170,7 @@ export async function buildServer(ctx: AppContext, opts: { logger?: boolean } = 
   registerSupplierRoutes(app, ctx, perms);
   registerSellThroughRoutes(app, ctx, perms);
   registerMarketingRoutes(app, ctx, perms);
+  registerMarketingAdminRoutes(app, ctx, perms);
   registerPublicRoutes(app, ctx);
   registerMetaRoutes(app, ctx);
   registerCartRoutes(app, ctx);
