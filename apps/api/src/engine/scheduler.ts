@@ -5,6 +5,7 @@ import { writeAudit, SYSTEM_ACTOR } from "../audit.js";
 import type { AppContext } from "../context.js";
 import { closeAuction, openAuction } from "./close.js";
 import { moveCredit } from "./credits.js";
+import { movePoints } from "./loyalty.js";
 import { recordFee } from "./fees.js";
 import { cancelNoShowDue, remindPickupDue } from "./noShow.js";
 import { dispatchNotifications, enqueueNotification, reminderDedupeKey } from "./notifications.js";
@@ -223,6 +224,16 @@ export class AuctionScheduler {
             note: "pasūtījums atcelts — avanss atgriezts",
           }, now);
           await tx.update(orders).set({ creditAppliedCents: 0 }).where(eq(orders.id, order.id));
+        }
+        // Списанные баллы — тоже: отменённый заказ их не съедает.
+        if (order.pointsAppliedCents > 0) {
+          await movePoints(tx, order.customerId, {
+            reason: "manual",
+            amountCents: order.pointsAppliedCents,
+            orderRef: order.ref,
+            note: "pasūtījums atcelts — punkti atgriezti",
+          }, now);
+          await tx.update(orders).set({ pointsAppliedCents: 0 }).where(eq(orders.id, order.id));
         }
         await tx
           .update(customers)

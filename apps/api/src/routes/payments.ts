@@ -7,6 +7,7 @@ import type { AppContext } from "../context.js";
 import { InbankError } from "../engine/inbank.js";
 import { KlixError } from "../engine/klix.js";
 import { getOrCreateCredit, moveCredit } from "../engine/credits.js";
+import { movePoints, redeemablePointsCents } from "../engine/loyalty.js";
 import { settleOrderPaid } from "../engine/settlement.js";
 
 /**
@@ -145,9 +146,12 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
     /** Попутные заказы, которые закрывает этот же платёж (макеты № 47, 48). */
     alsoRows: Array<{ order: typeof orders.$inferSelect; itemTitle: string }> = [],
   ): Promise<{ ok: true; checkoutUrl: string } | { ok: false; status: number; error: string }> {
-    // Провайдеру уходит остаток после зачёта аванса — не полный итог.
+    // Провайдеру уходит остаток после зачёта аванса и баллов — не полный итог.
     const allRows = [row, ...alsoRows];
-    const chargeCents = allRows.reduce((sum, r) => sum + r.order.totalCents - r.order.creditAppliedCents, 0);
+    const chargeCents = allRows.reduce(
+      (sum, r) => sum + r.order.totalCents - r.order.creditAppliedCents - r.order.pointsAppliedCents,
+      0,
+    );
     const groupOrderIds = alsoRows.map((r) => r.order.id);
     if ((provider === "klix" && !ctx.klix) || (provider === "inbank" && !ctx.inbank)) {
       return { ok: false, status: 503, error: "payments_unavailable" };
@@ -281,6 +285,9 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
     /** Зачесть аванс (№ 72): остаток уходит провайдеру; если аванс покрывает
      *  всё — заказ оплачивается сразу, без провайдера. */
     useCredit: z.boolean().optional(),
+    /** Списать баллы лояльности (MD §5a): целыми евро, не больше потолка из
+     *  настроек (стандартно 50% итога) — заказ целиком баллами не закрыть. */
+    usePoints: z.boolean().optional(),
   });
 
   /** Start (or resume) checkout for the bidder's own unpaid order. */
@@ -312,11 +319,37 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
       });
       row = await ownOrderByRef(ref, bidderId);
       if (!row) return reply.code(404).send({ error: "not_found" });
-      if (row.order.totalCents - row.order.creditAppliedCents <= 0) {
+      if (row.order.totalCents - row.order.creditAppliedCents - row.order.pointsAppliedCents <= 0) {
         // Аванс покрыл всё — деньги уже у нас, провайдер не нужен.
         await settleOrderPaid(ctx, row.order.id, { id: null, label: "avanss" }, { creditAppliedCents: row.order.creditAppliedCents });
         return { paid: true };
       }
+    }
+
+    if (body.data.usePoints) {
+      // Баллы — как аванс, но со своим потолком: не больше доли итога из
+      // настроек и только целыми евро. Полностью закрыть заказ баллами
+      // нельзя (решение владельца), поэтому провайдер остаётся всегда.
+      await ctx.db.transaction(async (tx) => {
+        const [locked] = await tx.select().from(orders).where(eq(orders.id, row!.order.id)).for("update");
+        if (!locked || locked.status !== "awaiting_payment") return;
+        const remaining = locked.totalCents - locked.creditAppliedCents - locked.pointsAppliedCents;
+        if (remaining <= 0) return;
+        const apply = await redeemablePointsCents(ctx, tx, {
+          customerId: bidderId,
+          orderTotalCents: locked.totalCents,
+          alreadyAppliedCents: locked.pointsAppliedCents,
+          remainingCents: remaining,
+        });
+        if (apply <= 0) return;
+        await movePoints(tx, bidderId, { reason: "redemption", amountCents: -apply, orderRef: locked.ref }, ctx.now());
+        await tx
+          .update(orders)
+          .set({ pointsAppliedCents: locked.pointsAppliedCents + apply })
+          .where(eq(orders.id, locked.id));
+      });
+      row = await ownOrderByRef(ref, bidderId);
+      if (!row) return reply.code(404).send({ error: "not_found" });
     }
 
     const provider = body.data.provider ?? defaultProvider();

@@ -47,7 +47,14 @@ export interface BuyResult {
 
 export async function buyNow(
   ctx: AppContext,
-  args: { listingId: string; customerId: string; holderIds?: string[] },
+  args: {
+    listingId: string;
+    customerId: string;
+    holderIds?: string[];
+    /** Применённый промокод: скидка на ЭТУ строку корзины. Итог заказа
+     *  считается от уменьшенной финальной цены той же раскладкой. */
+    promo?: { id: string; discountCents: number };
+  },
 ): Promise<BuyResult | { ok: false; code: BuyError }> {
   const now = ctx.now();
   const mine = [args.customerId, ...(args.holderIds ?? [])];
@@ -81,9 +88,11 @@ export async function buyNow(
       nowMs: now.getTime(),
     });
     // Цена «Pirkt tagad» — финальная: комиссия и НДС уже внутри, счёт её
-    // раскладывает, а не увеличивает.
+    // раскладывает, а не увеличивает. Промокод уменьшает финальную цену ДО
+    // раскладки: скидка честно проходит через комиссию и НДС, а не мимо них.
+    const promoDiscountCents = Math.min(args.promo?.discountCents ?? 0, listing.priceCents);
     const inv = computeInvoice({
-      grossCents: listing.priceCents,
+      grossCents: listing.priceCents - promoDiscountCents,
       buyerPremiumBp: market!.buyerPremiumBp,
       vatRateBp: market!.vatRateBp,
       reverseCharge,
@@ -157,6 +166,9 @@ export async function buyNow(
         reverseCharge,
         status: "awaiting_payment",
         paymentDeadlineAt,
+        ...(args.promo && promoDiscountCents > 0
+          ? { promoCodeId: args.promo.id, promoDiscountCents }
+          : {}),
         // Два снимка «откуда пришёл клиент» — первое касание (кто привёл) и
         // последнее (что привело к этой покупке). Отчёт по рекламе умеет
         // считать по обеим моделям, и обе остаются верны после удаления

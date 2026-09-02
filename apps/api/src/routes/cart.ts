@@ -1,9 +1,10 @@
-import { customers, items, listings, markets } from "@auction/db";
+import { customers, items, listings, markets, promoCodes } from "@auction/db";
 import { computeInvoice } from "@auction/domain";
 import { eq, inArray } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AppContext } from "../context.js";
+import { recordRedemption, validatePromo } from "../engine/promo.js";
 import { buyNow } from "../engine/purchase.js";
 import { heldByOthers, myHoldUntil, releaseHold, reserveUnit } from "../engine/reservations.js";
 
@@ -301,6 +302,8 @@ export function registerCartRoutes(app: FastifyInstance, ctx: AppContext): void 
         visitor_id: visitorSchema.optional(),
         // Человек волен оформить не всё: неотмеченные лоты остаются лежать.
         listing_ids: z.array(z.string().uuid()).max(MAX_ITEMS).optional(),
+        /** Промокод (welcome / win-back / ручной) — применяется к корзине. */
+        promo_code: z.string().min(3).max(40).optional(),
       })
       .safeParse(req.body ?? {});
     if (!body.success) return reply.code(400).send({ error: "invalid_body" });
@@ -314,15 +317,29 @@ export function registerCartRoutes(app: FastifyInstance, ctx: AppContext): void 
     const rows = await loadRows(entries.map((e) => e.id));
     const titleOf = new Map(rows.map((r) => [r.listing.id, r.listing.title]));
 
+    // Промокод проверяется до оформления: невалидный код — честный отказ
+    // ДО того, как родится хоть один заказ, а не молча без скидки.
+    let promo: { id: string; perLine: Map<string, number>; discountCents: number } | null = null;
+    if (body.data.promo_code) {
+      const lines = rows
+        .filter((r) => r.listing.priceCents !== null)
+        .map((r) => ({ listingId: r.listing.id, category: r.item.category, priceCents: r.listing.priceCents! }));
+      const check = await validatePromo(ctx, { code: body.data.promo_code, customerId: bidderId, lines });
+      if (!check.ok) return reply.code(422).send({ ok: false, code: "PROMO_INVALID", reason: check.reason });
+      promo = { id: check.promo.id, perLine: check.perLine, discountCents: check.discountCents };
+    }
+
     const created: Array<{ ref: string; totalCents: number; listingId: string }> = [];
     const unavailable: Array<{ listingId: string; title: string }> = [];
     const remaining: CartEntry[] = [];
 
     for (const e of entries) {
+      const lineDiscount = promo?.perLine.get(e.id) ?? 0;
       const result = await buyNow(ctx, {
         listingId: e.id,
         customerId: bidderId,
         holderIds: body.data.visitor_id ? [body.data.visitor_id] : [],
+        ...(promo && lineDiscount > 0 ? { promo: { id: promo.id, discountCents: lineDiscount } } : {}),
       });
       if (result.ok) {
         created.push({ ref: result.orderRef, totalCents: result.totalCents, listingId: e.id });
@@ -340,6 +357,76 @@ export function registerCartRoutes(app: FastifyInstance, ctx: AppContext): void 
     }
 
     await writeEntries(ctx, key!, kept);
+
+    // Использование кода: одна корзина = одно использование, сколько бы
+    // заказов из неё ни родилось. Фиксируем только если хоть что-то куплено.
+    if (promo && created.length > 0) {
+      const applied = created.reduce((s, c) => s + (promo!.perLine.get(c.listingId) ?? 0), 0);
+      if (applied > 0) {
+        await recordRedemption(ctx.db, {
+          promoId: promo.id,
+          customerId: bidderId,
+          orderRef: created.map((c) => c.ref).join(","),
+          discountCents: applied,
+        });
+      }
+    }
     return { ok: true, orders: created, unavailable };
+  });
+
+  /** Живая проверка промокода для поля в грозсе: считает скидку, ничего не
+   *  списывает. Тем же путём, что и настоящий чекаут — расхождений не бывает. */
+  app.post("/api/public/cart/promo", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const body = z
+      .object({
+        promo_code: z.string().min(1).max(40),
+        visitor_id: visitorSchema.optional(),
+        listing_ids: z.array(z.string().uuid()).max(MAX_ITEMS).optional(),
+      })
+      .safeParse(req.body ?? {});
+    if (!body.success) return reply.code(400).send({ error: "invalid_body" });
+    const { entries: allEntries } = await resolveCart(ctx, { customerId: bidderId, visitorId: body.data.visitor_id ?? null });
+    const wanted = body.data.listing_ids ? new Set(body.data.listing_ids) : null;
+    const entries = wanted ? allEntries.filter((e) => wanted.has(e.id)) : allEntries;
+    if (entries.length === 0) return { ok: false, reason: "cart_empty" };
+    const rows = await loadRows(entries.map((e) => e.id));
+    const lines = rows
+      .filter((r) => r.listing.priceCents !== null)
+      .map((r) => ({ listingId: r.listing.id, category: r.item.category, priceCents: r.listing.priceCents! }));
+    const check = await validatePromo(ctx, { code: body.data.promo_code, customerId: bidderId, lines });
+    if (!check.ok) return { ok: false, reason: check.reason };
+    return {
+      ok: true,
+      code: check.promo.code,
+      discountCents: check.discountCents,
+      perLine: Object.fromEntries(check.perLine),
+    };
+  });
+
+  /** Личные активные коды человека — для баннера «у тебя есть скидка N%»
+   *  в грозсе (MD §1.5.1: подсказываем, не применяем молча). */
+  app.get("/api/public/me/promo-codes", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const now = ctx.now();
+    const rows = await ctx.db.select().from(promoCodes).where(eq(promoCodes.customerId, bidderId));
+    return {
+      codes: rows
+        .filter((r) =>
+          r.isActive &&
+          r.usedCount === 0 &&
+          (!r.validFrom || r.validFrom <= now) &&
+          (!r.validTo || r.validTo >= now))
+        .map((r) => ({
+          code: r.code,
+          type: r.type,
+          value: r.value,
+          source: r.source,
+          category: r.category,
+          validTo: r.validTo,
+        })),
+    };
   });
 }

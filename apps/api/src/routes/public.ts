@@ -19,8 +19,11 @@ import {
   notificationPrefs,
   notifications,
   orders,
+  loyaltyLedger,
   payments,
   pickupTickets,
+  referralCodes,
+  referrals,
   refunds,
   returnCases,
   savedSearches,
@@ -44,8 +47,11 @@ import { placeBid } from "../engine/bids.js";
 import { InsufficientCreditError, getOrCreateCredit, moveCredit } from "../engine/credits.js";
 import { renderInvoiceHtml, type InvoiceData } from "../engine/invoices.js";
 import { renderInvoicePdf } from "../engine/invoicePdf.js";
+import { getOrCreateLoyalty, movePoints } from "../engine/loyalty.js";
 import { applyUnsubscribe } from "../engine/marketing.js";
 import { enqueueNotification } from "../engine/notifications.js";
+import { ensureWelcomeCode, extendWelcomeOnVerify, findPersonalCode } from "../engine/promo.js";
+import { getSettings } from "../engine/settings.js";
 import { verifyUnsubscribeToken } from "../engine/unsubscribe.js";
 import { registerSocialAuthRoutes } from "./socialAuth.js";
 import { buyNow } from "../engine/purchase.js";
@@ -148,10 +154,23 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
       .set({ emailVerifyTokenHash: sha256(token), emailVerifySentAt: ctx.now() })
       .where(eq(customers.id, customer.id));
     const link = `${ctx.config.storefrontBaseUrl}/verify-email?token=${token}`;
+    // Приветственный код (IZ-P01) — сервисный блок этого же письма. Код
+    // личный и до подтверждения почты бесполезен, поэтому показать его до
+    // верификации безопасно, а мотивации подтвердить — больше.
+    const welcome = await findPersonalCode(ctx.db, customer.id, ["welcome_auto", "referral_referred"]);
     await enqueueNotification(ctx, ctx.db, {
       customerId: customer.id,
       type: "verify_email",
-      template: { alias: "", lotTitle: "", actionUrl: link },
+      template: {
+        alias: "", lotTitle: "", actionUrl: link,
+        ...(welcome && welcome.usedCount === 0
+          ? {
+              promoCode: welcome.code,
+              promoPercent: welcome.value,
+              promoDeadline: welcome.validTo ?? undefined,
+            }
+          : {}),
+      },
     });
   }
 
@@ -187,6 +206,8 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
      * apart. Estonian and Lithuanian visitors get English until that copy
      * exists. */
     lang: z.enum(["lv", "ru", "en", "et", "lt"]).optional(),
+    /** Реферальный код пригласившего (из ссылки «Uzaicini draugu»). */
+    ref: z.string().min(3).max(24).optional(),
   });
 
   app.post("/api/public/auth/register", async (req, reply) => {
@@ -209,6 +230,41 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
       .onConflictDoNothing()
       .returning({ id: customers.id, email: customers.email, alias: customers.alias });
     if (!row) return reply.code(409).send({ error: "email_exists" });
+
+    // Реферал (MD §1.6.1): пришёл по чужой личной ссылке — фиксируем связку.
+    // Совпадение IP с пригласившим — не отказ, а флаг на ручную проверку:
+    // обе награды придерживаются, пока админ не решит.
+    let referred = false;
+    if (body.data.ref) {
+      const refCode = body.data.ref.trim().toUpperCase();
+      const [owner] = await ctx.db
+        .select({ customerId: referralCodes.customerId })
+        .from(referralCodes)
+        .where(eq(referralCodes.code, refCode));
+      if (owner && owner.customerId !== row.id) {
+        const ip = req.ip;
+        const [sameIp] = ip
+          ? await ctx.db
+              .select({ id: customerRefreshTokens.id })
+              .from(customerRefreshTokens)
+              .where(and(eq(customerRefreshTokens.customerId, owner.customerId), eq(customerRefreshTokens.ip, ip)))
+              .limit(1)
+          : [];
+        await ctx.db
+          .insert(referrals)
+          .values({
+            referrerCustomerId: owner.customerId,
+            referredCustomerId: row.id,
+            fraudFlag: !!sameIp,
+          })
+          .onConflictDoNothing();
+        referred = true;
+      }
+    }
+    // Приветственный код −N% на первую покупку (IZ-P01): рождается здесь,
+    // уезжает в письме подтверждения; приглашённому — повышенный процент.
+    await ensureWelcomeCode(ctx, ctx.db, row.id, { referred }).catch(() => undefined);
+
     // Письмо со ссылкой уходит сразу; до подтверждения ставки закрыты.
     await sendVerificationEmail(row);
     return issueTokens(row, req, "password");
@@ -986,6 +1042,31 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
       .update(customers)
       .set({ emailVerifiedAt: ctx.now(), emailVerifyTokenHash: null })
       .where(eq(customers.id, c.id));
+
+    // Часы welcome-кода начинают тикать от подтверждения (MD §1.5.1), не от
+    // регистрации — человек, открывший письмо через три дня, срок не теряет.
+    await extendWelcomeOnVerify(ctx, ctx.db, c.id).catch(() => undefined);
+
+    // Реферальная награда, ступень 1 (MD §1.6.1): пригласивший получает
+    // баллы за подтверждённую регистрацию. Fraud-флаг держит выплату до
+    // ручной проверки в админке.
+    await ctx.db.transaction(async (tx) => {
+      const [r] = await tx.select().from(referrals).where(eq(referrals.referredCustomerId, c.id)).for("update");
+      if (!r || r.status !== "pending" || r.fraudFlag) return;
+      const s = await getSettings(ctx);
+      if (s.referral_signup_points_cents > 0) {
+        await movePoints(tx, r.referrerCustomerId, {
+          reason: "referral_signup",
+          amountCents: s.referral_signup_points_cents,
+          referralId: r.id,
+        }, ctx.now());
+      }
+      await tx
+        .update(referrals)
+        .set({ status: "signup_rewarded", signupRewardedAt: ctx.now() })
+        .where(eq(referrals.id, r.id));
+    }).catch((err) => req.log.error({ err }, "referral signup reward failed"));
+
     return { ok: true };
   });
 
@@ -1007,6 +1088,70 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
       await sendVerificationEmail(c);
     })().catch((err) => req.log.error({ err }, "verify-email resend failed"));
     return reply.send({ ok: true });
+  });
+
+  // ═══ БАЛЛЫ ЛОЯЛЬНОСТИ И РЕФЕРАЛЫ (план v15) ═════════════════════════════
+
+  /** Баланс и журнал баллов. 1 балл = 1 € = 100 центов; потолок списания —
+   *  доля итога заказа из настроек (заказ целиком баллами не закрывается). */
+  app.get("/api/public/me/points", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const account = await getOrCreateLoyalty(ctx.db, bidderId);
+    const s = await getSettings(ctx);
+    const rows = await ctx.db
+      .select()
+      .from(loyaltyLedger)
+      .where(eq(loyaltyLedger.accountId, account.id))
+      .orderBy(desc(loyaltyLedger.createdAt))
+      .limit(50);
+    return {
+      balanceCents: account.balanceCents,
+      redeemMaxBp: s.points_redeem_max_bp,
+      earnPerEurCents: s.points_per_eur_cents,
+      ledger: rows.map((r) => ({
+        reason: r.reason, amountCents: r.amountCents, orderRef: r.orderRef, createdAt: r.createdAt,
+      })),
+    };
+  });
+
+  /** Личная реферальная ссылка (создаётся при первом запросе) + статистика. */
+  app.get("/api/public/me/referral", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    let [row] = await ctx.db.select().from(referralCodes).where(eq(referralCodes.customerId, bidderId));
+    if (!row) {
+      // Короткий код без похожих символов; коллизия — новая попытка.
+      const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+      for (let attempt = 0; attempt < 5 && !row; attempt += 1) {
+        let code = "";
+        for (let i = 0; i < 8; i += 1) code += alphabet[Math.floor(Math.random() * alphabet.length)];
+        const [made] = await ctx.db
+          .insert(referralCodes)
+          .values({ customerId: bidderId, code })
+          .onConflictDoNothing()
+          .returning();
+        if (made) row = made;
+      }
+      if (!row) [row] = await ctx.db.select().from(referralCodes).where(eq(referralCodes.customerId, bidderId));
+    }
+    const s = await getSettings(ctx);
+    const mine = await ctx.db.select().from(referrals).where(eq(referrals.referrerCustomerId, bidderId));
+    return {
+      code: row!.code,
+      url: `${ctx.config.storefrontBaseUrl}/register?ref=${row!.code}`,
+      rewards: {
+        signupCents: s.referral_signup_points_cents,
+        orderCents: s.referral_order_points_cents,
+        friendPercent: s.referral_percent,
+      },
+      stats: {
+        invited: mine.length,
+        signupRewarded: mine.filter((r) => r.status !== "pending").length,
+        orderRewarded: mine.filter((r) => r.status === "order_rewarded").length,
+        onHold: mine.filter((r) => r.fraudFlag && r.status === "pending").length,
+      },
+    };
   });
 
   // ═══ АВАНС (№ 69b, 71–73) ════════════════════════════════════════════════
