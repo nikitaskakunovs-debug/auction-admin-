@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { publicApi } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { safeNext } from "@/lib/nav";
@@ -19,6 +19,13 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Уже вошедшему форма входа не нужна: его молча возвращают туда, куда он
+  // шёл, а пришедшего на /login напрямую — в кабинет.
+  useEffect(() => {
+    if (publicApi.hasSession) router.replace(next === "/" ? "/account" : next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();

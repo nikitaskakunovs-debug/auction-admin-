@@ -144,13 +144,19 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
   const bid = async () => {
     setBusy(true); setNotice(null);
     try {
-      const r = await publicApi.post<{ youLead: boolean; currentPriceCents: number; extended: boolean; firstBid?: boolean }>(
+      const r = await publicApi.post<{ youLead: boolean; currentPriceCents: number; extended: boolean; firstBid?: boolean; priceChanged?: boolean }>(
         `/api/public/auctions/${stage.id}/bids`, { maxCents: ask },
       );
-      setNotice(r.youLead
-        ? { text: t("a.youLead"), tone: "win" }
-        : { text: `${t("a.outbid")} — ${formatEur(r.currentPriceCents)}`, tone: "out" });
-      say(r.youLead ? t("a.youLead") : t("a.outbid"));
+      // Лидер поднял собственный максимум: цена не растёт и новой строки в
+      // истории нет — так работают прокси-торги. Без отдельного сообщения
+      // это выглядит как «ставка не сделалась».
+      const maxRaised = r.youLead && r.priceChanged === false;
+      setNotice(maxRaised
+        ? { text: t("a.maxRaised", { sum: formatEur(ask) }), tone: "win" }
+        : r.youLead
+          ? { text: t("a.youLead"), tone: "win" }
+          : { text: `${t("a.outbid")} — ${formatEur(r.currentPriceCents)}`, tone: "out" });
+      say(maxRaised ? t("a.maxRaised", { sum: formatEur(ask) }) : r.youLead ? t("a.youLead") : t("a.outbid"));
       // Аналитика (GTM): ставка из зала торгов — то же событие, что и с
       // карточки лота: value без НДС, ставка отдельно, тип решает движок.
       {
@@ -177,6 +183,10 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
     } catch (err) {
       if (err instanceof PublicApiError && err.body.code === "EMAIL_NOT_VERIFIED") {
         setNotice({ text: t("lc.verifyFirst"), tone: "out" });
+      } else if (err instanceof PublicApiError && err.body.code === "NOT_ABOVE_OWN_MAX" && typeof err.body.minAcceptableCents === "number") {
+        // Он уже лидирует с максимумом выше введённого: подсказываем сам
+        // максимум (это его собственная цифра, ему её видеть можно).
+        setNotice({ text: t("a.aboveOwnMax", { sum: formatEur(Number(err.body.minAcceptableCents) - 1) }), tone: "out" });
       } else if (err instanceof PublicApiError && typeof err.body.minAcceptableCents === "number") {
         setNotice({ text: `${t("a.minBid")}: ${formatEur(err.body.minAcceptableCents)}`, tone: "out" });
       } else {

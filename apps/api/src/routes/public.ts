@@ -271,6 +271,15 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
     return { ok: true };
   });
 
+  /** Ротация с поблажкой: две вкладки делят один refresh-токен, и обе,
+   *  проснувшись, шлют его одновременно. Строгая ротация (мгновенный отзыв
+   *  использованного токена) вторую вкладку выбрасывала из аккаунта — те
+   *  самые «случайные разлогины». Поэтому использованный токен не гасится,
+   *  а доживает минуту: опоздавшая вкладка успевает получить собственную
+   *  свежую пару. Выход, смена пароля и «выйти везде» ставят revokedAt —
+   *  для них смерть токена по-прежнему мгновенная. */
+  const REFRESH_REUSE_GRACE_MS = 60_000;
+
   app.post("/api/public/auth/refresh", async (req, reply) => {
     const body = z.object({ refreshToken: z.string().min(10) }).safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: "invalid_body" });
@@ -283,8 +292,26 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
     }
     const [customer] = await ctx.db.select().from(customers).where(eq(customers.id, row.customerId));
     if (!customer || customer.erasedAt !== null) return reply.code(401).send({ error: "invalid_refresh_token" });
-    await ctx.db.update(customerRefreshTokens).set({ revokedAt: ctx.now() }).where(eq(customerRefreshTokens.id, row.id));
+    const graceEnd = new Date(ctx.now().getTime() + REFRESH_REUSE_GRACE_MS);
+    if (row.expiresAt.getTime() > graceEnd.getTime()) {
+      await ctx.db.update(customerRefreshTokens).set({ expiresAt: graceEnd }).where(eq(customerRefreshTokens.id, row.id));
+    }
     return issueTokens(customer, req);
+  });
+
+  /** Выход: refresh-токен гасится в базе, а не только стирается в браузере —
+   *  украденная позже копия уже ничего не откроет. Сам токен и есть пропуск,
+   *  поэтому маршрут без авторизации; ответ всегда ok — чужим не сообщаем,
+   *  жив ли был токен. */
+  app.post("/api/public/auth/logout", async (req) => {
+    const body = z.object({ refreshToken: z.string().min(10) }).safeParse(req.body);
+    if (body.success) {
+      await ctx.db
+        .update(customerRefreshTokens)
+        .set({ revokedAt: ctx.now() })
+        .where(and(eq(customerRefreshTokens.tokenHash, sha256(body.data.refreshToken)), isNull(customerRefreshTokens.revokedAt)));
+    }
+    return { ok: true };
   });
 
   const requireBidder = (req: FastifyRequest, reply: FastifyReply): string | null => {
@@ -436,6 +463,7 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
     return {
       ok: true,
       firstBid: Number(bidTally?.n ?? 0) <= 1,
+      priceChanged: result.priceChanged,
       currentPriceCents: result.currentPriceCents,
       youLead: result.leaderCustomerId === bidderId,
       leaderAlias: result.leaderAlias,

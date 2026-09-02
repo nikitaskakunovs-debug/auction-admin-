@@ -25,6 +25,9 @@ export type PlaceBidError =
 export interface PlaceBidOk {
   ok: true;
   auctionId: string;
+  /** Выросла ли видимая цена. Лидер, поднявший свой максимум, цену не
+   *  двигает — без этого признака витрине не объяснить, что ставка принята. */
+  priceChanged: boolean;
   currentPriceCents: number;
   leaderCustomerId: string;
   leaderAlias: string;
@@ -171,6 +174,7 @@ export async function placeBid(
     return {
       ok: true,
       auctionId: auction.id,
+      priceChanged: resolution.priceChanged,
       currentPriceCents: resolution.state.currentPriceCents!,
       leaderCustomerId: newLeader.bidderId,
       leaderAlias: leaderRow?.alias ?? "—",

@@ -44,10 +44,32 @@ describe("bidder accounts", () => {
     expect(login.statusCode).toBe(200);
 
     const { refreshToken } = login.json() as { refreshToken: string };
-    const r1 = await world.server.app.inject({ method: "POST", url: "/api/public/auth/refresh", payload: { refreshToken } });
+    const refresh = (token: string) =>
+      world.server.app.inject({ method: "POST", url: "/api/public/auth/refresh", payload: { refreshToken: token } });
+
+    const r1 = await refresh(refreshToken);
     expect(r1.statusCode).toBe(200);
-    const r2 = await world.server.app.inject({ method: "POST", url: "/api/public/auth/refresh", payload: { refreshToken } });
-    expect(r2.statusCode).toBe(401);
+    // Гонка вкладок: тот же токен сразу после ротации ещё минуту жив —
+    // опоздавшая вкладка получает собственную свежую пару, а не разлогин.
+    const r2 = await refresh(refreshToken);
+    expect(r2.statusCode).toBe(200);
+    // Но лишь минуту: спустя две минуты это уже не гонка, а повтор.
+    world.setNow(new Date(Date.now() + 2 * 60_000));
+    const r3 = await refresh(refreshToken);
+    expect(r3.statusCode).toBe(401);
+
+    // Выход гасит токен и в базе: обновиться погашенной парой нельзя,
+    // даже внутри минутного окна — живой преемницы у неё нет.
+    const pair = r1.json() as { refreshToken: string };
+    const out = await world.server.app.inject({
+      method: "POST",
+      url: "/api/public/auth/logout",
+      payload: { refreshToken: pair.refreshToken },
+    });
+    expect(out.statusCode).toBe(200);
+    const dead = await refresh(pair.refreshToken);
+    expect(dead.statusCode).toBe(401);
+    world.setNow(null);
   });
 
   it("bidder tokens are rejected by admin endpoints", async () => {
@@ -153,6 +175,18 @@ describe("the real bid path", () => {
     // a's max is €50; the €50–199.99 tier increments by €5 → b leads at €55.
     r = (await bidAs(b.accessToken, 9_000)).json() as { youLead: boolean; currentPriceCents: number };
     expect(r).toMatchObject({ youLead: true, currentPriceCents: 5_500 });
+
+    // The leader raising their own max is accepted: price stays put, and the
+    // response says so via priceChanged — the UI explains instead of lying.
+    const raise = (await bidAs(b.accessToken, 12_000)).json() as {
+      youLead: boolean; priceChanged: boolean; currentPriceCents: number;
+    };
+    expect(raise).toMatchObject({ youLead: true, priceChanged: false, currentPriceCents: 5_500 });
+
+    // At or below their own max — a refusal that names the minimum raise.
+    const low = await bidAs(b.accessToken, 9_000);
+    expect(low.statusCode).toBe(422);
+    expect(low.json()).toMatchObject({ code: "NOT_ABOVE_OWN_MAX", minAcceptableCents: 12_001 });
 
     // Unauthenticated bids are rejected.
     const anon = await world.server.app.inject({

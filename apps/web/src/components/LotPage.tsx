@@ -194,7 +194,7 @@ export function LotPage({
   const placeBid = async () => {
     setBusy(true); setNotice(null);
     try {
-      const r = await publicApi.post<{ youLead: boolean; currentPriceCents: number; extended: boolean; firstBid?: boolean }>(
+      const r = await publicApi.post<{ youLead: boolean; currentPriceCents: number; extended: boolean; firstBid?: boolean; priceChanged?: boolean }>(
         `/api/public/auctions/${a.id}/bids`, { maxCents: amount },
       );
       setConfirm(false);
@@ -206,10 +206,16 @@ export function LotPage({
           .then(() => say(t("acc.marketingOn")))
           .catch(() => setNewsDone(false));
       }
-      setNotice(r.youLead
-        ? { text: t("a.youLead"), tone: "win" }
-        : { text: `${t("a.outbid")} — ${formatEur(r.currentPriceCents)}`, tone: "out" });
-      say(r.youLead ? t("a.youLead") : t("a.outbid"));
+      // Лидер поднял собственный максимум: цена не растёт и новой строки в
+      // истории нет — так работают прокси-торги. Без отдельного сообщения
+      // это выглядит как «ставка не сделалась».
+      const maxRaised = r.youLead && r.priceChanged === false;
+      setNotice(maxRaised
+        ? { text: t("a.maxRaised", { sum: formatEur(amount) }), tone: "win" }
+        : r.youLead
+          ? { text: t("a.youLead"), tone: "win" }
+          : { text: `${t("a.outbid")} — ${formatEur(r.currentPriceCents)}`, tone: "out" });
+      say(maxRaised ? t("a.maxRaised", { sum: formatEur(amount) }) : r.youLead ? t("a.youLead") : t("a.outbid"));
       if (r.extended) say(t("a.extended"));
       // Аналитика (GTM): успешная ставка. value — молоток + комиссия БЕЗ НДС
       // (единая арифметика движка), сама ставка отдельно в bid_amount.
@@ -238,6 +244,10 @@ export function LotPage({
     } catch (err) {
       if (err instanceof PublicApiError && err.body.code === "EMAIL_NOT_VERIFIED") {
         setNotice({ text: t("lc.verifyFirst"), tone: "out" });
+      } else if (err instanceof PublicApiError && err.body.code === "NOT_ABOVE_OWN_MAX" && typeof err.body.minAcceptableCents === "number") {
+        // Он уже лидирует с максимумом выше введённого: подсказываем сам
+        // максимум (это его собственная цифра, ему её видеть можно).
+        setNotice({ text: t("a.aboveOwnMax", { sum: formatEur(Number(err.body.minAcceptableCents) - 1) }), tone: "out" });
       } else if (err instanceof PublicApiError && typeof err.body.minAcceptableCents === "number") {
         setNotice({ text: `${t("a.minBid")}: ${formatEur(err.body.minAcceptableCents)}`, tone: "out" });
       } else if (err instanceof PublicApiError && err.body.code === "FEES_OUTSTANDING") {

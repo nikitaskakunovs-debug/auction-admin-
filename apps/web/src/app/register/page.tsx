@@ -1,7 +1,7 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { safeNext } from "@/lib/nav";
@@ -13,6 +13,7 @@ import Link from "next/link";
 
 export default function RegisterPage() {
   const { t } = useT();
+  const router = useRouter();
   // Куда вернуть после входа через соцсеть; регистрация почтой уходит на
   // подтверждение e-mail, и там возврат теряет смысл.
   const next = safeNext(useSearchParams().get("next"));
@@ -24,6 +25,14 @@ export default function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
+
+  // Вошедшему регистрация не нужна — как и /login, страница молча уводит
+  // дальше. Только на первом кадре: свежая регистрация остаётся на месте,
+  // чтобы показать «подтвердите почту».
+  useEffect(() => {
+    if (publicApi.hasSession) router.replace(next === "/" ? "/account" : next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Живой намёк по сегвардсу: браузеры любят автозаполнять сюда e-mail, и
   // человек получал отказ по-английски без объяснения, какое поле виновато.

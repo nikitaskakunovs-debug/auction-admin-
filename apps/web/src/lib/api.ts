@@ -27,12 +27,31 @@ class PublicApi {
 
   constructor() {
     if (typeof window !== "undefined") {
-      try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw) this.tokens = JSON.parse(raw) as Tokens;
-      } catch {
-        this.tokens = null;
-      }
+      this.tokens = this.readStored();
+      // Вкладки делят одну сессию: вход, ротация токенов или выход в любой
+      // из них немедленно доезжает до остальных. Без этого вторая вкладка
+      // жила со старым refresh-токеном и случайно выбрасывала из аккаунта.
+      window.addEventListener("storage", (e) => {
+        if (e.key !== STORAGE_KEY) return;
+        const next = this.readStored();
+        const was = this.tokens !== null;
+        this.tokens = next;
+        if (was !== (next !== null)) {
+          (window as unknown as { dataLayer?: Array<Record<string, unknown>> }).dataLayer
+            ?.push({ event: "user_identity", user_id: next ? this.bidderId : null });
+        }
+        for (const fn of this.listeners) fn();
+      });
+    }
+  }
+
+  /** Свежая пара из localStorage — её могла обновить соседняя вкладка. */
+  private readStored(): Tokens | null {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? (JSON.parse(raw) as Tokens) : null;
+    } catch {
+      return null;
     }
   }
 
@@ -84,20 +103,53 @@ class PublicApi {
     return json as T;
   }
 
+  /** Одно обновление на всех: параллельные 401 ждут общий результат,
+   *  а не жгут одноразовый refresh-токен наперегонки. */
+  private refreshing: Promise<boolean> | null = null;
+
+  private refreshOnce(): Promise<boolean> {
+    this.refreshing ??= this.doRefresh().finally(() => {
+      this.refreshing = null;
+    });
+    return this.refreshing;
+  }
+
+  private async doRefresh(): Promise<boolean> {
+    const mine = this.tokens;
+    if (!mine) return false;
+    // Соседняя вкладка уже успела обновить пару — берём её, не тратя токен.
+    const stored = this.readStored();
+    if (stored && stored.accessToken !== mine.accessToken) {
+      this.setTokens(stored);
+      return true;
+    }
+    try {
+      const r = await this.raw<Tokens>("POST", "/api/public/auth/refresh", {
+        refreshToken: mine.refreshToken,
+      });
+      this.setTokens({ accessToken: r.accessToken, refreshToken: r.refreshToken });
+      return true;
+    } catch (err) {
+      // Хоронить сессию можно только по слову сервера. Оборванная сеть или
+      // 500 — не повод разлогинивать: запрос упадёт, человек останется в
+      // аккаунте, следующий запрос попробует снова.
+      if (!(err instanceof PublicApiError) || err.status !== 401) return false;
+      const latest = this.readStored();
+      if (latest && latest.accessToken !== mine.accessToken) {
+        this.setTokens(latest);
+        return true;
+      }
+      this.setTokens(null);
+      return false;
+    }
+  }
+
   async request<T>(method: string, path: string, body?: unknown): Promise<T> {
     try {
       return await this.raw<T>(method, path, body);
     } catch (err) {
       if (err instanceof PublicApiError && err.status === 401 && this.tokens) {
-        try {
-          const r = await this.raw<Tokens>("POST", "/api/public/auth/refresh", {
-            refreshToken: this.tokens.refreshToken,
-          });
-          this.setTokens({ accessToken: r.accessToken, refreshToken: r.refreshToken });
-          return await this.raw<T>(method, path, body);
-        } catch {
-          this.setTokens(null);
-        }
+        if (await this.refreshOnce()) return await this.raw<T>(method, path, body);
       }
       throw err;
     }
@@ -150,7 +202,24 @@ class PublicApi {
   }
 
   logout(): void {
+    const t = this.tokens;
     this.setTokens(null);
+    // Токен гаснет и на сервере — стереть его только из браузера мало.
+    // Молча и в фоне: выходу не мешает даже упавшая сеть.
+    if (t) {
+      void this.raw("POST", "/api/public/auth/logout", { refreshToken: t.refreshToken }).catch(() => {});
+    }
+    // Следы оформления принадлежат человеку, а не браузеру: следующий, кто
+    // сядет за этот экран, начинает свой checkout с чистого листа.
+    // (Вишлист чистит watch.ts по тому же сигналу listeners.)
+    try {
+      sessionStorage.removeItem("izsoli_checkout_v1");
+      for (const k of Object.keys(localStorage)) {
+        if (k.startsWith("izsoli_ga_bc_")) localStorage.removeItem(k);
+      }
+    } catch {
+      // приватный режим без storage — выходу это не мешает
+    }
   }
 }
 
