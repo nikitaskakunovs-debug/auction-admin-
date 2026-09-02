@@ -5,6 +5,7 @@ import { originForHost } from "@/lib/country";
 import { jsonLdScript } from "@/lib/jsonld";
 import { HomeSections } from "@/components/HomeSections";
 import { QuietBanner } from "@/components/QuietBanner";
+import { PersonalizedRail } from "@/components/PersonalizedRail";
 
 export const dynamic = "force-dynamic";
 
@@ -61,6 +62,8 @@ export default async function HomePage() {
       {/* Тихая строка: корзина ждёт / баланс баллов / личный код — не
           поп-ап, закрывается на сутки (MD §5a.4, §7.9). */}
       <QuietBanner />
+      {/* §7.1: персональный ряд — первым, но только когда есть история. */}
+      <PersonalizedRail />
       <HomeSections auctions={auctions} listings={listings} />
     </>
   );

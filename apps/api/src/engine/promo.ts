@@ -40,6 +40,9 @@ export interface PromoOk {
   discountCents: number;
   /** Скидка по строкам корзины (только затронутые строки). */
   perLine: Map<string, number>;
+  /** Тип free_shipping: скидка на товар 0, доставка обнулится при выборе
+   *  способа получения (fulfilment). */
+  freeShipping?: boolean;
 }
 
 type Tx = Pick<Db, "select" | "insert" | "update">;
@@ -154,7 +157,6 @@ export async function validatePromo(
   if (promo.validFrom && promo.validFrom.getTime() > now) return { ok: false, reason: "not_started" };
   if (promo.validTo && promo.validTo.getTime() < now) return { ok: false, reason: "expired" };
   if (promo.customerId && promo.customerId !== args.customerId) return { ok: false, reason: "not_yours" };
-  if (promo.type === "free_shipping") return { ok: false, reason: "type_unsupported" };
   if (promo.segmentId) {
     const [member] = await ctx.db
       .select({ customerId: segmentMembers.customerId })
@@ -177,6 +179,12 @@ export async function validatePromo(
   if (eligible.length === 0) return { ok: false, reason: "category" };
   const subtotal = eligible.reduce((s, l) => s + l.priceCents, 0);
   if (promo.minOrderCents !== null && subtotal < promo.minOrderCents) return { ok: false, reason: "min_order" };
+
+  // §7.4: free_shipping не трогает товарную часть — код едет с заказом и
+  // обнуляет доставку в момент выбора способа получения (fulfilment.ts).
+  if (promo.type === "free_shipping") {
+    return { ok: true, promo, discountCents: 0, perLine: new Map(), freeShipping: true };
+  }
 
   const raw = promo.type === "percent"
     ? Math.round((subtotal * promo.value) / 100)

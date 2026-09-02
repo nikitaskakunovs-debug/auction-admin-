@@ -176,11 +176,13 @@ describe("маркетинг v15: welcome-код, промо, баллы, реф
     const [after] = await world.ctx.db.select().from(loyaltyAccounts).where(eq(loyaltyAccounts.customerId, d.bidder.id));
     expect(after!.balanceCents).toBe(20_100);
 
-    // За часть, оплаченную баллами, новые баллы не начисляются.
+    // За часть, оплаченную баллами, новые баллы не начисляются. Клиент к
+    // этому моменту заработал 25 100 за всю историю — порог серебра (25 000)
+    // пройден, и начисление идёт с множителем уровня ×1,25 (§6.5).
     await settleOrderPaid(world.ctx, order2!.id, { id: null, label: "test" });
     const [final] = await world.ctx.db.select().from(loyaltyAccounts).where(eq(loyaltyAccounts.customerId, d.bidder.id));
-    // +50 € реальной оплаты → +5 000.
-    expect(final!.balanceCents).toBe(25_100);
+    // +50 € реальной оплаты → 5 000 × 1,25 = +6 250.
+    expect(final!.balanceCents).toBe(26_350);
   });
 
   it("реферал: 5 € за подтверждение, 10 € за первый оплаченный заказ, повышенный welcome у друга", async () => {

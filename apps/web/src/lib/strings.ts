@@ -1330,6 +1330,48 @@ export const STRINGS: Record<string, Record<Lang, string>> = {
   "qb.points": { lv: "Tev ir {sum} punktos — tā ir atlaide nākamajam pirkumam.", ru: "У вас {sum} баллами — это скидка на следующую покупку.", en: "You have {sum} in points — that is money off your next order.", et: "Sul on {sum} punktides — see on allahindlus järgmisele ostule.", lt: "Turite {sum} taškais — tai nuolaida kitam pirkiniui." },
   "qb.promo": { lv: "Tavs kods {code} dod −{pct}% — tas vēl nav izmantots.", ru: "Ваш код {code} даёт −{pct}% — он ещё не использован.", en: "Your code {code} gives {pct}% off — still unused.", et: "Sinu kood {code} annab −{pct}% — veel kasutamata.", lt: "Jūsų kodas {code} suteikia −{pct}% — dar nepanaudotas." },
   "qb.more": { lv: "Uzzināt vairāk", ru: "Подробнее", en: "Learn more", et: "Loe lähemalt", lt: "Sužinoti daugiau" },
+
+  // ── §7.5: соц-доказательство на лоте (живые числа) ─────────────────────
+  "lp.watching": { lv: "{n} cilvēki seko šim lotam", ru: "{n} человек следят за лотом", en: "{n} people are watching", et: "{n} inimest jälgib", lt: "{n} žmonės stebi" },
+  "lp.bidsHour": { lv: "{n} solījumi pēdējā stundā", ru: "{n} ставок за последний час", en: "{n} bids in the last hour", et: "{n} pakkumist viimase tunni jooksul", lt: "{n} statymai per valandą" },
+  "lp.similarNow": { lv: "Līdzīgi loti tieši tagad:", ru: "Похожие лоты прямо сейчас:", en: "Similar lots right now:", et: "Sarnased partiid praegu:", lt: "Panašūs lotai dabar:" },
+
+  // ── §7.1/§4: персональный ряd на главной ───────────────────────────────
+  "pr.title": { lv: "Ieteikts tev", ru: "Подобрано для вас", en: "Picked for you", et: "Sulle valitud", lt: "Parinkta jums" },
+  "pr.all": { lv: "Skatīt visu kategoriju", ru: "Вся категория", en: "See the whole category", et: "Vaata kogu kategooriat", lt: "Visa kategorija" },
+
+  // ── §4: бейдж «vēlmes на исходе» ───────────────────────────────────────
+  "nav.watchEndingN": { lv: "{n} vēlmju loti drīz noslēgsies", ru: "{n} лотов из избранного скоро закроются", en: "{n} watched lots ending soon", et: "{n} jälgitavat partiid lõppeb varsti", lt: "{n} stebimi lotai greitai baigsis" },
+
+  // ── §6.4: интересы при знакомстве ──────────────────────────────────────
+  "int.title": { lv: "Kas tevi interesē?", ru: "Что вам интересно?", en: "What are you into?", et: "Mis sind huvitab?", lt: "Kas jus domina?" },
+  "int.sub": { lv: "Atzīmē līdz 5 kategorijām — rādīsim atbilstošus lotus un rakstīsim tikai par tiem.", ru: "Отметьте до 5 категорий — покажем подходящие лоты и будем писать только о них.", en: "Pick up to 5 categories — we will surface matching lots and only write about those.", et: "Vali kuni 5 kategooriat — näitame sobivaid partiisid.", lt: "Pažymėkite iki 5 kategorijų — rodysime tinkamus lotus." },
+  "int.save": { lv: "Saglabāt izvēli", ru: "Сохранить выбор", en: "Save my picks", et: "Salvesta valik", lt: "Išsaugoti pasirinkimą" },
+  "int.saved": { lv: "Paldies! Ieteikumi pielāgosies.", ru: "Спасибо! Подборки подстроятся.", en: "Thanks! Recommendations will adapt.", et: "Aitäh! Soovitused kohanduvad.", lt: "Ačiū! Rekomendacijos prisitaikys." },
+
+  // ── §7.4: полоса до порога кода + бесплатная доставка ──────────────────
+  "cart.promoGap": { lv: "Pievieno vēl {sum}, lai kods {code} sāktu darboties.", ru: "Добавьте ещё {sum}, чтобы код {code} заработал.", en: "Add {sum} more to unlock code {code}.", et: "Lisa veel {sum}, et kood {code} kehtiks.", lt: "Pridėkite dar {sum}, kad kodas {code} veiktų." },
+  "cart.promoFreeShip": { lv: "Kods piemērots: piegāde būs bez maksas.", ru: "Код применён: доставка будет бесплатной.", en: "Code applied: shipping will be free.", et: "Kood rakendatud: tarne on tasuta.", lt: "Kodas pritaikytas: pristatymas nemokamas." },
+
+  // ── §6.5: уровни лояльности ────────────────────────────────────────────
+  "tier.bronze": { lv: "Bronzas līmenis", ru: "Бронзовый уровень", en: "Bronze tier", et: "Pronkstase", lt: "Bronzos lygis" },
+  "tier.silver": { lv: "Sudraba līmenis", ru: "Серебряный уровень", en: "Silver tier", et: "Hõbetase", lt: "Sidabro lygis" },
+  "tier.gold": { lv: "Zelta līmenis", ru: "Золотой уровень", en: "Gold tier", et: "Kuldtase", lt: "Aukso lygis" },
+  "tier.multiplier": { lv: "punkti krājas ×{x}", ru: "баллы копятся ×{x}", en: "points earn at ×{x}", et: "punktid kogunevad ×{x}", lt: "taškai kaupiasi ×{x}" },
+  "tier.toNext": { lv: "Līdz {next}: vēl {sum} punktos", ru: "До «{next}»: ещё {sum} баллами", en: "{sum} in points to reach {next}", et: "{next} tasemeni: veel {sum}", lt: "Iki {next}: dar {sum}" },
+
+  // ── Подарочные карты ───────────────────────────────────────────────────
+  "gc.title": { lv: "Dāvanu karte", ru: "Подарочная карта", en: "Gift card", et: "Kinkekaart", lt: "Dovanų kortelė" },
+  "gc.intro": { lv: "Ievadi kartes kodu — summa nonāks tavā konta kredītā un automātiski samazinās nākamo pirkumu.", ru: "Введите код карты — сумма попадёт в кредит счёта и автоматически уменьшит следующую покупку.", en: "Enter the card code — the value becomes account credit and automatically reduces your next order.", et: "Sisesta kaardi kood — summa muutub konto krediidiks.", lt: "Įveskite kortelės kodą — suma taps sąskaitos kreditu." },
+  "gc.redeem": { lv: "Ieskaitīt", ru: "Зачислить", en: "Redeem", et: "Lunasta", lt: "Panaudoti" },
+  "gc.done": { lv: "Ieskaitīts: {sum}. Kredīts piemērosies nākamajai apmaksai.", ru: "Зачислено: {sum}. Кредит применится к следующей оплате.", en: "Credited: {sum}. It will apply to your next payment.", et: "Lisatud: {sum}.", lt: "Įskaityta: {sum}." },
+  "gc.doneToast": { lv: "Dāvanu karte ieskaitīta", ru: "Карта зачислена", en: "Gift card redeemed", et: "Kinkekaart lunastatud", lt: "Kortelė panaudota" },
+  "gc.errRedeemed": { lv: "Šī karte jau ir izmantota.", ru: "Эта карта уже использована.", en: "This card has already been used.", et: "See kaart on juba kasutatud.", lt: "Ši kortelė jau panaudota." },
+  "gc.errExpired": { lv: "Kartes termiņš ir beidzies.", ru: "Срок действия карты истёк.", en: "This card has expired.", et: "Kaardi tähtaeg on möödas.", lt: "Kortelės galiojimas baigėsi." },
+  "gc.errInvalid": { lv: "Kods nav atrasts — pārbaudi rakstību.", ru: "Код не найден — проверьте написание.", en: "Code not found — check the spelling.", et: "Koodi ei leitud.", lt: "Kodas nerastas." },
+
+  // ── Web Push (настройки уведомлений) ───────────────────────────────────
+  "kb.pushDenied": { lv: "Pārlūks neatļāva paziņojumus — pārbaudi atļaujas adreses joslā.", ru: "Браузер не разрешил уведомления — проверьте разрешения в адресной строке.", en: "The browser blocked notifications — check the permission in the address bar.", et: "Brauser blokeeris teavitused.", lt: "Naršyklė užblokavo pranešimus." },
   "idle.title": { lv: "Vai vēl esi šeit?", ru: "Вы ещё здесь?", en: "Are you still there?", et: "Kas oled veel siin?", lt: "Ar vis dar čia?" },
   "idle.body": { lv: "Tu kādu laiku neesi bijis aktīvs. Drošības labad izrakstīsim tevi pēc {s} sek.", ru: "Вы давно не проявляли активности. Ради безопасности мы выйдем из аккаунта через {s} сек.", en: "You have been inactive for a while. For your security you will be signed out in {s} s.", et: "Sa pole tükk aega aktiivne olnud. Turvalisuse huvides logime su välja {s} sek pärast.", lt: "Kurį laiką nebuvote aktyvus. Saugumo sumetimais atjungsime jus po {s} sek." },
   "idle.stay": { lv: "Turpināt sesiju", ru: "Продолжить", en: "Stay signed in", et: "Jätka sessiooni", lt: "Tęsti seansą" },

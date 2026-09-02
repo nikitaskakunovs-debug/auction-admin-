@@ -1,13 +1,18 @@
 import {
+  affiliates,
   campaigns,
   customers,
+  giftCards,
   loyaltyAccounts,
   loyaltyLedger,
+  notifications,
+  orders,
   promoCodes,
   promoRedemptions,
   referrals,
   segmentMembers,
   segments,
+  userEvents,
   userRfm,
 } from "@auction/db";
 import { and, desc, eq, sql } from "drizzle-orm";
@@ -17,7 +22,8 @@ import { writeAudit } from "../audit.js";
 import { requirePermission, type PermissionService } from "../auth/rbac.js";
 import type { AppContext } from "../context.js";
 import { evaluateSegment, recomputeSegments, runNightlyGrowth } from "../engine/growth.js";
-import { movePoints } from "../engine/loyalty.js";
+import { issueGiftCard } from "../engine/giftCards.js";
+import { movePoints, tierFor } from "../engine/loyalty.js";
 import { getSettings } from "../engine/settings.js";
 
 /**
@@ -129,7 +135,26 @@ export function registerMarketingAdminRoutes(app: FastifyInstance, ctx: AppConte
 
   app.get("/api/marketing/campaigns", guard("content.view"), async () => {
     const rows = await ctx.db.select().from(campaigns).orderBy(desc(campaigns.createdAt));
-    return { campaigns: rows };
+    // Открытия/клики из журнала писем — по кампании и A/B-варианту.
+    const track = await ctx.db
+      .select({
+        campaignId: notifications.campaignId,
+        variant: notifications.variant,
+        sent: sql<string>`count(*) filter (where ${notifications.status} = 'sent')`,
+        opened: sql<string>`count(*) filter (where ${notifications.openedAt} is not null)`,
+        clicked: sql<string>`count(*) filter (where ${notifications.clickedAt} is not null)`,
+      })
+      .from(notifications)
+      .where(sql`${notifications.campaignId} is not null`)
+      .groupBy(notifications.campaignId, notifications.variant);
+    const byCampaign = new Map<string, Array<{ variant: string | null; sent: number; opened: number; clicked: number }>>();
+    for (const t of track) {
+      if (!t.campaignId) continue;
+      const list = byCampaign.get(t.campaignId) ?? [];
+      list.push({ variant: t.variant, sent: Number(t.sent), opened: Number(t.opened), clicked: Number(t.clicked) });
+      byCampaign.set(t.campaignId, list);
+    }
+    return { campaigns: rows.map((r) => ({ ...r, tracking: byCampaign.get(r.id) ?? [] })) };
   });
 
   app.post("/api/marketing/campaigns", guard("content.edit"), async (req, reply) => {
@@ -138,13 +163,16 @@ export function registerMarketingAdminRoutes(app: FastifyInstance, ctx: AppConte
         name: z.string().min(2).max(160),
         segmentId: z.string().uuid().nullable().optional(),
         content: contentSchema,
+        /** Вариант B (A/B-тест): пустой объект или null = теста нет. */
+        contentB: contentSchema.nullable().optional(),
       })
       .safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: body.error.flatten() });
     if (Object.keys(body.data.content).length === 0) return reply.code(400).send({ error: "content_empty" });
+    const contentB = body.data.contentB && Object.keys(body.data.contentB).length > 0 ? body.data.contentB : null;
     const [row] = await ctx.db
       .insert(campaigns)
-      .values({ name: body.data.name, segmentId: body.data.segmentId ?? null, content: body.data.content })
+      .values({ name: body.data.name, segmentId: body.data.segmentId ?? null, content: body.data.content, contentB })
       .returning();
     await writeAudit(ctx.db, actor(req), "content", "campaign_created", body.data.name);
     return { campaign: row };
@@ -156,6 +184,7 @@ export function registerMarketingAdminRoutes(app: FastifyInstance, ctx: AppConte
         name: z.string().min(2).max(160).optional(),
         segmentId: z.string().uuid().nullable().optional(),
         content: contentSchema.optional(),
+        contentB: contentSchema.nullable().optional(),
         /** schedule: назначить время; unschedule: вернуть в черновики;
          *  archive: убрать с глаз. Отправленную кампанию не редактируют. */
         action: z.enum(["schedule", "unschedule", "archive"]).optional(),
@@ -173,6 +202,9 @@ export function registerMarketingAdminRoutes(app: FastifyInstance, ctx: AppConte
     if (body.data.name !== undefined) set.name = body.data.name;
     if (body.data.segmentId !== undefined) set.segmentId = body.data.segmentId;
     if (body.data.content !== undefined) set.content = body.data.content;
+    if (body.data.contentB !== undefined) {
+      set.contentB = body.data.contentB && Object.keys(body.data.contentB).length > 0 ? body.data.contentB : null;
+    }
     if (body.data.action === "schedule") {
       if (!body.data.scheduledAt) return reply.code(400).send({ error: "scheduled_at_required" });
       set.status = "scheduled";
@@ -204,8 +236,9 @@ export function registerMarketingAdminRoutes(app: FastifyInstance, ctx: AppConte
     const body = z
       .object({
         code: z.string().min(3).max(40).regex(/^[A-Z0-9-]+$/, "uppercase letters, digits, dashes"),
-        type: z.enum(["percent", "fixed"]),
-        value: z.number().int().min(1).max(1_000_000),
+        type: z.enum(["percent", "fixed", "free_shipping"]),
+        /** free_shipping ценности не несёт — value игнорируется (0). */
+        value: z.number().int().min(0).max(1_000_000).default(0),
         minOrderCents: z.number().int().min(0).nullable().optional(),
         category: z.string().max(60).nullable().optional(),
         segmentId: z.string().uuid().nullable().optional(),
@@ -217,9 +250,10 @@ export function registerMarketingAdminRoutes(app: FastifyInstance, ctx: AppConte
       .safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: body.error.flatten() });
     if (body.data.type === "percent" && body.data.value > 100) return reply.code(400).send({ error: "percent_over_100" });
+    if (body.data.type !== "free_shipping" && body.data.value < 1) return reply.code(400).send({ error: "value_required" });
     const [row] = await ctx.db
       .insert(promoCodes)
-      .values({ ...body.data, source: "manual" })
+      .values({ ...body.data, value: body.data.type === "free_shipping" ? 0 : body.data.value, source: "manual" })
       .onConflictDoNothing()
       .returning();
     if (!row) return reply.code(409).send({ error: "code_exists" });
@@ -365,5 +399,204 @@ export function registerMarketingAdminRoutes(app: FastifyInstance, ctx: AppConte
     const { customerId } = req.params as { customerId: string };
     const [row] = await ctx.db.select().from(userRfm).where(eq(userRfm.customerId, customerId));
     return { rfm: row ?? null };
+  });
+
+  // ── Подарочные карты (MD §3) ──────────────────────────────────────────────
+
+  app.get("/api/marketing/gift-cards", guard("content.view"), async () => {
+    const rows = await ctx.db.select().from(giftCards).orderBy(desc(giftCards.createdAt)).limit(500);
+    return { cards: rows };
+  });
+
+  app.post("/api/marketing/gift-cards", guard("content.edit"), async (req, reply) => {
+    const body = z
+      .object({
+        initialCents: z.number().int().min(100).max(1_000_000),
+        note: z.string().max(300).optional(),
+      })
+      .safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid_body" });
+    const card = await issueGiftCard(ctx, {
+      initialCents: body.data.initialCents,
+      ...(body.data.note ? { note: body.data.note } : {}),
+      issuedBy: req.admin!.name,
+    });
+    await writeAudit(ctx.db, actor(req), "content", "gift_card_issued", card.code, { initialCents: card.initialCents });
+    return { card };
+  });
+
+  app.patch("/api/marketing/gift-cards/:id", guard("content.edit"), async (req, reply) => {
+    const body = z.object({ isActive: z.boolean() }).safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid_body" });
+    const { id } = req.params as { id: string };
+    const [row] = await ctx.db.update(giftCards).set({ isActive: body.data.isActive }).where(eq(giftCards.id, id)).returning();
+    if (!row) return reply.code(404).send({ error: "not_found" });
+    await writeAudit(ctx.db, actor(req), "content", "gift_card_toggled", row.code, { isActive: row.isActive });
+    return { card: row };
+  });
+
+  // ── Партнёры (affiliate, MD §6.7) ────────────────────────────────────────
+
+  app.get("/api/marketing/affiliates", guard("content.view"), async () => {
+    const rows = await ctx.db.select().from(affiliates).orderBy(desc(affiliates.createdAt));
+    // Регистрации и оплаченная товарная часть привлечённых — комиссия
+    // считается от неё (без доставки и упаковки: партнёр привёл покупателя,
+    // а не перевозчика).
+    const stats = await ctx.db
+      .select({
+        affiliateId: customers.affiliateId,
+        signups: sql<string>`count(distinct ${customers.id})`,
+        paidOrders: sql<string>`count(${orders.id}) filter (where ${orders.status} = 'paid')`,
+        goodsCents: sql<string>`coalesce(sum(${orders.totalCents} - ${orders.shippingCents} - ${orders.handlingCents} - ${orders.insuranceCents}) filter (where ${orders.status} = 'paid'), 0)`,
+      })
+      .from(customers)
+      .leftJoin(orders, eq(orders.customerId, customers.id))
+      .where(sql`${customers.affiliateId} is not null`)
+      .groupBy(customers.affiliateId);
+    const byId = new Map(stats.map((s) => [s.affiliateId, s]));
+    return {
+      affiliates: rows.map((a) => {
+        const s = byId.get(a.id);
+        const goodsCents = Number(s?.goodsCents ?? 0);
+        return {
+          ...a,
+          stats: {
+            signups: Number(s?.signups ?? 0),
+            paidOrders: Number(s?.paidOrders ?? 0),
+            goodsCents,
+            commissionCents: Math.floor((goodsCents * a.commissionBp) / 10_000),
+          },
+        };
+      }),
+    };
+  });
+
+  app.post("/api/marketing/affiliates", guard("content.edit"), async (req, reply) => {
+    const body = z
+      .object({
+        name: z.string().min(2).max(160),
+        code: z.string().min(3).max(24).regex(/^[A-Z0-9-]+$/i),
+        contact: z.string().max(200).optional(),
+        commissionBp: z.number().int().min(0).max(5_000).default(500),
+      })
+      .safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: body.error.flatten() });
+    const [row] = await ctx.db
+      .insert(affiliates)
+      .values({
+        name: body.data.name,
+        code: body.data.code.toUpperCase(),
+        contact: body.data.contact ?? null,
+        commissionBp: body.data.commissionBp,
+      })
+      .onConflictDoNothing()
+      .returning();
+    if (!row) return reply.code(409).send({ error: "code_exists" });
+    await writeAudit(ctx.db, actor(req), "content", "affiliate_created", row.code);
+    return { affiliate: row };
+  });
+
+  app.patch("/api/marketing/affiliates/:id", guard("content.edit"), async (req, reply) => {
+    const body = z
+      .object({
+        name: z.string().min(2).max(160).optional(),
+        contact: z.string().max(200).nullable().optional(),
+        commissionBp: z.number().int().min(0).max(5_000).optional(),
+        isActive: z.boolean().optional(),
+        notes: z.string().max(2_000).nullable().optional(),
+      })
+      .safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid_body" });
+    const { id } = req.params as { id: string };
+    const [row] = await ctx.db.update(affiliates).set(body.data).where(eq(affiliates.id, id)).returning();
+    if (!row) return reply.code(404).send({ error: "not_found" });
+    await writeAudit(ctx.db, actor(req), "content", "affiliate_updated", row.code);
+    return { affiliate: row };
+  });
+
+  // ── Churn-дашборд (MD §6.3): active / at-risk / lapsed по R-баллу ────────
+
+  app.get("/api/marketing/churn", guard("content.view"), async () => {
+    const buckets = await ctx.db
+      .select({
+        bucket: sql<string>`case when ${userRfm.rScore} >= 4 then 'active' when ${userRfm.rScore} >= 2 then 'at_risk' else 'lapsed' end`,
+        n: sql<string>`count(*)`,
+        valueCents: sql<string>`coalesce(sum(${userRfm.monetaryCents}), 0)`,
+      })
+      .from(userRfm)
+      .groupBy(sql`1`);
+    const sample = await ctx.db
+      .select({
+        customerId: userRfm.customerId,
+        alias: customers.alias,
+        email: customers.email,
+        rScore: userRfm.rScore,
+        monetaryCents: userRfm.monetaryCents,
+        recencyDays: userRfm.recencyDays,
+      })
+      .from(userRfm)
+      .innerJoin(customers, eq(customers.id, userRfm.customerId))
+      .where(sql`${userRfm.rScore} <= 3 and ${customers.erasedAt} is null`)
+      .orderBy(desc(userRfm.monetaryCents))
+      .limit(20);
+    const out = { active: { n: 0, valueCents: 0 }, at_risk: { n: 0, valueCents: 0 }, lapsed: { n: 0, valueCents: 0 } };
+    for (const b of buckets) {
+      const key = b.bucket as keyof typeof out;
+      if (out[key]) out[key] = { n: Number(b.n), valueCents: Number(b.valueCents) };
+    }
+    return { buckets: out, atRiskTop: sample };
+  });
+
+  // ── Customer 360 (MD §7.6): всё о клиенте одним экраном ──────────────────
+
+  app.get("/api/marketing/customer360", guard("customers.view"), async (req, reply) => {
+    const q = ((req.query as { q?: string }).q ?? "").trim().toLowerCase();
+    if (q.length < 3) return reply.code(400).send({ error: "query_too_short" });
+    const [person] = await ctx.db
+      .select()
+      .from(customers)
+      .where(sql`lower(${customers.email}) = ${q} or lower(${customers.alias}) = ${q}`)
+      .limit(1);
+    if (!person) return reply.code(404).send({ error: "not_found" });
+    const [orderAgg] = await ctx.db
+      .select({
+        n: sql<string>`count(*) filter (where ${orders.status} = 'paid')`,
+        cents: sql<string>`coalesce(sum(${orders.totalCents}) filter (where ${orders.status} = 'paid'), 0)`,
+        lastPaid: sql<string | null>`max(${orders.paidAt})`,
+      })
+      .from(orders)
+      .where(eq(orders.customerId, person.id));
+    const tier = await tierFor(ctx, ctx.db, person.id);
+    const [rfm] = await ctx.db.select().from(userRfm).where(eq(userRfm.customerId, person.id));
+    const cats = await ctx.db.execute(sql`
+      select category, purchase_count, total_spent_cents, view_count
+      from user_category_stats where customer_id = ${person.id}
+      order by purchase_count desc, view_count desc limit 5
+    `);
+    const [events] = await ctx.db
+      .select({ n: sql<string>`count(*)`, last: sql<string | null>`max(${userEvents.createdAt})` })
+      .from(userEvents)
+      .where(eq(userEvents.customerId, person.id));
+    const refs = await ctx.db
+      .select({ status: referrals.status, n: sql<string>`count(*)` })
+      .from(referrals)
+      .where(eq(referrals.referrerCustomerId, person.id))
+      .groupBy(referrals.status);
+    const codes = await ctx.db.select().from(promoCodes).where(eq(promoCodes.customerId, person.id));
+    return {
+      customer: {
+        id: person.id, alias: person.alias, email: person.email, country: person.country,
+        createdAt: person.createdAt, marketingOptIn: person.marketingOptIn,
+        unsubscribedAt: person.unsubscribedAt, blocked: person.blocked,
+        attribution: person.attribution, affiliateId: person.affiliateId,
+      },
+      orders: { paid: Number(orderAgg?.n ?? 0), totalCents: Number(orderAgg?.cents ?? 0), lastPaidAt: orderAgg?.lastPaid ?? null },
+      loyalty: tier,
+      rfm: rfm ?? null,
+      categories: (cats as { rows?: unknown[] }).rows ?? cats,
+      events: { n: Number(events?.n ?? 0), lastAt: events?.last ?? null },
+      referrals: Object.fromEntries(refs.map((r) => [r.status, Number(r.n)])),
+      promoCodes: codes.map((c) => ({ code: c.code, type: c.type, value: c.value, usedCount: c.usedCount, validTo: c.validTo, isActive: c.isActive })),
+    };
   });
 }

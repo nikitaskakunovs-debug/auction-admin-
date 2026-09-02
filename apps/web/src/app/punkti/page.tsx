@@ -20,6 +20,10 @@ interface Points {
   balanceCents: number;
   redeemMaxBp: number;
   earnPerEurCents: number;
+  tier: "bronze" | "silver" | "gold";
+  tierEarnBp: number;
+  lifetimeEarnedCents: number;
+  toNextTierCents: number | null;
   ledger: Array<{ reason: string; amountCents: number; orderRef: string | null; createdAt: string }>;
 }
 interface Referral {
@@ -44,6 +48,29 @@ export default function PointsPage() {
 
   const pct = points ? Math.round(points.redeemMaxBp / 100) : 50;
 
+  // Подарочная карта: погашение зачисляет номинал в кредит счёта.
+  const [gcCode, setGcCode] = useState("");
+  const [gcBusy, setGcBusy] = useState(false);
+  const [gcMsg, setGcMsg] = useState<string | null>(null);
+  const redeemGc = async () => {
+    if (gcCode.trim().length < 6) return;
+    setGcBusy(true); setGcMsg(null);
+    try {
+      const r = await publicApi.post<{ ok: boolean; amountCents: number; creditBalanceCents: number }>(
+        "/api/public/me/gift-card", { code: gcCode.trim() },
+      );
+      setGcMsg(t("gc.done", { sum: formatEur(r.amountCents) }));
+      setGcCode("");
+      say(t("gc.doneToast"));
+    } catch (err) {
+      const reason = (err as { body?: { reason?: string } }).body?.reason;
+      setGcMsg(
+        reason === "redeemed" ? t("gc.errRedeemed")
+        : reason === "expired" ? t("gc.errExpired")
+        : t("gc.errInvalid"));
+    } finally { setGcBusy(false); }
+  };
+
   const reasonLabel = (r: string) =>
     r === "purchase" ? t("pts.rPurchase")
     : r === "redemption" ? t("pts.rRedeem")
@@ -58,7 +85,32 @@ export default function PointsPage() {
         <div className="bidbox" style={{ margin: "16px 0" }}>
           <p className="price-lab">{t("pts.balance")}</p>
           <p className="big tnum">{formatEur(points.balanceCents)}</p>
+          {/* §6.5: уровень и путь до следующего. Множитель — из настроек. */}
+          <p className="note" style={{ marginTop: 6 }}>
+            {t(`tier.${points.tier}`)}
+            {points.tierEarnBp > 10_000 ? ` · ${t("tier.multiplier", { x: (points.tierEarnBp / 10_000).toFixed(2).replace(/0$/, "") })}` : ""}
+          </p>
+          {points.toNextTierCents !== null && (
+            <p className="note">{t("tier.toNext", { sum: formatEur(points.toNextTierCents), next: t(points.tier === "bronze" ? "tier.silver" : "tier.gold") })}</p>
+          )}
         </div>
+      )}
+
+      {signedIn && (
+        <section className="report" style={{ marginTop: 16 }}>
+          <h2>{t("gc.title")}</h2>
+          <p className="note" style={{ fontSize: 15 }}>{t("gc.intro")}</p>
+          <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+            <input value={gcCode} placeholder="DAVANA-XXXXXXXX" style={{ flex: 1, minWidth: 0 }}
+                   onChange={(e) => setGcCode(e.target.value.toUpperCase())}
+                   onKeyDown={(e) => { if (e.key === "Enter") void redeemGc(); }} />
+            <button className="btn btn-primary btn-sm" type="button" disabled={gcBusy || gcCode.trim().length < 6}
+                    onClick={() => void redeemGc()}>
+              {t("gc.redeem")}
+            </button>
+          </div>
+          {gcMsg && <p className="note" style={{ marginTop: 6 }}>{gcMsg}</p>}
+        </section>
       )}
 
       <section className="report" style={{ marginTop: 16 }}>

@@ -216,9 +216,11 @@ type CampaignLangContent = { subject: string; body: string };
 interface Campaign {
   id: string; name: string; segmentId: string | null;
   content: Partial<Record<"lv" | "ru" | "en", CampaignLangContent>>;
+  contentB: Partial<Record<"lv" | "ru" | "en", CampaignLangContent>> | null;
   status: "draft" | "scheduled" | "sending" | "sent" | "archived";
   scheduledAt: string | null;
   stats: { queued?: number; skipped?: number } | null;
+  tracking: Array<{ variant: string | null; sent: number; opened: number; clicked: number }>;
   createdAt: string;
 }
 const CAMPAIGN_LANGS = ["lv", "ru", "en"] as const;
@@ -234,6 +236,8 @@ function CampaignsTab() {
   const [name, setName] = useState("");
   const [segmentId, setSegmentId] = useState("");
   const [content, setContent] = useState<Record<string, CampaignLangContent>>({});
+  const [contentB, setContentB] = useState<Record<string, CampaignLangContent>>({});
+  const [showB, setShowB] = useState(false);
   const [when, setWhen] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -248,6 +252,7 @@ function CampaignsTab() {
   const openNew = () => {
     setName(""); setSegmentId(""); setWhen("");
     setContent({ lv: { subject: "", body: "" }, ru: { subject: "", body: "" }, en: { subject: "", body: "" } });
+    setContentB({}); setShowB(false);
     setEditing(null); setCreating(true);
   };
   const openEdit = (c: Campaign) => {
@@ -258,14 +263,21 @@ function CampaignsTab() {
       ru: c.content.ru ?? { subject: "", body: "" },
       en: c.content.en ?? { subject: "", body: "" },
     });
+    const b = c.contentB ?? {};
+    setContentB({
+      lv: b.lv ?? { subject: "", body: "" },
+      ru: b.ru ?? { subject: "", body: "" },
+      en: b.en ?? { subject: "", body: "" },
+    });
+    setShowB(!!c.contentB && Object.keys(c.contentB).length > 0);
     setEditing(c); setCreating(false);
   };
   const close = () => { setCreating(false); setEditing(null); };
 
-  const buildContent = () => {
+  const pack = (src: Record<string, CampaignLangContent>) => {
     const out: Record<string, CampaignLangContent> = {};
     for (const l of CAMPAIGN_LANGS) {
-      const c = content[l];
+      const c = src[l];
       if (c && c.subject.trim().length >= 2 && c.body.trim().length >= 2) {
         out[l] = { subject: c.subject.trim(), body: c.body.trim() };
       }
@@ -274,11 +286,15 @@ function CampaignsTab() {
   };
 
   const save = async () => {
-    const body = buildContent();
+    const body = pack(content);
     if (name.trim().length < 2 || Object.keys(body).length === 0) { toast(t("gr.failed"), "warn"); return; }
+    const b = showB ? pack(contentB) : {};
     setBusy(true);
     try {
-      const payload = { name: name.trim(), segmentId: segmentId || null, content: body };
+      const payload = {
+        name: name.trim(), segmentId: segmentId || null, content: body,
+        contentB: Object.keys(b).length > 0 ? b : null,
+      };
       if (editing) await api.patch(`/api/marketing/campaigns/${editing.id}`, payload);
       else await api.post("/api/marketing/campaigns", payload);
       toast(t("gr.saved"), "ok"); close(); load();
@@ -361,6 +377,46 @@ function CampaignsTab() {
                 </AField>
               </div>
             ))}
+
+            {/* A/B (MD §6.6): вариант B — по желанию; сплит пополам по id. */}
+            {!showB ? (
+              <ABtn kind="ghost" onClick={() => {
+                setContentB({ lv: { subject: "", body: "" }, ru: { subject: "", body: "" }, en: { subject: "", body: "" } });
+                setShowB(true);
+              }}>{t("gr.variantB")}</ABtn>
+            ) : (
+              <div style={{ display: "grid", gap: 10 }}>
+                <p style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.inkSoft, margin: 0 }}>{t("gr.abHint")}</p>
+                {CAMPAIGN_LANGS.map((l) => (
+                  <div key={`b-${l}`} style={{ display: "grid", gap: 8, padding: 10, border: `1px dashed ${AT.rule}`, borderRadius: 10 }}>
+                    <span style={{ fontFamily: AT.body, fontSize: 12.5, fontWeight: 700, textTransform: "uppercase" }}>B · {l}</span>
+                    <AField label={t("gr.subject")}>
+                      <AInput value={contentB[l]?.subject ?? ""} onChange={(v) => setContentB((s) => ({ ...s, [l]: { subject: v, body: s[l]?.body ?? "" } }))} />
+                    </AField>
+                    <AField label={t("gr.body")}>
+                      <textarea rows={5} value={contentB[l]?.body ?? ""}
+                                onChange={(e) => setContentB((s) => ({ ...s, [l]: { subject: s[l]?.subject ?? "", body: e.target.value } }))}
+                                style={textarea(5)} />
+                    </AField>
+                  </div>
+                ))}
+                <ABtn kind="ghost" onClick={() => { setShowB(false); setContentB({}); }}>×</ABtn>
+              </div>
+            )}
+
+            {/* Открытия/клики по вариантам — когда есть что показать. */}
+            {editing && editing.tracking.length > 0 && (
+              <ATable head={["", t("gr.sentN"), t("gr.opens"), t("gr.clicks")]}>
+                {editing.tracking.map((tr) => (
+                  <ATr key={tr.variant ?? "all"}>
+                    <ATd>{tr.variant ? tr.variant.toUpperCase() : "—"}</ATd>
+                    <ATd mono right>{tr.sent}</ATd>
+                    <ATd mono right>{tr.opened}</ATd>
+                    <ATd mono right>{tr.clicked}</ATd>
+                  </ATr>
+                ))}
+              </ATable>
+            )}
             {editing && edit && !locked && (
               <div style={{ display: "grid", gap: 8, padding: 10, border: `1px solid ${AT.rule}`, borderRadius: 10 }}>
                 {editing.status !== "scheduled" ? (
@@ -590,6 +646,9 @@ const SETTING_LABELS = [
   "referral_percent", "referral_signup_points_cents", "referral_order_points_cents",
   "winback_days", "winback_percent", "winback_percent_high", "winback_valid_days",
   "points_per_eur_cents", "points_redeem_max_bp", "inactive_nudge_days", "review_request_days",
+  "abandoned_bid_hours", "abandoned_view_days", "second_purchase_days",
+  "tier_silver_cents", "tier_gold_cents", "tier_silver_earn_bp", "tier_gold_earn_bp",
+  "gift_card_valid_days",
 ] as const;
 
 function SettingsTab() {
@@ -836,9 +895,307 @@ function StringsTab() {
   );
 }
 
+// ── Dāvanu kartes (MD §3) ───────────────────────────────────────────────────
+
+interface GiftCard {
+  id: string; code: string; initialCents: number; balanceCents: number;
+  customerId: string | null; redeemedAt: string | null; expiresAt: string | null;
+  isActive: boolean; note: string | null; issuedBy: string | null; createdAt: string;
+}
+
+function GiftTab() {
+  const { t } = useT();
+  const { can } = useAuth();
+  const toast = useToast();
+  const [rows, setRows] = useState<GiftCard[]>([]);
+  const [amount, setAmount] = useState("50");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(() => {
+    void api.get<{ cards: GiftCard[] }>("/api/marketing/gift-cards").then((r) => setRows(r.cards)).catch(() => undefined);
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const issue = async () => {
+    const eur = Number(amount);
+    if (!Number.isFinite(eur) || eur < 1) { toast(t("gr.failed"), "warn"); return; }
+    setBusy(true);
+    try {
+      await api.post("/api/marketing/gift-cards", { initialCents: Math.round(eur * 100), ...(note.trim() ? { note: note.trim() } : {}) });
+      toast(t("gr.saved"), "ok"); setNote(""); load();
+    } catch { toast(t("gr.failed"), "danger"); }
+    finally { setBusy(false); }
+  };
+
+  const toggle = async (g: GiftCard) => {
+    try { await api.patch(`/api/marketing/gift-cards/${g.id}`, { isActive: !g.isActive }); load(); }
+    catch { toast(t("gr.failed"), "danger"); }
+  };
+
+  const edit = can("content.edit");
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      <p style={{ fontFamily: AT.body, fontSize: 13, color: AT.inkSoft, margin: 0, maxWidth: "70ch" }}>{t("gr.giftHint")}</p>
+      {edit && (
+        <ACard>
+          <div style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
+            <AField label={t("gr.giftAmount")}><AInput value={amount} onChange={setAmount} /></AField>
+            <AField label={t("gr.giftNote")}><AInput value={note} onChange={setNote} /></AField>
+            <ABtn disabled={busy} onClick={() => void issue()}>{t("gr.giftIssue")}</ABtn>
+          </div>
+        </ACard>
+      )}
+      <ACard>
+        {rows.length === 0 ? <AEmpty text={t("gr.empty")} /> : (
+          <ATable head={[t("gr.code"), t("gr.giftAmount"), t("gr.status"), t("gr.giftNote"), t("gr.validTo")]}>
+            {rows.map((g) => (
+              <ATr key={g.id} onClick={() => { if (edit && !g.redeemedAt) void toggle(g); }}>
+                <ATd mono><strong style={{ fontWeight: 600 }}>{g.code}</strong></ATd>
+                <ATd mono right>{(g.initialCents / 100).toFixed(2)}</ATd>
+                <ATd>
+                  {g.redeemedAt ? <ABadge tone="ok">{t("gr.giftRedeemed")}</ABadge>
+                    : g.isActive ? <ABadge tone="neutral">{t("gr.giftOpen")}</ABadge>
+                    : <ABadge tone="warn">{t("gr.inactive")}</ABadge>}
+                </ATd>
+                <ATd>{g.note ?? <span style={{ color: AT.inkSoft }}>—</span>}</ATd>
+                <ATd>{g.expiresAt ? formatDate(g.expiresAt).slice(0, 10) : "—"}</ATd>
+              </ATr>
+            ))}
+          </ATable>
+        )}
+      </ACard>
+    </div>
+  );
+}
+
+// ── Partneri (affiliate, MD §6.7) ───────────────────────────────────────────
+
+interface Affiliate {
+  id: string; name: string; code: string; contact: string | null; commissionBp: number;
+  isActive: boolean; createdAt: string;
+  stats: { signups: number; paidOrders: number; goodsCents: number; commissionCents: number };
+}
+
+function AffiliatesTab() {
+  const { t } = useT();
+  const { can } = useAuth();
+  const toast = useToast();
+  const [rows, setRows] = useState<Affiliate[]>([]);
+  const [form, setForm] = useState({ name: "", code: "", contact: "", commission: "5" });
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(() => {
+    void api.get<{ affiliates: Affiliate[] }>("/api/marketing/affiliates").then((r) => setRows(r.affiliates)).catch(() => undefined);
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const create = async () => {
+    const pct = Number(form.commission);
+    if (form.name.trim().length < 2 || !/^[A-Z0-9-]{3,24}$/i.test(form.code.trim()) || !Number.isFinite(pct)) {
+      toast(t("gr.failed"), "warn"); return;
+    }
+    setBusy(true);
+    try {
+      await api.post("/api/marketing/affiliates", {
+        name: form.name.trim(), code: form.code.trim().toUpperCase(),
+        ...(form.contact.trim() ? { contact: form.contact.trim() } : {}),
+        commissionBp: Math.round(pct * 100),
+      });
+      toast(t("gr.saved"), "ok"); setForm({ name: "", code: "", contact: "", commission: "5" }); load();
+    } catch { toast(t("gr.failed"), "danger"); }
+    finally { setBusy(false); }
+  };
+
+  const toggle = async (a: Affiliate) => {
+    try { await api.patch(`/api/marketing/affiliates/${a.id}`, { isActive: !a.isActive }); load(); }
+    catch { toast(t("gr.failed"), "danger"); }
+  };
+
+  const eur = (c: number) => `${(c / 100).toFixed(2)} €`;
+  const edit = can("content.edit");
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      <p style={{ fontFamily: AT.body, fontSize: 13, color: AT.inkSoft, margin: 0, maxWidth: "70ch" }}>{t("gr.affHint")}</p>
+      {edit && (
+        <ACard>
+          <div style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
+            <AField label={t("gr.name")}><AInput value={form.name} onChange={(v) => setForm((f) => ({ ...f, name: v }))} /></AField>
+            <AField label={t("gr.code")}><AInput value={form.code} onChange={(v) => setForm((f) => ({ ...f, code: v.toUpperCase() }))} placeholder="JANIS" /></AField>
+            <AField label={t("gr.affContact")}><AInput value={form.contact} onChange={(v) => setForm((f) => ({ ...f, contact: v }))} /></AField>
+            <AField label={t("gr.affCommission")}><AInput value={form.commission} onChange={(v) => setForm((f) => ({ ...f, commission: v }))} /></AField>
+            <ABtn disabled={busy} onClick={() => void create()}>{t("gr.create")}</ABtn>
+          </div>
+        </ACard>
+      )}
+      <ACard>
+        {rows.length === 0 ? <AEmpty text={t("gr.empty")} /> : (
+          <ATable head={[t("gr.name"), t("gr.affLink"), t("gr.affCommission"), t("gr.affSignups"), t("gr.affOrders"), t("gr.affRevenue"), t("gr.affOwed"), t("gr.status")]}>
+            {rows.map((a) => (
+              <ATr key={a.id} onClick={() => { if (edit) void toggle(a); }}>
+                <ATd><strong style={{ fontWeight: 600 }}>{a.name}</strong>{a.contact ? <span style={{ color: AT.inkSoft }}> · {a.contact}</span> : null}</ATd>
+                <ATd mono>?aff={a.code}</ATd>
+                <ATd mono right>{(a.commissionBp / 100).toFixed(1)}%</ATd>
+                <ATd mono right>{a.stats.signups}</ATd>
+                <ATd mono right>{a.stats.paidOrders}</ATd>
+                <ATd mono right>{eur(a.stats.goodsCents)}</ATd>
+                <ATd mono right><strong>{eur(a.stats.commissionCents)}</strong></ATd>
+                <ATd>{a.isActive ? <ABadge tone="ok">{t("gr.active")}</ABadge> : <ABadge tone="neutral">{t("gr.inactive")}</ABadge>}</ATd>
+              </ATr>
+            ))}
+          </ATable>
+        )}
+      </ACard>
+    </div>
+  );
+}
+
+// ── Klientu pulss (churn, MD §6.3) ──────────────────────────────────────────
+
+interface Churn {
+  buckets: Record<"active" | "at_risk" | "lapsed", { n: number; valueCents: number }>;
+  atRiskTop: Array<{ customerId: string; alias: string; email: string; rScore: number | null; monetaryCents: number; recencyDays: number | null }>;
+}
+
+function ChurnTab() {
+  const { t } = useT();
+  const [data, setData] = useState<Churn | null>(null);
+
+  useEffect(() => {
+    void api.get<Churn>("/api/marketing/churn").then(setData).catch(() => undefined);
+  }, []);
+
+  if (!data) return <ACard><AEmpty text="…" /></ACard>;
+  const eur = (c: number) => `${Math.round(c / 100)} €`;
+  const cell = (label: string, b: { n: number; valueCents: number }, tone: "ok" | "warn" | "danger") => (
+    <div style={{ padding: 14, border: `1px solid ${AT.rule}`, borderRadius: 10, display: "grid", gap: 4 }}>
+      <ABadge tone={tone}>{label}</ABadge>
+      <span style={{ fontFamily: AT.body, fontSize: 26, fontWeight: 700 }}>{b.n}</span>
+      <span style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.inkSoft }}>{t("gr.churnValue")}: {eur(b.valueCents)}</span>
+    </div>
+  );
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      <p style={{ fontFamily: AT.body, fontSize: 13, color: AT.inkSoft, margin: 0, maxWidth: "70ch" }}>{t("gr.churnHint")}</p>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
+        {cell(t("gr.churnActive"), data.buckets.active, "ok")}
+        {cell(t("gr.churnAtRisk"), data.buckets.at_risk, "warn")}
+        {cell(t("gr.churnLapsed"), data.buckets.lapsed, "danger")}
+      </div>
+      <ACard title={t("gr.churnTop")}>
+        {data.atRiskTop.length === 0 ? <AEmpty text={t("gr.empty")} /> : (
+          <ATable head={[t("gr.name"), "R", t("gr.churnValue"), t("gr.churnDays")]}>
+            {data.atRiskTop.map((c) => (
+              <ATr key={c.customerId}>
+                <ATd><strong style={{ fontWeight: 600 }}>{c.alias}</strong> <span style={{ color: AT.inkSoft }}>{c.email}</span></ATd>
+                <ATd mono right>{c.rScore ?? "—"}</ATd>
+                <ATd mono right>{eur(c.monetaryCents)}</ATd>
+                <ATd mono right>{c.recencyDays ?? "—"}</ATd>
+              </ATr>
+            ))}
+          </ATable>
+        )}
+      </ACard>
+    </div>
+  );
+}
+
+// ── Klients 360 (MD §7.6) — профиль + баллы + ручная корректировка ─────────
+
+interface C360 {
+  customer: { id: string; alias: string; email: string; country: string | null; createdAt: string; marketingOptIn: boolean; unsubscribedAt: string | null; blocked: boolean };
+  orders: { paid: number; totalCents: number; lastPaidAt: string | null };
+  loyalty: { tier: string; lifetimeEarnedCents: number; toNextCents: number | null; earnBp: number };
+  rfm: { rScore: number | null; fScore: number | null; mScore: number | null; recencyDays: number | null } | null;
+  categories: Array<{ category: string; purchase_count: number; total_spent_cents: number; view_count: number }>;
+  referrals: Record<string, number>;
+  promoCodes: Array<{ code: string; type: string; value: number; usedCount: number; validTo: string | null; isActive: boolean }>;
+}
+
+function Customer360Tab() {
+  const { t } = useT();
+  const { can } = useAuth();
+  const toast = useToast();
+  const [q, setQ] = useState("");
+  const [data, setData] = useState<C360 | null>(null);
+  const [missing, setMissing] = useState(false);
+  const [balance, setBalance] = useState<number | null>(null);
+  const [adj, setAdj] = useState({ amount: "", note: "" });
+  const [busy, setBusy] = useState(false);
+
+  const search = async () => {
+    if (q.trim().length < 3) return;
+    setMissing(false); setData(null); setBalance(null);
+    try {
+      const r = await api.get<C360>(`/api/marketing/customer360?q=${encodeURIComponent(q.trim().toLowerCase())}`);
+      setData(r);
+      const l = await api.get<{ balanceCents: number }>(`/api/marketing/loyalty/${r.customer.id}`);
+      setBalance(l.balanceCents);
+    } catch { setMissing(true); }
+  };
+
+  const adjust = async () => {
+    if (!data) return;
+    const eur = Number(adj.amount);
+    if (!Number.isFinite(eur) || eur === 0 || adj.note.trim().length < 3) { toast(t("gr.failed"), "warn"); return; }
+    setBusy(true);
+    try {
+      const r = await api.post<{ balanceCents: number }>(`/api/marketing/loyalty/${data.customer.id}/adjust`, {
+        amountCents: Math.round(eur * 100), note: adj.note.trim(),
+      });
+      setBalance(r.balanceCents); setAdj({ amount: "", note: "" });
+      toast(t("gr.saved"), "ok");
+    } catch { toast(t("gr.failed"), "danger"); }
+    finally { setBusy(false); }
+  };
+
+  const eur = (c: number) => `${(c / 100).toFixed(2)} €`;
+  const tierLabel = (x: string) => t(x === "gold" ? "gr.tierGold" : x === "silver" ? "gr.tierSilver" : "gr.tierBronze");
+  const line = (k: string, v: string) => (
+    <div style={{ display: "flex", gap: 8, fontFamily: AT.body, fontSize: 13.5 }}>
+      <span style={{ color: AT.inkSoft, minWidth: 180 }}>{k}</span><strong style={{ fontWeight: 600 }}>{v}</strong>
+    </div>
+  );
+
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      <div style={{ display: "flex", gap: 8 }}>
+        <AInput value={q} onChange={setQ} placeholder={t("gr.q360")} style={{ maxWidth: 340 }} />
+        <ABtn onClick={() => void search()}>{t("gr.search")}</ABtn>
+      </div>
+      {missing && <ACard><AEmpty text={t("gr.notFound")} /></ACard>}
+      {data && (
+        <>
+          <ACard title={`${data.customer.alias} · ${data.customer.email}`}>
+            <div style={{ display: "grid", gap: 6 }}>
+              {line(t("gr.o360Orders"), `${data.orders.paid} · ${eur(data.orders.totalCents)}`)}
+              {line(t("gr.o360LastPaid"), data.orders.lastPaidAt ? formatDate(data.orders.lastPaidAt) : "—")}
+              {line(t("gr.o360Points"), `${balance !== null ? eur(balance) : "…"} · ${tierLabel(data.loyalty.tier)} (${eur(data.loyalty.lifetimeEarnedCents)})`)}
+              {line("RFM", data.rfm ? `R${data.rfm.rScore ?? "—"} F${data.rfm.fScore ?? "—"} M${data.rfm.mScore ?? "—"}` : "—")}
+              {line(t("gr.o360Consent"), data.customer.unsubscribedAt ? "✕" : data.customer.marketingOptIn ? "✓" : "—")}
+              {line(t("gr.o360Refs"), Object.entries(data.referrals).map(([k, v]) => `${k}: ${v}`).join(" · ") || "—")}
+              {line(t("gr.o360Cats"), data.categories.map((c) => c.category).slice(0, 4).join(", ") || "—")}
+              {line(t("gr.o360Codes"), data.promoCodes.map((c) => `${c.code}${c.usedCount > 0 ? " ✓" : ""}`).join(", ") || "—")}
+            </div>
+          </ACard>
+          {can("content.edit") && (
+            <ACard title={t("gr.adjust")}>
+              <div style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
+                <AField label={t("gr.amountCents")}><AInput value={adj.amount} onChange={(v) => setAdj((s) => ({ ...s, amount: v }))} placeholder="10 / -5" /></AField>
+                <AField label={t("gr.adjustNote")}><AInput value={adj.note} onChange={(v) => setAdj((s) => ({ ...s, note: v }))} /></AField>
+                <ABtn disabled={busy} onClick={() => void adjust()}>{t("gr.save")}</ABtn>
+              </div>
+            </ACard>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Экран ───────────────────────────────────────────────────────────────────
 
-type Tab = "campaigns" | "segments" | "promo" | "referrals" | "settings" | "emails" | "strings";
+type Tab = "campaigns" | "segments" | "promo" | "referrals" | "gift" | "affiliates" | "churn" | "c360" | "settings" | "emails" | "strings";
 
 export function GrowthScreen() {
   const { t } = useT();
@@ -850,6 +1207,10 @@ export function GrowthScreen() {
     { id: "segments", label: t("gr.tabSegments") },
     { id: "promo", label: t("gr.tabPromo") },
     { id: "referrals", label: t("gr.tabReferrals") },
+    { id: "gift", label: t("gr.tabGift") },
+    { id: "affiliates", label: t("gr.tabAffiliates") },
+    { id: "churn", label: t("gr.tabChurn") },
+    ...(can("customers.view") ? [{ id: "c360" as Tab, label: t("gr.tab360") }] : []),
     ...(can("settings.view") ? [{ id: "settings" as Tab, label: t("gr.tabSettings") }] : []),
     { id: "emails", label: t("gr.tabEmails") },
     { id: "strings", label: t("gr.tabStrings") },
@@ -863,6 +1224,10 @@ export function GrowthScreen() {
       {tab === "segments" && <SegmentsTab />}
       {tab === "promo" && <PromoTab />}
       {tab === "referrals" && <ReferralsTab />}
+      {tab === "gift" && <GiftTab />}
+      {tab === "affiliates" && <AffiliatesTab />}
+      {tab === "churn" && <ChurnTab />}
+      {tab === "c360" && <Customer360Tab />}
       {tab === "settings" && <SettingsTab />}
       {tab === "emails" && <EmailsTab />}
       {tab === "strings" && <StringsTab />}

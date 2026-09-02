@@ -81,7 +81,9 @@ export function Cart() {
    * подсказки «у тебя лежит −10%». Скидка действует на отложенные лоты —
    * заказы уже выписаны со своим итогом. */
   const [promoInput, setPromoInput] = useState("");
-  const [promo, setPromo] = useState<{ code: string; discountCents: number } | null>(null);
+  const [promo, setPromo] = useState<{ code: string; discountCents: number; freeShipping?: boolean } | null>(null);
+  /** §7.4: «добавьте ещё €X» — когда код есть, но корзина не дотянула. */
+  const [promoGap, setPromoGap] = useState<{ code: string; minOrderCents: number; missingCents: number } | null>(null);
   const [promoErr, setPromoErr] = useState<string | null>(null);
   const [promoBusy, setPromoBusy] = useState(false);
   const [myCodes, setMyCodes] = useState<MyPromoCode[]>([]);
@@ -200,11 +202,15 @@ export function Cart() {
     setPromoBusy(true); setPromoErr(null);
     void cartPromoCheck(code, ids)
       .then((r) => {
+        setPromoGap(null);
         if (r.ok && r.code && typeof r.discountCents === "number") {
-          setPromo({ code: r.code, discountCents: r.discountCents });
+          setPromo({ code: r.code, discountCents: r.discountCents, freeShipping: r.freeShipping ?? false });
           setPromoInput(r.code);
         } else {
           setPromo(null);
+          if (r.reason === "min_order" && typeof r.missingCents === "number" && typeof r.minOrderCents === "number") {
+            setPromoGap({ code, minOrderCents: r.minOrderCents, missingCents: r.missingCents });
+          }
           setPromoErr(
             r.reason === "expired" ? "cart.promoExpired"
             : r.reason === "not_yours" ? "cart.promoNotYours"
@@ -475,6 +481,24 @@ export function Cart() {
               </div>
             )}
             {promoErr && <p className="note" style={{ color: "var(--live)" }}>{t(promoErr)}</p>}
+
+            {/* §7.4: полоса «добавьте ещё €X» до порога кода (мин. корзина). */}
+            {promoGap && promoGap.missingCents > 0 && (
+              <div style={{ margin: "6px 0 10px" }}>
+                <p className="note" style={{ marginBottom: 4 }}>
+                  {t("cart.promoGap", { sum: formatEur(promoGap.missingCents), code: promoGap.code })}
+                </p>
+                <div aria-hidden="true" style={{ height: 6, borderRadius: 3, background: "var(--bg-2, #eee)", overflow: "hidden" }}>
+                  <div style={{
+                    height: "100%", borderRadius: 3, background: "var(--accent, #2f7d32)",
+                    width: `${Math.min(100, Math.round(((promoGap.minOrderCents - promoGap.missingCents) / promoGap.minOrderCents) * 100))}%`,
+                  }} />
+                </div>
+              </div>
+            )}
+            {promo?.freeShipping && (
+              <p className="note" style={{ color: "var(--accent, #2f7d32)" }}>{t("cart.promoFreeShip")}</p>
+            )}
 
             <table className="fees"><tbody>
               <tr><th scope="row">{t("cart.lotsN", { n: chosenCount })}</th>

@@ -1,5 +1,5 @@
 import { loyaltyAccounts, loyaltyLedger, type Db } from "@auction/db";
-import { eq } from "drizzle-orm";
+import { eq, gt, sql, and } from "drizzle-orm";
 import type { AppContext } from "../context.js";
 import { getSettings } from "./settings.js";
 
@@ -60,6 +60,47 @@ export async function movePoints(
   return { balanceCents: next };
 }
 
+/* ── §6.5: уровни (bronze / silver / gold) ──────────────────────────────── */
+
+export type LoyaltyTier = "bronze" | "silver" | "gold";
+
+export interface TierInfo {
+  tier: LoyaltyTier;
+  /** Заработано баллов за всё время (только плюсовые движения), центы. */
+  lifetimeEarnedCents: number;
+  /** Сколько не хватает до следующего уровня; null на золоте. */
+  toNextCents: number | null;
+  /** Множитель начисления уровня, базисные пункты (10000 = ×1). */
+  earnBp: number;
+}
+
+/** Уровень считается от ЗАРАБОТАННОГО за всё время — потраченное уровень не
+ *  снижает: статус — признание истории, а не текущего остатка. */
+export async function tierFor(ctx: AppContext, tx: Tx, customerId: string): Promise<TierInfo> {
+  const s = await getSettings(ctx);
+  const account = await getOrCreateLoyalty(tx, customerId);
+  const [row] = await tx
+    .select({ earned: sql<string>`coalesce(sum(${loyaltyLedger.amountCents}), 0)` })
+    .from(loyaltyLedger)
+    .where(and(eq(loyaltyLedger.accountId, account.id), gt(loyaltyLedger.amountCents, 0)));
+  const lifetimeEarnedCents = Number(row?.earned ?? 0);
+  if (lifetimeEarnedCents >= s.tier_gold_cents) {
+    return { tier: "gold", lifetimeEarnedCents, toNextCents: null, earnBp: s.tier_gold_earn_bp };
+  }
+  if (lifetimeEarnedCents >= s.tier_silver_cents) {
+    return {
+      tier: "silver", lifetimeEarnedCents,
+      toNextCents: s.tier_gold_cents - lifetimeEarnedCents,
+      earnBp: s.tier_silver_earn_bp,
+    };
+  }
+  return {
+    tier: "bronze", lifetimeEarnedCents,
+    toNextCents: s.tier_silver_cents - lifetimeEarnedCents,
+    earnBp: 10_000,
+  };
+}
+
 /** Начисление за оплаченный заказ: целые баллы (€) от ОПЛАЧЕННОЙ суммы —
  *  после скидок, аванса и уже списанных баллов (за потраченные баллы новых
  *  баллов не даём). Возвращает начисление и новый баланс для письма. */
@@ -72,7 +113,10 @@ export async function earnPointsForOrder(
   const s = await getSettings(ctx);
   if (s.points_per_eur_cents <= 0) return null;
   // 1 балл за каждый ПОЛНЫЙ евро оплаты; балл = 100 центов скидки.
-  const earnedCents = Math.floor(args.paidCents / 100) * s.points_per_eur_cents;
+  // §6.5: уровень даёт множитель (серебро ×1,25, золото ×1,5 по умолчанию).
+  const { earnBp } = await tierFor(ctx, tx, args.customerId);
+  const base = Math.floor(args.paidCents / 100) * s.points_per_eur_cents;
+  const earnedCents = Math.floor((base * earnBp) / 10_000);
   if (earnedCents <= 0) return null;
   const { balanceCents } = await movePoints(
     tx,

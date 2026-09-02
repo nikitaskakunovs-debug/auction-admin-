@@ -319,14 +319,14 @@ export function registerCartRoutes(app: FastifyInstance, ctx: AppContext): void 
 
     // Промокод проверяется до оформления: невалидный код — честный отказ
     // ДО того, как родится хоть один заказ, а не молча без скидки.
-    let promo: { id: string; perLine: Map<string, number>; discountCents: number } | null = null;
+    let promo: { id: string; perLine: Map<string, number>; discountCents: number; freeShipping: boolean } | null = null;
     if (body.data.promo_code) {
       const lines = rows
         .filter((r) => r.listing.priceCents !== null)
         .map((r) => ({ listingId: r.listing.id, category: r.item.category, priceCents: r.listing.priceCents! }));
       const check = await validatePromo(ctx, { code: body.data.promo_code, customerId: bidderId, lines });
       if (!check.ok) return reply.code(422).send({ ok: false, code: "PROMO_INVALID", reason: check.reason });
-      promo = { id: check.promo.id, perLine: check.perLine, discountCents: check.discountCents };
+      promo = { id: check.promo.id, perLine: check.perLine, discountCents: check.discountCents, freeShipping: check.freeShipping ?? false };
     }
 
     const created: Array<{ ref: string; totalCents: number; listingId: string }> = [];
@@ -339,7 +339,11 @@ export function registerCartRoutes(app: FastifyInstance, ctx: AppContext): void 
         listingId: e.id,
         customerId: bidderId,
         holderIds: body.data.visitor_id ? [body.data.visitor_id] : [],
-        ...(promo && lineDiscount > 0 ? { promo: { id: promo.id, discountCents: lineDiscount } } : {}),
+        // free_shipping: скидка на товар 0, но код обязан доехать до заказа —
+        // fulfilment по нему обнулит доставку.
+        ...(promo && (lineDiscount > 0 || promo.freeShipping)
+          ? { promo: { id: promo.id, discountCents: lineDiscount } }
+          : {}),
       });
       if (result.ok) {
         created.push({ ref: result.orderRef, totalCents: result.totalCents, listingId: e.id });
@@ -362,7 +366,7 @@ export function registerCartRoutes(app: FastifyInstance, ctx: AppContext): void 
     // заказов из неё ни родилось. Фиксируем только если хоть что-то куплено.
     if (promo && created.length > 0) {
       const applied = created.reduce((s, c) => s + (promo!.perLine.get(c.listingId) ?? 0), 0);
-      if (applied > 0) {
+      if (applied > 0 || promo.freeShipping) {
         await recordRedemption(ctx.db, {
           promoId: promo.id,
           customerId: bidderId,
@@ -396,12 +400,27 @@ export function registerCartRoutes(app: FastifyInstance, ctx: AppContext): void 
       .filter((r) => r.listing.priceCents !== null)
       .map((r) => ({ listingId: r.listing.id, category: r.item.category, priceCents: r.listing.priceCents! }));
     const check = await validatePromo(ctx, { code: body.data.promo_code, customerId: bidderId, lines });
-    if (!check.ok) return { ok: false, reason: check.reason };
+    if (!check.ok) {
+      // §7.4: для «добавьте ещё €X» витрине нужен порог и недостача.
+      if (check.reason === "min_order") {
+        const [p] = await ctx.db.select().from(promoCodes).where(eq(promoCodes.code, body.data.promo_code.trim().toUpperCase()));
+        if (p?.minOrderCents) {
+          const subtotal = lines
+            .filter((l) => !p.category || l.category === p.category)
+            .reduce((s, l) => s + l.priceCents, 0);
+          return { ok: false, reason: check.reason, minOrderCents: p.minOrderCents, missingCents: Math.max(0, p.minOrderCents - subtotal) };
+        }
+      }
+      return { ok: false, reason: check.reason };
+    }
     return {
       ok: true,
       code: check.promo.code,
       discountCents: check.discountCents,
       perLine: Object.fromEntries(check.perLine),
+      // §7.4: для полосы «добавьте ещё €X до бесплатной доставки».
+      freeShipping: check.freeShipping ?? false,
+      minOrderCents: check.promo.minOrderCents,
     };
   });
 

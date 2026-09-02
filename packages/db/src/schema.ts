@@ -379,6 +379,9 @@ export const customers = pgTable(
     /** Сколько раз приходил по метке — отличает случайный клик от того, кого
      * реклама вела к покупке несколько недель. */
     attributionTouches: integer("attribution_touches").notNull().default(0),
+    /** Партнёр (affiliate), чья ссылка привела к регистрации, — first-touch,
+     * как и attribution: пишется один раз, комиссия считается по нему. */
+    affiliateId: uuid("affiliate_id"),
     /** Идентификатор браузера из плашки cookie. Связывает решения, принятые
      * ДО регистрации, с уже появившимся аккаунтом: иначе согласие анонимного
      * гостя навсегда остаётся отдельной строкой, которую не с кем сопоставить. */
@@ -1219,11 +1222,19 @@ export const notifications = pgTable(
     attempts: integer("attempts").notNull().default(0),
     lastError: text("last_error"),
     sentAt: timestamp("sent_at", { withTimezone: true }),
+    /** Кампания-источник (для статистики по кампаниям и A/B-вариантам). */
+    campaignId: uuid("campaign_id"),
+    /** A/B-вариант письма: "a" | "b"; null — письмо вне эксперимента. */
+    variant: text("variant"),
+    /** Первое открытие (пиксель) и первый клик — только маркетинговые письма. */
+    openedAt: timestamp("opened_at", { withTimezone: true }),
+    clickedAt: timestamp("clicked_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index("notifications_status_idx").on(t.status, t.createdAt),
     uniqueIndex("notifications_dedupe_idx").on(t.dedupeKey),
+    index("notifications_campaign_idx").on(t.campaignId),
   ],
 );
 
@@ -1774,6 +1785,9 @@ export const campaigns = pgTable("campaigns", {
   segmentId: uuid("segment_id").references(() => segments.id, { onDelete: "set null" }),
   /** subject + body с плейсхолдерами, на трёх языках. */
   content: jsonb("content").$type<Record<string, { subject: string; body: string }>>().notNull(),
+  /** Вариант B для A/B-теста (та же форма, что content). Null — теста нет;
+   * при наличии получатели делятся пополам по хэшу customer_id. */
+  contentB: jsonb("content_b").$type<Record<string, { subject: string; body: string }> | null>(),
   status: text("status").notNull().default("draft"), // draft | scheduled | sending | sent | archived
   scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
   sentAt: timestamp("sent_at", { withTimezone: true }),
@@ -1911,4 +1925,82 @@ export const lifecycleMarks = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("lifecycle_marks_pk").on(t.customerId, t.mark)],
+);
+
+/* ═══════════ Надстройка v15: карты, партнёры, push (MD §6) ═══════════ */
+
+/**
+ * Подарочная карта (MD §3). Выдаётся из админки (продана на месте или
+ * подарена сервисом); погашение зачисляет номинал в кредит клиента
+ * (credits/credit_entries, reason gift_card) — дальше работает обычный
+ * кредитный механизм оплаты.
+ */
+export const giftCards = pgTable(
+  "gift_cards",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Человекочитаемый код DAVANA-XXXXXX (без 0/O/1/I). */
+    code: text("code").notNull(),
+    initialCents: integer("initial_cents").notNull(),
+    /** 0 после погашения — карта одноразовая, остаток живёт в кредите. */
+    balanceCents: integer("balance_cents").notNull(),
+    /** Кто погасил (null — ещё не погашена). */
+    customerId: uuid("customer_id").references(() => customers.id, { onDelete: "set null" }),
+    redeemedAt: timestamp("redeemed_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    isActive: boolean("is_active").notNull().default(true),
+    note: text("note"),
+    issuedBy: text("issued_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("gift_cards_code_idx").on(t.code)],
+);
+
+/**
+ * Партнёрская (affiliate) программа (MD §6.7): внешние партнёры со своей
+ * ссылкой ?aff=CODE и комиссией с оплаченных заказов приведённых клиентов.
+ * Выплаты — вручную по отчёту в админке; здесь только учёт.
+ */
+export const affiliates = pgTable(
+  "affiliates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    /** Код в ссылке: https://izsoli.lv/?aff=CODE */
+    code: text("code").notNull(),
+    contact: text("contact"),
+    /** Комиссия, базисные пункты от оплаченной товарной части (500 = 5%). */
+    commissionBp: integer("commission_bp").notNull().default(500),
+    isActive: boolean("is_active").notNull().default(true),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("affiliates_code_idx").on(t.code)],
+);
+
+/**
+ * Браузерные push-подписки (Web Push, VAPID) — свой канал без внешних
+ * сервисов. Ключи пары VAPID генерируются сервером и живут в
+ * marketing_settings (vapid_keys) — в чат и код не попадают.
+ */
+export const pushSubscriptions = pgTable(
+  "push_subscriptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    endpoint: text("endpoint").notNull(),
+    p256dh: text("p256dh").notNull(),
+    auth: text("auth").notNull(),
+    userAgent: text("user_agent"),
+    /** Подряд неудачных отправок; после 5 подписка удаляется (протухла). */
+    failCount: integer("fail_count").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("push_subscriptions_endpoint_idx").on(t.endpoint),
+    index("push_subscriptions_customer_idx").on(t.customerId),
+  ],
 );

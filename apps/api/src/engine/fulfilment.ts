@@ -1,4 +1,4 @@
-import { invoices, markets, orders, payments } from "@auction/db";
+import { invoices, markets, orders, payments, promoCodes } from "@auction/db";
 import { and, desc, eq } from "drizzle-orm";
 import { writeAudit } from "../audit.js";
 import type { AppContext } from "../context.js";
@@ -117,11 +117,17 @@ export async function setFulfilment(
     const [market] = await tx.select().from(markets).where(eq(markets.code, order.marketCode));
     // Негабарит считает менеджер письменной сметой — в заказе доставки 0,
     // пока смета не выставлена, поэтому цены здесь нет намеренно.
-    const shippingCents = isLocker(input.method)
+    let shippingCents = isLocker(input.method)
       ? carrierPrice(market, carrierId!)
       : input.method === "courier"
         ? (market?.courierPriceCents ?? 690)
         : 0;
+    // §7.4: промокод free_shipping, применённый при оформлении, обнуляет
+    // доставку (упаковка/страховка остаются — код именно про доставку).
+    if (shippingCents > 0 && order.promoCodeId) {
+      const [promo] = await tx.select().from(promoCodes).where(eq(promoCodes.id, order.promoCodeId));
+      if (promo && promo.type === "free_shipping") shippingCents = 0;
+    }
     // Packing/handling fee rides along with carrier delivery only.
     const handlingCents = input.method === "pickup" ? 0 : (market?.handlingFeeCents ?? 0);
     // Shipping + handling are VAT-inclusive flat prices on top of the goods

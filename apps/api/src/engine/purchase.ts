@@ -166,9 +166,9 @@ export async function buyNow(
         reverseCharge,
         status: "awaiting_payment",
         paymentDeadlineAt,
-        ...(args.promo && promoDiscountCents > 0
-          ? { promoCodeId: args.promo.id, promoDiscountCents }
-          : {}),
+        // Код с нулевой товарной скидкой (free_shipping) тоже сохраняется —
+        // fulfilment по нему обнулит доставку.
+        ...(args.promo ? { promoCodeId: args.promo.id, promoDiscountCents } : {}),
         // Два снимка «откуда пришёл клиент» — первое касание (кто привёл) и
         // последнее (что привело к этой покупке). Отчёт по рекламе умеет
         // считать по обеим моделям, и обе остаются верны после удаления

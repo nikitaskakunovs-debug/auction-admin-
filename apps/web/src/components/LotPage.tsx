@@ -9,7 +9,7 @@ import { computeInvoice, increment, marketFees } from "@/lib/fees";
 import { dateLocale, useT } from "@/lib/i18n";
 import { loginHref } from "@/lib/nav";
 import { photoWeb, photoThumb } from "@/lib/photos";
-import { formatEur, type AuctionDetail, type PublicAuction } from "@/lib/types";
+import { formatEur, type AuctionDetail, type PublicAuction, type SimilarLot } from "@/lib/types";
 import { gaItem, track, trackPlaceBid } from "@/lib/track";
 import { useStickyBar } from "@/lib/ui";
 import { watchStore } from "@/lib/watch";
@@ -256,6 +256,21 @@ export function LotPage({
   const off = rep.retailCents ? Math.max(0, Math.round((1 - price / rep.retailCents) * 100)) : null;
   const myTop = detail.bids.find((b) => b.isYou);
   const iLead = detail.bids[0]?.isYou === true && !detail.bids[0]?.outbid;
+
+  // §7.2: закрытый аукцион без победы — похожие живые лоты тут же, не только
+  // письмом. Грузим лениво и только когда экран действительно «проигрыш».
+  const [similar, setSimilar] = useState<SimilarLot[]>([]);
+  const lost = (settled || over) && !iLead;
+  useEffect(() => {
+    if (!lost) return;
+    let cancelled = false;
+    void publicApi
+      .get<{ lots: SimilarLot[] }>(`/api/public/auctions/${a.id}/similar`)
+      .then((r) => { if (!cancelled) setSimilar(r.lots); })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lost, a.id]);
 
   // Ступени от персонального минимума: у лидера он выше «цены + шаг», и
   // старые ступени от цены предлагали бы ему суммы ниже его же максимума.
@@ -511,6 +526,15 @@ export function LotPage({
             {!notice && iLead && <p className="bb-status win">{t("a.youLead")}</p>}
             {!notice && !iLead && myTop && <p className="bb-status out">{t("a.outbid")}</p>}
 
+            {/* §7.5: соц-доказательство — только настоящие числа и только
+                когда они что-то говорят (от двух, чтобы не палить одиночку). */}
+            {live && !over && ((detail.watchersCount ?? 0) >= 2 || (detail.bidsLastHour ?? 0) >= 2) && (
+              <p className="fine" style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                {(detail.watchersCount ?? 0) >= 2 && <span>{t("lp.watching", { n: detail.watchersCount! })}</span>}
+                {(detail.bidsLastHour ?? 0) >= 2 && <span>{t("lp.bidsHour", { n: detail.bidsLastHour! })}</span>}
+              </p>
+            )}
+
             {live && !over && (
               signedIn ? (
                 <div>
@@ -617,6 +641,23 @@ export function LotPage({
                     </h3>
                     <p className="note">{t("lp.finalPrice")}</p>
                     <p className="sum-amt tnum">{formatEur(price)}</p>
+                    {/* §7.2: похожие живые лоты — сразу на экране проигрыша. */}
+                    {similar.length > 0 && (
+                      <div style={{ margin: "12px 0", textAlign: "left" }}>
+                        <p className="fine" style={{ marginBottom: 6 }}>{t("lp.similarNow")}</p>
+                        <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 6 }}>
+                          {similar.map((s) => (
+                            <li key={s.id}>
+                              <Link href={s.auctionId ? `/auction/${s.auctionId}` : `/listing/${s.id}`}
+                                    style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.title}</span>
+                                <span className="tnum" style={{ flexShrink: 0 }}>{formatEur(s.priceCents)}</span>
+                              </Link>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                     <Link className="btn btn-primary btn-block" href={`/katalogs?category=${a.category}`}>
                       {t("lp.findSimilar")}
                     </Link>

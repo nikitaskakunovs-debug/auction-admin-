@@ -41,6 +41,22 @@ export const SETTING_DEFAULTS = {
   inactive_nudge_days: 14,
   /** Запрос отзыва: дней после выдачи/доставки (IZ-P07). */
   review_request_days: 3,
+  /** §6.1 abandoned-bid: лот заканчивается в ближайшие X часов. */
+  abandoned_bid_hours: 24,
+  /** §6.1 abandoned-bid: клиент смотрел лот в последние N дней. */
+  abandoned_view_days: 7,
+  /** §6.2: дней после ПЕРВОЙ покупки без второй — авто-письмо. */
+  second_purchase_days: 21,
+  /** §6.5 порог серебряного уровня: заработано баллов за всё время, центы. */
+  tier_silver_cents: 25_000,
+  /** §6.5 порог золотого уровня, центы. */
+  tier_gold_cents: 100_000,
+  /** §6.5 множитель начисления баллов на серебре, б.п. (12500 = ×1,25). */
+  tier_silver_earn_bp: 12_500,
+  /** §6.5 множитель начисления на золоте, б.п. (15000 = ×1,5). */
+  tier_gold_earn_bp: 15_000,
+  /** Срок действия подарочной карты, дней (0 = бессрочно). */
+  gift_card_valid_days: 365,
 } as const;
 
 export type SettingKey = keyof typeof SETTING_DEFAULTS;

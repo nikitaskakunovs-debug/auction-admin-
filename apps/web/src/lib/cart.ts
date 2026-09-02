@@ -101,6 +101,11 @@ export interface PromoCheck {
   code?: string;
   discountCents?: number;
   perLine?: Record<string, number>;
+  /** §7.4: код бесплатной доставки — скидка на товар 0, доставка обнулится. */
+  freeShipping?: boolean;
+  /** При reason=min_order: порог и сколько не хватает — для полосы прогресса. */
+  minOrderCents?: number;
+  missingCents?: number;
 }
 
 /** Живая проверка промокода против текущей корзины — считает, не списывает. */

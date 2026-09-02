@@ -85,6 +85,9 @@ export async function enqueueMarketing(
     custom?: Record<string, { subject: string; body: string }>;
     /** Ключ идемпотентности: одно письмо на событие, а не на каждый проход крона. */
     dedupeKey: string;
+    /** Кампания-источник и A/B-вариант — для статистики открытий/кликов. */
+    campaignId?: string;
+    variant?: "a" | "b";
     /**
      * Письмо, которое человек попросил сам: галочка «сообщать о новых лотах»
      * у сохранённого поиска, лоты из вэлмес на исходе. Такое письмо не
@@ -191,6 +194,8 @@ export async function enqueueMarketing(
       html,
       dedupeKey: args.dedupeKey,
       scheduledFor,
+      campaignId: args.campaignId ?? null,
+      variant: args.variant ?? null,
     })
     .onConflictDoNothing()
     .returning({ id: notifications.id });

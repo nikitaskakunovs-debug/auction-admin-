@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
 import { PUBLIC_API_URL } from "@/lib/config";
 import { consentUpdate } from "@/lib/track";
+import { enablePush, pushSupported } from "@/lib/push";
 import { ALL_LANGS, dateLocale, useT, type Lang } from "@/lib/i18n";
 import type { MyOrder } from "@/lib/types";
 import { Ph } from "../Ph";
@@ -778,18 +779,19 @@ function DataPage({
 }
 
 
-/** Paziņojumi (№ 60): матрица «событие × канал». Сегодня доставляется только
- *  e-pasts; push и Telegram появятся со своими интеграциями — их слēdži
- *  выключены и подписаны честно. */
+/** Paziņojumi (№ 60): матрица «событие × канал». E-pasts и Push (браузерный,
+ *  MD §6.8) — живые каналы; Telegram появится со своей интеграцией. */
 function NotifPrefsPage({ onBack }: { onBack: () => void }) {
   const { t } = useT();
-  const [prefs, setPrefs] = useState<Array<{ event: string; email: boolean }>>([]);
+  const [prefs, setPrefs] = useState<Array<{ event: string; email: boolean; push: boolean }>>([]);
+  const [canPush, setCanPush] = useState(false);
 
   useEffect(() => {
     void publicApi
-      .get<{ prefs: Array<{ event: string; email: boolean }> }>("/api/public/me/notification-prefs")
+      .get<{ prefs: Array<{ event: string; email: boolean; push: boolean }> }>("/api/public/me/notification-prefs")
       .then((r) => setPrefs(r.prefs))
       .catch(() => undefined);
+    setCanPush(pushSupported());
   }, []);
 
   const set = (event: string, email: boolean) => {
@@ -797,6 +799,19 @@ function NotifPrefsPage({ onBack }: { onBack: () => void }) {
     void publicApi.request("PUT", "/api/public/me/notification-prefs", { event, email })
       .then(() => say(t("kb.saved")))
       .catch(() => say(t("err.generic")));
+  };
+
+  const setPush = async (event: string, push: boolean) => {
+    if (push) {
+      // Первое включение: разрешение браузера + подписка этого устройства.
+      const ok = await enablePush().catch(() => false);
+      if (!ok) { say(t("kb.pushDenied")); return; }
+    }
+    setPrefs((cur) => cur.map((p) => (p.event === event ? { ...p, push } : p)));
+    try {
+      await publicApi.request("PUT", "/api/public/me/notification-prefs", { event, push });
+      say(t("kb.saved"));
+    } catch { say(t("err.generic")); }
   };
 
   const EVENTS: Array<[string, string, string, boolean]> = [
@@ -817,13 +832,28 @@ function NotifPrefsPage({ onBack }: { onBack: () => void }) {
         <span className="t">
           <b>{title}</b>
           <small>{subT}</small>
-          <small className="ex">{t("kb.chPush")} · {t("kb.chTg")} — {t("kb.chSoon")}</small>
+          <small className="ex">{t("kb.chTg")} — {t("kb.chSoon")}</small>
         </span>
-        <button
-          className={`sw${(p?.email ?? true) ? " on" : ""}`} type="button" role="switch"
-          aria-checked={p?.email ?? true} aria-label={`${title} — ${t("kb.chEmail")}`}
-          onClick={() => set(event, !(p?.email ?? true))}
-        />
+        <span style={{ display: "inline-flex", gap: 14, alignItems: "center" }}>
+          <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+            <small style={{ fontSize: 11, opacity: 0.7 }}>{t("kb.chEmail")}</small>
+            <button
+              className={`sw${(p?.email ?? true) ? " on" : ""}`} type="button" role="switch"
+              aria-checked={p?.email ?? true} aria-label={`${title} — ${t("kb.chEmail")}`}
+              onClick={() => set(event, !(p?.email ?? true))}
+            />
+          </span>
+          {canPush && (
+            <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+              <small style={{ fontSize: 11, opacity: 0.7 }}>{t("kb.chPush")}</small>
+              <button
+                className={`sw${(p?.push ?? false) ? " on" : ""}`} type="button" role="switch"
+                aria-checked={p?.push ?? false} aria-label={`${title} — ${t("kb.chPush")}`}
+                onClick={() => void setPush(event, !(p?.push ?? false))}
+              />
+            </span>
+          )}
+        </span>
       </div>
     );
   };

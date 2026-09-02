@@ -151,6 +151,13 @@ export class AuctionScheduler {
     if (marker !== "OK") return;
     const { dispatchCampaigns } = await import("./growth.js");
     await dispatchCampaigns(this.ctx).catch((err) => console.error("campaign dispatch failed", err));
+    // §6.1: окно «торги в последних часах» узкое — проверяем тем же маркером
+    // раз в 30 минут, а не ночью.
+    const abMarker = await this.ctx.redis.set("growth:abandoned", "1", "PX", 30 * 60 * 1000, "NX");
+    if (abMarker === "OK") {
+      const { runAbandonedBidNudges } = await import("./growth.js");
+      await runAbandonedBidNudges(this.ctx).catch((err) => console.error("abandoned-bid nudges failed", err));
+    }
   }
 
   /** Jira → panel sync, guarded by a 5-minute Redis marker. */

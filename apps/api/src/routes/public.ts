@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import {
   auctions,
+  affiliates,
   auditLog,
   bids,
   billingProfiles,
@@ -26,12 +27,14 @@ import {
   referrals,
   refunds,
   returnCases,
+  pushSubscriptions,
   savedSearches,
   shipments,
+  userCategoryStats,
   verifyPassword,
   watchlist,
 } from "@auction/db";
-import { and, asc, desc, eq, gt, ilike, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, ilike, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { signAccessToken } from "../auth/jwt.js";
@@ -47,8 +50,10 @@ import { placeBid } from "../engine/bids.js";
 import { InsufficientCreditError, getOrCreateCredit, moveCredit } from "../engine/credits.js";
 import { renderInvoiceHtml, type InvoiceData } from "../engine/invoices.js";
 import { renderInvoicePdf } from "../engine/invoicePdf.js";
-import { ensureReferralCode, logUserEvent } from "../engine/growth.js";
-import { getOrCreateLoyalty, movePoints } from "../engine/loyalty.js";
+import { companionCategory, ensureReferralCode, logUserEvent } from "../engine/growth.js";
+import { redeemGiftCard } from "../engine/giftCards.js";
+import { CATEGORIES } from "@auction/domain/categories";
+import { getOrCreateLoyalty, movePoints, tierFor } from "../engine/loyalty.js";
 import { applyUnsubscribe } from "../engine/marketing.js";
 import { enqueueNotification } from "../engine/notifications.js";
 import { ensureWelcomeCode, extendWelcomeOnVerify, findPersonalCode } from "../engine/promo.js";
@@ -209,6 +214,8 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
     lang: z.enum(["lv", "ru", "en", "et", "lt"]).optional(),
     /** Реферальный код пригласившего (из ссылки «Uzaicini draugu»). */
     ref: z.string().min(3).max(24).optional(),
+    /** Код партнёра (affiliate, MD §6.7) из ссылки ?aff=CODE. */
+    aff: z.string().min(3).max(24).optional(),
   });
 
   app.post("/api/public/auth/register", async (req, reply) => {
@@ -260,6 +267,19 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
           })
           .onConflictDoNothing();
         referred = true;
+      }
+    }
+    // Партнёрская ссылка (MD §6.7): first-touch, как attribution — пишется
+    // один раз; неизвестный или выключенный код тихо игнорируется.
+    if (body.data.aff) {
+      const [partner] = await ctx.db
+        .select({ id: affiliates.id })
+        .from(affiliates)
+        .where(and(eq(affiliates.code, body.data.aff.trim().toUpperCase()), eq(affiliates.isActive, true)));
+      if (partner) {
+        try {
+          await ctx.db.update(customers).set({ affiliateId: partner.id }).where(eq(customers.id, row.id));
+        } catch { /* партнёрская метка не должна ломать регистрацию */ }
       }
     }
     // Приветственный код −N% на первую покупку (IZ-P01): рождается здесь,
@@ -469,8 +489,21 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
     // v15: журнал поведения — просмотр лота вошедшим (write-only, мимо UI).
     if (me) logUserEvent(ctx, { customerId: me, eventType: "view_lot", category: row.item.category, listingId: row.listing.id });
     const iLead = me !== null && row.auction.leaderCustomerId === me && row.auction.leaderMaxCents !== null;
+    // §7.5: соц-доказательство из живых данных — наблюдающие (вэлмес на этот
+    // аукцион) и ставки за последний час. Никаких выдуманных чисел.
+    const hourAgo = new Date(ctx.now().getTime() - 3_600_000);
+    const [watchers] = await ctx.db
+      .select({ n: sql<string>`count(*)` })
+      .from(watchlist)
+      .where(eq(watchlist.auctionId, id));
+    const [recentBids] = await ctx.db
+      .select({ n: sql<string>`count(*)` })
+      .from(bids)
+      .where(and(eq(bids.auctionId, id), gte(bids.createdAt, hourAgo), isNull(bids.voidedAt)));
     return {
       auction: publicAuction(row),
+      watchersCount: Number(watchers?.n ?? 0),
+      bidsLastHour: Number(recentBids?.n ?? 0),
       minNextBidCents: await minNext(row, iLead ? row.auction.leaderMaxCents! : null),
       // Собственный максимум — только самому лидеру. Без него витрина
       // предлагала лидеру «минимум соперника», который для него самого
@@ -489,6 +522,40 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
         isYou: me !== null && b.customerId === me,
       })),
     };
+  });
+
+  /** §7.2: похожие живые лоты (та же категория, сопоставимая цена) — для
+   *  экрана закрытого аукциона, тот же диапазон, что в письме. */
+  app.get("/api/public/auctions/:id/similar", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const [row] = await ctx.db
+      .select({ auction: auctions, listing: listings, item: items })
+      .from(auctions)
+      .innerJoin(listings, eq(auctions.listingId, listings.id))
+      .innerJoin(items, eq(listings.itemId, items.id))
+      .where(eq(auctions.id, id));
+    if (!row) return reply.code(404).send({ error: "not_found" });
+    const anchor = row.auction.currentPriceCents ?? row.listing.startPriceCents ?? 0;
+    const rows = await ctx.db
+      .select({ id: listings.id, title: listings.title, priceCents: listings.priceCents, type: listings.type, category: items.category })
+      .from(listings)
+      .innerJoin(items, eq(listings.itemId, items.id))
+      .where(and(eq(listings.status, "published"), eq(items.category, row.item.category)))
+      .orderBy(desc(listings.updatedAt))
+      .limit(20);
+    const band = rows
+      .filter((r) => r.priceCents !== null && r.id !== row.listing.id)
+      .filter((r) => anchor === 0 || (r.priceCents! >= anchor * 0.5 && r.priceCents! <= anchor * 1.6))
+      .slice(0, 5);
+    // Аукционным лотам витрина линкует /auction/{auctionId}, не listing id.
+    const liveAuctions = band.length
+      ? await ctx.db
+          .select({ id: auctions.id, listingId: auctions.listingId })
+          .from(auctions)
+          .where(and(inArray(auctions.listingId, band.map((b) => b.id)), eq(auctions.status, "running")))
+      : [];
+    const auctionByListing = new Map(liveAuctions.map((a) => [a.listingId, a.id]));
+    return { lots: band.map((b) => ({ ...b, auctionId: auctionByListing.get(b.id) ?? null })) };
   });
 
   /** Минимальная следующая ставка. Для лидера — персональная: движок
@@ -1131,13 +1198,117 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
       .where(eq(loyaltyLedger.accountId, account.id))
       .orderBy(desc(loyaltyLedger.createdAt))
       .limit(50);
+    const tier = await tierFor(ctx, ctx.db, bidderId);
     return {
       balanceCents: account.balanceCents,
       redeemMaxBp: s.points_redeem_max_bp,
       earnPerEurCents: s.points_per_eur_cents,
+      // §6.5: уровень и путь до следующего — для страницы /punkti.
+      tier: tier.tier,
+      tierEarnBp: tier.earnBp,
+      lifetimeEarnedCents: tier.lifetimeEarnedCents,
+      toNextTierCents: tier.toNextCents,
       ledger: rows.map((r) => ({
         reason: r.reason, amountCents: r.amountCents, orderRef: r.orderRef, createdAt: r.createdAt,
       })),
+    };
+  });
+
+  /** Погашение подарочной карты: номинал уходит в кредит счёта. */
+  app.post("/api/public/me/gift-card", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const body = z.object({ code: z.string().min(6).max(24) }).safeParse(req.body ?? {});
+    if (!body.success) return reply.code(400).send({ error: "invalid_body" });
+    const result = await redeemGiftCard(ctx, { code: body.data.code, customerId: bidderId });
+    if (!result.ok) return reply.code(422).send({ ok: false, reason: result.reason });
+    return { ok: true, amountCents: result.amountCents, creditBalanceCents: result.creditBalanceCents };
+  });
+
+  /** §6.4: интересы при знакомстве — категории сеют user_category_stats,
+   *  персонализация работает до первой покупки. */
+  app.post("/api/public/me/interests", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const body = z.object({ categories: z.array(z.string().min(2).max(60)).min(1).max(8) }).safeParse(req.body ?? {});
+    if (!body.success) return reply.code(400).send({ error: "invalid_body" });
+    const valid = body.data.categories.filter((c) => CATEGORIES.some((k) => k.code === c));
+    if (valid.length === 0) return reply.code(400).send({ error: "unknown_categories" });
+    for (const category of valid) {
+      logUserEvent(ctx, { customerId: bidderId, eventType: "viewed_category", category });
+      // Вес выбранного интереса — как пять просмотров: заметен для топ-
+      // категории, но реальные покупки быстро его перевешивают.
+      await ctx.db.execute(sql`
+        insert into user_category_stats (customer_id, category, view_count, updated_at)
+        values (${bidderId}, ${category}, 5, now())
+        on conflict (customer_id, category)
+        do update set view_count = user_category_stats.view_count + 5, updated_at = now()
+      `);
+    }
+    return { ok: true, saved: valid };
+  });
+
+  /** Бейдж вэлмес: сколько наблюдаемых лотов заканчивается в ближайшие сутки. */
+  app.get("/api/public/me/wishlist-alerts", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const soon = new Date(ctx.now().getTime() + 24 * 3_600_000);
+    const rows = await ctx.db.execute(sql`
+      select count(*) as n from watchlist w
+      join auctions a on a.id = w.auction_id
+      where w.customer_id = ${bidderId} and a.status = 'running' and a.ends_at <= ${soon}
+    `);
+    const first = ((rows as unknown as { rows?: Array<{ n: string }> }).rows ?? (rows as unknown as Array<{ n: string }>))[0];
+    return { endingSoon: Number(first?.n ?? 0) };
+  });
+
+  /** §7.1 + §4: персональные рекомендации — топ-категория клиента, компаньон
+   *  по co-occurrence, живые лоты; гостю — просто свежие. */
+  app.get("/api/public/recommendations", async (req) => {
+    const me = req.bidder?.sub ?? null;
+    let category: string | null = null;
+    let companion: string | null = null;
+    if (me) {
+      const stats = await ctx.db
+        .select()
+        .from(userCategoryStats)
+        .where(eq(userCategoryStats.customerId, me))
+        .orderBy(desc(userCategoryStats.purchaseCount), desc(userCategoryStats.viewCount))
+        .limit(1);
+      const top = stats[0];
+      if (top && (top.purchaseCount > 0 || top.viewCount > 0) && top.category !== "other") {
+        category = top.category;
+        companion = await companionCategory(ctx, top.category);
+      }
+    }
+    const pick = async (cat: string | null, limit: number) => {
+      const rows = await ctx.db
+        .select({ id: listings.id, title: listings.title, priceCents: listings.priceCents, type: listings.type, category: items.category })
+        .from(listings)
+        .innerJoin(items, eq(listings.itemId, items.id))
+        .where(and(eq(listings.status, "published"), cat ? eq(items.category, cat) : undefined))
+        .orderBy(desc(listings.updatedAt))
+        .limit(limit);
+      return rows.filter((r) => r.priceCents !== null);
+    };
+    const main = await pick(category, 8);
+    const extra = companion ? await pick(companion, 4) : [];
+    // Аукционным лотам витрина линкует /auction/{auctionId}.
+    const all = [...main, ...extra];
+    const liveA = all.length
+      ? await ctx.db
+          .select({ id: auctions.id, listingId: auctions.listingId })
+          .from(auctions)
+          .where(and(inArray(auctions.listingId, all.map((l) => l.id)), eq(auctions.status, "running")))
+      : [];
+    const aByListing = new Map(liveA.map((a) => [a.listingId, a.id]));
+    const withHref = (l: (typeof all)[number]) =>
+      l.type === "fixed" ? l : { ...l, id: aByListing.get(l.id) ?? l.id };
+    return {
+      category,
+      companionCategory: companion,
+      lots: main.filter((l) => l.type === "fixed" || aByListing.has(l.id)).map(withHref),
+      companionLots: extra.filter((l) => l.type === "fixed" || aByListing.has(l.id)).map(withHref),
     };
   });
 
@@ -1163,6 +1334,52 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
         onHold: mine.filter((r) => r.fraudFlag && r.status === "pending").length,
       },
     };
+  });
+
+  // ═══ WEB PUSH (MD §6.8) ══════════════════════════════════════════════════
+
+  /** Публичный VAPID-ключ — браузеру для подписки. */
+  app.get("/api/public/push/vapid-key", async () => {
+    const { ensureVapidKeys } = await import("../engine/push.js");
+    const keys = await ensureVapidKeys(ctx);
+    return { publicKey: keys.publicKey };
+  });
+
+  app.post("/api/public/push/subscribe", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const body = z
+      .object({
+        endpoint: z.string().url().max(1_000),
+        keys: z.object({ p256dh: z.string().min(10).max(300), auth: z.string().min(5).max(100) }),
+      })
+      .safeParse(req.body ?? {});
+    if (!body.success) return reply.code(400).send({ error: "invalid_body" });
+    await ctx.db
+      .insert(pushSubscriptions)
+      .values({
+        customerId: bidderId,
+        endpoint: body.data.endpoint,
+        p256dh: body.data.keys.p256dh,
+        auth: body.data.keys.auth,
+        userAgent: (req.headers["user-agent"] ?? "").slice(0, 300) || null,
+      })
+      .onConflictDoUpdate({
+        target: pushSubscriptions.endpoint,
+        set: { customerId: bidderId, p256dh: body.data.keys.p256dh, auth: body.data.keys.auth, failCount: 0 },
+      });
+    return { ok: true };
+  });
+
+  app.delete("/api/public/push/subscribe", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const body = z.object({ endpoint: z.string().url().max(1_000) }).safeParse(req.body ?? {});
+    if (!body.success) return reply.code(400).send({ error: "invalid_body" });
+    await ctx.db
+      .delete(pushSubscriptions)
+      .where(and(eq(pushSubscriptions.endpoint, body.data.endpoint), eq(pushSubscriptions.customerId, bidderId)));
+    return { ok: true };
   });
 
   // ═══ АВАНС (№ 69b, 71–73) ════════════════════════════════════════════════

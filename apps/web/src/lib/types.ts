@@ -40,7 +40,20 @@ export interface AuctionDetail {
   myMaxCents?: number | null;
   /** Current price + buyer premium + VAT — what winning right now costs. */
   estimatedTotalCents: number;
+  /** §7.5 соц-доказательство: наблюдающие и ставки за час — живые числа. */
+  watchersCount?: number;
+  bidsLastHour?: number;
   bids: PublicBid[];
+}
+
+/** Похожий живой лот (§7.2) — с экрана закрытого аукциона. */
+export interface SimilarLot {
+  id: string;
+  title: string;
+  priceCents: number;
+  type: string;
+  category: string;
+  auctionId: string | null;
 }
 
 export interface Bidder {

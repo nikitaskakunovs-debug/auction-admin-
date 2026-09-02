@@ -79,6 +79,16 @@ export function Chrome({ country = "LV" }: { country?: Country }) {
     return cartStore.subscribe(sync);
   }, []);
 
+  // §4: «vēlmes на исходе» — бейдж срочности на сердце: сколько наблюдаемых
+  // лотов закрывается в ближайшие сутки. Не поп-ап, просто число.
+  const [endingSoon, setEndingSoon] = useState(0);
+  useEffect(() => {
+    if (!publicApi.hasSession) return;
+    void publicApi.get<{ endingSoon: number }>("/api/public/me/wishlist-alerts")
+      .then((r) => setEndingSoon(r.endingSoon))
+      .catch(() => undefined);
+  }, [path]);
+
   // Meta PageView при переходах внутри витрины. Выключен, пока базовый тег
   // GTM не переведён на событие meta_page_view (иначе просмотр считался бы
   // дважды) — см. trackPageView.
@@ -177,7 +187,12 @@ export function Chrome({ country = "LV" }: { country?: Country }) {
             )}
             <Link className="icon-link" href="/velmes">
               <Icon name="heart" size={22} />{t("nav.watchlist")}
-              {watched > 0 && (
+              {endingSoon > 0 ? (
+                <>
+                  <span className="n" aria-hidden="true" style={{ background: "var(--live, #C43C2E)", color: "#fff" }}>{endingSoon}</span>
+                  <span className="sr">{t("nav.watchEndingN", { n: endingSoon })}</span>
+                </>
+              ) : watched > 0 && (
                 <>
                   <span className="n" aria-hidden="true">{watched}</span>
                   <span className="sr">{t("nav.watchlistN", { n: watched })}</span>

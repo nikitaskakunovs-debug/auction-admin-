@@ -39,7 +39,11 @@ export type NotificationType =
   | "winback_offer"
   | "lost_bid_similar"
   | "review_request"
-  | "referral_invite";
+  | "referral_invite"
+  // ── Надстройка v15 (MD §6) ──
+  | "abandoned_bid"
+  | "second_purchase"
+  | "gift_card_received";
 
 export const NOTIFICATION_TYPES: NotificationType[] = [
   "verify_email", "outbid", "won", "purchased", "payment_reminder", "order_paid",
@@ -47,6 +51,7 @@ export const NOTIFICATION_TYPES: NotificationType[] = [
   "shipped", "refunded", "checked_in", "saved_search_hits", "watchlist_ending",
   "welcome_reminder", "inactive_nudge", "winback_offer", "lost_bid_similar",
   "review_request", "referral_invite",
+  "abandoned_bid", "second_purchase", "gift_card_received",
 ];
 
 export interface TemplateInput {
@@ -1086,6 +1091,103 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
         },
       };
     }
+
+    // ── §6.1: смотрел лот, не ставил, торги на исходе ─────────────────────
+    case "abandoned_bid": {
+      const price = moneyIn(i.amountCents, lang);
+      const url = i.actionUrl ?? `${ctx.siteUrl}/katalogs`;
+      return {
+        subject: {
+          lv: `«${i.lotTitle}» drīz noslēgsies — tu to apskatīji`,
+          ru: `«${i.lotTitle}» скоро закроется — вы его смотрели`,
+          en: `"${i.lotTitle}" is about to close — you were looking at it`,
+        }[lang],
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nLots, kuru nesen apskatīji, drīz noslēgsies:\n\n${i.lotTitle} — pašlaik ${price}.\n\nJa tas vēl interesē, tagad ir īstais brīdis: ${url}\n\n[abandoned_bid]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nЛот, который вы недавно смотрели, скоро закроется:\n\n${i.lotTitle} — сейчас ${price}.\n\nЕсли он ещё интересен, сейчас самое время: ${url}\n\n[abandoned_bid]`,
+          en: `Hi ${i.alias},\n\nA lot you looked at recently is about to close:\n\n${i.lotTitle} — currently at ${price}.\n\nIf you are still interested, now is the moment: ${url}\n\n[abandoned_bid]`,
+        }[lang],
+        spec: {
+          preheader: { lv: "Izsole tuvojas beigām", ru: "Торги подходят к концу", en: "The auction is ending" }[lang],
+          headline: { lv: "DRĪZ NOSLĒGSIES", ru: "СКОРО ЗАКРОЕТСЯ", en: "CLOSING SOON" }[lang],
+          headlineTone: "accent",
+          greeting: hi,
+          intro: {
+            lv: `«${i.lotTitle}» ir izsolē pēdējās stundas — pašlaik ${price}. Tu to apskatīji, bet solījumu neizdarīji.`,
+            ru: `«${i.lotTitle}» на торгах последние часы — сейчас ${price}. Вы его смотрели, но ставку не сделали.`,
+            en: `"${i.lotTitle}" is in its final hours — currently at ${price}. You looked but did not bid.`,
+          }[lang],
+          cta: { label: { lv: "Atvērt lotu", ru: "Открыть лот", en: "Open the lot" }[lang], url },
+          labels,
+        },
+      };
+    }
+
+    // ── §6.2: N dienas pēc pirmā pirkuma — otrā vēl nav ───────────────────
+    case "second_purchase": {
+      const lots = i.lots ?? [];
+      const cat = i.categoryLabel;
+      const listText = lots.map((l) => `• ${l.title} — ${moneyIn(l.priceCents, lang)}`).join("\n");
+      const pts = i.pointsBalanceCents ?? 0;
+      const ptsLine = pts >= 100
+        ? { lv: `\n\nAtgādinām: tavā kontā ir ${moneyIn(pts, lang)} punktos — tos var izmantot apmaksā.`, ru: `\n\nНапоминаем: на вашем счету ${moneyIn(pts, lang)} баллами — их можно использовать при оплате.`, en: `\n\nReminder: you have ${moneyIn(pts, lang)} in points — you can spend them at checkout.` }[lang]
+        : "";
+      return {
+        subject: {
+          lv: "Kā tev patika pirmais pirkums?",
+          ru: "Как вам первая покупка?",
+          en: "How was your first purchase?",
+        }[lang],
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nPriecājamies, ka izdarīji pirmo pirkumu! Šobrīd izsolē ir loti, kas varētu iepatikties:\n\n${listText}${ptsLine}\n\nSkatīt: ${ctx.siteUrl}/katalogs\n\n[second_purchase]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nРады, что вы сделали первую покупку! Сейчас на торгах лоты, которые могут понравиться:\n\n${listText}${ptsLine}\n\nСмотреть: ${ctx.siteUrl}/katalogs\n\n[second_purchase]`,
+          en: `Hi ${i.alias},\n\nGlad you made your first purchase! Lots you might like are on the block now:\n\n${listText}${ptsLine}\n\nHave a look: ${ctx.siteUrl}/katalogs\n\n[second_purchase]`,
+        }[lang],
+        spec: {
+          preheader: { lv: "Atlasīts pēc tava pirmā pirkuma", ru: "Подобрано по вашей первой покупке", en: "Picked after your first purchase" }[lang],
+          headline: { lv: "TURPINĀM?", ru: "ПРОДОЛЖИМ?", en: "SHALL WE CONTINUE?" }[lang],
+          headlineTone: "accent",
+          greeting: hi,
+          intro: cat
+            ? { lv: `Pēc tava pirmā pirkuma kategorijā «${cat}» esam atlasījuši vēl dažus lotus. Cena — galīgā, bez piemaksām.`, ru: `После вашей первой покупки в категории «${cat}» мы подобрали ещё несколько лотов. Цена финальная, без доплат.`, en: `After your first purchase in ${cat}, we picked a few more lots. The price you see is final.` }[lang]
+            : { lv: "Pēc tava pirmā pirkuma esam atlasījuši vēl dažus lotus, kas varētu iepatikties.", ru: "После вашей первой покупки мы подобрали ещё несколько лотов, которые могут понравиться.", en: "After your first purchase, we picked a few more lots you might like." }[lang],
+          facts: lots.map((l) => ({ label: `${l.title}:`, value: moneyIn(l.priceCents, lang) })),
+          cta: { label: { lv: "Skatīt katalogu", ru: "Смотреть каталог", en: "Browse the catalogue" }[lang], url: `${ctx.siteUrl}/katalogs` },
+          labels,
+        },
+      };
+    }
+
+    // ── Dāvanu karte ieskaitīta kredītā ───────────────────────────────────
+    case "gift_card_received": {
+      const sum = moneyIn(i.amountCents, lang);
+      return {
+        subject: {
+          lv: `Dāvanu karte ${sum} ieskaitīta tavā kontā`,
+          ru: `Подарочная карта ${sum} зачислена на ваш счёт`,
+          en: `Gift card ${sum} added to your account`,
+        }[lang],
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nDāvanu karte ${sum} ir ieskaitīta tavā kontā kā kredīts. Tas automātiski samazinās nākamā pirkuma summu.\n\nSkatīt lotus: ${ctx.siteUrl}/katalogs\n\n[gift_card_received]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nПодарочная карта ${sum} зачислена на ваш счёт как кредит. Он автоматически уменьшит сумму следующей покупки.\n\nСмотреть лоты: ${ctx.siteUrl}/katalogs\n\n[gift_card_received]`,
+          en: `Hi ${i.alias},\n\nA gift card of ${sum} has been added to your account as credit. It will automatically reduce your next order total.\n\nSee the lots: ${ctx.siteUrl}/katalogs\n\n[gift_card_received]`,
+        }[lang],
+        spec: {
+          preheader: { lv: `Kredīts ${sum} jau kontā`, ru: `Кредит ${sum} уже на счету`, en: `${sum} credit is on your account` }[lang],
+          headline: { lv: "DĀVANA SAŅEMTA", ru: "ПОДАРОК ПОЛУЧЕН", en: "GIFT RECEIVED" }[lang],
+          headlineTone: "accent",
+          greeting: hi,
+          intro: {
+            lv: `Kartes vērtība ${sum} tagad ir tavs konta kredīts — tas automātiski piemērosies nākamajai apmaksai.`,
+            ru: `Номинал карты ${sum} теперь кредит вашего счёта — он автоматически применится к следующей оплате.`,
+            en: `The card value of ${sum} is now account credit — it applies automatically to your next payment.`,
+          }[lang],
+          facts: [{ label: { lv: "Ieskaitīts:", ru: "Зачислено:", en: "Credited:" }[lang], value: sum }],
+          cta: { label: { lv: "Skatīt lotus", ru: "Смотреть лоты", en: "See the lots" }[lang], url: `${ctx.siteUrl}/katalogs` },
+          labels,
+        },
+      };
+    }
   }
 }
 
@@ -1168,6 +1270,18 @@ export function sampleInput(type: NotificationType, opts: { online?: boolean } =
       return { ...base, actionUrl: "https://izsoli.lv/atsauksme?order=A-1042" };
     case "referral_invite":
       return { ...base, orderRef: undefined, totalCents: undefined, referralUrl: "https://izsoli.lv/?ref=ELINA7", referralSignupCents: 500, referralOrderCents: 1_000, referralPercent: 15 };
+    case "abandoned_bid":
+      return { ...base, orderRef: undefined, totalCents: undefined, amountCents: 18_900, actionUrl: "https://izsoli.lv/lots/sample" };
+    case "second_purchase":
+      return {
+        ...base, orderRef: undefined, totalCents: undefined, categoryLabel: "Pulksteņi", pointsBalanceCents: 1_200,
+        lots: [
+          { title: "Seiko Presage, 2020", priceCents: 34_900 },
+          { title: "Tissot PRX, 2022", priceCents: 28_500 },
+        ],
+      };
+    case "gift_card_received":
+      return { ...base, orderRef: undefined, totalCents: undefined, amountCents: 5_000 };
     default:
       return base;
   }

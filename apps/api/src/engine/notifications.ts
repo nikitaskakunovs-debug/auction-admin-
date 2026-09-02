@@ -356,6 +356,20 @@ async function resolvePayLaterExample(ctx: AppContext, body: string): Promise<st
 }
 
 /** Drain pending notifications and send them. Returns how many were sent. */
+/**
+ * Пиксель открытия + обёртка кликов для маркетингового письма. Ссылки отписки
+ * не трогаем: клик «отпишите меня» — не вовлечённость, и обёртка не должна
+ * стоять между человеком и его правом отписаться.
+ */
+export function withEmailTracking(html: string, notificationId: string, apiBase: string): string {
+  const wrapped = html.replace(/href="(https?:\/\/[^"]+)"/g, (m, url: string) => {
+    if (/unsubscribe|atteikties/i.test(url)) return m;
+    return `href="${apiBase}/api/t/c/${notificationId}?u=${encodeURIComponent(url)}"`;
+  });
+  const pixel = `<img src="${apiBase}/api/t/o/${notificationId}.png" width="1" height="1" alt="" style="display:none" />`;
+  return wrapped.includes("</body>") ? wrapped.replace("</body>", `${pixel}</body>`) : wrapped + pixel;
+}
+
 export async function dispatchNotifications(ctx: AppContext, batch = 50): Promise<number> {
   const pending = await ctx.db
     .select()
@@ -375,7 +389,10 @@ export async function dispatchNotifications(ctx: AppContext, batch = 50): Promis
       const body = await resolvePayLaterExample(ctx, n.body);
       // Rows written before HTML emails existed have no html — they still go
       // out as plain text rather than being re-rendered from newer copy.
-      const html = n.html ? await resolvePayLaterExample(ctx, n.html) : undefined;
+      let html = n.html ? await resolvePayLaterExample(ctx, n.html) : undefined;
+      // Открытия/клики трекаются ТОЛЬКО у маркетинга (MD §1.4): пиксель и
+      // обёртка ссылок — с id письма; сервисные письма идут нетронутыми.
+      if (html && n.kind === "marketing") html = withEmailTracking(html, n.id, ctx.config.publicBaseUrl);
       // Отписка: почтовики требуют её у любой рассылки, и Gmail показывает
       // свою кнопку только при этих двух заголовках. У сервисных писем
       // отписки нет и быть не может — их отменяют не так.
@@ -397,6 +414,18 @@ export async function dispatchNotifications(ctx: AppContext, batch = 50): Promis
         .set({ status: "sent", sentAt: ctx.now(), attempts: n.attempts + 1, body, html: html ?? n.html })
         .where(eq(notifications.id, n.id));
       sent += 1;
+      // Push-канал (MD §6.8): дублируем сервисное письмо коротким пушем, если
+      // человек включил канал и подписал браузер. Ошибка пуша письмо не ломает.
+      if (n.customerId && n.kind === "service") {
+        const { PUSH_EVENTS, sendPushToCustomer } = await import("./push.js");
+        if (PUSH_EVENTS.has(n.type)) {
+          void sendPushToCustomer(ctx, n.customerId, {
+            title: n.subject,
+            body: n.body.split("\n").find((l) => l.trim().length > 0)?.slice(0, 140) ?? "",
+            event: n.type,
+          }).catch(() => undefined);
+        }
+      }
     } catch (err) {
       const attempts = n.attempts + 1;
       await ctx.db

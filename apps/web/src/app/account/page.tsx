@@ -14,6 +14,7 @@ import { Ph } from "@/components/Ph";
 import { SavedSearches } from "@/components/account/SavedSearches";
 import { say } from "@/components/Toast";
 import { VerifyNotice } from "@/components/VerifyNotice";
+import { InterestsCard } from "@/components/InterestsCard";
 import { publicApi } from "@/lib/api";
 import { setCartCount } from "@/lib/cart";
 import { dateLocale, useT, type Lang } from "@/lib/i18n";
@@ -283,6 +284,8 @@ export default function AccountPage() {
         </div>
 
         <main className="acpanel">
+          {/* §6.4: чипы интересов — один раз, пока не выбраны/не закрыты. */}
+          {tab === "parskats" && <InterestsCard />}
           {tab === "parskats" && (
             <Overview
               bids={bids} unpaid={unpaid} feesCents={fees?.outstandingCents ?? 0}

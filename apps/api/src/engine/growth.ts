@@ -8,6 +8,7 @@ import {
   referralCodes,
   segmentMembers,
   segments,
+  loyaltyAccounts,
   userCategoryStats,
   userEvents,
   userRfm,
@@ -28,6 +29,13 @@ import { getSettings } from "./settings.js";
  * стоп-сигналы, недельный лимит, 48-часовой зазор и ночную тишину.
  */
 
+
+/** Дешёвый детерминированный хэш строки — для A/B-сплита получателей. */
+function hashOf(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i += 1) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return h;
+}
 
 /** drizzle execute: node-postgres отдаёт {rows}, другие драйверы — массив. */
 function rowsOf<T>(res: unknown): T[] {
@@ -242,13 +250,20 @@ export async function dispatchCampaigns(ctx: AppContext): Promise<void> {
 
     let queued = 0;
     let skipped = 0;
+    const hasB = c.contentB !== null && c.contentB !== undefined && Object.keys(c.contentB).length > 0;
     for (const customerId of recipients) {
+      // A/B: детерминированный сплит по id клиента — повтор прогона даёт тот
+      // же вариант, случайность не смешивает группы (MD §6.6).
+      const variant: "a" | "b" = hasB && hashOf(customerId) % 2 === 1 ? "b" : "a";
+      const content = variant === "b" ? c.contentB! : c.content;
       const res = await enqueueMarketing(ctx, ctx.db, {
         customerId,
         type: "campaign",
         template: { alias: "", lotTitle: "" },
-        custom: c.content as Record<string, { subject: string; body: string }>,
+        custom: content as Record<string, { subject: string; body: string }>,
         dedupeKey: `campaign:${c.id}:${customerId}`,
+        campaignId: c.id,
+        ...(hasB ? { variant } : {}),
       }).catch(() => ({ ok: false as const, skip: "duplicate" as const }));
       if (res.ok) queued += 1;
       else skipped += 1;
@@ -509,6 +524,75 @@ export async function sendLostBidSimilar(
   }
 }
 
+/** §6.1: смотрел лот, ставку не сделал, торги в последних часах — nudge.
+ *  Гоняется вместе с кампаниями (раз в несколько минут), не ночью: окно
+ *  «заканчивается через N часов» ночного прогона не переживёт. */
+export async function runAbandonedBidNudges(ctx: AppContext): Promise<void> {
+  const s = await getSettings(ctx);
+  const viewedAfter = new Date(ctx.now().getTime() - s.abandoned_view_days * 86_400_000);
+  const endsBefore = new Date(ctx.now().getTime() + s.abandoned_bid_hours * 3_600_000);
+  const rows = await ctx.db.execute(sql`
+    select distinct e.customer_id, a.id as auction_id, l.title,
+           coalesce(a.current_price_cents, l.price_cents) as price_cents
+    from user_events e
+    join listings l on l.id = e.listing_id
+    join auctions a on a.listing_id = l.id and a.status = 'running'
+    where e.event_type = 'view_lot'
+      and e.created_at > ${viewedAfter}
+      and a.ends_at <= ${endsBefore} and a.ends_at > now()
+      and not exists (
+        select 1 from bids b where b.auction_id = a.id and b.customer_id = e.customer_id
+      )
+    limit 200
+  `);
+  for (const r of rowsOf<{ customer_id: string; auction_id: string; title: string; price_cents: number | null }>(rows)) {
+    if (!(await markOnce(ctx.db, r.customer_id, `abandoned:${r.auction_id}`))) continue;
+    await enqueueMarketing(ctx, ctx.db, {
+      customerId: r.customer_id,
+      type: "abandoned_bid",
+      template: {
+        alias: "", lotTitle: r.title,
+        amountCents: r.price_cents ?? undefined,
+        actionUrl: `${ctx.config.storefrontBaseUrl}/auction/${r.auction_id}`,
+      },
+      dedupeKey: `abandoned:${r.auction_id}:${r.customer_id}`,
+    }).catch(() => undefined);
+  }
+}
+
+/** §6.2: N дней после ПЕРВОЙ покупки, второй так и нет — авто-письмо с
+ *  подборкой по любимой категории и напоминанием о баллах. */
+export async function runSecondPurchaseNudges(ctx: AppContext): Promise<void> {
+  const s = await getSettings(ctx);
+  const from = new Date(ctx.now().getTime() - (s.second_purchase_days + 7) * 86_400_000);
+  const to = new Date(ctx.now().getTime() - s.second_purchase_days * 86_400_000);
+  const rows = await ctx.db.execute(sql`
+    select customer_id, max(paid_at) as first_paid
+    from orders
+    where status = 'paid'
+    group by customer_id
+    having count(*) = 1 and max(paid_at) between ${from} and ${to}
+    limit 200
+  `);
+  for (const r of rowsOf<{ customer_id: string }>(rows)) {
+    if (!(await markOnce(ctx.db, r.customer_id, "second_purchase"))) continue;
+    const category = await topCategoryOf(ctx, r.customer_id);
+    const lots = await lotsFor(ctx, category);
+    if (lots.length === 0) continue;
+    const [acct] = await ctx.db.select().from(loyaltyAccounts).where(eq(loyaltyAccounts.customerId, r.customer_id));
+    await enqueueMarketing(ctx, ctx.db, {
+      customerId: r.customer_id,
+      type: "second_purchase",
+      template: {
+        alias: "", lotTitle: "", lots,
+        categoryLabel: category ?? undefined,
+        pointsBalanceCents: acct?.balanceCents ?? 0,
+      },
+      dedupeKey: `second_purchase:${r.customer_id}`,
+    }).catch(() => undefined);
+  }
+}
+
 /** Ночной пакет: сводка → RFM → сегменты → lifecycle-письма. */
 export async function runNightlyGrowth(ctx: AppContext): Promise<void> {
   await rebuildStats(ctx).catch((err) => console.error("rebuildStats failed", err));
@@ -518,4 +602,51 @@ export async function runNightlyGrowth(ctx: AppContext): Promise<void> {
   await runWinback(ctx).catch((err) => console.error("winback failed", err));
   await runReviewRequests(ctx).catch((err) => console.error("review requests failed", err));
   await runReferralInvites(ctx).catch((err) => console.error("referral invites failed", err));
+  await runSecondPurchaseNudges(ctx).catch((err) => console.error("second purchase nudges failed", err));
+  await rebuildCoPurchases(ctx).catch((err) => console.error("co-purchase rebuild failed", err));
+}
+
+/* ── §6.9: co-occurrence «покупавшие из X берут и Y» ─────────────────────── */
+
+/**
+ * Категорийные пары совместных покупок, пересчитываются ночью в Redis:
+ * co:cats = {"tools|electronics": 12, …}. Витрина берёт для клиента вторую
+ * рекомендованную категорию — без ML, чистый подсчёт пар (MD §6.9).
+ */
+export async function rebuildCoPurchases(ctx: AppContext): Promise<void> {
+  const rows = await ctx.db.execute(sql`
+    select a.category as cat_a, b.category as cat_b, count(*) as n
+    from (select distinct o.customer_id, i.category
+          from orders o join items i on i.id = o.item_id
+          where o.status = 'paid') a
+    join (select distinct o.customer_id, i.category
+          from orders o join items i on i.id = o.item_id
+          where o.status = 'paid') b
+      on a.customer_id = b.customer_id and a.category < b.category
+    group by a.category, b.category
+    order by n desc
+    limit 200
+  `);
+  const pairs: Record<string, number> = {};
+  for (const r of rowsOf<{ cat_a: string; cat_b: string; n: string | number }>(rows)) {
+    pairs[`${r.cat_a}|${r.cat_b}`] = Number(r.n);
+  }
+  try { await ctx.redis.set("growth:co-cats", JSON.stringify(pairs)); } catch { /* кэш — удобство */ }
+}
+
+/** Категория-компаньон к данной по co-occurrence (или null). */
+export async function companionCategory(ctx: AppContext, category: string): Promise<string | null> {
+  try {
+    const raw = await ctx.redis.get("growth:co-cats");
+    if (!raw) return null;
+    const pairs = JSON.parse(raw) as Record<string, number>;
+    let best: string | null = null;
+    let bestN = 1; // одна общая покупка — ещё не сигнал
+    for (const [key, n] of Object.entries(pairs)) {
+      const [a, b] = key.split("|");
+      if (a !== category && b !== category) continue;
+      if (n > bestN) { bestN = n; best = a === category ? b! : a!; }
+    }
+    return best;
+  } catch { return null; }
 }
