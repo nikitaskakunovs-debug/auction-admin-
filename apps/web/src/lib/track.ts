@@ -12,6 +12,7 @@
  */
 
 import { PUBLIC_API_URL } from "./config";
+import { computeInvoice, marketFees } from "./fees";
 
 type DataLayer = Array<Record<string, unknown> | IArguments>;
 
@@ -477,6 +478,49 @@ export function gaItem(i: {
     ...(i.grossCents !== undefined ? { gross_price: i.grossCents / 100 } : {}),
     ...(i.saleType ? { sale_type: i.saleType } : {}),
   };
+}
+
+/**
+ * Единый обработчик успешной ставки (задача IT: bid_source).
+ *
+ * Одно событие place_bid на одну принятую ставку, откуда бы она ни пришла:
+ * карточка лота (lot_page) или быстрая кнопка без открытия карточки
+ * (quick_bid — каталог, поиск, категории, рекомендации, зал торгов).
+ * Зовётся ТОЛЬКО после успешного ответа сервера: отказ, обрыв сети и
+ * повторный клик события не рождают. Идентификатор выдаёт сервер вместе с
+ * принятой ставкой — повторная обработка того же ответа не создаёт нового
+ * event_id, а браузерный пиксель и серверная копия Meta склеиваются по нему.
+ */
+export function trackPlaceBid(args: {
+  sku: string; listingId: string; title: string; category?: string | null;
+  marketCode: string; amountCents: number;
+  firstBid: boolean; lead: boolean; eventId?: string | undefined;
+  source: "lot_page" | "quick_bid";
+}): void {
+  const inv = computeInvoice(args.amountCents, args.marketCode);
+  const net = inv.hammerCents + inv.premiumCents;
+  track("place_bid", {
+    ...(args.eventId ? { event_id: args.eventId } : {}),
+    item_id: args.sku, listing_id: args.listingId, item_name: args.title,
+    ...(args.category ? { item_category: args.category } : {}),
+    sale_type: "auction",
+    bid_source: args.source,
+    first_bid: args.firstBid,
+    bid_amount: args.amountCents / 100,
+    value: net / 100, currency: "EUR", lead: args.lead,
+    gross_total: inv.totalCents / 100,
+    commission_value: inv.premiumCents / 100,
+    vat_scheme: "standard",
+    ecommerce: {
+      currency: "EUR", value: net / 100,
+      items: [gaItem({
+        sku: args.sku, listingId: args.listingId, name: args.title, category: args.category,
+        netCents: net, hammerCents: inv.hammerCents, feeCents: inv.premiumCents,
+        vatRateBp: marketFees(args.marketCode).vatRateBp, grossCents: inv.totalCents,
+        saleType: "auction",
+      })],
+    },
+  });
 }
 
 /** Верхний sale_type события по составу позиций: единый тип — он и есть,

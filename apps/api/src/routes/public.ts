@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import {
   auctions,
   auditLog,
@@ -477,6 +477,11 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
       .where(and(eq(bids.customerId, bidderId), isNull(bids.voidedAt)));
     return {
       ok: true,
+      // Идентификатор события аналитики — рождается на сервере вместе с
+      // принятой ставкой (задача IT): повторная обработка того же ответа не
+      // создаёт нового, а браузерный пиксель и серверная копия Meta
+      // склеиваются по нему в одну конверсию.
+      eventId: `place_bid-${randomUUID()}`,
       firstBid: Number(bidTally?.n ?? 0) <= 1,
       priceChanged: result.priceChanged,
       currentPriceCents: result.currentPriceCents,

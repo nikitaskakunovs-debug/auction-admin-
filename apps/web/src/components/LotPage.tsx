@@ -10,7 +10,7 @@ import { dateLocale, useT } from "@/lib/i18n";
 import { loginHref } from "@/lib/nav";
 import { photoWeb, photoThumb } from "@/lib/photos";
 import { formatEur, type AuctionDetail, type PublicAuction } from "@/lib/types";
-import { gaItem, track } from "@/lib/track";
+import { gaItem, track, trackPlaceBid } from "@/lib/track";
 import { useStickyBar } from "@/lib/ui";
 import { watchStore } from "@/lib/watch";
 import { KlixPayLater } from "./KlixPayLater";
@@ -200,7 +200,7 @@ export function LotPage({
   const placeBid = async () => {
     setBusy(true); setNotice(null);
     try {
-      const r = await publicApi.post<{ youLead: boolean; currentPriceCents: number; extended: boolean; firstBid?: boolean; priceChanged?: boolean }>(
+      const r = await publicApi.post<{ youLead: boolean; currentPriceCents: number; extended: boolean; firstBid?: boolean; priceChanged?: boolean; eventId?: string }>(
         `/api/public/auctions/${a.id}/bids`, { maxCents: amount },
       );
       setConfirm(false);
@@ -223,29 +223,14 @@ export function LotPage({
           : { text: `${t("a.outbid")} — ${formatEur(r.currentPriceCents)}`, tone: "out" });
       say(maxRaised ? t("a.maxRaised", { sum: formatEur(amount) }) : r.youLead ? t("a.youLead") : t("a.outbid"));
       if (r.extended) say(t("a.extended"));
-      // Аналитика (GTM): успешная ставка. value — молоток + комиссия БЕЗ НДС
-      // (единая арифметика движка), сама ставка отдельно в bid_amount.
-      // Неудачная ставка события не рождает — мы в ветке успеха.
-      {
-        const bidInv = computeInvoice(amount, a.marketCode);
-        const bidNet = bidInv.hammerCents + bidInv.premiumCents;
-        track("place_bid", {
-          item_id: a.sku, listing_id: a.id, item_name: a.title, item_category: a.category,
-          sale_type: "auction",
-          first_bid: r.firstBid === true,
-          bid_amount: amount / 100,
-          value: bidNet / 100, currency: "EUR", lead: r.youLead,
-          ecommerce: {
-            currency: "EUR", value: bidNet / 100,
-            items: [gaItem({
-              sku: a.sku, listingId: a.id, name: a.title, category: a.category,
-              netCents: bidNet, hammerCents: bidInv.hammerCents, feeCents: bidInv.premiumCents,
-              vatRateBp: marketFees(a.marketCode).vatRateBp, grossCents: bidInv.totalCents,
-              saleType: "auction",
-            })],
-          },
-        });
-      }
+      // Аналитика (GTM): единый обработчик успешной ставки — мы в ветке
+      // успеха, отказ события не рождает.
+      trackPlaceBid({
+        sku: a.sku, listingId: a.id, title: a.title, category: a.category,
+        marketCode: a.marketCode, amountCents: amount,
+        firstBid: r.firstBid === true, lead: r.youLead, eventId: r.eventId,
+        source: "lot_page",
+      });
       await reload();
     } catch (err) {
       if (err instanceof PublicApiError && err.body.code === "EMAIL_NOT_VERIFIED") {

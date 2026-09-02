@@ -5,11 +5,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
 import { PUBLIC_API_URL } from "@/lib/config";
 import { conditionLabel } from "@/lib/conditions";
-import { computeInvoice, increment, marketFees } from "@/lib/fees";
+import { increment, marketFees } from "@/lib/fees";
 import { useT } from "@/lib/i18n";
 import { loginHref } from "@/lib/nav";
 import { photoWeb } from "@/lib/photos";
-import { gaItem, track } from "@/lib/track";
+import { trackPlaceBid } from "@/lib/track";
 import { useStickyBar } from "@/lib/ui";
 import { formatEur, type AuctionDetail, type PublicAuction } from "@/lib/types";
 import { Icon } from "./Icon";
@@ -144,7 +144,7 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
   const bid = async () => {
     setBusy(true); setNotice(null);
     try {
-      const r = await publicApi.post<{ youLead: boolean; currentPriceCents: number; extended: boolean; firstBid?: boolean; priceChanged?: boolean }>(
+      const r = await publicApi.post<{ youLead: boolean; currentPriceCents: number; extended: boolean; firstBid?: boolean; priceChanged?: boolean; eventId?: string }>(
         `/api/public/auctions/${stage.id}/bids`, { maxCents: ask },
       );
       // Лидер поднял собственный максимум: цена не растёт и новой строки в
@@ -157,28 +157,14 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
           ? { text: t("a.youLead"), tone: "win" }
           : { text: `${t("a.outbid")} — ${formatEur(r.currentPriceCents)}`, tone: "out" });
       say(maxRaised ? t("a.maxRaised", { sum: formatEur(ask) }) : r.youLead ? t("a.youLead") : t("a.outbid"));
-      // Аналитика (GTM): ставка из зала торгов — то же событие, что и с
-      // карточки лота: value без НДС, ставка отдельно, тип решает движок.
-      {
-        const bidInv = computeInvoice(ask, stage.marketCode);
-        const bidNet = bidInv.hammerCents + bidInv.premiumCents;
-        track("place_bid", {
-          item_id: stage.sku, listing_id: stage.id, item_name: stage.title, item_category: stage.category,
-          sale_type: "auction",
-          first_bid: r.firstBid === true,
-          bid_amount: ask / 100,
-          value: bidNet / 100, currency: "EUR", lead: r.youLead,
-          ecommerce: {
-            currency: "EUR", value: bidNet / 100,
-            items: [gaItem({
-              sku: stage.sku, listingId: stage.id, name: stage.title, category: stage.category,
-              netCents: bidNet, hammerCents: bidInv.hammerCents, feeCents: bidInv.premiumCents,
-              vatRateBp: marketFees(stage.marketCode).vatRateBp, grossCents: bidInv.totalCents,
-              saleType: "auction",
-            })],
-          },
-        });
-      }
+      // Аналитика (GTM): единый обработчик успешной ставки. Зал торгов —
+      // ставка без открытия карточки, поэтому bid_source: quick_bid.
+      trackPlaceBid({
+        sku: stage.sku, listingId: stage.id, title: stage.title, category: stage.category,
+        marketCode: stage.marketCode, amountCents: ask,
+        firstBid: r.firstBid === true, lead: r.youLead, eventId: r.eventId,
+        source: "quick_bid",
+      });
       await load(stage.id);
     } catch (err) {
       if (err instanceof PublicApiError && err.body.code === "EMAIL_NOT_VERIFIED") {

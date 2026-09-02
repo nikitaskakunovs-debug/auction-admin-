@@ -208,6 +208,15 @@ describe("the real bid path", () => {
       .json() as { minNextBidCents: number; myMaxCents: number | null };
     expect(asRival).toMatchObject({ minNextBidCents: 6_000, myMaxCents: null });
 
+    // Каждая принятая ставка несёт свой event_id аналитики от сервера:
+    // браузерный пиксель и серверная копия Meta склеиваются по нему, а
+    // повторная обработка того же ответа нового не рождает.
+    const e1 = (await bidAs(a.accessToken, 13_000)).json() as { eventId?: string };
+    const e2 = (await bidAs(b.accessToken, 15_000)).json() as { eventId?: string };
+    expect(e1.eventId).toMatch(/^place_bid-/);
+    expect(e2.eventId).toMatch(/^place_bid-/);
+    expect(e1.eventId).not.toBe(e2.eventId);
+
     // Unauthenticated bids are rejected.
     const anon = await world.server.app.inject({
       method: "POST",

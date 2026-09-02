@@ -10,6 +10,7 @@ import { dateLocale, useT } from "@/lib/i18n";
 import { loginHref } from "@/lib/nav";
 import { photoThumb } from "@/lib/photos";
 import { formatEur, type FixedListing, type PublicAuction } from "@/lib/types";
+import { trackPlaceBid } from "@/lib/track";
 import { alertStore } from "@/lib/ui";
 import { watchStore } from "@/lib/watch";
 import { Icon } from "./Icon";
@@ -131,10 +132,21 @@ export function LotCard({ lot }: { lot: CardLot }) {
   const place = async () => {
     setBusy(true);
     try {
-      const r = await publicApi.post<{ youLead: boolean; currentPriceCents: number; extended: boolean; priceChanged?: boolean }>(
-        `/api/public/auctions/${lot.id}/bids`, { maxCents: ask },
-      );
+      const r = await publicApi.post<{
+        youLead: boolean; currentPriceCents: number; extended: boolean;
+        firstBid?: boolean; priceChanged?: boolean; eventId?: string;
+      }>(`/api/public/auctions/${lot.id}/bids`, { maxCents: ask });
       setLive({ price: r.currentPriceCents, bids: bidCount + 1, youLead: r.youLead });
+      // Аналитика (GTM): единый обработчик успешной ставки — быстрая ставка
+      // из списка раньше не отслеживалась вовсе (задача IT: bid_source).
+      // Только здесь, в ветке успеха: отказ и обрыв сети события не рождают,
+      // и никакого view_item карточка лота не выдумывает.
+      trackPlaceBid({
+        sku: lot.sku, listingId: lot.id, title: lot.title, category: lot.category,
+        marketCode: lot.marketCode, amountCents: ask,
+        firstBid: r.firstBid === true, lead: r.youLead, eventId: r.eventId,
+        source: "quick_bid",
+      });
       // Лидер поднял собственный максимум: цена стоит — объясняем, иначе
       // «Pieņemts» с прежней ценой выглядит как несработавшая ставка.
       if (r.youLead && r.priceChanged === false) say(t("a.maxRaised", { sum: formatEur(ask) }));
