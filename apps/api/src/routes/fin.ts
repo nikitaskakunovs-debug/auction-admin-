@@ -171,10 +171,8 @@ export function registerFinRoutes(app: FastifyInstance, ctx: AppContext, perms: 
       department: body.data.department ?? null,
       actor: req.admin!.name,
     }, ctx.now());
-    await writeAudit(ctx.db, actor(req), "finance", "manual_ledger_entry", body.data.kind, {
-      amountCents: body.data.amountCents,
-      memo: body.data.memo,
-    });
+    // Сумму в аудит не пишем — хронику читают роли без finance.view.
+    await writeAudit(ctx.db, actor(req), "finance", "manual_ledger_entry", body.data.kind, { memo: body.data.memo });
     return { ok: true };
   });
 

@@ -24,14 +24,17 @@ export interface MatchedRule {
   note: string;
 }
 
-/** Первое активное правило, чей диапазон накрывает сумму; вне правил —
- *  консервативный fallback: super_admin, свыше €5000 — двойной. */
+/** Первое активное правило, чей диапазон накрывает сумму. ПУСТАЯ таблица
+ *  правил = approval-слой не настроен: счета проводятся как раньше (auto) —
+ *  прод получает стартовые правила миграцией 0047. Сумма ВНЕ настроенных
+ *  правил — консервативный fallback: super_admin, свыше €5000 двойной. */
 export async function matchApprovalRule(tx: Tx, amountCents: number): Promise<MatchedRule> {
   const rules = await tx
     .select()
     .from(approvalRules)
     .where(eq(approvalRules.isActive, true))
     .orderBy(asc(approvalRules.position), asc(approvalRules.minCents));
+  if (!rules.length) return { approver: "auto", dual: false, note: "nav noteikumu — auto" };
   for (const r of rules) {
     if (amountCents >= r.minCents && (r.maxCents == null || amountCents < r.maxCents)) {
       const range = `${(r.minCents / 100).toFixed(0)}–${r.maxCents == null ? "∞" : (r.maxCents / 100).toFixed(0)} €`;
@@ -72,14 +75,16 @@ export async function routeInvoiceApproval(
         .where(eq(supplierInvoices.id, invoiceId));
       await postSupplierInvoiceApproved(tx, { ...invoice, approvalStatus: "auto" }, ctx.now());
       if (invoice.consignmentId) await allocateConsignmentCost(tx, invoice.consignmentId, ctx.now());
-      await writeAudit(tx, actor, "finance", "supplier_invoice_auto_approved", invoice.number, { rule: rule.note, amountCents: invoice.amountCents });
+      // Суммы в аудит НЕ пишем: ленту читает audit.view без finance.view
+      // (инвариант из suppliers-тестов — платёжки не светятся в хронике).
+      await writeAudit(tx, actor, "finance", "supplier_invoice_auto_approved", invoice.number, { rule: rule.note });
       return "auto" as const;
     }
     await tx
       .update(supplierInvoices)
       .set({ approvalStatus: "pending", approvalRuleNote: rule.note, updatedAt: ctx.now() })
       .where(eq(supplierInvoices.id, invoiceId));
-    await writeAudit(tx, actor, "finance", "supplier_invoice_routed", invoice.number, { rule: rule.note, amountCents: invoice.amountCents });
+    await writeAudit(tx, actor, "finance", "supplier_invoice_routed", invoice.number, { rule: rule.note });
     return "pending" as const;
   });
   if (status === "pending") {
