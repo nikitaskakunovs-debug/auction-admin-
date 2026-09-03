@@ -241,6 +241,7 @@ function renderCampaignEmail(
         review: { lv: "Atstāj atsauksmi", ru: "Оставить отзыв", en: "Leave a review" }[L],
       },
       unsubscribe: unsub,
+      art: "campaign",
     },
     emailBrand(ctx),
   );

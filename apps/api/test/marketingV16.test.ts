@@ -262,6 +262,39 @@ describe("надстройка v15: карты, уровни, free_shipping, а�
     expect(mine.tracking.reduce((s, t) => s + t.opened, 0)).toBe(1);
   });
 
+  it("правка CTA из админки меняет кнопку письма (с плейсхолдером в ссылке)", async () => {
+    const { renderNotification } = await import("../src/engine/notifications.js");
+    const { invalidateTemplateOverrideCache } = await import("../src/engine/notifications.js");
+    const put = await world.server.app.inject({
+      method: "PUT", url: "/api/cms/email-templates/payment_reminder/lv", headers: auth(adminToken),
+      payload: { ctaLabel: "Samaksāt tagad", ctaUrl: "{payUrl}" },
+    });
+    expect(put.statusCode).toBe(200);
+    invalidateTemplateOverrideCache();
+    const r = await renderNotification(world.ctx, "payment_reminder", "lv", {
+      alias: "Tests", lotTitle: "Lote", orderRef: "A-9", totalCents: 5_000,
+      deadline: new Date(world.ctx.now().getTime() + 86_400_000),
+      payUrl: "https://izsoli.lv/api/public/pay/A-9?t=x",
+    });
+    expect(r.html).toContain("Samaksāt tagad");
+    expect(r.html).toContain("https://izsoli.lv/api/public/pay/A-9?t=x");
+    // Не-http(s) ссылка после подстановки отвергается — кнопка остаётся кодовой.
+    await world.server.app.inject({
+      method: "PUT", url: "/api/cms/email-templates/payment_reminder/lv", headers: auth(adminToken),
+      payload: { ctaUrl: "javascript:alert(1)" },
+    });
+    invalidateTemplateOverrideCache();
+    const r2 = await renderNotification(world.ctx, "payment_reminder", "lv", {
+      alias: "Tests", lotTitle: "Lote", orderRef: "A-9", totalCents: 5_000,
+      payUrl: "https://izsoli.lv/api/public/pay/A-9?t=x",
+    });
+    expect(r2.html).not.toContain("javascript:");
+    await world.server.app.inject({
+      method: "DELETE", url: "/api/cms/email-templates/payment_reminder/lv", headers: auth(adminToken),
+    });
+    invalidateTemplateOverrideCache();
+  });
+
   it("обёртка трекинга не трогает ссылку отписки", () => {
     const html = `<a href="https://izsoli.lv/katalogs">loti</a> <a href="https://izsoli.lv/atteikties?t=x">atteikties</a>`;
     const out = withEmailTracking(html, "11111111-2222-3333-4444-555555555555", "https://api.izsoli.lv");

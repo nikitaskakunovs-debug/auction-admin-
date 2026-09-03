@@ -139,6 +139,7 @@ export interface ApiConfig {
     heroUrl: string | null;
     facebookUrl: string | null;
     instagramUrl: string | null;
+    tiktokUrl: string | null;
     reviewUrl: string | null;
   };
   /**
@@ -393,6 +394,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       heroUrl: env.EMAIL_HERO_URL || null,
       facebookUrl: env.SOCIAL_FACEBOOK_URL || null,
       instagramUrl: env.SOCIAL_INSTAGRAM_URL || null,
+      tiktokUrl: env.SOCIAL_TIKTOK_URL || null,
       reviewUrl: env.REVIEW_URL || null,
     },
     omnivaMode,

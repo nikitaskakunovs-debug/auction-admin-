@@ -140,6 +140,9 @@ export function registerCmsRoutes(app: FastifyInstance, ctx: AppContext, perms: 
         subject: z.string().max(300).nullable().optional(),
         body: z.string().max(20_000).nullable().optional(),
         html: z.string().max(200_000).nullable().optional(),
+        /** CTA-кнопка: текст и ссылка (плейсхолдеры {payUrl} и т.п.). */
+        ctaLabel: z.string().max(120).nullable().optional(),
+        ctaUrl: z.string().max(600).nullable().optional(),
         enabled: z.boolean().optional(),
       })
       .safeParse(req.body ?? {});
@@ -148,6 +151,8 @@ export function registerCmsRoutes(app: FastifyInstance, ctx: AppContext, perms: 
       ...(body.data.subject !== undefined ? { subject: body.data.subject } : {}),
       ...(body.data.body !== undefined ? { body: body.data.body } : {}),
       ...(body.data.html !== undefined ? { html: body.data.html } : {}),
+      ...(body.data.ctaLabel !== undefined ? { ctaLabel: body.data.ctaLabel } : {}),
+      ...(body.data.ctaUrl !== undefined ? { ctaUrl: body.data.ctaUrl } : {}),
       ...(body.data.enabled !== undefined ? { enabled: body.data.enabled } : {}),
       updatedAt: ctx.now(),
       updatedBy: req.admin!.sub,

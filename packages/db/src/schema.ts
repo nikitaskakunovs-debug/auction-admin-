@@ -1673,6 +1673,10 @@ export const emailTemplateOverrides = pgTable(
     body: text("body"),
     /** Необязательный сырой HTML контент-блока вместо собранного из body. */
     html: text("html"),
+    /** Правка CTA-кнопки: текст и ссылка (поддерживают плейсхолдеры,
+     *  {payUrl}/{actionUrl}/{siteUrl}…). Null — кнопка из кода. */
+    ctaLabel: text("cta_label"),
+    ctaUrl: text("cta_url"),
     enabled: boolean("enabled").notNull().default(true),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     updatedBy: text("updated_by"),

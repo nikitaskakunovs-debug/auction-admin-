@@ -60,6 +60,8 @@ export const MISC = {
   "ms.editBody": { lv: "Teksts — rindkopas atdala tukša rinda (tukšs = kā kodā)", ru: "Текст — абзацы через пустую строку (пусто = как в коде)", en: "Body — blank line = paragraph (empty = code default)" },
   "ms.editHtml": { lv: "HTML bloks (neobligāti — aizstāj VISU vēstuli; atteikšanās saite tiks pievienota automātiski)", ru: "HTML-блок (необязательно — заменяет ВСЁ письмо; ссылка отписки добавится сама)", en: "HTML block (optional — replaces the WHOLE e-mail; the unsubscribe link is appended automatically)" },
   "ms.editPlaceholders": { lv: "Vietturi", ru: "Плейсхолдеры", en: "Placeholders" },
+  "ms.editCtaLabel": { lv: "Pogas teksts (tukšs = kā kodā)", ru: "Текст кнопки (пусто = как в коде)", en: "Button text (empty = code default)" },
+  "ms.editCtaUrl": { lv: "Pogas saite (der vietturi, piem. {payUrl})", ru: "Ссылка кнопки (можно плейсхолдеры, напр. {payUrl})", en: "Button link (placeholders OK, e.g. {payUrl})" },
   "ms.editOverrideOn": { lv: "Šī vēstule ir labota — teksts nāk no šejienes", ru: "Это письмо правлено — текст берётся отсюда", en: "This e-mail is edited — copy comes from here" },
   "ms.editOverrideOff": { lv: "Rāda koda tekstu", ru: "Показывается текст из кода", en: "Showing the code default" },
   "ms.editSave": { lv: "Saglabāt", ru: "Сохранить", en: "Save" },

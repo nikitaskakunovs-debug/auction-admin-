@@ -66,6 +66,7 @@ export function emailBrand(ctx: AppContext): EmailBrand {
     heroUrl: b.heroUrl,
     facebookUrl: b.facebookUrl,
     instagramUrl: b.instagramUrl,
+    tiktokUrl: b.tiktokUrl,
     reviewUrl: b.reviewUrl,
   };
 }
@@ -165,7 +166,13 @@ export function fillPlaceholders(tpl: string, i: TemplateInput, ctx: AppContext,
   return tpl.replace(/\{(\w+)\}/g, (m, key: string) => (key in map ? map[key]! : m));
 }
 
-interface TplOverride { subject: string | null; body: string | null; html: string | null }
+interface TplOverride {
+  subject: string | null;
+  body: string | null;
+  html: string | null;
+  ctaLabel: string | null;
+  ctaUrl: string | null;
+}
 const OVERRIDE_CACHE_MS = 60_000;
 const overrideCache = new Map<string, { at: number; row: TplOverride | null }>();
 
@@ -189,11 +196,15 @@ async function loadOverride(
         subject: emailTemplateOverrides.subject,
         body: emailTemplateOverrides.body,
         html: emailTemplateOverrides.html,
+        ctaLabel: emailTemplateOverrides.ctaLabel,
+        ctaUrl: emailTemplateOverrides.ctaUrl,
         enabled: emailTemplateOverrides.enabled,
       })
       .from(emailTemplateOverrides)
       .where(and(eq(emailTemplateOverrides.type, type), eq(emailTemplateOverrides.lang, lang)));
-    row = r && r.enabled ? { subject: r.subject, body: r.body, html: r.html } : null;
+    row = r && r.enabled
+      ? { subject: r.subject, body: r.body, html: r.html, ctaLabel: r.ctaLabel, ctaUrl: r.ctaUrl }
+      : null;
   } catch {
     // Правки — удобство, не обязанность: сбой чтения не должен ронять письмо.
   }
@@ -240,8 +251,18 @@ export async function renderNotification(
       notes: paras.slice(1).map((p) => ({ text: p })),
     };
   }
+  // Правка CTA из админки: текст и ссылка кнопки (с плейсхолдерами). Ссылка
+  // после подстановки обязана быть http(s) — иначе остаётся кодовая: письмо
+  // с кнопкой в никуда хуже письма без правки.
+  if (override?.ctaLabel || override?.ctaUrl) {
+    const label = override.ctaLabel ? fillPlaceholders(override.ctaLabel, input, ctx, lang) : spec.cta?.label;
+    const rawUrl = override.ctaUrl ? fillPlaceholders(override.ctaUrl, input, ctx, lang) : spec.cta?.url;
+    const url = rawUrl && /^https?:\/\//i.test(rawUrl) ? rawUrl : spec.cta?.url;
+    if (label && url) spec = { ...spec, cta: { label, url } };
+  }
 
-  const specWithUnsub = unsub ? { ...spec, unsubscribe: unsub } : spec;
+  // art: тип письма выбирает line-art иллюстрацию макета ({siteUrl}/email/).
+  const specWithUnsub = { ...spec, art: type, ...(unsub ? { unsubscribe: unsub } : {}) };
   // Ссылка отписки помечена своей меткой: отписки в отчёте видны отдельно от
   // переходов в каталог, а utm-подстановка её не трогает.
   const textUnsub = unsub ? `\n\n---\n${unsub.note}\n${unsub.label}: ${unsub.url}` : "";

@@ -78,7 +78,10 @@ describe("вишлист, отписка и маркетинговый план�
   it("токен отписки: подпись сходится, подделка и чужой секрет — нет", () => {
     const t = unsubscribeToken(bidderId, world.ctx.config.jwtSecret);
     expect(verifyUnsubscribeToken(t, world.ctx.config.jwtSecret)).toBe(bidderId);
-    expect(verifyUnsubscribeToken(t.slice(0, -1) + "x", world.ctx.config.jwtSecret)).toBeNull();
+    // Подмена последнего символа гарантированно ДРУГИМ: токен, случайно
+    // кончающийся на «x», делал «подделку» равной оригиналу (флак ~1/64).
+    const tampered = t.slice(0, -1) + (t.endsWith("x") ? "y" : "x");
+    expect(verifyUnsubscribeToken(tampered, world.ctx.config.jwtSecret)).toBeNull();
     expect(verifyUnsubscribeToken(t, "other-secret")).toBeNull();
     expect(verifyUnsubscribeToken("garbage", world.ctx.config.jwtSecret)).toBeNull();
   });

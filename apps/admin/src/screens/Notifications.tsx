@@ -51,7 +51,11 @@ const TYPE_KEY: Record<string, TKey> = {
 };
 
 /** Правка поверх кодового шаблона (одна на тип × язык). */
-interface TplOverride { type: string; lang: string; subject: string | null; body: string | null; html: string | null }
+interface TplOverride {
+  type: string; lang: string;
+  subject: string | null; body: string | null; html: string | null;
+  ctaLabel: string | null; ctaUrl: string | null;
+}
 interface TplMeta { types: string[]; langs: string[]; placeholders: string[]; overrides: TplOverride[] }
 
 const STATUS_TONE: Record<string, "ok" | "warn" | "danger" | "neutral"> = {
@@ -102,15 +106,21 @@ export function NotificationsScreen({ nav: _nav }: { nav: Nav }) {
   const [edSubject, setEdSubject] = useState("");
   const [edBody, setEdBody] = useState("");
   const [edHtml, setEdHtml] = useState("");
+  const [edCtaLabel, setEdCtaLabel] = useState("");
+  const [edCtaUrl, setEdCtaUrl] = useState("");
   const [edBusy, setEdBusy] = useState(false);
   const override = meta?.overrides.find((o) => o.type === pvType && o.lang === pvLang) ?? null;
-  const hasOverride = !!override && (override.subject !== null || override.body !== null || override.html !== null);
+  const hasOverride = !!override &&
+    (override.subject !== null || override.body !== null || override.html !== null ||
+     override.ctaLabel !== null || override.ctaUrl !== null);
 
   // Смена типа/языка подхватывает сохранённую правку в поля редактора.
   useEffect(() => {
     setEdSubject(override?.subject ?? "");
     setEdBody(override?.body ?? "");
     setEdHtml(override?.html ?? "");
+    setEdCtaLabel(override?.ctaLabel ?? "");
+    setEdCtaUrl(override?.ctaUrl ?? "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pvType, pvLang, meta]);
 
@@ -121,6 +131,8 @@ export function NotificationsScreen({ nav: _nav }: { nav: Nav }) {
         subject: edSubject.trim() || null,
         body: edBody.trim() || null,
         html: edHtml.trim() || null,
+        ctaLabel: edCtaLabel.trim() || null,
+        ctaUrl: edCtaUrl.trim() || null,
       });
       toast(t("ms.editSaved"), "ok");
       loadMeta();
@@ -256,6 +268,16 @@ export function NotificationsScreen({ nav: _nav }: { nav: Nav }) {
                   <textarea rows={7} value={edBody} onChange={(e) => setEdBody(e.target.value)}
                             style={{ width: "100%", padding: "8px 10px", borderRadius: 8, resize: "vertical", border: `1px solid ${AT.rule}`, fontFamily: AT.body, fontSize: 13, boxSizing: "border-box" }} />
                 </AField>
+                <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,2fr)", gap: 12 }}>
+                  <AField label={t("ms.editCtaLabel")}>
+                    <input value={edCtaLabel} onChange={(e) => setEdCtaLabel(e.target.value)}
+                           style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${AT.rule}`, fontFamily: AT.body, fontSize: 13, boxSizing: "border-box" }} />
+                  </AField>
+                  <AField label={t("ms.editCtaUrl")}>
+                    <input value={edCtaUrl} onChange={(e) => setEdCtaUrl(e.target.value)} placeholder="https://… vai {payUrl}"
+                           style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${AT.rule}`, fontFamily: AT.mono, fontSize: 12, boxSizing: "border-box" }} />
+                  </AField>
+                </div>
                 <AField label={t("ms.editHtml")}>
                   <textarea rows={5} value={edHtml} onChange={(e) => setEdHtml(e.target.value)}
                             style={{ width: "100%", padding: "8px 10px", borderRadius: 8, resize: "vertical", border: `1px solid ${AT.rule}`, fontFamily: AT.mono, fontSize: 12, boxSizing: "border-box" }} />
