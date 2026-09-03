@@ -97,7 +97,13 @@ INSERT INTO "approval_rules" ("min_cents","max_cents","approver","dual","positio
  (500000, NULL, 'role:super_admin', true, 3, 'seed');
 --> statement-breakpoint
 -- Новые права: супер-админу все, роли finance — операционный набор.
-INSERT INTO "role_permissions" ("role_id","permission") VALUES
+-- Только для СУЩЕСТВУЮЩИХ ролей: на свежей базе admin_roles ещё пуст
+-- (роли сеет seedDatabase ПОСЛЕ миграций и берёт права из domain-конфига),
+-- а на живом сервере роли есть — и им нужно донести новые права.
+INSERT INTO "role_permissions" ("role_id","permission")
+SELECT r.id, v.perm
+FROM "admin_roles" r
+JOIN (VALUES
  ('super_admin','fin.flags_view'),('super_admin','fin.flags_resolve'),
  ('super_admin','fin.refunds_manage'),('super_admin','fin.ledger_view'),
  ('super_admin','fin.export'),('super_admin','fin.approvals_view'),
@@ -105,4 +111,5 @@ INSERT INTO "role_permissions" ("role_id","permission") VALUES
  ('finance','fin.flags_view'),('finance','fin.flags_resolve'),
  ('finance','fin.refunds_manage'),('finance','fin.ledger_view'),
  ('finance','fin.export'),('finance','fin.approvals_view')
+) AS v(role_id, perm) ON v.role_id = r.id
 ON CONFLICT DO NOTHING;
