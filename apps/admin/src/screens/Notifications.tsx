@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api.js";
 import type { Nav } from "../App.js";
+import { useAuth } from "../auth.js";
 import { formatDate } from "../format.js";
 import { useT, type TKey } from "../i18n.js";
 import { AT } from "../theme.js";
-import { ABadge, ABtn, ACard, AEmpty, AIcon, APills, ASelect, ATable, ATd, ATr, useToast } from "../ui.js";
+import { ABadge, ABtn, ACard, AEmpty, AField, AIcon, APills, ASelect, ATable, ATd, ATr, useConfirm, useToast } from "../ui.js";
 
 interface Notification {
   id: string;
@@ -19,18 +20,11 @@ interface Notification {
   createdAt: string;
 }
 
-const TYPES = ["", "outbid", "won", "payment_reminder", "order_paid"];
-
-/** Every designed email, in the order a customer would meet them. */
-const PREVIEW_TYPES = [
-  "won", "purchased", "payment_reminder", "order_paid", "pickup_ready", "pickup_reminder",
-  "shipped", "outbid", "unpaid_cancelled", "no_pickup_cancelled", "refunded",
-] as const;
-
 const PREVIEW_LANGS = ["lv", "ru", "en"] as const;
 
 /** Known notification types → translation keys; unknown types show raw. */
 const TYPE_KEY: Record<string, TKey> = {
+  verify_email: "ms.nt.verify_email",
   outbid: "ms.nt.outbid",
   won: "ms.nt.won",
   purchased: "ms.nt.purchased",
@@ -42,7 +36,23 @@ const TYPE_KEY: Record<string, TKey> = {
   unpaid_cancelled: "ms.nt.unpaid_cancelled",
   no_pickup_cancelled: "ms.nt.no_pickup_cancelled",
   refunded: "ms.nt.refunded",
+  checked_in: "ms.nt.checked_in",
+  saved_search_hits: "ms.nt.saved_search_hits",
+  watchlist_ending: "ms.nt.watchlist_ending",
+  welcome_reminder: "ms.nt.welcome_reminder",
+  inactive_nudge: "ms.nt.inactive_nudge",
+  winback_offer: "ms.nt.winback_offer",
+  lost_bid_similar: "ms.nt.lost_bid_similar",
+  review_request: "ms.nt.review_request",
+  referral_invite: "ms.nt.referral_invite",
+  abandoned_bid: "ms.nt.abandoned_bid",
+  second_purchase: "ms.nt.second_purchase",
+  gift_card_received: "ms.nt.gift_card_received",
 };
+
+/** Правка поверх кодового шаблона (одна на тип × язык). */
+interface TplOverride { type: string; lang: string; subject: string | null; body: string | null; html: string | null }
+interface TplMeta { types: string[]; langs: string[]; placeholders: string[]; overrides: TplOverride[] }
 
 const STATUS_TONE: Record<string, "ok" | "warn" | "danger" | "neutral"> = {
   sent: "ok",
@@ -58,10 +68,19 @@ const STATUS_KEY: Record<string, TKey> = {
 
 export function NotificationsScreen({ nav: _nav }: { nav: Nav }) {
   const { t } = useT();
+  const { can } = useAuth();
   const toast = useToast();
+  const confirm = useConfirm();
   const [rows, setRows] = useState<Notification[]>([]);
   const [status, setStatus] = useState("all");
   const [type, setType] = useState("");
+
+  // ── Единый центр писем: список типов и правки приходят с сервера ──────────
+  const [meta, setMeta] = useState<TplMeta | null>(null);
+  const loadMeta = useCallback(() => {
+    void api.get<TplMeta>("/api/cms/email-templates").then(setMeta).catch(() => undefined);
+  }, []);
+  useEffect(() => { loadMeta(); }, [loadMeta]);
 
   // ── Design preview: what the customer actually receives ───────────────────
   const [pvType, setPvType] = useState<string>("won");
@@ -69,13 +88,58 @@ export function NotificationsScreen({ nav: _nav }: { nav: Nav }) {
   const [pv, setPv] = useState<{ subject: string; html: string; text: string } | null>(null);
   const [pvText, setPvText] = useState(false);
   const [sending, setSending] = useState(false);
+  const [pvTick, setPvTick] = useState(0); // сохранение правки перечитывает превью
 
   useEffect(() => {
     void api
       .get<{ subject: string; html: string; text: string }>(`/api/notifications/preview?type=${pvType}&lang=${pvLang}`)
       .then(setPv)
       .catch(() => setPv(null));
-  }, [pvType, pvLang]);
+  }, [pvType, pvLang, pvTick]);
+
+  // ── Редактор текста (MD §9): правка живёт поверх кодового шаблона ─────────
+  const [editOpen, setEditOpen] = useState(false);
+  const [edSubject, setEdSubject] = useState("");
+  const [edBody, setEdBody] = useState("");
+  const [edHtml, setEdHtml] = useState("");
+  const [edBusy, setEdBusy] = useState(false);
+  const override = meta?.overrides.find((o) => o.type === pvType && o.lang === pvLang) ?? null;
+  const hasOverride = !!override && (override.subject !== null || override.body !== null || override.html !== null);
+
+  // Смена типа/языка подхватывает сохранённую правку в поля редактора.
+  useEffect(() => {
+    setEdSubject(override?.subject ?? "");
+    setEdBody(override?.body ?? "");
+    setEdHtml(override?.html ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pvType, pvLang, meta]);
+
+  const saveEdit = async () => {
+    setEdBusy(true);
+    try {
+      await api.put(`/api/cms/email-templates/${pvType}/${pvLang}`, {
+        subject: edSubject.trim() || null,
+        body: edBody.trim() || null,
+        html: edHtml.trim() || null,
+      });
+      toast(t("ms.editSaved"), "ok");
+      loadMeta();
+      setPvTick((n) => n + 1);
+    } catch { toast(t("ms.editFailed"), "danger"); }
+    finally { setEdBusy(false); }
+  };
+
+  const resetEdit = async () => {
+    if (!(await confirm({ title: t("ms.editReset"), body: `${typeLabel(pvType)} · ${pvLang.toUpperCase()}`, danger: true }))) return;
+    setEdBusy(true);
+    try {
+      await api.delete(`/api/cms/email-templates/${pvType}/${pvLang}`);
+      toast(t("ms.editSaved"), "ok");
+      loadMeta();
+      setPvTick((n) => n + 1);
+    } catch { toast(t("ms.editFailed"), "danger"); }
+    finally { setEdBusy(false); }
+  };
 
   const sendSample = async () => {
     setSending(true);
@@ -135,7 +199,8 @@ export function NotificationsScreen({ nav: _nav }: { nav: Nav }) {
           onChange={setStatus}
         />
         <div style={{ marginLeft: "auto" }}>
-          <ASelect label={t("ms.type")} value={type} onChange={setType} options={TYPES.map((v) => ({ value: v, label: v === "" ? t("c.all") : typeLabel(v) }))} />
+          <ASelect label={t("ms.type")} value={type} onChange={setType}
+                   options={["", ...(meta?.types ?? [])].map((v) => ({ value: v, label: v === "" ? t("c.all") : typeLabel(v) }))} />
         </div>
       </div>
 
@@ -147,7 +212,7 @@ export function NotificationsScreen({ nav: _nav }: { nav: Nav }) {
               label={t("ms.type")}
               value={pvType}
               onChange={setPvType}
-              options={PREVIEW_TYPES.map((v) => ({ value: v, label: typeLabel(v) }))}
+              options={(meta?.types ?? ["won"]).map((v) => ({ value: v, label: typeLabel(v) }))}
             />
             <ASelect
               label={t("ms.lang")}
@@ -158,6 +223,11 @@ export function NotificationsScreen({ nav: _nav }: { nav: Nav }) {
             <ABtn kind="ghost" size="sm" onClick={() => setPvText((v) => !v)}>
               {pvText ? t("ms.showHtml") : t("ms.showText")}
             </ABtn>
+            {can("content.edit") && (
+              <ABtn kind={editOpen ? "dark" : "ghost"} size="sm" onClick={() => setEditOpen((v) => !v)}>
+                {editOpen ? t("ms.editClose") : t("ms.edit")}
+              </ABtn>
+            )}
             <ABtn size="sm" disabled={sending} onClick={() => void sendSample()}>
               <AIcon name="activity" size={13} /> {t("ms.sendSample")}
             </ABtn>
@@ -168,9 +238,37 @@ export function NotificationsScreen({ nav: _nav }: { nav: Nav }) {
           <AEmpty text={t("ms.previewFailed")} />
         ) : (
           <div style={{ display: "grid", gap: 10 }}>
-            <div style={{ fontSize: 13, color: AT.inkSoft, fontFamily: AT.body }}>
-              <b style={{ color: AT.ink }}>{t("ms.subject")}:</b> {pv.subject}
+            <div style={{ fontSize: 13, color: AT.inkSoft, fontFamily: AT.body, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <span><b style={{ color: AT.ink }}>{t("ms.subject")}:</b> {pv.subject}</span>
+              {hasOverride ? <ABadge tone="warn">{t("ms.editOverrideOn")}</ABadge> : <ABadge tone="neutral">{t("ms.editOverrideOff")}</ABadge>}
             </div>
+
+            {/* Редактор (MD §9): правка любой вēstules — тут же, рядом с
+                предпросмотром; превью после сохранения показывает результат. */}
+            {editOpen && can("content.edit") && (
+              <div style={{ display: "grid", gap: 10, padding: 12, border: `1px solid ${AT.rule}`, borderRadius: 10 }}>
+                <p style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.inkSoft, margin: 0 }}>{t("ms.editHint")}</p>
+                <AField label={t("ms.editSubject")}>
+                  <input value={edSubject} onChange={(e) => setEdSubject(e.target.value)}
+                         style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${AT.rule}`, fontFamily: AT.body, fontSize: 13, boxSizing: "border-box" }} />
+                </AField>
+                <AField label={t("ms.editBody")}>
+                  <textarea rows={7} value={edBody} onChange={(e) => setEdBody(e.target.value)}
+                            style={{ width: "100%", padding: "8px 10px", borderRadius: 8, resize: "vertical", border: `1px solid ${AT.rule}`, fontFamily: AT.body, fontSize: 13, boxSizing: "border-box" }} />
+                </AField>
+                <AField label={t("ms.editHtml")}>
+                  <textarea rows={5} value={edHtml} onChange={(e) => setEdHtml(e.target.value)}
+                            style={{ width: "100%", padding: "8px 10px", borderRadius: 8, resize: "vertical", border: `1px solid ${AT.rule}`, fontFamily: AT.mono, fontSize: 12, boxSizing: "border-box" }} />
+                </AField>
+                <p style={{ fontFamily: AT.mono, fontSize: 11.5, color: AT.inkSoft, margin: 0, wordBreak: "break-word" }}>
+                  {t("ms.editPlaceholders")}: {(meta?.placeholders ?? []).map((p) => `{${p}}`).join(" ")}
+                </p>
+                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                  {hasOverride && <ABtn kind="danger" disabled={edBusy} onClick={() => void resetEdit()}>{t("ms.editReset")}</ABtn>}
+                  <ABtn disabled={edBusy} onClick={() => void saveEdit()}>{t("ms.editSave")}</ABtn>
+                </div>
+              </div>
+            )}
             {pvText ? (
               <pre style={{
                 margin: 0, padding: 14, background: AT.surfaceAlt, borderRadius: 10, fontFamily: AT.mono,

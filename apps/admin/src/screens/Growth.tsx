@@ -704,118 +704,6 @@ function SettingsTab() {
   );
 }
 
-// ── Тексты писем ────────────────────────────────────────────────────────────
-
-interface EmailMeta {
-  types: string[]; langs: string[]; placeholders: string[];
-  overrides: Array<{ type: string; lang: string; subject: string | null; body: string | null; html: string | null }>;
-}
-
-function EmailsTab() {
-  const { t } = useT();
-  const { can } = useAuth();
-  const toast = useToast();
-  const confirm = useConfirm();
-  const [meta, setMeta] = useState<EmailMeta | null>(null);
-  const [type, setType] = useState("");
-  const [lang, setLang] = useState("lv");
-  const [sample, setSample] = useState<{ subject: string; text: string } | null>(null);
-  const [subj, setSubj] = useState("");
-  const [body, setBody] = useState("");
-  const [html, setHtml] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  const load = useCallback(() => {
-    void api.get<EmailMeta>("/api/cms/email-templates").then((r) => {
-      setMeta(r);
-      setType((cur) => cur || r.types[0] || "");
-    }).catch(() => undefined);
-  }, []);
-  useEffect(() => { load(); }, [load]);
-
-  useEffect(() => {
-    if (!meta || !type) return;
-    const o = meta.overrides.find((x) => x.type === type && x.lang === lang);
-    setSubj(o?.subject ?? ""); setBody(o?.body ?? ""); setHtml(o?.html ?? "");
-    setSample(null);
-    void api.get<{ subject: string; text: string }>(`/api/cms/email-templates/${type}/${lang}/default`)
-      .then(setSample).catch(() => undefined);
-  }, [meta, type, lang]);
-
-  const hasOverride = subj.trim() !== "" || body.trim() !== "" || html.trim() !== "";
-
-  const save = async () => {
-    setBusy(true);
-    try {
-      await api.put(`/api/cms/email-templates/${type}/${lang}`, {
-        subject: subj.trim() || null,
-        body: body.trim() || null,
-        html: html.trim() || null,
-      });
-      toast(t("gr.saved"), "ok"); load();
-    } catch { toast(t("gr.failed"), "danger"); }
-    finally { setBusy(false); }
-  };
-
-  const reset = async () => {
-    if (!(await confirm({ title: t("gr.reset"), body: `${type}/${lang}`, danger: true }))) return;
-    setBusy(true);
-    try { await api.delete(`/api/cms/email-templates/${type}/${lang}`); toast(t("gr.saved"), "ok"); load(); }
-    catch { toast(t("gr.failed"), "danger"); }
-    finally { setBusy(false); }
-  };
-
-  if (!meta) return <ACard><AEmpty text="…" /></ACard>;
-  const edit = can("content.edit");
-  return (
-    <div style={{ display: "grid", gap: 12 }}>
-      <ACard>
-        <div style={{ display: "grid", gap: 12 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "minmax(0,2fr) minmax(0,1fr)", gap: 12 }}>
-            <AField label={t("gr.emailType")}>
-              <ASelect value={type} onChange={setType} options={meta.types.map((x) => ({ value: x, label: x }))} />
-            </AField>
-            <AField label={t("gr.lang")}>
-              <ASelect value={lang} onChange={setLang} options={meta.langs.map((x) => ({ value: x, label: x.toUpperCase() }))} />
-            </AField>
-          </div>
-          <p style={{ fontFamily: AT.body, fontSize: 12.5, margin: 0 }}>
-            {hasOverride
-              ? <ABadge tone="warn">{t("gr.overrideOn")}</ABadge>
-              : <ABadge tone="neutral">{t("gr.overrideOff")}</ABadge>}
-          </p>
-          {sample && (
-            <div style={{ padding: 12, background: AT.panel, borderRadius: 10 }}>
-              <p style={{ fontFamily: AT.body, fontSize: 12, color: AT.inkSoft, margin: "0 0 6px" }}>{t("gr.defaultCopy")}</p>
-              <p style={{ fontFamily: AT.body, fontSize: 13.5, fontWeight: 700, margin: "0 0 6px" }}>{sample.subject}</p>
-              <pre style={{ fontFamily: AT.body, fontSize: 12.5, whiteSpace: "pre-wrap", margin: 0, maxHeight: 220, overflow: "auto" }}>
-                {sample.text}
-              </pre>
-            </div>
-          )}
-          <AField label={t("gr.subject")}><AInput value={subj} onChange={setSubj} placeholder={sample?.subject ?? ""} /></AField>
-          <AField label={t("gr.body")}>
-            <textarea rows={7} value={body} onChange={(e) => setBody(e.target.value)} style={textarea(7)} />
-          </AField>
-          <AField label={t("gr.htmlOverride")}>
-            <textarea rows={4} value={html} onChange={(e) => setHtml(e.target.value)}
-                      style={{ ...textarea(4), fontFamily: AT.mono, fontSize: 12 }} />
-          </AField>
-          <p style={{ fontFamily: AT.mono, fontSize: 11.5, color: AT.inkSoft, margin: 0, wordBreak: "break-word" }}>
-            {t("gr.placeholders")}: {meta.placeholders.map((p) => `{${p}}`).join(" ")}
-          </p>
-          {edit && (
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-              <ABtn kind="ghost" disabled={busy} onClick={() => void reset()}>{t("gr.reset")}</ABtn>
-              <ABtn disabled={busy} onClick={() => void save()}>{t("gr.save")}</ABtn>
-            </div>
-          )}
-        </div>
-      </ACard>
-    </div>
-  );
-}
-
 // ── Тексты витрины ──────────────────────────────────────────────────────────
 
 interface UiOverride { key: string; lang: string; text: string }
@@ -1195,7 +1083,7 @@ function Customer360Tab() {
 
 // ── Экран ───────────────────────────────────────────────────────────────────
 
-type Tab = "campaigns" | "segments" | "promo" | "referrals" | "gift" | "affiliates" | "churn" | "c360" | "settings" | "emails" | "strings";
+type Tab = "campaigns" | "segments" | "promo" | "referrals" | "gift" | "affiliates" | "churn" | "c360" | "settings" | "strings";
 
 export function GrowthScreen() {
   const { t } = useT();
@@ -1212,7 +1100,6 @@ export function GrowthScreen() {
     { id: "churn", label: t("gr.tabChurn") },
     ...(can("customers.view") ? [{ id: "c360" as Tab, label: t("gr.tab360") }] : []),
     ...(can("settings.view") ? [{ id: "settings" as Tab, label: t("gr.tabSettings") }] : []),
-    { id: "emails", label: t("gr.tabEmails") },
     { id: "strings", label: t("gr.tabStrings") },
   ];
 
@@ -1229,7 +1116,6 @@ export function GrowthScreen() {
       {tab === "churn" && <ChurnTab />}
       {tab === "c360" && <Customer360Tab />}
       {tab === "settings" && <SettingsTab />}
-      {tab === "emails" && <EmailsTab />}
       {tab === "strings" && <StringsTab />}
     </div>
   );
