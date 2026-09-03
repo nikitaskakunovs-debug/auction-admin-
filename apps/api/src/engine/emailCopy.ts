@@ -54,6 +54,16 @@ export const NOTIFICATION_TYPES: NotificationType[] = [
   "abandoned_bid", "second_purchase", "gift_card_received",
 ];
 
+/** Типы, которые уходят как МАРКЕТИНГ (через enqueueMarketing): у них в
+ *  подвале обязана быть видимая отписка. Сервисные письма отписки не несут —
+ *  их отменяют не так (счёт и выдачу отпиской не выключить). Превью в
+ *  админке ориентируется на этот же список, чтобы показывать 1:1. */
+export const MARKETING_TYPES: ReadonlySet<NotificationType> = new Set([
+  "saved_search_hits", "watchlist_ending",
+  "welcome_reminder", "inactive_nudge", "winback_offer", "lost_bid_similar",
+  "review_request", "referral_invite", "abandoned_bid", "second_purchase",
+]);
+
 export interface TemplateInput {
   alias: string;
   lotTitle: string;

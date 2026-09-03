@@ -9,11 +9,17 @@ import { requirePermission, type PermissionService } from "../auth/rbac.js";
 import { revokeAllUserRefreshTokens } from "../auth/session.js";
 import { revokeAllTrustedDevices } from "../auth/trustedDevice.js";
 import {
+  MARKETING_TYPES,
   NOTIFICATION_TYPES,
   renderNotification,
   sampleInput,
   type NotificationType,
 } from "../engine/notifications.js";
+
+/** Превью маркетингового письма обязано показывать и блок отписки — как в
+ *  настоящей рассылке. Ссылка ведёт на несуществующего клиента: кликнуть
+ *  можно, отписать некого. Сервисные письма отписки не несут и в жизни. */
+const SAMPLE_UNSUB_ID = "00000000-0000-0000-0000-000000000000";
 
 const actor = (req: { admin?: { sub: string; name: string } }) => ({
   id: req.admin?.sub ?? null,
@@ -242,12 +248,16 @@ export function registerAdminRoutes(app: FastifyInstance, ctx: AppContext, perms
       })
       .safeParse(req.query);
     if (!q.success) return reply.code(400).send({ error: "invalid_query", detail: "type and lang required" });
-    const rendered = await renderNotification(ctx, q.data.type, q.data.lang, sampleInput(q.data.type, {
-      // The sample carries a pay link only where this deployment could
-      // really send one — a preview that shows a checkout button we cannot
-      // produce is a preview of somebody else's site.
-      online: ctx.klix !== null || ctx.inbank !== null,
-    }));
+    const rendered = await renderNotification(
+      ctx, q.data.type, q.data.lang,
+      sampleInput(q.data.type, {
+        // The sample carries a pay link only where this deployment could
+        // really send one — a preview that shows a checkout button we cannot
+        // produce is a preview of somebody else's site.
+        online: ctx.klix !== null || ctx.inbank !== null,
+      }),
+      MARKETING_TYPES.has(q.data.type) ? SAMPLE_UNSUB_ID : undefined,
+    );
     return { type: q.data.type, lang: q.data.lang, ...rendered };
   });
 
@@ -264,9 +274,11 @@ export function registerAdminRoutes(app: FastifyInstance, ctx: AppContext, perms
       .safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: "invalid_body" });
     const to = req.admin!.email;
-    const rendered = await renderNotification(ctx, body.data.type, body.data.lang, sampleInput(body.data.type, {
-      online: ctx.klix !== null || ctx.inbank !== null,
-    }));
+    const rendered = await renderNotification(
+      ctx, body.data.type, body.data.lang,
+      sampleInput(body.data.type, { online: ctx.klix !== null || ctx.inbank !== null }),
+      MARKETING_TYPES.has(body.data.type) ? SAMPLE_UNSUB_ID : undefined,
+    );
     try {
       await ctx.email.send({
         to,

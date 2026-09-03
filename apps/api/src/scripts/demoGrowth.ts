@@ -25,7 +25,7 @@ import { createOmnivaClient } from "../engine/omniva.js";
 import { createSlackClient } from "../engine/slack.js";
 import { createStorage } from "../storage.js";
 import { issueGiftCard } from "../engine/giftCards.js";
-import { NOTIFICATION_TYPES, sampleInput, type Lang } from "../engine/emailCopy.js";
+import { MARKETING_TYPES, NOTIFICATION_TYPES, sampleInput, type Lang } from "../engine/emailCopy.js";
 import { renderNotification } from "../engine/notifications.js";
 
 /**
@@ -270,9 +270,12 @@ async function seedMarketing(): Promise<void> {
 async function seedEmails(email: string, lang: Lang): Promise<number> {
   let queued = 0;
   for (const type of NOTIFICATION_TYPES) {
+    // Маркетинговые образцы — с блоком отписки, как в настоящей рассылке
+    // (ссылка на несуществующего клиента: кликабельна, отписать некого).
     const rendered = await renderNotification(
       ctx, type, lang,
       sampleInput(type, { online: ctx.klix !== null || ctx.inbank !== null }),
+      MARKETING_TYPES.has(type) ? "00000000-0000-0000-0000-000000000000" : undefined,
     );
     const rows = await db
       .insert(notifications)

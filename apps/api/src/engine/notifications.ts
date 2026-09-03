@@ -4,6 +4,7 @@ import { and, asc, eq, isNull, lte, or, sql } from "drizzle-orm";
 import type { AppContext } from "../context.js";
 import {
   LANGS,
+  MARKETING_TYPES,
   NOTIFICATION_TYPES,
   renderCopy,
   sampleInput,
@@ -26,7 +27,7 @@ import { unsubscribeApiUrl, unsubscribeUrl } from "./unsubscribe.js";
  * exactly what went out — nothing is re-rendered later from different code.
  */
 
-export { LANGS, NOTIFICATION_TYPES, sampleInput };
+export { LANGS, MARKETING_TYPES, NOTIFICATION_TYPES, sampleInput };
 export type { Lang, NotificationType, TemplateInput };
 
 /** Bidder language: their own preference, else the country. */
