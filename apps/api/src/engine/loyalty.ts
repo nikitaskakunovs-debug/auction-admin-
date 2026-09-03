@@ -14,7 +14,7 @@ import { getSettings } from "./settings.js";
  */
 type Tx = Pick<Db, "select" | "insert" | "update">;
 
-export type LoyaltyReason = "purchase" | "referral_signup" | "referral_order" | "manual" | "redemption";
+export type LoyaltyReason = "purchase" | "referral_signup" | "referral_order" | "manual" | "redemption" | "expiry";
 
 export class InsufficientPointsError extends Error {
   constructor(public readonly balanceCents: number) {

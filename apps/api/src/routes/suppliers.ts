@@ -5,6 +5,7 @@ import { z } from "zod";
 import { writeAudit } from "../audit.js";
 import { requirePermission, type PermissionService } from "../auth/rbac.js";
 import type { AppContext } from "../context.js";
+import { applySupplierDefaults, routeInvoiceApproval } from "../engine/approvals.js";
 
 const actor = (req: { admin?: { sub: string; name: string } }) => ({
   id: req.admin?.sub ?? null,
@@ -406,6 +407,12 @@ export function registerSupplierRoutes(app: FastifyInstance, ctx: AppContext, pe
     dueDate: z.coerce.date().optional(),
     amountCents: z.number().int().min(0).max(1_000_000_000),
     note: z.string().max(2000).optional(),
+    /** Approval-слой (10.2): пусто — наследуется из карточки поставщика. */
+    department: z.string().max(64).optional(),
+    category: z.string().max(64).optional(),
+    legalEntity: z.string().max(8).optional(),
+    /** «Запомнить как правило» — записать отдел/категорию поставщику. */
+    saveAsDefaults: z.boolean().default(false),
   });
 
   app.post("/api/supplier-invoices", guard("finance.view"), async (req, reply) => {
@@ -438,6 +445,24 @@ export function registerSupplierRoutes(app: FastifyInstance, ctx: AppContext, pe
 
     // No due date on the paperwork → this supplier's agreed terms.
     const dueDate = d.dueDate ?? new Date(d.invoiceDate.getTime() + supplier.paymentTermsDays * DAY_MS);
+    // Vendor auto-mapping (10.2): пустые поля наследуются из карточки
+    // поставщика; «saveAsDefaults» пишет их обратно как правило.
+    const mapped = await applySupplierDefaults(ctx.db, supplier.id, {
+      department: d.department ?? null,
+      category: d.category ?? null,
+      legalEntity: d.legalEntity ?? null,
+    });
+    if (d.saveAsDefaults) {
+      await ctx.db
+        .update(suppliers)
+        .set({
+          defaultDepartment: mapped.department,
+          defaultCategory: mapped.category,
+          defaultLegalEntity: mapped.legalEntity,
+          updatedAt: ctx.now(),
+        })
+        .where(eq(suppliers.id, supplier.id));
+    }
     const [created] = await ctx.db
       .insert(supplierInvoices)
       .values({
@@ -449,6 +474,10 @@ export function registerSupplierRoutes(app: FastifyInstance, ctx: AppContext, pe
         amountCents: d.amountCents,
         status: deriveStatus(d.amountCents, 0),
         note: d.note ?? "",
+        department: mapped.department,
+        category: mapped.category,
+        legalEntity: mapped.legalEntity,
+        approvalStatus: "pending",
         createdById: req.admin!.sub,
       })
       .returning();
@@ -457,6 +486,9 @@ export function registerSupplierRoutes(app: FastifyInstance, ctx: AppContext, pe
       invoice: created!.number,
       consignment: consignment?.ref ?? null,
     });
+    // Маршрутизация по approval_rules: auto-порог проводится сразу, остальное
+    // встаёт в очередь и шлёт карточку в Telegram.
+    await routeInvoiceApproval(ctx, created!.id, actor(req));
     return { invoice: shapeInvoice(await loadInvoice(created!.id) as InvoiceQueryRow, ctx.now()) };
   });
 
@@ -549,6 +581,10 @@ export function registerSupplierRoutes(app: FastifyInstance, ctx: AppContext, pe
       const [inv] = await tx.select().from(supplierInvoices).where(eq(supplierInvoices.id, id)).for("update");
       if (!inv) return { kind: "not_found" as const };
       if (inv.status === "cancelled") return { kind: "cancelled" as const };
+      // Approval-слой (10.3): платить можно только по одобренному счёту —
+      // pending ждёт подписи (dual — двух), rejected не платится вовсе.
+      if (inv.approvalStatus === "pending" || inv.approvalStatus === "rejected")
+        return { kind: "not_approved" as const, approvalStatus: inv.approvalStatus };
       const [sum] = await tx
         .select({ paid: sql<string>`coalesce(sum(${supplierPayments.amountCents}), 0)` })
         .from(supplierPayments)
@@ -586,6 +622,8 @@ export function registerSupplierRoutes(app: FastifyInstance, ctx: AppContext, pe
     });
     if (result.kind === "not_found") return reply.code(404).send({ error: "not_found" });
     if (result.kind === "cancelled") return reply.code(409).send({ error: "invoice_cancelled" });
+    if (result.kind === "not_approved")
+      return reply.code(409).send({ error: "invoice_not_approved", approvalStatus: result.approvalStatus });
     if (result.kind === "exceeds")
       return reply.code(422).send({ error: "exceeds_outstanding", outstandingCents: result.outstandingCents });
     return {

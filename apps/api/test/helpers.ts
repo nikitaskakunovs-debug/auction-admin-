@@ -75,7 +75,8 @@ export async function createWorld(extraEnv: Record<string, string> = {}): Promis
       campaigns, promo_codes, promo_redemptions, loyalty_accounts, loyalty_ledger,
       referrals, referral_codes, lifecycle_marks, marketing_settings,
       email_template_overrides, ui_string_overrides,
-      gift_cards, affiliates, push_subscriptions cascade
+      gift_cards, affiliates, push_subscriptions,
+      ledger_entries, export_batches, fin_flags, approval_rules, approver_telegram cascade
   `);
   await seedDatabase(handle.db, { demoData: false });
 

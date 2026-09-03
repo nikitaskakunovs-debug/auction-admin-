@@ -9,6 +9,7 @@ import type { AppContext } from "../context.js";
 import { enqueueNotification } from "./notifications.js";
 import { generatePickupCode } from "./pickup.js";
 import { getSettings } from "./settings.js";
+import { postSalePaid } from "./ledger.js";
 
 export type SettleResult =
   | { outcome: "settled"; order: typeof orders.$inferSelect }
@@ -82,6 +83,16 @@ export async function settleOrderPaid(
         .set({ status: "order_rewarded", orderRewardedAt: ctx.now() })
         .where(eq(referrals.id, r.id));
     })().catch(() => undefined);
+
+    // Финансовый журнал (раздел 11): компоненты продажи + COGS + clearing —
+    // в той же транзакции, где оплата стала фактом: заказ без проводок или
+    // проводки без заказа появиться не могут.
+    await postSalePaid(tx, {
+      order,
+      itemCostCents: item!.costCents,
+      earnedPointsCents: earned?.earnedCents ?? 0,
+      provider: typeof meta.provider === "string" ? meta.provider : typeof meta.via === "string" ? meta.via : undefined,
+    }, ctx.now());
 
     await enqueueNotification(ctx, tx, {
       customerId: order.customerId,

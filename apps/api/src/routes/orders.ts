@@ -271,6 +271,8 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext, perms
      * already sent back manually in the Klix portal, or refunded in cash.
      */
     viaProvider: z.boolean().default(true),
+    /** bank — банковский перевод бухгалтера: очередь Refund Pending (5.2). */
+    method: z.enum(["card", "cash", "bank"]).optional(),
   });
   app.post("/api/orders/:id/refund", guard("orders.refund"), async (req, reply) => {
     const { id } = req.params as { id: string };

@@ -118,6 +118,13 @@ export interface ApiConfig {
   google: { clientId: string; clientSecret: string } | null;
   facebook: { appId: string; appSecret: string } | null;
   telegram: { botToken: string; botName: string } | null;
+  /**
+   * Бот апрувов платежей (fin-architecture 10.3) — ОТДЕЛЬНЫЙ от соцвхода.
+   * Токен живёт только в deploy/.env на сервере (TELEGRAM_APPROVALS_BOT_TOKEN);
+   * webhookSecret — свой секрет для проверки X-Telegram-Bot-Api-Secret-Token.
+   * null — карточки в Telegram не шлются, апрувы работают только из админки.
+   */
+  telegramApprovals: { botToken: string; webhookSecret: string } | null;
   /** Пускать к ставкам только подтверждённую почту (макет № 15). Выключатель
    *  существует для тестовых миров; в проде всегда включено. */
   requireVerifiedEmail: boolean;
@@ -380,6 +387,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       : socialMode === "simulate" ? { appId: "sim", appSecret: "sim" } : null,
     telegram: env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_BOT_NAME
       ? { botToken: env.TELEGRAM_BOT_TOKEN, botName: env.TELEGRAM_BOT_NAME }
+      : null,
+    telegramApprovals: env.TELEGRAM_APPROVALS_BOT_TOKEN
+      ? {
+          botToken: env.TELEGRAM_APPROVALS_BOT_TOKEN,
+          webhookSecret: env.TELEGRAM_APPROVALS_WEBHOOK_SECRET ?? "",
+        }
       : null,
     emailBrand: {
       companyName: env.COMPANY_NAME ?? "Izsoli.lv",

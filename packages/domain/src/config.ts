@@ -115,6 +115,9 @@ export const PERMISSIONS = [
   "content.view", "content.edit",
   // Finance
   "finance.view", "invoices.view", "invoices.issue",
+  // Финансовый слой (fin-architecture): флаги, возвраты, ledger, approval
+  "fin.flags_view", "fin.flags_resolve", "fin.refunds_manage",
+  "fin.ledger_view", "fin.export", "fin.approvals_view", "fin.approve", "fin.rules_edit",
   // Reports
   "reports.view",
   // W3 warehouse productivity stats — deliberately NOT in the operations set
@@ -172,11 +175,15 @@ export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<RoleId, readonly Permissi
     "customers.view", "customers.edit",
     "audit.view",
   ],
-  // Invoices, VAT reports, reconciliation — read-only elsewhere
+  // Invoices, VAT reports, reconciliation — read-only elsewhere. По матрице
+  // ролей фин-слоя: бухгалтер разрешает флаги и отмечает возвраты
+  // выплаченными, но НЕ апрувит платежи (segregation of duties).
   finance: [
     "items.view", "listings.view", "auctions.view", "orders.view", "customers.view",
     "customers.vies_check",
     "finance.view", "invoices.view", "invoices.issue", "reports.view", "audit.view",
+    "fin.flags_view", "fin.flags_resolve", "fin.refunds_manage",
+    "fin.ledger_view", "fin.export", "fin.approvals_view",
   ],
 };
 

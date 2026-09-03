@@ -551,6 +551,11 @@ export const suppliers = pgTable(
     bankAccount: text("bank_account").notNull().default(""),
     /** Days from invoice date to due date; the default this supplier bills on. */
     paymentTermsDays: integer("payment_terms_days").notNull().default(14),
+    /** Vendor auto-mapping (10.2): один раз пометил — дальше счета этого
+     *  поставщика приходят с уже проставленными отделом/категорией/юрлицом. */
+    defaultDepartment: text("default_department"),
+    defaultCategory: text("default_category"),
+    defaultLegalEntity: text("default_legal_entity"),
     notes: text("notes").notNull().default(""),
     active: boolean("active").notNull().default(true),
     createdById: uuid("created_by_id").references(() => adminUsers.id),
@@ -917,10 +922,18 @@ export const refunds = pgTable(
       .references(() => orders.id, { onDelete: "cascade" }),
     amountCents: integer("amount_cents").notNull(),
     reason: text("reason").notNull(),
+    /** ── Refund Pending поток (5.2): сторно ТОЛЬКО после «выплачено» ──
+     * card (авто через провайдера) → сразу paid; bank/cash — цепочка
+     * requested → awaiting_manual → paid → closed. Старые строки — closed. */
+    status: text("status").notNull().default("closed"),
+    /** card | bank | cash */
+    method: text("method").notNull().default("card"),
+    paidBy: text("paid_by"),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
     actorId: uuid("actor_id").references(() => adminUsers.id),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("refunds_order_idx").on(t.orderId)],
+  (t) => [index("refunds_order_idx").on(t.orderId), index("refunds_status_idx").on(t.status)],
 );
 
 /**
@@ -1334,12 +1347,29 @@ export const supplierInvoices = pgTable(
     amountCents: integer("amount_cents").notNull(),
     status: text("status").notNull().default("unpaid"),
     note: text("note").notNull().default(""),
+    /** ── Approval-слой (10.3) ── */
+    department: text("department"),
+    category: text("category"),
+    legalEntity: text("legal_entity").notNull().default("LV"),
+    /** Ключ PDF в хранилище (загрузка счёта в карточку). */
+    fileKey: text("file_key"),
+    /** pending | auto | approved | rejected. Старые строки — approved. */
+    approvalStatus: text("approval_status").notNull().default("approved"),
+    /** По какому правилу маршрутизирован (audit: правила меняются, история — нет). */
+    approvalRuleNote: text("approval_rule_note"),
+    approvedBy: text("approved_by"),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    /** Второй апрув (двойной, €5000+): бухгалтер до оплаты. */
+    secondApprovedBy: text("second_approved_by"),
+    secondApprovedAt: timestamp("second_approved_at", { withTimezone: true }),
+    rejectedReason: text("rejected_reason"),
     createdById: uuid("created_by_id").references(() => adminUsers.id),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index("supplier_invoices_status_idx").on(t.status, t.dueDate),
+    index("supplier_invoices_approval_idx").on(t.approvalStatus),
     index("supplier_invoices_supplier_idx").on(t.supplierId),
     index("supplier_invoices_consignment_idx").on(t.consignmentId),
   ],
@@ -1929,6 +1959,120 @@ export const lifecycleMarks = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("lifecycle_marks_pk").on(t.customerId, t.mark)],
+);
+
+/* ═══════ Финансовый слой (fin-architecture 31.08.2026) ═══════ */
+
+/**
+ * Журнал проводок — мост между платформой и бухгалтерией (Horizon/Jumis).
+ * Каждая денежная операция платформы порождает строки по схеме счетов
+ * (раздел 11 архитектуры); бухгалтерия получает их экспорт-батчами.
+ * Знак суммы: + увеличивает счёт в его природе (выручка/актив/liability).
+ */
+export const ledgerEntries = pgTable(
+  "ledger_entries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Ключ счёта из FIN_ACCOUNTS (engine/ledger.ts). */
+    account: text("account").notNull(),
+    amountCents: integer("amount_cents").notNull(),
+    /** Юрлицо: LV сейчас; EE/LT — при экспансии (раздел 8.3). */
+    legalEntity: text("legal_entity").notNull().default("LV"),
+    /** Отдел/cost center (раздел 10.1); null — не относится. */
+    department: text("department"),
+    /** klix_card | klix_bank | inbank | cash | card_pos — для комиссий/clearing. */
+    paymentMethod: text("payment_method"),
+    orderRef: text("order_ref"),
+    /** Связка с источником: supplier_invoice | refund | consignment | manual … */
+    refType: text("ref_type"),
+    refId: text("ref_id"),
+    memo: text("memo").notNull().default(""),
+    /** Дата хозяйственной операции (не записи). */
+    eventAt: timestamp("event_at", { withTimezone: true }).notNull(),
+    /** Батч выгрузки в бухгалтерию; null — ещё не выгружено. */
+    exportBatchId: uuid("export_batch_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("ledger_account_idx").on(t.account, t.eventAt),
+    index("ledger_export_idx").on(t.exportBatchId),
+    index("ledger_order_idx").on(t.orderRef),
+  ],
+);
+
+/** Батч экспорта проводок (CSV/XML) — что и когда ушло бухгалтеру. */
+export const exportBatches = pgTable("export_batches", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  format: text("format").notNull().default("csv"), // csv | xml
+  fromAt: timestamp("from_at", { withTimezone: true }).notNull(),
+  toAt: timestamp("to_at", { withTimezone: true }).notNull(),
+  entryCount: integer("entry_count").notNull().default(0),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Единая очередь «Требует внимания» (раздел 0.2): все расхождения всех
+ * потоков в одном месте. dedupeKey не даёт крону плодить один и тот же флаг.
+ */
+export const finFlags = pgTable(
+  "fin_flags",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** bank_mismatch | refund_pending | partner_mismatch | clearing_overdue |
+     *  carrier_mismatch | dual_approval_wait | eu_threshold */
+    type: text("type").notNull(),
+    title: text("title").notNull(),
+    details: jsonb("details").$type<Record<string, unknown>>().notNull().default({}),
+    amountCents: integer("amount_cents"),
+    refType: text("ref_type"),
+    refId: text("ref_id"),
+    department: text("department"),
+    status: text("status").notNull().default("open"), // open | resolved
+    dedupeKey: text("dedupe_key"),
+    resolutionNote: text("resolution_note"),
+    resolvedBy: text("resolved_by"),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("fin_flags_status_idx").on(t.status, t.createdAt),
+    uniqueIndex("fin_flags_dedupe_idx").on(t.dedupeKey),
+  ],
+);
+
+/**
+ * Правила approval-порогов (раздел 10.3) — полностью редактируемы из админки:
+ * диапазон суммы → кто апрувит, нужен ли двойной апрув. Никакого хардкода.
+ */
+export const approvalRules = pgTable("approval_rules", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  minCents: integer("min_cents").notNull().default(0),
+  /** null = без верхней границы. */
+  maxCents: integer("max_cents"),
+  /** auto | role:<roleId> | admin:<uuid> — кто апрувит первый уровень. */
+  approver: text("approver").notNull().default("auto"),
+  /** Двойной апрув (второй — бухгалтер) до оплаты (€5000+ по умолчанию). */
+  dual: boolean("dual").notNull().default(false),
+  position: integer("position").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedBy: text("updated_by"),
+});
+
+/** Привязка апрувера к Telegram-чату (бот апрувов, раздел 10.3). */
+export const approverTelegram = pgTable(
+  "approver_telegram",
+  {
+    adminUserId: uuid("admin_user_id")
+      .primaryKey()
+      .references(() => adminUsers.id, { onDelete: "cascade" }),
+    chatId: text("chat_id").notNull(),
+    /** Одноразовый код привязки; null после успешного /start. */
+    linkCode: text("link_code"),
+    linkedAt: timestamp("linked_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("approver_tg_chat_idx").on(t.chatId)],
 );
 
 /* ═══════════ Надстройка v15: карты, партнёры, push (MD §6) ═══════════ */

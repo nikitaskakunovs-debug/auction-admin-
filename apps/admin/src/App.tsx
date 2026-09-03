@@ -93,7 +93,7 @@ const SCREENS: ScreenDef[] = [
   { id: "marketing", labelKey: "sh.nav.marketing", icon: "analytics", permission: "reports.view", render: (nav) => <MarketingScreen nav={nav} /> },
   // Кампании, сегменты, промокоды, рефералы и редактируемые тексты (v15).
   { id: "growth", labelKey: "sh.nav.growth", icon: "tag", permission: "content.view", render: () => <GrowthScreen /> },
-  { id: "finance", labelKey: "sh.nav.finance", icon: "finance", permission: ["invoices.view", "finance.view"], render: (nav) => <FinanceScreen nav={nav} /> },
+  { id: "finance", labelKey: "sh.nav.finance", icon: "finance", permission: ["invoices.view", "finance.view", "fin.flags_view"], render: (nav) => <FinanceScreen nav={nav} /> },
   { id: "content", labelKey: "sh.nav.content", icon: "list", permission: "content.view", render: (nav) => <ContentScreen nav={nav} /> },
   // Реклама в ленте лотов — это тоже контент витрины, но со своим сроком,
   // своим рекламодателем и своим счётчиком показов.

@@ -84,6 +84,9 @@ export class AuctionScheduler {
         await phase("growthNightly", () => this.growthNightly());
         // Кампании конструктора: раз в минуту смотрим, не пора ли слать.
         await phase("campaigns", () => this.campaignsDue());
+        // Финансовые кроны (fin-architecture): clearing-окна, SLA возвратов,
+        // порог €10k EE+LT — раз в час.
+        await phase("finCrons", () => this.finCrons());
         // Drain the outbox last so this tick's enqueues go out promptly.
         await phase("dispatchNotifications", () => dispatchNotifications(this.ctx));
       } finally {
@@ -157,6 +160,21 @@ export class AuctionScheduler {
     if (abMarker === "OK") {
       const { runAbandonedBidNudges } = await import("./growth.js");
       await runAbandonedBidNudges(this.ctx).catch((err) => console.error("abandoned-bid nudges failed", err));
+    }
+  }
+
+  /** Финансовые контрольные кроны — раз в час (Redis-маркер). */
+  private async finCrons(): Promise<void> {
+    const marker = await this.ctx.redis.set("fin:crons", "1", "PX", 60 * 60 * 1000, "NX");
+    if (marker !== "OK") return;
+    const { runFinCrons } = await import("./finFlags.js");
+    await runFinCrons(this.ctx);
+    // Сгорание баллов — раз в сутки, свой маркер поверх часового.
+    const day = this.ctx.now().toISOString().slice(0, 10);
+    const expiryMarker = await this.ctx.redis.set(`fin:expiry:${day}`, "1", "PX", 26 * 3600 * 1000, "NX");
+    if (expiryMarker === "OK") {
+      const { runPointsExpiry } = await import("./loyaltyExpiry.js");
+      await runPointsExpiry(this.ctx).catch((err) => console.error("points expiry failed", err));
     }
   }
 
