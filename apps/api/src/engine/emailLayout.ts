@@ -145,6 +145,25 @@ const ART_BY_TYPE: Record<string, string> = {
   second_purchase: "art-box",
   gift_card_received: "art-gift",
   campaign: "art-bell",
+  // Пробелы покупательской переписки (часть A плана писем).
+  password_reset: "art-mail",
+  points_expiring: "art-hourglass",
+  security_alert: "art-watch",
+  delivered: "art-box",
+  bid_voided: "art-watch",
+  lot_withdrawn: "art-search",
+  payment_failed: "art-wallet",
+  // Письма поставщикам (S1…S10).
+  sup_invite: "art-mail",
+  sup_welcome: "art-check",
+  sup_intake_done: "art-box",
+  sup_discrepancy: "art-search",
+  sup_invoice_accepted: "art-check",
+  sup_invoice_rejected: "art-refund",
+  sup_payment_sent: "art-wallet",
+  sup_monthly_report: "art-star",
+  sup_sales_report: "art-trophy",
+  sup_unsold: "art-hourglass",
 };
 
 const CSS = `

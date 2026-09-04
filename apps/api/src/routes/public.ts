@@ -42,7 +42,6 @@ import {
   createResetToken,
   findValidResetToken,
   markResetTokenUsed,
-  resetEmail,
   resetRequestAllowed,
 } from "../auth/passwordReset.js";
 import type { AppContext } from "../context.js";
@@ -55,7 +54,7 @@ import { redeemGiftCard } from "../engine/giftCards.js";
 import { CATEGORIES } from "@auction/domain/categories";
 import { getOrCreateLoyalty, movePoints, tierFor } from "../engine/loyalty.js";
 import { applyUnsubscribe } from "../engine/marketing.js";
-import { enqueueNotification } from "../engine/notifications.js";
+import { enqueueNotification, langFor, renderNotification, sendPasswordReset } from "../engine/notifications.js";
 import { ensureWelcomeCode, extendWelcomeOnVerify, findPersonalCode } from "../engine/promo.js";
 import { getSettings } from "../engine/settings.js";
 import { verifyUnsubscribeToken } from "../engine/unsubscribe.js";
@@ -102,6 +101,30 @@ function publicAuction(row: {
   };
 }
 
+/**
+ * Человеческое имя устройства для письма о безопасности: браузер и система
+ * из User-Agent. Точный IP в письмо не кладём — он ничего не говорит
+ * получателю и лишний раз путешествует по почте.
+ */
+export function deviceLabelOf(req: { headers: Record<string, unknown> } | undefined): string {
+  const ua = String(req?.headers?.["user-agent"] ?? "");
+  if (!ua) return "—";
+  const browser = /Edg\//.test(ua) ? "Edge"
+    : /OPR\//.test(ua) ? "Opera"
+      : /Chrome\//.test(ua) ? "Chrome"
+        : /Safari\//.test(ua) ? "Safari"
+          : /Firefox\//.test(ua) ? "Firefox" : null;
+  const os = /Windows/.test(ua) ? "Windows"
+    : /Android/.test(ua) ? "Android"
+      : /(iPhone|iPad|iOS)/.test(ua) ? "iOS"
+        : /Mac OS X/.test(ua) ? "macOS"
+          : /Linux/.test(ua) ? "Linux" : null;
+  return [browser, os].filter(Boolean).join(" · ") || "—";
+}
+
+/** Семейство устройства: по нему решаем, знакомое оно или новое. */
+const deviceFamily = (ua: string | null): string => deviceLabelOf({ headers: { "user-agent": ua ?? "" } });
+
 export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): void {
   // ── Bidder auth ───────────────────────────────────────────────────────────
 
@@ -120,6 +143,21 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
     method?: "password" | "google" | "facebook" | "telegram",
   ) {
     const refreshToken = randomBytes(48).toString("base64url");
+    // Письмо A3 «вход с нового устройства»: смотрим ДО записи новой сессии,
+    // видели ли мы уже такой браузер+систему у этого человека. Первый вход
+    // после регистрации письмом не сопровождается — человек и так на сайте.
+    const thisDevice = deviceLabelOf(req);
+    const isNewDevice = method
+      ? await (async () => {
+          const seen = await ctx.db
+            .select({ ua: customerRefreshTokens.ua })
+            .from(customerRefreshTokens)
+            .where(eq(customerRefreshTokens.customerId, customer.id))
+            .limit(50);
+          if (seen.length === 0) return false;
+          return !seen.some((s) => deviceFamily(s.ua) === thisDevice);
+        })()
+      : false;
     // Сессия = строка refresh-токена; её id уходит в access-токен как sid,
     // чтобы экран «Drošība» знал, какая из сессий — текущая.
     const [session] = await ctx.db
@@ -138,6 +176,16 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
         .update(customers)
         .set({ lastLoginMethod: method, lastLoginAt: ctx.now() })
         .where(eq(customers.id, customer.id));
+    }
+    if (isNewDevice) {
+      await enqueueNotification(ctx, ctx.db, {
+        customerId: customer.id,
+        type: "security_alert",
+        template: { alias: "", lotTitle: "", securityEvent: "new_device", deviceLabel: thisDevice, eventAt: ctx.now() },
+        // Одно письмо на устройство в сутки: перезаход в том же браузере
+        // после чистки cookie не должен слать вторую тревогу.
+        dedupeKey: `security:new_device:${customer.id}:${thisDevice}:${ctx.now().toISOString().slice(0, 10)}`,
+      }).catch(() => undefined);
     }
     const accessToken = signAccessToken(
       { sub: customer.id, kind: "bidder", email: customer.email, name: customer.alias, role: "bidder", sid: session!.id },
@@ -322,8 +370,12 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
       if (!customer || customer.erasedAt !== null || !customer.passwordHash) return;
       const token = await createResetToken(ctx, { customerId: customer.id });
       const link = `${ctx.config.storefrontBaseUrl}/reset-password?token=${token}`;
-      const msg = resetEmail(link, Math.round(ctx.config.passwordResetTtlSec / 60));
-      await ctx.email.send({ to: customer.email, subject: msg.subject, text: msg.text });
+      await sendPasswordReset(ctx, {
+        toEmail: customer.email,
+        alias: customer.alias,
+        lang: langFor(customer.lang, customer.country),
+        link,
+      });
     })().catch((err) => req.log.error({ err }, "customer forgot-password processing failed"));
     return reply.send({ ok: true });
   });
@@ -345,6 +397,13 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
       .update(customerRefreshTokens)
       .set({ revokedAt: ctx.now() })
       .where(and(eq(customerRefreshTokens.customerId, customer.id), isNull(customerRefreshTokens.revokedAt)));
+    // Письмо A3: о смене пароля человек узнаёт всегда — если менял не он,
+    // это единственный сигнал, что аккаунт трогали.
+    await enqueueNotification(ctx, ctx.db, {
+      customerId: customer.id,
+      type: "security_alert",
+      template: { alias: "", lotTitle: "", securityEvent: "password_changed", eventAt: ctx.now(), deviceLabel: deviceLabelOf(req) },
+    }).catch(() => undefined);
     return { ok: true };
   });
 
@@ -764,6 +823,8 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
       }
     }
     let emailChanged = false;
+    /** Прежний адрес — на него уйдёт предупреждение о смене (письмо A3). */
+    let previousEmail: { email: string; alias: string; lang: string | null; country: string | null } | null = null;
     if (body.data.email !== undefined) {
       const nextEmail = body.data.email.toLowerCase();
       const [current] = await ctx.db.select().from(customers).where(eq(customers.id, bidderId));
@@ -773,6 +834,7 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
         patch.email = nextEmail;
         patch.emailVerifiedAt = null;
         emailChanged = true;
+        previousEmail = { email: current.email, alias: current.alias, lang: current.lang, country: current.country };
       }
     }
     if (Object.keys(patch).length === 0) return reply.code(400).send({ error: "empty_patch" });
@@ -782,7 +844,26 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
       .where(eq(customers.id, bidderId))
       .returning({ id: customers.id, email: customers.email, alias: customers.alias, marketingOptIn: customers.marketingOptIn });
     if (!row) return reply.code(401).send({ error: "unauthenticated" });
-    if (emailChanged) await sendVerificationEmail({ id: row.id, email: row.email });
+    if (emailChanged) {
+      await sendVerificationEmail({ id: row.id, email: row.email });
+      // Письмо A3 уходит на ПРЕЖНИЙ адрес: если почту сменил чужой, увидеть
+      // это можно только там. На новый адрес идёт письмо-подтверждение.
+      // Поэтому отправляем напрямую — очередь взяла бы уже новый адрес.
+      if (previousEmail) {
+        const prev = previousEmail;
+        void (async () => {
+          const lang = langFor(prev.lang, prev.country);
+          const msg = await renderNotification(ctx, "security_alert", lang, {
+            alias: prev.alias,
+            lotTitle: "",
+            securityEvent: "email_changed",
+            deviceLabel: deviceLabelOf(req),
+            eventAt: ctx.now(),
+          });
+          await ctx.email.send({ to: prev.email, subject: msg.subject, text: msg.text, html: msg.html });
+        })().catch((err) => req.log?.error({ err }, "email-change alert failed"));
+      }
+    }
     return { ok: true, alias: row.alias, marketingOptIn: row.marketingOptIn };
   });
 

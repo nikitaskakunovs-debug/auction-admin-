@@ -287,6 +287,12 @@ export async function refreshShipment(
     .where(eq(shipments.id, shipment.id))
     .returning();
 
+  // Письмо A4: посылка дошла. Шлём ровно один раз — по переходу статуса,
+  // а не при каждом опросе перевозчика (опрос идёт каждые 30 минут).
+  if (status === "delivered" && shipment.status !== "delivered") {
+    await notifyDelivered(ctx, shipment).catch((err) => console.error("delivered notice failed", err));
+  }
+
   // Item lifecycle follows the parcel — idempotent, single-step transitions.
   if (status === "in_transit" || status === "delivered") {
     const [order] = await ctx.db.select({ itemId: orders.itemId }).from(orders).where(eq(orders.id, shipment.orderId));
@@ -309,4 +315,45 @@ export async function refreshShipment(
     }
   }
   return updated ?? null;
+}
+
+/**
+ * Письмо «посылка доставлена / ждёт в автомате» (A4). Для пакомата пишем,
+ * сколько дней он держит отправление — это единственная причина, по которой
+ * посылки возвращаются к нам: человек просто не знал про срок.
+ */
+async function notifyDelivered(ctx: AppContext, shipment: typeof shipments.$inferSelect): Promise<void> {
+  const [row] = await ctx.db
+    .select({
+      customerId: orders.customerId,
+      ref: orders.ref,
+      fulfilment: orders.fulfilment,
+      shippingTo: orders.shippingTo,
+      title: items.title,
+    })
+    .from(orders)
+    .innerJoin(items, eq(orders.itemId, items.id))
+    .where(eq(orders.id, shipment.orderId));
+  if (!row) return;
+  const toMachine = row.fulfilment.endsWith("_pm");
+  await enqueueNotification(ctx, ctx.db, {
+    customerId: row.customerId,
+    type: "delivered",
+    template: {
+      alias: "",
+      lotTitle: row.title,
+      orderRef: row.ref,
+      carrier: shipment.provider === "dpd" ? "DPD" : "Omniva",
+      ...(toMachine
+        ? {
+            machineName: row.shippingTo?.name ?? "",
+            // Оба перевозчика держат посылку 7 дней; окно правится здесь,
+            // если условия договора изменятся.
+            waitingDays: 7,
+            trackingUrl: trackingUrl(shipment.provider, shipment.barcode),
+          }
+        : {}),
+    },
+    dedupeKey: `delivered:${shipment.id}`,
+  });
 }

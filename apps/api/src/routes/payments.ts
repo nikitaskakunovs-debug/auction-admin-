@@ -9,6 +9,8 @@ import { KlixError } from "../engine/klix.js";
 import { getOrCreateCredit, moveCredit } from "../engine/credits.js";
 import { movePoints, redeemablePointsCents } from "../engine/loyalty.js";
 import { settleOrderPaid } from "../engine/settlement.js";
+import { enqueueNotification } from "../engine/notifications.js";
+import { buildPayUrl } from "../engine/payLink.js";
 
 /**
  * Online payment through two hosted providers:
@@ -127,7 +129,47 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
         });
       }
     }
+    // Письмо A6: платёж отклонён. Шлём по переходу статуса, а не при каждой
+    // сверке, и только пока заказ ещё ждёт оплаты — по отменённому заказу
+    // звать «оплатите снова» некуда.
+    if (status === "failed" && payment.status !== "failed") {
+      await notifyPaymentFailed(payment, providerStatus).catch((err) =>
+        console.error("payment_failed notice failed", err),
+      );
+    }
     return status;
+  }
+
+  /**
+   * Письмо «платёж не прошёл» (A6). Причину переводим в человеческую фразу:
+   * коды провайдера в письме клиенту бесполезны, а иногда и пугают.
+   */
+  async function notifyPaymentFailed(payment: typeof payments.$inferSelect, providerStatus: string): Promise<void> {
+    const [row] = await ctx.db
+      .select({ order: orders, title: items.title })
+      .from(orders)
+      .innerJoin(items, eq(orders.itemId, items.id))
+      .where(eq(orders.id, payment.orderId));
+    if (!row || row.order.status !== "awaiting_payment") return;
+    const reason = /reject|declin|blocked|error/i.test(providerStatus)
+      ? undefined // текст письма подставит общую формулировку про банк
+      : /cancel/i.test(providerStatus)
+        ? "maksājums tika atcelts"
+        : undefined;
+    await enqueueNotification(ctx, ctx.db, {
+      customerId: row.order.customerId,
+      type: "payment_failed",
+      template: {
+        alias: "",
+        lotTitle: row.title,
+        orderRef: row.order.ref,
+        totalCents: row.order.totalCents,
+        deadline: row.order.paymentDeadlineAt ?? undefined,
+        payUrl: buildPayUrl(ctx, row.order.ref, row.order.paymentDeadlineAt),
+        ...(reason ? { failureReason: reason } : {}),
+      },
+      dedupeKey: `payment_failed:${payment.id}`,
+    });
   }
 
   /**

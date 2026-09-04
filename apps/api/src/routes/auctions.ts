@@ -1,11 +1,12 @@
 import { auctions, bids, customers, items, listings } from "@auction/db";
 import { assertAuctionTransition, assertItemTransition, type AuctionStatus, type ItemStatus } from "@auction/domain";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { writeAudit } from "../audit.js";
 import { publishAuctionEvent, type AppContext } from "../context.js";
 import { placeBid, voidBid } from "../engine/bids.js";
+import { enqueueNotification } from "../engine/notifications.js";
 import { requirePermission, type PermissionService } from "../auth/rbac.js";
 
 const actor = (req: { admin?: { sub: string; name: string } }) => ({
@@ -176,6 +177,20 @@ export function registerAuctionRoutes(app: FastifyInstance, ctx: AppContext, per
       if (item!.status === "live") {
         assertItemTransition("live", "listed");
         await tx.update(items).set({ status: "listed", updatedAt: ctx.now() }).where(eq(items.id, item!.id));
+      }
+      // Письмо A5: лот снят — сообщаем КАЖДОМУ, кто в нём участвовал.
+      // Один человек = одно письмо, даже если ставок у него было много.
+      const bidders = await tx
+        .selectDistinct({ customerId: bids.customerId })
+        .from(bids)
+        .where(and(eq(bids.auctionId, id), isNull(bids.voidedAt)));
+      for (const b of bidders) {
+        await enqueueNotification(ctx, tx, {
+          customerId: b.customerId,
+          type: "lot_withdrawn",
+          template: { alias: "", lotTitle: listing!.title, reason: body.data.reason },
+          dedupeKey: `lot_withdrawn:${id}:${b.customerId}`,
+        });
       }
       await writeAudit(tx, actor(req), "auction", "cancelled", listing!.title, { auctionId: id, reason: body.data.reason });
       return true;

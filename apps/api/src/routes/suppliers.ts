@@ -6,6 +6,7 @@ import { writeAudit } from "../audit.js";
 import { requirePermission, type PermissionService } from "../auth/rbac.js";
 import type { AppContext } from "../context.js";
 import { applySupplierDefaults, routeInvoiceApproval } from "../engine/approvals.js";
+import { notifyPaymentSent } from "../engine/supplierMail.js";
 
 const actor = (req: { admin?: { sub: string; name: string } }) => ({
   id: req.admin?.sub ?? null,
@@ -626,6 +627,8 @@ export function registerSupplierRoutes(app: FastifyInstance, ctx: AppContext, pe
       return reply.code(409).send({ error: "invoice_not_approved", approvalStatus: result.approvalStatus });
     if (result.kind === "exceeds")
       return reply.code(422).send({ error: "exceeds_outstanding", outstandingCents: result.outstandingCents });
+    // Письмо S7: деньги ушли — поставщик узнаёт сумму и референс сразу.
+    await notifyPaymentSent(ctx, result.payment.id).catch((err) => req.log?.error({ err }, "supplier payment mail failed"));
     return {
       invoice: shapeInvoice((await loadInvoice(id)) as InvoiceQueryRow, ctx.now()),
       payment: result.payment,

@@ -1,4 +1,4 @@
-import { customers, emailTemplateOverrides, notificationPrefs, notifications, type Db } from "@auction/db";
+import { customers, emailTemplateOverrides, notificationPrefs, notifications, suppliers, type Db } from "@auction/db";
 import { formatEur } from "@auction/domain";
 import { and, asc, eq, isNull, lte, or, sql } from "drizzle-orm";
 import type { AppContext } from "../context.js";
@@ -159,6 +159,31 @@ export function fillPlaceholders(tpl: string, i: TemplateInput, ctx: AppContext,
     referralOrder: fmtMoney(i.referralOrderCents, lang),
     referralPercent: i.referralPercent !== undefined ? String(i.referralPercent) : "",
     categoryLabel: i.categoryLabel ?? "",
+    // Письма части A и письма поставщикам — те же плейсхолдеры доступны
+    // администратору, когда он правит текст руками.
+    expiring: fmtMoney(i.expiringCents, lang),
+    expiresAt: fmtDay(i.expiresAt, lang),
+    deviceLabel: i.deviceLabel ?? "",
+    failureReason: i.failureReason ?? "",
+    supplierName: i.supplierName ?? "",
+    inviteUrl: i.inviteUrl ?? "",
+    consignmentRef: i.consignmentRef ?? "",
+    declaredCount: i.declaredCount !== undefined ? String(i.declaredCount) : "",
+    acceptedCount: i.acceptedCount !== undefined ? String(i.acceptedCount) : "",
+    rejectedCount: i.rejectedCount !== undefined ? String(i.rejectedCount) : "",
+    discrepancyNote: i.discrepancyNote ?? "",
+    replyByDate: fmtDay(i.replyByDate, lang),
+    invoiceNumber: i.invoiceNumber ?? "",
+    dueDate: fmtDay(i.dueDate, lang),
+    rejectReason: i.rejectReason ?? "",
+    paymentRef: i.paymentRef ?? "",
+    paidAt: fmtDay(i.paidAt, lang),
+    periodLabel: i.periodLabel ?? "",
+    soldGross: fmtMoney(i.soldGrossCents, lang),
+    commission: fmtMoney(i.commissionCents, lang),
+    payout: fmtMoney(i.payoutCents, lang),
+    unsoldCount: i.unsoldCount !== undefined ? String(i.unsoldCount) : "",
+    decideByDate: fmtDay(i.decideByDate, lang),
     siteUrl: cc.siteUrl,
     ordersUrl: cc.ordersUrl,
     lots: (i.lots ?? []).map((l) => `• ${l.title} — ${fmtMoney(l.priceCents, lang)}`).join("\n"),
@@ -341,6 +366,75 @@ export async function enqueueNotification(
       dedupeKey: args.dedupeKey ?? null,
     })
     .onConflictDoNothing(); // dedupeKey collision → already enqueued
+}
+
+/**
+ * Письмо со сбросом пароля — единственное, которое НЕ ложится в очередь.
+ * Ссылка в нём живёт минуты и открывает аккаунт, а журнал уведомлений виден
+ * администраторам: хранить её там значило бы раздать всей команде ключ от
+ * чужого кабинета. Поэтому письмо рендерится общим движком (тот же дизайн,
+ * те же правки текста из админки) и уходит сразу, минуя запись.
+ */
+export async function sendPasswordReset(
+  ctx: AppContext,
+  args: { toEmail: string; alias: string; lang: Lang; link: string },
+): Promise<void> {
+  const { subject, text, html } = await renderNotification(ctx, "password_reset", args.lang, {
+    alias: args.alias,
+    lotTitle: "",
+    actionUrl: args.link,
+    validHours: Math.max(1, Math.round(ctx.config.passwordResetTtlSec / 3600)),
+  });
+  await ctx.email.send({ to: args.toEmail, subject, text, html });
+}
+
+/**
+ * То же самое, но адресат — поставщик (письма S1…S10). Язык берём из его
+ * карточки, обращение — по контактному лицу, а если его нет — по названию
+ * компании. Всё остальное общее: та же очередь, те же повторы, тот же журнал
+ * в «Paziņojumi» и те же правки текстов из админки.
+ */
+export async function enqueueSupplierNotification(
+  ctx: AppContext,
+  tx: Tx,
+  args: { supplierId: string; type: NotificationType; template: TemplateInput; dedupeKey?: string },
+): Promise<void> {
+  const [recipient] = await tx
+    .select({
+      email: suppliers.email,
+      name: suppliers.name,
+      contactName: suppliers.contactName,
+      lang: suppliers.lang,
+      active: suppliers.active,
+    })
+    .from(suppliers)
+    .where(eq(suppliers.id, args.supplierId));
+  // Без адреса письмо отправить некуда; неактивным поставщикам не пишем.
+  if (!recipient || !recipient.email.trim() || !recipient.active) return;
+  const lang = langFor(recipient.lang, null);
+  const { subject, text, html } = await renderNotification(
+    ctx, args.type, lang,
+    {
+      ...args.template,
+      alias: recipient.contactName.trim() || recipient.name,
+      supplierName: recipient.name,
+    },
+    undefined,
+    { db: tx },
+  );
+  await tx
+    .insert(notifications)
+    .values({
+      supplierId: args.supplierId,
+      type: args.type,
+      toEmail: recipient.email,
+      lang,
+      subject,
+      body: text,
+      html,
+      dedupeKey: args.dedupeKey ?? null,
+    })
+    .onConflictDoNothing();
 }
 
 const MAX_ATTEMPTS = 5;

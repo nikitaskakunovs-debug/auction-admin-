@@ -48,6 +48,25 @@ const TYPE_KEY: Record<string, TKey> = {
   abandoned_bid: "ms.nt.abandoned_bid",
   second_purchase: "ms.nt.second_purchase",
   gift_card_received: "ms.nt.gift_card_received",
+  // Пробелы покупательской переписки (часть A плана писем).
+  password_reset: "ms.nt.password_reset",
+  points_expiring: "ms.nt.points_expiring",
+  security_alert: "ms.nt.security_alert",
+  delivered: "ms.nt.delivered",
+  bid_voided: "ms.nt.bid_voided",
+  lot_withdrawn: "ms.nt.lot_withdrawn",
+  payment_failed: "ms.nt.payment_failed",
+  // Письма поставщикам (S1…S10).
+  sup_invite: "ms.nt.sup_invite",
+  sup_welcome: "ms.nt.sup_welcome",
+  sup_intake_done: "ms.nt.sup_intake_done",
+  sup_discrepancy: "ms.nt.sup_discrepancy",
+  sup_invoice_accepted: "ms.nt.sup_invoice_accepted",
+  sup_invoice_rejected: "ms.nt.sup_invoice_rejected",
+  sup_payment_sent: "ms.nt.sup_payment_sent",
+  sup_monthly_report: "ms.nt.sup_monthly_report",
+  sup_sales_report: "ms.nt.sup_sales_report",
+  sup_unsold: "ms.nt.sup_unsold",
 };
 
 /** Правка поверх кодового шаблона (одна на тип × язык). */

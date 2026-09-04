@@ -173,7 +173,14 @@ export class AuctionScheduler {
     const day = this.ctx.now().toISOString().slice(0, 10);
     const expiryMarker = await this.ctx.redis.set(`fin:expiry:${day}`, "1", "PX", 26 * 3600 * 1000, "NX");
     if (expiryMarker === "OK") {
-      const { runPointsExpiry } = await import("./loyaltyExpiry.js");
+      // Месячный пакет поставщикам (сводка, комиссионный расчёт, остатки).
+      const { runSupplierMonthly, runSupplierUnsold } = await import("./supplierMail.js");
+      await runSupplierMonthly(this.ctx).catch((err) => console.error("supplier monthly failed", err));
+      await runSupplierUnsold(this.ctx).catch((err) => console.error("supplier unsold failed", err));
+      const { runPointsExpiry, runPointsExpiryWarnings } = await import("./loyaltyExpiry.js");
+      // Сначала предупреждаем, потом сжигаем: письмо «сгорит через 30 дней»
+      // должно уйти раньше, чем баллы действительно исчезнут.
+      await runPointsExpiryWarnings(this.ctx).catch((err) => console.error("points expiry warnings failed", err));
       await runPointsExpiry(this.ctx).catch((err) => console.error("points expiry failed", err));
     }
   }

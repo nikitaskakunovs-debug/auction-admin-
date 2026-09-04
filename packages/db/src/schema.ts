@@ -547,6 +547,17 @@ export const suppliers = pgTable(
     email: text("email").notNull().default(""),
     phone: text("phone").notNull().default(""),
     address: text("address").notNull().default(""),
+    /** Кому адресованы письма: контактное лицо поставщика. */
+    contactName: text("contact_name").notNull().default(""),
+    /** Язык переписки с поставщиком: lv | ru | en. */
+    lang: text("lang").notNull().default("lv"),
+    /** Модель работы (решение владельца — поддерживаем обе):
+     *  buyout — мы выкупаем поставку и платим по счёту поставщика;
+     *  commission — товар остаётся его, мы продаём и платим за вычетом
+     *  комиссии (self-billing отчёт вместо его счёта). */
+    model: text("model").notNull().default("buyout"),
+    /** Наша комиссия при модели commission, б.п. (2500 = 25%). */
+    commissionBp: integer("commission_bp").notNull().default(0),
     /** IBAN — finance-only, like every other money field. */
     bankAccount: text("bank_account").notNull().default(""),
     /** Days from invoice date to due date; the default this supplier bills on. */
@@ -1213,6 +1224,10 @@ export const notifications = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     customerId: uuid("customer_id").references(() => customers.id, { onDelete: "set null" }),
+    /** Письмо поставщику (S1…S10): вместо клиента адресат — поставщик.
+     *  Ровно один из customerId/supplierId заполнен; всё остальное —
+     *  очередь, повторы, лог в админке, правки текстов — общее. */
+    supplierId: uuid("supplier_id"),
     type: text("type").notNull(), // outbid | won | payment_reminder | order_paid
     channel: text("channel").notNull().default("email"),
     toEmail: text("to_email").notNull(),

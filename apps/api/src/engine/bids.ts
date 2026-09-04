@@ -280,6 +280,20 @@ export async function voidBid(
       })
       .where(eq(auctions.id, args.auctionId));
 
+    // Письмо A5: человек должен узнать, что его ставки больше нет, — иначе
+    // он продолжает считать себя участником торгов.
+    await enqueueNotification(ctx, tx, {
+      customerId: target.customerId,
+      type: "bid_voided",
+      template: {
+        alias: "",
+        lotTitle: listing!.title,
+        amountCents: target.maxCents,
+        reason: args.reason,
+      },
+      dedupeKey: `bid_voided:${args.bidId}`,
+    });
+
     return {
       ok: true as const,
       currentPriceCents: state.currentPriceCents,

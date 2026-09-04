@@ -5,6 +5,7 @@ import type { AppContext } from "../context.js";
 import { raiseFlag, resolveFlag } from "./finFlags.js";
 import { allocateConsignmentCost, postSupplierInvoiceApproved } from "./ledger.js";
 import { notifyInvoiceCard } from "./telegramApprovals.js";
+import { notifyInvoiceDecision } from "./supplierMail.js";
 
 /**
  * Approval-слой закупок (fin-architecture 10.3). Пороги и маршруты НЕ зашиты
@@ -164,6 +165,8 @@ export async function approveInvoice(
     // Флаг двойного апрува закрывается при финальной подписи.
     const [flag] = await ctx.db.select({ id: finFlags.id }).from(finFlags).where(eq(finFlags.dedupeKey, `dual:${invoiceId}`));
     if (flag) await resolveFlag(ctx, flag.id, { note: "apstiprināts", actor: actor.label });
+    // Письмо S5: поставщик узнаёт дату оплаты, не спрашивая.
+    await notifyInvoiceDecision(ctx, invoiceId, "accepted").catch(() => undefined);
   }
   return outcome;
 }
@@ -185,6 +188,10 @@ export async function rejectInvoice(
       .where(eq(supplierInvoices.id, invoiceId));
     await writeAudit(tx, actor, "finance", "supplier_invoice_rejected", invoice.number, { reason });
     return { ok: true as const };
+  }).then(async (r) => {
+    // Письмо S6 — после транзакции: отказ без объяснения хуже, чем отказ.
+    if (r.ok) await notifyInvoiceDecision(ctx, invoiceId, "rejected").catch(() => undefined);
+    return r;
   });
 }
 
