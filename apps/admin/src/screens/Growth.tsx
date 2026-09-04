@@ -653,6 +653,15 @@ const SETTING_LABELS = [
   "price_drop_min_bp", "price_drop_delay_min",
 ] as const;
 
+/**
+ * Проверка на этапе сборки: у каждой настройки из списка выше обязана быть
+ * подпись «s.<ключ>» в словаре. Забытая подпись раньше обнаруживалась только
+ * глазами на живом экране — теперь она ломает сборку.
+ */
+type MissingSettingLabels = Exclude<`s.${(typeof SETTING_LABELS)[number]}`, TKey>;
+const _allSettingsHaveLabels: MissingSettingLabels extends never ? true : MissingSettingLabels = true;
+void _allSettingsHaveLabels;
+
 function SettingsTab() {
   const { t } = useT();
   const { can } = useAuth();

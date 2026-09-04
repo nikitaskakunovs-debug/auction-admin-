@@ -501,6 +501,16 @@ export function LedgerTab() {
 
 // ── Fin. iestatījumi ────────────────────────────────────────────────────────
 
+/**
+ * Подпись настройки. Список ключей приходит с сервера, поэтому подписи может
+ * не оказаться — тогда показываем сам ключ словами. Пустой экран из-за одной
+ * забытой строки здесь был, и повторяться ему незачем.
+ */
+function settingLabel(t: (key: TKey) => string, key: string): string {
+  const label = t(`f2.sk.${key}` as TKey);
+  return label === `f2.sk.${key}` ? key.replace(/_/g, " ") : label;
+}
+
 export function FinSettingsTab() {
   const { t } = useT();
   const { can } = useAuth();
@@ -534,7 +544,7 @@ export function FinSettingsTab() {
       <div style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.inkSoft, marginBottom: 12 }}>{t("f2.st.hint")}</div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12 }}>
         {editable.map((k) => (
-          <AField key={k} label={t(`f2.sk.${k}` as TKey)}>
+          <AField key={k} label={settingLabel(t, k)}>
             <AInput
               type="number"
               value={dirty[k] ?? String(values[k] ?? 0)}
