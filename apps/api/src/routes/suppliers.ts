@@ -669,7 +669,7 @@ export function registerSupplierRoutes(app: FastifyInstance, ctx: AppContext, pe
       .where(eq(suppliers.id, id));
     await sendSupplierInvite(ctx, {
       supplierId: id,
-      inviteUrl: `${ctx.config.storefrontBaseUrl}/piegadatajs/parole?token=${token}`,
+      inviteUrl: `${ctx.config.supplierPortalUrl}/piegadatajs/parole?token=${token}`,
       days,
     });
     await writeAudit(ctx.db, actor(req), "finance", "supplier_invited", sup.name, { days });

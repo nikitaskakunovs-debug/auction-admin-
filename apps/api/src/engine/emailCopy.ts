@@ -211,6 +211,8 @@ export interface TemplateInput {
 /** Links and addresses the copy needs; supplied by config, never hard-coded. */
 export interface CopyContext {
   siteUrl: string;
+  /** Адрес кабинета поставщика: свой поддомен либо витрина + /piegadatajs. */
+  portalUrl: string;
   ordersUrl: string;
   feesUrl: string;
   pickupPassUrl: string;
@@ -1596,7 +1598,7 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
     // ── S1. Приглашение в кабинет ──────────────────────────────────────────
     case "sup_invite": {
       const days = i.inviteDays ?? 7;
-      const portal = i.inviteUrl ?? `${ctx.siteUrl}/piegadatajs`;
+      const portal = i.inviteUrl ?? `${ctx.portalUrl}`;
       const subject = {
         lv: "Piekļuve piegādātāja kabinetam — Izsoli.lv",
         ru: "Доступ в кабинет поставщика — Izsoli.lv",
@@ -1651,9 +1653,9 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
       const terms = i.validHours; // не используется здесь; сроки идут фактами
       void terms;
       const text = {
-        lv: `Labdien, ${i.alias}!\n\nKabinets ir aktivizēts. Īsi par kārtību:\n• piegādi piesaki kabinetā pirms atvešanas;\n• pēc pieņemšanas saņemsi aktu ar skaitiem un bildēm;\n• rēķinu ielādē kabinetā — tur redzēsi tā statusu un maksājuma datumu;\n• reizi mēnesī atsūtīsim pārskatu par pieņemto un pārdoto.\n\nKabinets: ${ctx.siteUrl}/piegadatajs\n\n[sup_welcome]`,
-        ru: `Добрый день, ${i.alias}!\n\nКабинет активирован. Коротко о порядке:\n• поставку заявляйте в кабинете до приезда;\n• после приёмки получите акт с количествами и фото;\n• счёт загружайте в кабинет — там же виден его статус и дата оплаты;\n• раз в месяц пришлём сводку по принятому и проданному.\n\nКабинет: ${ctx.siteUrl}/piegadatajs\n\n[sup_welcome]`,
-        en: `Hello ${i.alias},\n\nYour portal is active. In short:\n• announce a delivery in the portal before it arrives;\n• after intake you receive a report with counts and photos;\n• upload your invoice in the portal — its status and payment date are there;\n• once a month we send a summary of what was received and sold.\n\nPortal: ${ctx.siteUrl}/piegadatajs\n\n[sup_welcome]`,
+        lv: `Labdien, ${i.alias}!\n\nKabinets ir aktivizēts. Īsi par kārtību:\n• piegādi piesaki kabinetā pirms atvešanas;\n• pēc pieņemšanas saņemsi aktu ar skaitiem un bildēm;\n• rēķinu ielādē kabinetā — tur redzēsi tā statusu un maksājuma datumu;\n• reizi mēnesī atsūtīsim pārskatu par pieņemto un pārdoto.\n\nKabinets: ${ctx.portalUrl}\n\n[sup_welcome]`,
+        ru: `Добрый день, ${i.alias}!\n\nКабинет активирован. Коротко о порядке:\n• поставку заявляйте в кабинете до приезда;\n• после приёмки получите акт с количествами и фото;\n• счёт загружайте в кабинет — там же виден его статус и дата оплаты;\n• раз в месяц пришлём сводку по принятому и проданному.\n\nКабинет: ${ctx.portalUrl}\n\n[sup_welcome]`,
+        en: `Hello ${i.alias},\n\nYour portal is active. In short:\n• announce a delivery in the portal before it arrives;\n• after intake you receive a report with counts and photos;\n• upload your invoice in the portal — its status and payment date are there;\n• once a month we send a summary of what was received and sold.\n\nPortal: ${ctx.portalUrl}\n\n[sup_welcome]`,
       }[lang];
       return {
         subject,
@@ -1682,7 +1684,7 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
               ? [{ label: { lv: "Apmaksas termiņš:", ru: "Срок оплаты:", en: "Payment terms:" }[lang], value: `${i.inviteDays} ${{ lv: "dienas", ru: "дн.", en: "days" }[lang]}` }]
               : []),
           ],
-          cta: { label: { lv: "Atvērt kabinetu", ru: "Открыть кабинет", en: "Open the portal" }[lang], url: `${ctx.siteUrl}/piegadatajs` },
+          cta: { label: { lv: "Atvērt kabinetu", ru: "Открыть кабинет", en: "Open the portal" }[lang], url: `${ctx.portalUrl}` },
           notes: [{ text: {
             lv: "Jautājumi par konkrētu piegādi — raksti tieši kabinetā pie tās; tā atbilde nepazūd sarakstē.",
             ru: "Вопросы по конкретной поставке пишите прямо в кабинете рядом с ней — так ответ не теряется в переписке.",
@@ -1705,9 +1707,9 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
         en: `Delivery accepted — ${ref}`,
       }[lang];
       const text = {
-        lv: `Labdien, ${i.alias}!\n\nPiegāde ${ref} ir pieņemta.\nPieteikts: ${declared}\nPieņemts: ${accepted}\nNoraidīts: ${rejected}\n\nAkts ar bildēm: ${ctx.siteUrl}/piegadatajs\n\n[sup_intake_done]`,
-        ru: `Добрый день, ${i.alias}!\n\nПоставка ${ref} принята.\nЗаявлено: ${declared}\nПринято: ${accepted}\nОтклонено: ${rejected}\n\nАкт с фото: ${ctx.siteUrl}/piegadatajs\n\n[sup_intake_done]`,
-        en: `Hello ${i.alias},\n\nDelivery ${ref} has been accepted.\nDeclared: ${declared}\nAccepted: ${accepted}\nRejected: ${rejected}\n\nReport with photos: ${ctx.siteUrl}/piegadatajs\n\n[sup_intake_done]`,
+        lv: `Labdien, ${i.alias}!\n\nPiegāde ${ref} ir pieņemta.\nPieteikts: ${declared}\nPieņemts: ${accepted}\nNoraidīts: ${rejected}\n\nAkts ar bildēm: ${ctx.portalUrl}\n\n[sup_intake_done]`,
+        ru: `Добрый день, ${i.alias}!\n\nПоставка ${ref} принята.\nЗаявлено: ${declared}\nПринято: ${accepted}\nОтклонено: ${rejected}\n\nАкт с фото: ${ctx.portalUrl}\n\n[sup_intake_done]`,
+        en: `Hello ${i.alias},\n\nDelivery ${ref} has been accepted.\nDeclared: ${declared}\nAccepted: ${accepted}\nRejected: ${rejected}\n\nReport with photos: ${ctx.portalUrl}\n\n[sup_intake_done]`,
       }[lang];
       return {
         subject,
@@ -1728,7 +1730,7 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
             { label: { lv: "Pieņemts:", ru: "Принято:", en: "Accepted:" }[lang], value: String(accepted) },
             { label: { lv: "Noraidīts:", ru: "Отклонено:", en: "Rejected:" }[lang], value: String(rejected) },
           ],
-          cta: { label: { lv: "Skatīt aktu", ru: "Смотреть акт", en: "View the report" }[lang], url: `${ctx.siteUrl}/piegadatajs` },
+          cta: { label: { lv: "Skatīt aktu", ru: "Смотреть акт", en: "View the report" }[lang], url: `${ctx.portalUrl}` },
           labels,
         },
       };
@@ -1767,7 +1769,7 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
             ...(note ? [{ label: { lv: "Konstatēts:", ru: "Обнаружено:", en: "Found:" }[lang], value: note }] : []),
             { label: { lv: "Atbildēt līdz:", ru: "Ответить до:", en: "Reply by:" }[lang], value: by },
           ],
-          cta: { label: { lv: "Atbildēt kabinetā", ru: "Ответить в кабинете", en: "Reply in the portal" }[lang], url: `${ctx.siteUrl}/piegadatajs` },
+          cta: { label: { lv: "Atbildēt kabinetā", ru: "Ответить в кабинете", en: "Reply in the portal" }[lang], url: `${ctx.portalUrl}` },
           ctaNote: {
             lv: "Bez atbildes noteiktajā termiņā akts stājas spēkā tāds, kāds ir.",
             ru: "Без ответа в срок акт вступает в силу в текущем виде.",
@@ -1789,9 +1791,9 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
         en: `Invoice ${num} accepted — payment on ${due}`,
       }[lang];
       const text = {
-        lv: `Labdien, ${i.alias}!\n\nRēķins ${num} par ${sum} ir pārbaudīts un apstiprināts apmaksai.\nPlānotais maksājuma datums: ${due}.\n\nStatuss kabinetā: ${ctx.siteUrl}/piegadatajs\n\n[sup_invoice_accepted]`,
-        ru: `Добрый день, ${i.alias}!\n\nСчёт ${num} на ${sum} проверен и согласован к оплате.\nПлановая дата платежа: ${due}.\n\nСтатус в кабинете: ${ctx.siteUrl}/piegadatajs\n\n[sup_invoice_accepted]`,
-        en: `Hello ${i.alias},\n\nInvoice ${num} for ${sum} has been checked and approved for payment.\nPlanned payment date: ${due}.\n\nStatus in the portal: ${ctx.siteUrl}/piegadatajs\n\n[sup_invoice_accepted]`,
+        lv: `Labdien, ${i.alias}!\n\nRēķins ${num} par ${sum} ir pārbaudīts un apstiprināts apmaksai.\nPlānotais maksājuma datums: ${due}.\n\nStatuss kabinetā: ${ctx.portalUrl}\n\n[sup_invoice_accepted]`,
+        ru: `Добрый день, ${i.alias}!\n\nСчёт ${num} на ${sum} проверен и согласован к оплате.\nПлановая дата платежа: ${due}.\n\nСтатус в кабинете: ${ctx.portalUrl}\n\n[sup_invoice_accepted]`,
+        en: `Hello ${i.alias},\n\nInvoice ${num} for ${sum} has been checked and approved for payment.\nPlanned payment date: ${due}.\n\nStatus in the portal: ${ctx.portalUrl}\n\n[sup_invoice_accepted]`,
       }[lang];
       return {
         subject,
@@ -1811,7 +1813,7 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
             { label: { lv: "Rēķins:", ru: "Счёт:", en: "Invoice:" }[lang], value: num },
             { label: { lv: "Apmaksa:", ru: "Оплата:", en: "Payment:" }[lang], value: due },
           ],
-          cta: { label: { lv: "Skatīt kabinetā", ru: "Смотреть в кабинете", en: "View in the portal" }[lang], url: `${ctx.siteUrl}/piegadatajs` },
+          cta: { label: { lv: "Skatīt kabinetā", ru: "Смотреть в кабинете", en: "View in the portal" }[lang], url: `${ctx.portalUrl}` },
           labels,
         },
       };
@@ -1827,9 +1829,9 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
         en: `Invoice ${num} rejected`,
       }[lang];
       const text = {
-        lv: `Labdien, ${i.alias}!\n\nRēķinu ${num} par ${moneyIn(i.amountCents, "lv")} nevaram pieņemt apmaksai.\nIemesls: ${why}\n\nLūdzam iesniegt labotu rēķinu kabinetā: ${ctx.siteUrl}/piegadatajs\n\n[sup_invoice_rejected]`,
-        ru: `Добрый день, ${i.alias}!\n\nСчёт ${num} на ${moneyIn(i.amountCents, "ru")} не может быть принят к оплате.\nПричина: ${why}\n\nПросим загрузить исправленный счёт в кабинет: ${ctx.siteUrl}/piegadatajs\n\n[sup_invoice_rejected]`,
-        en: `Hello ${i.alias},\n\nInvoice ${num} for ${moneyIn(i.amountCents, "en")} cannot be accepted for payment.\nReason: ${why}\n\nPlease upload a corrected invoice in the portal: ${ctx.siteUrl}/piegadatajs\n\n[sup_invoice_rejected]`,
+        lv: `Labdien, ${i.alias}!\n\nRēķinu ${num} par ${moneyIn(i.amountCents, "lv")} nevaram pieņemt apmaksai.\nIemesls: ${why}\n\nLūdzam iesniegt labotu rēķinu kabinetā: ${ctx.portalUrl}\n\n[sup_invoice_rejected]`,
+        ru: `Добрый день, ${i.alias}!\n\nСчёт ${num} на ${moneyIn(i.amountCents, "ru")} не может быть принят к оплате.\nПричина: ${why}\n\nПросим загрузить исправленный счёт в кабинет: ${ctx.portalUrl}\n\n[sup_invoice_rejected]`,
+        en: `Hello ${i.alias},\n\nInvoice ${num} for ${moneyIn(i.amountCents, "en")} cannot be accepted for payment.\nReason: ${why}\n\nPlease upload a corrected invoice in the portal: ${ctx.portalUrl}\n\n[sup_invoice_rejected]`,
       }[lang];
       return {
         subject,
@@ -1849,7 +1851,7 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
             { label: { lv: "Summa:", ru: "Сумма:", en: "Amount:" }[lang], value: moneyIn(i.amountCents, lang) },
             { label: { lv: "Iemesls:", ru: "Причина:", en: "Reason:" }[lang], value: why },
           ],
-          cta: { label: { lv: "Iesniegt labotu", ru: "Загрузить исправленный", en: "Upload a corrected invoice" }[lang], url: `${ctx.siteUrl}/piegadatajs` },
+          cta: { label: { lv: "Iesniegt labotu", ru: "Загрузить исправленный", en: "Upload a corrected invoice" }[lang], url: `${ctx.portalUrl}` },
           labels,
         },
       };
@@ -1889,7 +1891,7 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
             { label: { lv: "Datums:", ru: "Дата:", en: "Date:" }[lang], value: when },
             ...(i.paymentRef ? [{ label: { lv: "References:", ru: "Референс:", en: "Reference:" }[lang], value: i.paymentRef }] : []),
           ],
-          cta: { label: { lv: "Maksājumu vēsture", ru: "История платежей", en: "Payment history" }[lang], url: `${ctx.siteUrl}/piegadatajs` },
+          cta: { label: { lv: "Maksājumu vēsture", ru: "История платежей", en: "Payment history" }[lang], url: `${ctx.portalUrl}` },
           labels,
         },
       };
@@ -1905,9 +1907,9 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
         en: `Summary for ${period}`,
       }[lang];
       const text = {
-        lv: `Labdien, ${i.alias}!\n\nPārskats par ${period}:\n• pieņemts: ${i.receivedCount ?? 0} vienības\n• pārdots: ${i.soldCount ?? 0} vienības (${st}%)\n• pārdošanas apjoms: ${moneyIn(i.soldGrossCents, "lv")}\n• izmaksāts: ${moneyIn(i.payoutCents, "lv")}\n\nDetaļas kabinetā: ${ctx.siteUrl}/piegadatajs\n\n[sup_monthly_report]`,
-        ru: `Добрый день, ${i.alias}!\n\nСводка за ${period}:\n• принято: ${i.receivedCount ?? 0} ед.\n• продано: ${i.soldCount ?? 0} ед. (${st}%)\n• объём продаж: ${moneyIn(i.soldGrossCents, "ru")}\n• выплачено: ${moneyIn(i.payoutCents, "ru")}\n\nДетали в кабинете: ${ctx.siteUrl}/piegadatajs\n\n[sup_monthly_report]`,
-        en: `Hello ${i.alias},\n\nSummary for ${period}:\n• received: ${i.receivedCount ?? 0} units\n• sold: ${i.soldCount ?? 0} units (${st}%)\n• sales volume: ${moneyIn(i.soldGrossCents, "en")}\n• paid out: ${moneyIn(i.payoutCents, "en")}\n\nDetails in the portal: ${ctx.siteUrl}/piegadatajs\n\n[sup_monthly_report]`,
+        lv: `Labdien, ${i.alias}!\n\nPārskats par ${period}:\n• pieņemts: ${i.receivedCount ?? 0} vienības\n• pārdots: ${i.soldCount ?? 0} vienības (${st}%)\n• pārdošanas apjoms: ${moneyIn(i.soldGrossCents, "lv")}\n• izmaksāts: ${moneyIn(i.payoutCents, "lv")}\n\nDetaļas kabinetā: ${ctx.portalUrl}\n\n[sup_monthly_report]`,
+        ru: `Добрый день, ${i.alias}!\n\nСводка за ${period}:\n• принято: ${i.receivedCount ?? 0} ед.\n• продано: ${i.soldCount ?? 0} ед. (${st}%)\n• объём продаж: ${moneyIn(i.soldGrossCents, "ru")}\n• выплачено: ${moneyIn(i.payoutCents, "ru")}\n\nДетали в кабинете: ${ctx.portalUrl}\n\n[sup_monthly_report]`,
+        en: `Hello ${i.alias},\n\nSummary for ${period}:\n• received: ${i.receivedCount ?? 0} units\n• sold: ${i.soldCount ?? 0} units (${st}%)\n• sales volume: ${moneyIn(i.soldGrossCents, "en")}\n• paid out: ${moneyIn(i.payoutCents, "en")}\n\nDetails in the portal: ${ctx.portalUrl}\n\n[sup_monthly_report]`,
       }[lang];
       return {
         subject,
@@ -1934,7 +1936,7 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
             { label: { lv: "Pieņemts:", ru: "Принято:", en: "Received:" }[lang], value: String(i.receivedCount ?? 0) },
             { label: { lv: "Pārdots:", ru: "Продано:", en: "Sold:" }[lang], value: `${i.soldCount ?? 0} (${st}%)` },
           ],
-          cta: { label: { lv: "Atvērt pārskatu", ru: "Открыть отчёт", en: "Open the report" }[lang], url: `${ctx.siteUrl}/piegadatajs` },
+          cta: { label: { lv: "Atvērt pārskatu", ru: "Открыть отчёт", en: "Open the report" }[lang], url: `${ctx.portalUrl}` },
           labels,
         },
       };
@@ -1951,9 +1953,9 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
         en: `Sales report and settlement — ${period}`,
       }[lang];
       const text = {
-        lv: `Labdien, ${i.alias}!\n\nPārdošanas atskaite par ${period}:\n${listText}\n\nKopā pārdots: ${moneyIn(i.soldGrossCents, "lv")}\nMūsu komisija (${i.commissionPercent ?? 0}%): ${moneyIn(i.commissionCents, "lv")}\nIzmaksai: ${moneyIn(i.payoutCents, "lv")}\n\nAtskaite kabinetā: ${ctx.siteUrl}/piegadatajs\n\n[sup_sales_report]`,
-        ru: `Добрый день, ${i.alias}!\n\nОтчёт о продажах за ${period}:\n${listText}\n\nПродано на: ${moneyIn(i.soldGrossCents, "ru")}\nНаша комиссия (${i.commissionPercent ?? 0}%): ${moneyIn(i.commissionCents, "ru")}\nК выплате: ${moneyIn(i.payoutCents, "ru")}\n\nОтчёт в кабинете: ${ctx.siteUrl}/piegadatajs\n\n[sup_sales_report]`,
-        en: `Hello ${i.alias},\n\nSales report for ${period}:\n${listText}\n\nSold for: ${moneyIn(i.soldGrossCents, "en")}\nOur commission (${i.commissionPercent ?? 0}%): ${moneyIn(i.commissionCents, "en")}\nDue to you: ${moneyIn(i.payoutCents, "en")}\n\nReport in the portal: ${ctx.siteUrl}/piegadatajs\n\n[sup_sales_report]`,
+        lv: `Labdien, ${i.alias}!\n\nPārdošanas atskaite par ${period}:\n${listText}\n\nKopā pārdots: ${moneyIn(i.soldGrossCents, "lv")}\nMūsu komisija (${i.commissionPercent ?? 0}%): ${moneyIn(i.commissionCents, "lv")}\nIzmaksai: ${moneyIn(i.payoutCents, "lv")}\n\nAtskaite kabinetā: ${ctx.portalUrl}\n\n[sup_sales_report]`,
+        ru: `Добрый день, ${i.alias}!\n\nОтчёт о продажах за ${period}:\n${listText}\n\nПродано на: ${moneyIn(i.soldGrossCents, "ru")}\nНаша комиссия (${i.commissionPercent ?? 0}%): ${moneyIn(i.commissionCents, "ru")}\nК выплате: ${moneyIn(i.payoutCents, "ru")}\n\nОтчёт в кабинете: ${ctx.portalUrl}\n\n[sup_sales_report]`,
+        en: `Hello ${i.alias},\n\nSales report for ${period}:\n${listText}\n\nSold for: ${moneyIn(i.soldGrossCents, "en")}\nOur commission (${i.commissionPercent ?? 0}%): ${moneyIn(i.commissionCents, "en")}\nDue to you: ${moneyIn(i.payoutCents, "en")}\n\nReport in the portal: ${ctx.portalUrl}\n\n[sup_sales_report]`,
       }[lang];
       return {
         subject,
@@ -1983,7 +1985,7 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
             { label: { lv: "Periods:", ru: "Период:", en: "Period:" }[lang], value: period },
             ...lots.map((l) => ({ label: `${l.title}:`, value: moneyIn(l.priceCents, lang) })),
           ],
-          cta: { label: { lv: "Skatīt atskaiti", ru: "Смотреть отчёт", en: "View the report" }[lang], url: `${ctx.siteUrl}/piegadatajs` },
+          cta: { label: { lv: "Skatīt atskaiti", ru: "Смотреть отчёт", en: "View the report" }[lang], url: `${ctx.portalUrl}` },
           labels,
         },
       };
@@ -2000,9 +2002,9 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
         en: `Unsold items — decision needed by ${by}`,
       }[lang];
       const text = {
-        lv: `Labdien, ${i.alias}!\n\n${count} vienības no jūsu piegādēm nav pārdotas ${days} dienu laikā.\nIespējas: pazemināt cenu, izņemt atpakaļ vai norakstīt utilizācijai.\nLūdzam izvēlēties kabinetā līdz ${by}.\n\n${ctx.siteUrl}/piegadatajs\n\n[sup_unsold]`,
-        ru: `Добрый день, ${i.alias}!\n\n${count} единиц из ваших поставок не продались за ${days} дн.\nВарианты: снизить цену, забрать обратно или списать на утилизацию.\nПросим выбрать в кабинете до ${by}.\n\n${ctx.siteUrl}/piegadatajs\n\n[sup_unsold]`,
-        en: `Hello ${i.alias},\n\n${count} units from your deliveries have not sold within ${days} days.\nOptions: lower the price, take them back, or write them off.\nPlease choose in the portal by ${by}.\n\n${ctx.siteUrl}/piegadatajs\n\n[sup_unsold]`,
+        lv: `Labdien, ${i.alias}!\n\n${count} vienības no jūsu piegādēm nav pārdotas ${days} dienu laikā.\nIespējas: pazemināt cenu, izņemt atpakaļ vai norakstīt utilizācijai.\nLūdzam izvēlēties kabinetā līdz ${by}.\n\n${ctx.portalUrl}\n\n[sup_unsold]`,
+        ru: `Добрый день, ${i.alias}!\n\n${count} единиц из ваших поставок не продались за ${days} дн.\nВарианты: снизить цену, забрать обратно или списать на утилизацию.\nПросим выбрать в кабинете до ${by}.\n\n${ctx.portalUrl}\n\n[sup_unsold]`,
+        en: `Hello ${i.alias},\n\n${count} units from your deliveries have not sold within ${days} days.\nOptions: lower the price, take them back, or write them off.\nPlease choose in the portal by ${by}.\n\n${ctx.portalUrl}\n\n[sup_unsold]`,
       }[lang];
       return {
         subject,
@@ -2022,7 +2024,7 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
             { label: { lv: "Noliktavā:", ru: "На складе:", en: "In stock:" }[lang], value: `${days} ${{ lv: "dienas", ru: "дн.", en: "days" }[lang]}` },
             { label: { lv: "Lēmums līdz:", ru: "Решение до:", en: "Decide by:" }[lang], value: by },
           ],
-          cta: { label: { lv: "Izvēlēties kabinetā", ru: "Выбрать в кабинете", en: "Choose in the portal" }[lang], url: `${ctx.siteUrl}/piegadatajs` },
+          cta: { label: { lv: "Izvēlēties kabinetā", ru: "Выбрать в кабинете", en: "Choose in the portal" }[lang], url: `${ctx.portalUrl}` },
           labels,
         },
       };

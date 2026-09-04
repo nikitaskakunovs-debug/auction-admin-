@@ -11,6 +11,7 @@ import { Chrome } from "@/components/Chrome";
 import { CookieBanner } from "@/components/CookieBanner";
 import { Dock } from "@/components/Dock";
 import { Footer } from "@/components/Footer";
+import { PartnerFooter, PartnerHeader } from "@/components/PartnerShell";
 import { IdleGuard } from "@/components/IdleGuard";
 import { MetaDebug } from "@/components/MetaDebug";
 import { Modals } from "@/components/Modals";
@@ -110,6 +111,16 @@ export const viewport: Viewport = {
 export async function generateMetadata(): Promise<Metadata> {
   const host = (await headers()).get("host");
   const country = resolveCountry(host);
+  // Партнёрский поддомен закрыт от поиска: это рабочий кабинет по
+  // приглашению, ему нечего делать в выдаче.
+  if ((host ?? "").toLowerCase().startsWith("partner.")) {
+    return {
+      title: { default: "Piegādātāja kabinets · Izsoli.lv", template: "%s · Izsoli.lv" },
+      description: "Izsoli.lv piegādātāju kabinets.",
+      metadataBase: new URL(SITE_ORIGINS[country.code]),
+      robots: { index: false, follow: false },
+    };
+  }
   return {
     title: { default: "Izsoli.lv — tiešsaistes izsoles", template: "%s · Izsoli.lv" },
     description: "Live auctions in Latvia, Estonia and Lithuania. Watches, art, design and collectibles.",
@@ -150,7 +161,11 @@ async function fetchFooterPages(): Promise<Array<{ slug: string; title: Localize
 export default async function RootLayout({ children }: { children: ReactNode }) {
   const host = (await headers()).get("host");
   const country = resolveCountry(host);
-  const footerPages = await fetchFooterPages();
+  // Партнёрский поддомен: кабинет поставщика без витринной обвязки — ни
+  // каталога, ни корзины, ни кнопки «Reģistrēties». Поставщику там нечего
+  // покупать, а лишние элементы только сбивают.
+  const isPartner = (host ?? "").toLowerCase().startsWith("partner.");
+  const footerPages = isPartner ? [] : await fetchFooterPages();
   return (
     <html lang={country.defaultLang} className={`${figtree.variable} ${manrope.variable} no-js`}>
       <head>
@@ -170,7 +185,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           />
         )}
       </head>
-      <body>
+      <body className={isPartner ? "partner-mode" : undefined}>
         {GTM_ID && (
           <noscript>
             <iframe src={`https://www.googletagmanager.com/ns.html?id=${GTM_ID}`}
@@ -181,9 +196,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           {/* Внутри провайдера: снаружи <T /> получал пустой контекст и выводил
               сам ключ — на экране стояло «nav.skipToMain». */}
           <a className="skip" href="#main"><T k="nav.skipToMain" /></a>
-          <Chrome country={country.code} />
+          {isPartner ? <PartnerHeader /> : <Chrome country={country.code} />}
           <main id="main">{children}</main>
-          <Footer pages={footerPages} country={country.code} />
+          {isPartner ? <PartnerFooter /> : <Footer pages={footerPages} country={country.code} />}
           <Dock />
           <Modals />
           <SocialCatch />

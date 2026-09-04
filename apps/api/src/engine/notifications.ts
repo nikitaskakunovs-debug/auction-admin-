@@ -42,6 +42,7 @@ export function copyContext(ctx: AppContext): CopyContext {
   const site = b.siteUrl;
   return {
     siteUrl: site,
+    portalUrl: ctx.config.supplierPortalUrl,
     ordersUrl: `${site}/me/orders`,
     feesUrl: `${site}/me/fees`,
     pickupPassUrl: `${site}/me/pickup`,

@@ -125,7 +125,7 @@ export function registerSupplierPortalRoutes(app: FastifyInstance, ctx: AppConte
         .update(suppliers)
         .set({ inviteTokenHash: sha256(token), inviteExpiresAt: new Date(ctx.now().getTime() + 2 * DAY_MS) })
         .where(eq(suppliers.id, sup.id));
-      const url = `${ctx.config.storefrontBaseUrl}/piegadatajs/parole?token=${token}`;
+      const url = `${ctx.config.supplierPortalUrl}/piegadatajs/parole?token=${token}`;
       const msg = await renderNotification(ctx, "sup_invite", (sup.lang as "lv" | "ru" | "en") ?? "lv", {
         alias: sup.contactName.trim() || sup.name,
         lotTitle: "",

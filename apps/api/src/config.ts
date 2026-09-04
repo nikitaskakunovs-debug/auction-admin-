@@ -113,6 +113,12 @@ export interface ApiConfig {
   } | null;
   /** Storefront origin used for post-checkout redirects (success/failure/cancel). */
   storefrontBaseUrl: string;
+  /**
+   * Адрес кабинета поставщика. Отдельный поддомен (partner.izsoli.lv) не
+   * обязателен: без переменной кабинет живёт на витрине по /piegadatajs, и
+   * все ссылки в письмах ведут туда же.
+   */
+  supplierPortalUrl: string;
   /** Соцвход (№ 52–54). off — кнопки в витрине отвечают «drīzumā». */
   socialMode: "off" | "live" | "simulate";
   google: { clientId: string; clientSecret: string } | null;
@@ -223,10 +229,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     if (env.JWT_SECRET.length < 32) throw new Error("JWT_SECRET must be at least 32 characters in production");
     if (!env.CORS_ORIGINS) throw new Error("CORS_ORIGINS must be set in production (comma-separated admin/storefront origins)");
   }
+  const storefrontBaseUrl = (env.STOREFRONT_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
+  const supplierPortalUrl = (env.SUPPLIER_PORTAL_URL ?? storefrontBaseUrl).replace(/\/$/, "");
   const corsOrigins = (env.CORS_ORIGINS ?? "http://localhost:5173,http://localhost:3000")
     .split(",")
     .map((o) => o.trim())
     .filter(Boolean);
+  // Кабинет на своём поддомене — это другой origin для браузера. Добавляем
+  // его сами, чтобы включение поддомена не требовало второй правки в .env
+  // (забытый CORS выглядел бы как «кабинет не открывается» без объяснений).
+  if (!corsOrigins.includes(supplierPortalUrl)) corsOrigins.push(supplierPortalUrl);
   const port = Number(env.PORT ?? 4000);
   const emailMode: "console" | "smtp" = env.EMAIL_MODE === "smtp" ? "smtp" : "console";
   if (emailMode === "smtp") {
@@ -375,7 +387,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
           },
     // Post-checkout redirect target. Production compose sets https://<DOMAIN>;
     // dev falls back to the Next.js storefront.
-    storefrontBaseUrl: (env.STOREFRONT_BASE_URL ?? "http://localhost:3000").replace(/\/$/, ""),
+    storefrontBaseUrl,
+    supplierPortalUrl,
     requireVerifiedEmail: env.REQUIRE_VERIFIED_EMAIL !== "0",
     socialMode,
     // Провайдер включается своей парой ключей; без неё кнопка честно молчит.

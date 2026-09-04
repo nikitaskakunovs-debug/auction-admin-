@@ -2760,3 +2760,17 @@ footer .f-pill{border:0;font:inherit;cursor:pointer}
    блок в потоке документа. */
 @media (max-width:767px){.ad-slot.ad-desktop{display:none !important}}
 @media (min-width:768px){.ad-slot.ad-mobile{display:none !important}}
+
+/* Партнёрский домен обходится без витринной шапки и дока — значит и место
+   под них резервировать не нужно (тот же приём, что у kiosk-mode). */
+body.partner-mode{padding-top:0;padding-bottom:24px}
+
+/* ── Партнёрский поддомен ────────────────────────────────────────────────
+   Кабинет поставщика живёт на своём имени и обходится без витринной шапки:
+   логотип, подпись и узкий подвал — ничего, что зовёт покупать. */
+.partner-head{border-bottom:1px solid var(--rule,#e6e6e0);background:var(--panel,#fff)}
+.partner-head-in{display:flex;align-items:center;gap:14px;padding:14px 0;flex-wrap:wrap}
+.partner-tag{font-size:13px;font-weight:600;color:var(--ink-soft,#6b6f68)}
+.partner-foot{border-top:1px solid var(--rule,#e6e6e0);margin-top:48px;padding:18px 0}
+.partner-foot p{margin:0;font-size:13px;color:var(--ink-soft,#6b6f68)}
+.partner-foot a{color:inherit;text-decoration:underline}
