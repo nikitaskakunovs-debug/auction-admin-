@@ -157,6 +157,19 @@ export function registerReceivingRoutes(app: FastifyInstance, ctx: AppContext, p
     return { consignment: row, items: itemRows };
   });
 
+  /** Заявка поставщика из кабинета: машина приехала — начинаем приёмку. */
+  app.post("/api/consignments/:id/accept", guard("warehouse.manage"), async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const [row] = await ctx.db
+      .update(consignments)
+      .set({ status: "open" })
+      .where(and(eq(consignments.id, id), eq(consignments.status, "announced")))
+      .returning();
+    if (!row) return reply.code(409).send({ error: "not_announced" });
+    await writeAudit(ctx.db, actor(req), "item", "consignment_accepted", row.ref);
+    return { consignment: row };
+  });
+
   app.post("/api/consignments/:id/close", guard("warehouse.manage"), async (req, reply) => {
     const { id } = req.params as { id: string };
     const [row] = await ctx.db

@@ -174,9 +174,10 @@ export class AuctionScheduler {
     const expiryMarker = await this.ctx.redis.set(`fin:expiry:${day}`, "1", "PX", 26 * 3600 * 1000, "NX");
     if (expiryMarker === "OK") {
       // Месячный пакет поставщикам (сводка, комиссионный расчёт, остатки).
-      const { runSupplierMonthly, runSupplierUnsold } = await import("./supplierMail.js");
+      const { closeExpiredDiscrepancies, runSupplierMonthly, runSupplierUnsold } = await import("./supplierMail.js");
       await runSupplierMonthly(this.ctx).catch((err) => console.error("supplier monthly failed", err));
       await runSupplierUnsold(this.ctx).catch((err) => console.error("supplier unsold failed", err));
+      await closeExpiredDiscrepancies(this.ctx).catch((err) => console.error("discrepancy close failed", err));
       const { runPointsExpiry, runPointsExpiryWarnings } = await import("./loyaltyExpiry.js");
       // Сначала предупреждаем, потом сжигаем: письмо «сгорит через 30 дней»
       // должно уйти раньше, чем баллы действительно исчезнут.

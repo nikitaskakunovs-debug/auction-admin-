@@ -6,7 +6,8 @@ import { writeAudit } from "../audit.js";
 import { requirePermission, type PermissionService } from "../auth/rbac.js";
 import type { AppContext } from "../context.js";
 import { applySupplierDefaults, routeInvoiceApproval } from "../engine/approvals.js";
-import { notifyPaymentSent } from "../engine/supplierMail.js";
+import { notifyPaymentSent, sendSupplierInvite } from "../engine/supplierMail.js";
+import { createHash, randomBytes } from "node:crypto";
 
 const actor = (req: { admin?: { sub: string; name: string } }) => ({
   id: req.admin?.sub ?? null,
@@ -213,6 +214,12 @@ export function registerSupplierRoutes(app: FastifyInstance, ctx: AppContext, pe
     /** Commercial — finance.view only (same rule as costCents in receiving). */
     paymentTermsDays: z.number().int().min(0).max(365).optional(),
     bankAccount: z.string().max(64).optional(),
+    /** Кабинет поставщика: к кому обращаемся, на каком языке и по какой
+     *  модели работаем (выкуп или комиссия). */
+    contactName: z.string().max(120).optional(),
+    lang: z.enum(["lv", "ru", "en"]).optional(),
+    model: z.enum(["buyout", "commission"]).optional(),
+    commissionBp: z.number().int().min(0).max(10_000).optional(),
   });
 
   /** Terms and bank details are money data: refuse them from callers who are
@@ -266,6 +273,10 @@ export function registerSupplierRoutes(app: FastifyInstance, ctx: AppContext, pe
     if (d.notes !== undefined) set.notes = d.notes;
     if (d.paymentTermsDays !== undefined) set.paymentTermsDays = d.paymentTermsDays;
     if (d.bankAccount !== undefined) set.bankAccount = d.bankAccount;
+    if (d.contactName !== undefined) set.contactName = d.contactName;
+    if (d.lang !== undefined) set.lang = d.lang;
+    if (d.model !== undefined) set.model = d.model;
+    if (d.commissionBp !== undefined) set.commissionBp = d.commissionBp;
     if (d.active !== undefined) set.active = d.active;
 
     if (set.name !== undefined) {
@@ -633,6 +644,61 @@ export function registerSupplierRoutes(app: FastifyInstance, ctx: AppContext, pe
       invoice: shapeInvoice((await loadInvoice(id)) as InvoiceQueryRow, ctx.now()),
       payment: result.payment,
     };
+  });
+
+  // ── Кабинет поставщика: приглашение и защита реквизитов ─────────────────
+
+  /**
+   * Пригласить поставщика в кабинет (письмо S1). Ссылка одноразовая и живёт
+   * ограниченное число дней; повторный вызов выдаёт новую и гасит прежнюю.
+   */
+  app.post("/api/suppliers/:id/invite", guard("finance.view"), async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const days = 7;
+    const [sup] = await ctx.db.select().from(suppliers).where(eq(suppliers.id, id));
+    if (!sup) return reply.code(404).send({ error: "not_found" });
+    if (!sup.email.trim()) return reply.code(422).send({ error: "email_required" });
+    const token = randomBytes(32).toString("base64url");
+    await ctx.db
+      .update(suppliers)
+      .set({
+        inviteTokenHash: createHash("sha256").update(token).digest("hex"),
+        inviteExpiresAt: new Date(ctx.now().getTime() + days * DAY_MS),
+        updatedAt: ctx.now(),
+      })
+      .where(eq(suppliers.id, id));
+    await sendSupplierInvite(ctx, {
+      supplierId: id,
+      inviteUrl: `${ctx.config.storefrontBaseUrl}/piegadatajs/parole?token=${token}`,
+      days,
+    });
+    await writeAudit(ctx.db, actor(req), "finance", "supplier_invited", sup.name, { days });
+    return { ok: true, sentTo: sup.email };
+  });
+
+  /**
+   * Подтвердить или отклонить смену банковского счёта, заявленную из
+   * кабинета. До подтверждения платить по новому IBAN нельзя — это защита
+   * от классической подмены реквизитов.
+   */
+  app.post("/api/suppliers/:id/bank-change", guard("finance.view"), async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = z.object({ decision: z.enum(["approve", "reject"]) }).safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid_body" });
+    const [sup] = await ctx.db.select().from(suppliers).where(eq(suppliers.id, id));
+    if (!sup?.pendingBankAccount) return reply.code(409).send({ error: "no_pending_change" });
+    const approved = body.data.decision === "approve";
+    await ctx.db
+      .update(suppliers)
+      .set({
+        ...(approved ? { bankAccount: sup.pendingBankAccount } : {}),
+        pendingBankAccount: null,
+        pendingBankRequestedAt: null,
+        updatedAt: ctx.now(),
+      })
+      .where(eq(suppliers.id, id));
+    await writeAudit(ctx.db, actor(req), "finance", approved ? "supplier_bank_change_approved" : "supplier_bank_change_rejected", sup.name, {});
+    return { ok: true, bankAccount: approved ? sup.pendingBankAccount : sup.bankAccount };
   });
 
   /** Mistyped a payment? Remove it and let the status fall back. */

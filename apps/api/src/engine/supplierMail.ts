@@ -47,6 +47,15 @@ export async function notifyIntakeClosed(ctx: AppContext, consignmentId: string)
 
   if (rejected > 0) {
     const replyBy = addWorkingDays(ctx.now(), s.supplier_discrepancy_days);
+    // Тот же вопрос ждёт поставщика в кабинете — письмо только зовёт туда.
+    await ctx.db
+      .update(consignments)
+      .set({
+        discrepancyStatus: "open",
+        discrepancyNote: `${rejected} vienības no pieteiktajām nav pieņemtas`,
+        discrepancyDueAt: replyBy,
+      })
+      .where(eq(consignments.id, consignmentId));
     await enqueueSupplierNotification(ctx, ctx.db, {
       supplierId: con.supplierId,
       type: "sup_discrepancy",
@@ -336,4 +345,17 @@ export async function sendSupplierWelcome(ctx: AppContext, supplierId: string): 
     },
     dedupeKey: `sup_welcome:${supplierId}`,
   });
+}
+
+/**
+ * Молчание в срок — согласие (правило из письма S4): просроченные вопросы по
+ * приёмке закрываются автоматически, чтобы акты не висели вечно.
+ */
+export async function closeExpiredDiscrepancies(ctx: AppContext): Promise<{ closed: number }> {
+  const rows = await ctx.db
+    .update(consignments)
+    .set({ discrepancyStatus: "accepted", discrepancyRepliedAt: ctx.now(), discrepancyReply: "" })
+    .where(and(eq(consignments.discrepancyStatus, "open"), sql`${consignments.discrepancyDueAt} < ${ctx.now()}`))
+    .returning({ id: consignments.id });
+  return { closed: rows.length };
 }

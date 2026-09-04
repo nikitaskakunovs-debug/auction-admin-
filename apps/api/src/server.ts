@@ -39,6 +39,7 @@ import { registerMetaRoutes } from "./routes/meta.js";
 import { registerCartRoutes } from "./routes/cart.js";
 import { registerSellThroughRoutes } from "./routes/sellThrough.js";
 import { registerSupplierRoutes } from "./routes/suppliers.js";
+import { registerSupplierPortalRoutes } from "./routes/supplierPortal.js";
 import { registerViewRoutes } from "./routes/views.js";
 import { registerShippingRoutes } from "./routes/shipping.js";
 import { registerWarehouseOpsRoutes } from "./routes/warehouseOps.js";
@@ -129,6 +130,7 @@ export async function buildServer(ctx: AppContext, opts: { logger?: boolean } = 
       const claims = verifyAccessToken(header.slice(7), ctx.config.jwtSecret, ctx.now().getTime());
       if (claims?.kind === "admin") req.admin = claims;
       else if (claims?.kind === "bidder") req.bidder = claims;
+      else if (claims?.kind === "supplier") req.supplier = claims;
     }
   });
 
@@ -170,6 +172,7 @@ export async function buildServer(ctx: AppContext, opts: { logger?: boolean } = 
   registerItemCommentRoutes(app, ctx, perms);
   registerReceivingRoutes(app, ctx, perms);
   registerSupplierRoutes(app, ctx, perms);
+  registerSupplierPortalRoutes(app, ctx);
   registerSellThroughRoutes(app, ctx, perms);
   registerMarketingRoutes(app, ctx, perms);
   registerMarketingAdminRoutes(app, ctx, perms);

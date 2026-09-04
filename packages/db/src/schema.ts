@@ -560,6 +560,18 @@ export const suppliers = pgTable(
     commissionBp: integer("commission_bp").notNull().default(0),
     /** IBAN — finance-only, like every other money field. */
     bankAccount: text("bank_account").notNull().default(""),
+    /** ── Кабинет поставщика ──────────────────────────────────────────────
+     * Вход только по приглашению: пароля нет, пока человек не пришёл по
+     * одноразовой ссылке из письма S1. */
+    passwordHash: text("password_hash"),
+    inviteTokenHash: text("invite_token_hash"),
+    inviteExpiresAt: timestamp("invite_expires_at", { withTimezone: true }),
+    portalLastLoginAt: timestamp("portal_last_login_at", { withTimezone: true }),
+    /** Смена банковского счёта — классическая мошенническая атака на
+     * закупки, поэтому новый IBAN сначала лежит здесь: платить по нему
+     * нельзя, пока менеджер не подтвердил смену в админке. */
+    pendingBankAccount: text("pending_bank_account"),
+    pendingBankRequestedAt: timestamp("pending_bank_requested_at", { withTimezone: true }),
     /** Days from invoice date to due date; the default this supplier bills on. */
     paymentTermsDays: integer("payment_terms_days").notNull().default(14),
     /** Vendor auto-mapping (10.2): один раз пометил — дальше счета этого
@@ -593,13 +605,25 @@ export const consignments = pgTable(
     marketCode: text("market_code")
       .notNull()
       .references(() => markets.code),
-    /** open (still receiving) | closed. */
+    /** announced (поставщик заявил, склад ещё не принимает) | open (идёт
+     *  приёмка) | closed. Заявка из кабинета приходит announced, склад
+     *  переводит её в open, когда машина реально приехала. */
     status: text("status").notNull().default("open"),
+    /** Когда поставщик обещает привезти (заявка из кабинета). */
+    plannedAt: timestamp("planned_at", { withTimezone: true }),
     /** Units the paperwork promises; 0 = unknown. */
     expectedCount: integer("expected_count").notNull().default(0),
     /** W6 — delivery-level extra costs (transport, cleaning…), spread
      * pro-rata across the units at report time. Null = none recorded. */
     extraCostCents: integer("extra_cost_cents"),
+    /** ── Расхождение при приёмке (письмо S4) ──
+     * none — всё сошлось; open — ждём ответ поставщика до discrepancyDueAt;
+     * accepted — согласился (или промолчал в срок); disputed — оспорил. */
+    discrepancyStatus: text("discrepancy_status").notNull().default("none"),
+    discrepancyNote: text("discrepancy_note"),
+    discrepancyDueAt: timestamp("discrepancy_due_at", { withTimezone: true }),
+    discrepancyReply: text("discrepancy_reply"),
+    discrepancyRepliedAt: timestamp("discrepancy_replied_at", { withTimezone: true }),
     createdById: uuid("created_by_id").references(() => adminUsers.id),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     closedAt: timestamp("closed_at", { withTimezone: true }),

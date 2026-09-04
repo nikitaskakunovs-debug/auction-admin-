@@ -38,6 +38,10 @@ export function Dock() {
 
   const cur = (href: string) => (path === href ? "page" : undefined);
 
+  // Кабинет поставщика — не покупательский экран: нижняя панель витрины там
+  // только мешает (она перекрывала кнопки ответа на акт приёмки).
+  if (path?.startsWith("/piegadatajs")) return null;
+
   return (
     <nav className="dock" aria-label={t("nav.mainNav")}>
       <Link href="/" aria-current={cur("/")}><Icon name="home" /><span className="lbl">{t("nav.home")}</span></Link>
