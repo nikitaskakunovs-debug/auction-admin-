@@ -6,6 +6,7 @@ import { z } from "zod";
 import { writeAudit } from "../audit.js";
 import type { AppContext } from "../context.js";
 import { requirePermission, type PermissionService } from "../auth/rbac.js";
+import { recordPriceDrop } from "../engine/buyNowNudges.js";
 
 const actor = (req: { admin?: { sub: string; name: string } }) => ({
   id: req.admin?.sub ?? null,
@@ -152,6 +153,19 @@ export function registerListingRoutes(app: FastifyInstance, ctx: AppContext, per
         .set({ ...patch, updatedAt: ctx.now() })
         .where(eq(listings.id, id))
         .returning();
+      // Цену снизили — повод написать тем, у кого лот в отслеживаемых. Само
+      // письмо уходит не сейчас, а после паузы: см. recordPriceDrop.
+      if (
+        listing.priceCents !== null &&
+        row!.priceCents !== null &&
+        row!.priceCents < listing.priceCents
+      ) {
+        await recordPriceDrop(ctx, tx, {
+          listingId: id,
+          oldPriceCents: listing.priceCents,
+          newPriceCents: row!.priceCents,
+        });
+      }
       await writeAudit(tx, actor(req), "listing", "updated", row!.title, { fields: Object.keys(body.data) });
       return row!;
     });

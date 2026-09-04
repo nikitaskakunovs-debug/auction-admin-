@@ -4,6 +4,12 @@ import { eq, inArray } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AppContext } from "../context.js";
+import {
+  cartKeyOfCustomer,
+  clearCartReminder,
+  syncCartReminderCount,
+  touchCartReminder,
+} from "../engine/buyNowNudges.js";
 import { recordRedemption, validatePromo } from "../engine/promo.js";
 import { buyNow } from "../engine/purchase.js";
 import { heldByOthers, myHoldUntil, releaseHold, reserveUnit } from "../engine/reservations.js";
@@ -43,7 +49,7 @@ interface CartEntry {
 }
 
 const keyOfVisitor = (v: string) => `cart:v:${v}`;
-const keyOfCustomer = (c: string) => `cart:c:${c}`;
+const keyOfCustomer = cartKeyOfCustomer;
 
 async function readEntries(ctx: AppContext, key: string): Promise<CartEntry[]> {
   try {
@@ -216,6 +222,15 @@ export function registerCartRoutes(app: FastifyInstance, ctx: AppContext): void 
     }
     // Запись освежает срок хранения и при повторном добавлении.
     await writeEntries(ctx, key!, entries);
+    // След для письма «товар вас ждёт». Только у вошедшего: гостю писать
+    // некуда, а связывать анонимную корзину с личностью мы не хотим.
+    if (ids.customerId) {
+      await touchCartReminder(ctx, {
+        customerId: ids.customerId,
+        listingId: row.listing.id,
+        itemCount: entries.length,
+      }).catch(() => undefined);
+    }
 
     // Счётчик стартует прямо здесь: положил в корзину — единица закреплена
     // на десять минут, и человека честно предупреждают, сколько у него
@@ -240,6 +255,9 @@ export function registerCartRoutes(app: FastifyInstance, ctx: AppContext): void 
     const { key, entries } = await resolveCart(ctx, ids);
     const next = entries.filter((e) => e.id !== listingId);
     if (key) await writeEntries(ctx, key, next);
+    if (ids.customerId) {
+      await syncCartReminderCount(ctx, { customerId: ids.customerId, itemCount: next.length }).catch(() => undefined);
+    }
     await releaseHold(ctx, listingId, [ids.visitorId ?? "", ids.customerId ?? ""].filter(Boolean));
     return { ok: true, count: next.length };
   });
@@ -353,6 +371,7 @@ export function registerCartRoutes(app: FastifyInstance, ctx: AppContext): void 
         // Дело не в лоте, а в аккаунте — корзину не трогаем, оформление стоит.
         remaining.push(e, ...entries.slice(entries.indexOf(e) + 1), ...kept);
         await writeEntries(ctx, key!, remaining);
+        await syncCartReminderCount(ctx, { customerId: bidderId, itemCount: remaining.length }).catch(() => undefined);
         return reply.code(422).send({ ok: false, code: result.code, orders: created });
       }
       // Лот ушёл другому или снят — из корзины он удаляется, покупателю об
@@ -361,6 +380,16 @@ export function registerCartRoutes(app: FastifyInstance, ctx: AppContext): void 
     }
 
     await writeEntries(ctx, key!, kept);
+    // Купленное из корзины ушло: напоминать о нём больше не о чем. Если
+    // человек оформил не всё, отсчёт для остатка начинается заново.
+    if (kept.length === 0) await clearCartReminder(ctx, bidderId).catch(() => undefined);
+    else {
+      await touchCartReminder(ctx, {
+        customerId: bidderId,
+        listingId: kept[0]!.id,
+        itemCount: kept.length,
+      }).catch(() => undefined);
+    }
 
     // Использование кода: одна корзина = одно использование, сколько бы
     // заказов из неё ни родилось. Фиксируем только если хоть что-то куплено.

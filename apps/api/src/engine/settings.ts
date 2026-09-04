@@ -57,6 +57,14 @@ export const SETTING_DEFAULTS = {
   tier_gold_earn_bp: 15_000,
   /** Срок действия подарочной карты, дней (0 = бессрочно). */
   gift_card_valid_days: 365,
+  /** BN-1: первое письмо о брошенной корзине — через столько часов. */
+  cart_reminder_first_hours: 3,
+  /** BN-1: второе и последнее письмо — через столько часов от наполнения. */
+  cart_reminder_second_hours: 20,
+  /** BN-2: снижение цены меньше этого порога письма не стоит, б.п. (500 = 5%). */
+  price_drop_min_bp: 500,
+  /** BN-2: пауза перед письмом — время исправить опечатку в цене, минут. */
+  price_drop_delay_min: 30,
 } as const;
 
 export type SettingKey = keyof typeof SETTING_DEFAULTS;

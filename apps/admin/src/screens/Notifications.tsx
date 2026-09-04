@@ -56,6 +56,8 @@ const TYPE_KEY: Record<string, TKey> = {
   bid_voided: "ms.nt.bid_voided",
   lot_withdrawn: "ms.nt.lot_withdrawn",
   payment_failed: "ms.nt.payment_failed",
+  cart_reminder: "ms.nt.cart_reminder",
+  price_drop: "ms.nt.price_drop",
   // Письма поставщикам (S1…S10).
   sup_invite: "ms.nt.sup_invite",
   sup_welcome: "ms.nt.sup_welcome",

@@ -59,6 +59,11 @@ export type NotificationType =
   | "lot_withdrawn"
   /** Оплата не прошла — вернуться к оплате. */
   | "payment_failed"
+  // ── Товары «Pērc uzreiz»: догоняющие письма (BN-1, BN-2) ──
+  /** Корзина осталась неоплаченной — товар ещё ждёт. */
+  | "cart_reminder"
+  /** Цена на отслеживаемый товар снизилась. */
+  | "price_drop"
   // ── Письма поставщикам (S1…S10) ──
   | "sup_invite"
   | "sup_welcome"
@@ -90,6 +95,7 @@ export const NOTIFICATION_TYPES: NotificationType[] = [
   "abandoned_bid", "second_purchase", "gift_card_received",
   "password_reset", "points_expiring", "security_alert", "delivered",
   "bid_voided", "lot_withdrawn", "payment_failed",
+  "cart_reminder", "price_drop",
   ...SUPPLIER_TYPES,
 ];
 
@@ -101,6 +107,7 @@ export const MARKETING_TYPES: ReadonlySet<NotificationType> = new Set([
   "saved_search_hits", "watchlist_ending",
   "welcome_reminder", "inactive_nudge", "winback_offer", "lost_bid_similar",
   "review_request", "referral_invite", "abandoned_bid", "second_purchase",
+  "cart_reminder", "price_drop",
 ]);
 
 export interface TemplateInput {
@@ -133,6 +140,12 @@ export interface TemplateInput {
   /** Подборка лотов для писем-списков: новые по сохранённому поиску, лоты
    *  из вэлмес на исходе. Цена — та, что человек видит на витрине. */
   lots?: Array<{ title: string; priceCents: number; endsAt?: Date | undefined }> | undefined;
+  /** BN-1: сколько всего позиций в брошенной корзине. */
+  cartCount?: number | undefined;
+  /** BN-2: цена до снижения. */
+  oldPriceCents?: number | undefined;
+  /** BN-2: на сколько процентов подешевело (целое число). */
+  dropPercent?: number | undefined;
   /** Имя сохранённого поиска, которому письмо соответствует. */
   searchName?: string | undefined;
   /** Сколько нашлось всего, если в письме показан не весь список. */
@@ -1591,6 +1604,103 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
       };
     }
 
+    // ══ Товары «Pērc uzreiz»: догоняющие письма (BN-1, BN-2) ══════════════
+
+    // ── BN-1. Корзина осталась неоплаченной ───────────────────────────────
+    // Аукционного «outbid» у товара с фиксированной ценой нет: если человек
+    // ушёл, его не возвращает ничто. Это письмо — единственная догонялка, и
+    // потому оно должно быть коротким и без давления: товар не исчезнет
+    // через час, врать про это нельзя — единица действительно не зарезервирована.
+    case "cart_reminder": {
+      const n = i.cartCount ?? 1;
+      const rest = Math.max(n - 1, 0);
+      const url = i.actionUrl ?? `${ctx.siteUrl}/grozs`;
+      const price = moneyIn(i.amountCents, lang);
+      const more = rest > 0
+        ? { lv: ` un vēl ${rest} ${rest === 1 ? "prece" : "preces"}`, ru: ` и ещё ${rest} ${rest === 1 ? "товар" : "товара(ов)"}`, en: ` and ${rest} more item${rest === 1 ? "" : "s"}` }[lang]
+        : "";
+      const subject = {
+        lv: `«${i.lotTitle}» palika tavā grozā`,
+        ru: `«${i.lotTitle}» остался в вашей корзине`,
+        en: `"${i.lotTitle}" is still in your basket`,
+      }[lang];
+      return {
+        subject,
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nTavā grozā palika «${i.lotTitle}» — ${price}${more}.\n\nSvarīgi: grozs preci nerezervē. Lielākā daļa mūsu preču ir vienā eksemplārā, un tās aizņem tas, kurš pirmais pabeidz pirkumu.\n\nPabeigt pirkumu: ${url}\n\n[cart_reminder]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nВ вашей корзине остался «${i.lotTitle}» — ${price}${more}.\n\nВажно: корзина товар не резервирует. Большинство наших вещей в одном экземпляре, и достаётся она тому, кто первым завершит покупку.\n\nЗавершить покупку: ${url}\n\n[cart_reminder]`,
+          en: `Hi ${i.alias},\n\n"${i.lotTitle}" is still in your basket — ${price}${more}.\n\nOne thing worth knowing: the basket does not reserve anything. Most of our items are one of a kind and go to whoever completes the purchase first.\n\nFinish your purchase: ${url}\n\n[cart_reminder]`,
+        }[lang],
+        spec: {
+          preheader: { lv: "Grozs preci nerezervē", ru: "Корзина не резервирует товар", en: "The basket does not hold the item" }[lang],
+          headline: { lv: "TAVS GROZS GAIDA", ru: "КОРЗИНА ЖДЁТ ВАС", en: "YOUR BASKET IS WAITING" }[lang],
+          headlineTone: "accent",
+          greeting: hi,
+          intro: {
+            lv: "Grozs preci nerezervē — lielākā daļa mūsu preču ir vienā eksemplārā un aiziet tam, kurš pirmais pabeidz pirkumu.",
+            ru: "Корзина товар не резервирует — большинство наших вещей в одном экземпляре и достаются тому, кто первым завершит покупку.",
+            en: "The basket does not hold anything — most of our items are one of a kind and go to whoever checks out first.",
+          }[lang],
+          amount: { label: w(W.totalDue, lang), value: price },
+          facts: [
+            { label: w(W.lot, lang), value: i.lotTitle },
+            ...(rest > 0
+              ? [{
+                  label: { lv: "Grozā kopā:", ru: "Всего в корзине:", en: "In the basket:" }[lang],
+                  value: { lv: `${n} preces`, ru: `${n} шт.`, en: `${n} items` }[lang],
+                }]
+              : []),
+          ],
+          cta: { label: { lv: "Pabeigt pirkumu", ru: "Завершить покупку", en: "Finish the purchase" }[lang], url },
+          ctaNote: methodsLine(lang, ctx),
+          labels,
+        },
+      };
+    }
+
+    // ── BN-2. Цена на отслеживаемый товар снизилась ───────────────────────
+    // Уходит только тем, кто сам добавил лот в отслеживаемые: это ответ на
+    // их просьбу, а не рассылка. Старая цена в письме обязана быть настоящей —
+    // «зачёркнутая цена, которой не было» в ЕС прямо запрещена.
+    case "price_drop": {
+      const now = moneyIn(i.amountCents, lang);
+      const was = moneyIn(i.oldPriceCents, lang);
+      const pct = i.dropPercent ?? 0;
+      const url = i.actionUrl ?? `${ctx.siteUrl}/katalogs`;
+      const subject = {
+        lv: `«${i.lotTitle}» tagad ${now} (−${pct}%)`,
+        ru: `«${i.lotTitle}» теперь ${now} (−${pct}%)`,
+        en: `"${i.lotTitle}" is now ${now} (−${pct}%)`,
+      }[lang];
+      return {
+        subject,
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nPrecei, kuru tu seko, samazināta cena:\n\n${i.lotTitle}\nBija ${was} — tagad ${now} (−${pct}%).\n\nSkatīt preci: ${url}\n\n[price_drop]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nНа товар, за которым вы следите, снижена цена:\n\n${i.lotTitle}\nБыло ${was} — стало ${now} (−${pct}%).\n\nПосмотреть товар: ${url}\n\n[price_drop]`,
+          en: `Hi ${i.alias},\n\nAn item on your watchlist just got cheaper:\n\n${i.lotTitle}\nWas ${was} — now ${now} (−${pct}%).\n\nSee the item: ${url}\n\n[price_drop]`,
+        }[lang],
+        spec: {
+          preheader: { lv: `Bija ${was}, tagad ${now}`, ru: `Было ${was}, стало ${now}`, en: `Was ${was}, now ${now}` }[lang],
+          headline: { lv: "CENA SAMAZINĀTA", ru: "ЦЕНА СНИЖЕНА", en: "PRICE DROPPED" }[lang],
+          headlineTone: "accent",
+          greeting: hi,
+          intro: {
+            lv: "Šī prece ir tavā sekošanas sarakstā — tāpēc rakstām. Prece ir viena, un tā aiziet tam, kurš pirmais pabeidz pirkumu.",
+            ru: "Этот товар в вашем списке отслеживания — поэтому пишем. Вещь одна, и достанется тому, кто первым завершит покупку.",
+            en: "This item is on your watchlist, which is why we are writing. There is one of it, and it goes to whoever buys first.",
+          }[lang],
+          amount: { label: { lv: "Jaunā cena:", ru: "Новая цена:", en: "New price:" }[lang], value: now },
+          facts: [
+            { label: w(W.lot, lang), value: i.lotTitle },
+            { label: { lv: "Bija:", ru: "Было:", en: "Was:" }[lang], value: was },
+            { label: { lv: "Ietaupījums:", ru: "Экономия:", en: "You save:" }[lang], value: `−${pct}%` },
+          ],
+          cta: { label: { lv: "Skatīt preci", ru: "Посмотреть товар", en: "See the item" }[lang], url },
+          labels,
+        },
+      };
+    }
+
     // ══ Письма поставщикам (S1…S10) ═══════════════════════════════════════
     // Адресат — компания, а не покупатель: обращение по контактному лицу,
     // тон деловой, все письма служебные (часть договорных отношений).
@@ -2149,6 +2259,11 @@ export function sampleInput(type: NotificationType, opts: { online?: boolean } =
       return { ...base, orderRef: undefined, totalCents: undefined, amountCents: 18_900, reason: "prece atsaukta pārbaudes dēļ" };
     case "payment_failed":
       return { ...base, failureReason: "banka noraidīja darījumu", payUrl: opts.online ? "https://izsoli.lv/maksat/A-1042" : null };
+
+    case "cart_reminder":
+      return { ...base, amountCents: 4900, cartCount: 2, actionUrl: "https://izsoli.lv/grozs" };
+    case "price_drop":
+      return { ...base, amountCents: 3900, oldPriceCents: 4900, dropPercent: 20, actionUrl: "https://izsoli.lv/lots/paraugs" };
 
     // ── Письма поставщикам ──
     case "sup_invite":

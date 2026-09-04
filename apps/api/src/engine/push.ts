@@ -43,6 +43,9 @@ export async function ensureVapidKeys(ctx: AppContext): Promise<VapidKeys> {
 export const PUSH_EVENTS = new Set([
   "outbid", "won", "purchased", "payment_reminder", "order_paid",
   "pickup_ready", "pickup_reminder", "shipped", "watchlist_ending",
+  // Снижение цены на отслеживаемый товар — та же просьба, что и «скоро
+  // закроется», поэтому и группа настроек у них общая.
+  "price_drop",
 ]);
 
 const subject = (ctx: AppContext) => `mailto:info@${new URL(ctx.config.storefrontBaseUrl).hostname}`;
@@ -58,6 +61,7 @@ const subject = (ctx: AppContext) => `mailto:info@${new URL(ctx.config.storefron
 const PREF_GROUP: Record<string, string> = {
   outbid: "outbid",
   watchlist_ending: "watchlist",
+  price_drop: "watchlist",
 };
 
 export async function sendPushToCustomer(

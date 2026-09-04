@@ -649,6 +649,8 @@ const SETTING_LABELS = [
   "abandoned_bid_hours", "abandoned_view_days", "second_purchase_days",
   "tier_silver_cents", "tier_gold_cents", "tier_silver_earn_bp", "tier_gold_earn_bp",
   "gift_card_valid_days",
+  "cart_reminder_first_hours", "cart_reminder_second_hours",
+  "price_drop_min_bp", "price_drop_delay_min",
 ] as const;
 
 function SettingsTab() {

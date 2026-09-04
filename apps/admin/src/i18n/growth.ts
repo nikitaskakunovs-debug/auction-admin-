@@ -180,4 +180,8 @@ export const GROWTH = {
   "s.tier_silver_earn_bp": { lv: "Sudraba reizinātājs, b.p. (12500 = ×1,25)", ru: "Множитель серебра, б.п. (12500 = ×1,25)", en: "Silver multiplier, bp (12500 = ×1.25)" },
   "s.tier_gold_earn_bp": { lv: "Zelta reizinātājs, b.p. (15000 = ×1,5)", ru: "Множитель золота, б.п. (15000 = ×1,5)", en: "Gold multiplier, bp (15000 = ×1.5)" },
   "s.gift_card_valid_days": { lv: "Dāvanu kartes termiņš, dienas (0 = mūžīga)", ru: "Срок подарочной карты, дней (0 = бессрочно)", en: "Gift card validity, days (0 = forever)" },
+  "s.cart_reminder_first_hours": { lv: "Groza atgādinājums: pirmā vēstule pēc, stundām", ru: "Напоминание о корзине: первое письмо через, часов", en: "Basket reminder: first e-mail after, hours" },
+  "s.cart_reminder_second_hours": { lv: "Groza atgādinājums: otrā (pēdējā) pēc, stundām", ru: "Напоминание о корзине: второе (последнее) через, часов", en: "Basket reminder: second (final) after, hours" },
+  "s.price_drop_min_bp": { lv: "Cenas kritums: minimums vēstulei, b.p. (500 = 5%)", ru: "Снижение цены: минимум для письма, б.п. (500 = 5%)", en: "Price drop: minimum worth an e-mail, bp (500 = 5%)" },
+  "s.price_drop_delay_min": { lv: "Cenas kritums: pauze pirms vēstules, minūtes", ru: "Снижение цены: пауза перед письмом, минут", en: "Price drop: pause before the e-mail, minutes" },
 } as const;

@@ -160,6 +160,11 @@ export class AuctionScheduler {
     if (abMarker === "OK") {
       const { runAbandonedBidNudges } = await import("./growth.js");
       await runAbandonedBidNudges(this.ctx).catch((err) => console.error("abandoned-bid nudges failed", err));
+      // BN-1/BN-2: корзина и снижение цены живут в тех же часах, что и лоты
+      // на исходе, — ночного прогона такие поводы не переживут.
+      const { runCartReminders, runPriceDropNotices } = await import("./buyNowNudges.js");
+      await runCartReminders(this.ctx).catch((err) => console.error("cart reminders failed", err));
+      await runPriceDropNotices(this.ctx).catch((err) => console.error("price-drop notices failed", err));
     }
   }
 

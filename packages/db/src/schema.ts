@@ -2191,3 +2191,63 @@ export const pushSubscriptions = pgTable(
     index("push_subscriptions_customer_idx").on(t.customerId),
   ],
 );
+
+/* ═══════ Догоняющие письма по товарам «Pērc uzreiz» (BN-1, BN-2) ═══════ */
+
+/**
+ * След корзины для писем «товар вас ждёт».
+ *
+ * Сама корзина живёт в Redis и должна там и остаться: она меняется на каждый
+ * клик, переживает выход из аккаунта и не заслуживает записи в базу. Но крону
+ * нужно знать, у кого корзина вообще есть и когда её трогали в последний раз —
+ * читать для этого весь Redis нельзя. Здесь лежит ровно этот указатель: чья
+ * корзина, когда наполнялась, сколько в ней позиций и какое письмо уже ушло.
+ *
+ * Строка появляется только у вошедшего человека: гостю писать некуда, и
+ * анонимную корзину мы намеренно не связываем с личностью.
+ */
+export const cartReminders = pgTable(
+  "cart_reminders",
+  {
+    customerId: uuid("customer_id")
+      .primaryKey()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    /** Последнее наполнение корзины — от него считаются 3 и 20 часов. */
+    touchedAt: timestamp("touched_at", { withTimezone: true }).notNull(),
+    /** Что положили последним — этот лот и показывает письмо. */
+    listingId: uuid("listing_id").references(() => listings.id, { onDelete: "set null" }),
+    /** Сколько позиций было в корзине на момент отметки. */
+    itemCount: integer("item_count").notNull().default(0),
+    /** 0 — ещё не писали, 1 — ушло первое письмо, 2 — второе (и последнее). */
+    stage: integer("stage").notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("cart_reminders_due_idx").on(t.stage, t.touchedAt)],
+);
+
+/**
+ * Снижения цены на товар «Pērc uzreiz» — для письма тем, у кого он в списке
+ * отслеживания.
+ *
+ * Письмо не уходит в момент правки: цену часто исправляют дважды подряд
+ * (опечатка, потом верное число), и первый вариант ушёл бы людям навсегда.
+ * Строка ждёт установленную задержку, крон берёт последнюю по лоту, сверяет
+ * с живой ценой и только тогда пишет.
+ */
+export const listingPriceDrops = pgTable(
+  "listing_price_drops",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    listingId: uuid("listing_id")
+      .notNull()
+      .references(() => listings.id, { onDelete: "cascade" }),
+    oldPriceCents: integer("old_price_cents").notNull(),
+    newPriceCents: integer("new_price_cents").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Проставляется после прохода крона — в том числе когда писать не стали. */
+    notifiedAt: timestamp("notified_at", { withTimezone: true }),
+    /** Скольким людям ушло письмо: видно в админке, зачем правка была нужна. */
+    recipients: integer("recipients").notNull().default(0),
+  },
+  (t) => [index("listing_price_drops_pending_idx").on(t.notifiedAt, t.createdAt)],
+);

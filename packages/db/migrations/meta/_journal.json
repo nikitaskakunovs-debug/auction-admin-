@@ -351,6 +351,13 @@
       "when": 1788509411361,
       "tag": "0049_black_arclight",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1788515255825,
+      "tag": "0050_motionless_dexter_bennett",
+      "breakpoints": true
     }
   ]
 }

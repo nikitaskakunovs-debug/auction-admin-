@@ -153,6 +153,9 @@ const ART_BY_TYPE: Record<string, string> = {
   bid_voided: "art-watch",
   lot_withdrawn: "art-search",
   payment_failed: "art-wallet",
+  // Догоняющие письма по товарам «Pērc uzreiz» (BN-1, BN-2).
+  cart_reminder: "art-box",
+  price_drop: "art-tag",
   // Письма поставщикам (S1…S10).
   sup_invite: "art-mail",
   sup_welcome: "art-check",
