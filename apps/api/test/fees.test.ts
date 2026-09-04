@@ -50,6 +50,39 @@ async function unpaidOrder(buyerToken: string, priceCents = 11_000): Promise<{ o
   return { orderId: order!.id, ref: orderRef, itemId };
 }
 
+/**
+ * Выигранный и неоплаченный АУКЦИОННЫЙ лот.
+ *
+ * Автоотмена штрафует только за нарушенное обязательство, а обязательство
+ * рождает ставка — поэтому проверять её надо на настоящих торгах, а не на
+ * покупке по фиксированной цене. Стартовая цена равна ставке: с одним
+ * участником прокси-торг останавливается на ней, и итог получается ровным.
+ */
+async function unpaidAuctionOrder(buyerToken: string, priceCents = 11_000): Promise<{ orderId: string; ref: string }> {
+  // Антиснайп выключен: ставка под самый конец продлила бы торги, и тест
+  // ждал бы закрытия дольше, чем идёт сам прогон.
+  const { auctionId } = await createLiveAuction(world, adminToken, { startPriceCents: priceCents, endsInMs: 1_200, antiSnipeSec: 0 });
+  const bid = await world.server.app.inject({
+    method: "POST",
+    url: `/api/public/auctions/${auctionId}/bids`,
+    headers: auth(buyerToken),
+    payload: { maxCents: priceCents },
+  });
+  expect(bid.statusCode).toBe(200);
+  await new Promise((r) => setTimeout(r, 1_400));
+  let order: { id: string; ref: string } | undefined;
+  const closed = await tickUntil(async () => {
+    const [row] = await world.ctx.db
+      .select({ id: orders.id, ref: orders.ref })
+      .from(orders)
+      .where(eq(orders.auctionId, auctionId));
+    order = row;
+    return Boolean(row);
+  });
+  expect(closed).toBe(true);
+  return { orderId: order!.id, ref: order!.ref };
+}
+
 /** Run scheduler ticks until a predicate holds (single tick can lose the lock). */
 async function tickUntil(done: () => Promise<boolean>, attempts = 25): Promise<boolean> {
   for (let i = 0; i < attempts; i++) {
@@ -63,7 +96,9 @@ async function tickUntil(done: () => Promise<boolean>, attempts = 25): Promise<b
 describe("unpaid-winner restock fee (auto-cancel)", () => {
   it("records an outstanding 5% fee, strikes, emails, and blocks bid + buy until settled", async () => {
     const buyer = await registerBidder("debt_dana");
-    const { orderId } = await unpaidOrder(buyer.accessToken, 11_000); // финальная цена = итог 11000
+    // Именно аукционный лот: за неоплаченный buy-now штрафа нет, там заказ
+    // просто отменяется и вещь возвращается в продажу.
+    const { orderId } = await unpaidAuctionOrder(buyer.accessToken, 11_000);
 
     // Warp past the 72h payment deadline and let the scheduler cancel.
     world.setNow(new Date(Date.now() + 80 * 3_600_000));

@@ -137,6 +137,10 @@ export async function closeAuction(
           vatCents: inv.vatCents,
           deadline: paymentDeadlineAt,
           payUrl: buildPayUrl(ctx, ref, paymentDeadlineAt),
+          // Торги: ставка — обязательство, и письмо честно называет цену
+          // отказа. Процент берём из настроек рынка, а не из текста.
+          saleType: "auction",
+          restockPercent: Math.round((market?.restockFeeBp ?? 500) / 100),
         },
       });
 

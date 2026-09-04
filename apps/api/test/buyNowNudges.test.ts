@@ -1,4 +1,4 @@
-import { cartReminders, customers, items, listings, listingPriceDrops, notifications, watchlist } from "@auction/db";
+import { cartReminders, customerFees, customers, items, listings, listingPriceDrops, notifications, orders, watchlist } from "@auction/db";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { runCartReminders, runPriceDropNotices } from "../src/engine/buyNowNudges.js";
@@ -155,6 +155,45 @@ describe("письма по товарам «Pērc uzreiz»", () => {
 
     expect(await world.ctx.db.select().from(cartReminders).where(eq(cartReminders.customerId, buyer.bidder.id))).toHaveLength(0);
     expect(await runCartReminders(world.ctx)).toBe(0);
+  });
+
+  it("не оплатил buy-now — заказ отменён, но без штрафа и страйка", async () => {
+    const buyer = await register("bn-unpaid@example.com");
+    const lot = await mkListing(9900);
+    const buy = await world.server.app.inject({
+      method: "POST",
+      url: `/api/public/listings/${lot.listingId}/buy`,
+      headers: { authorization: `Bearer ${buyer.accessToken}` },
+    });
+    expect(buy.statusCode).toBe(200);
+    const { orderRef } = buy.json() as { orderRef: string };
+
+    // Сутки прошли, денег нет.
+    await world.ctx.db
+      .update(orders)
+      .set({ paymentDeadlineAt: new Date(world.ctx.now().getTime() - 3_600_000) })
+      .where(eq(orders.ref, orderRef));
+    const { AuctionScheduler } = await import("../src/engine/scheduler.js");
+    await new AuctionScheduler(world.ctx).tick();
+
+    const [order] = await world.ctx.db.select().from(orders).where(eq(orders.ref, orderRef));
+    expect(order!.status).toBe("cancelled");
+    expect(order!.cancelReason).toBe("unpaid");
+    // Нажать «Купить» и не заплатить — это брошенная корзина, а не
+    // нарушенное обязательство: ни долга, ни страйка, ни блокировки.
+    expect(order!.restockFeeCents).toBe(0);
+    const fees = await world.ctx.db
+      .select()
+      .from(customerFees)
+      .where(eq(customerFees.customerId, buyer.bidder.id));
+    expect(fees).toHaveLength(0);
+    const [person] = await world.ctx.db.select().from(customers).where(eq(customers.id, buyer.bidder.id));
+    expect(person!.strikes).toBe(0);
+
+    // Письмо есть, но оно не про штраф.
+    const letters = await lettersFor(buyer.bidder.id, "unpaid_cancelled");
+    expect(letters).toHaveLength(1);
+    expect(letters[0]!.body?.toLowerCase()).toContain("nekādu maksu");
   });
 
   /* ── BN-2: снижение цены ─────────────────────────────────────────────── */

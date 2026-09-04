@@ -216,6 +216,9 @@ export async function buyNow(
         vatCents: inv.vatCents,
         deadline: paymentDeadlineAt,
         payUrl: buildPayUrl(ctx, ref, paymentDeadlineAt),
+        // Продажа по фиксированной цене: за неоплату не штрафуют, и письмо
+        // обязано сказать именно это, а не пугать комиссией с торгов.
+        saleType: "buy_now",
       },
     });
 

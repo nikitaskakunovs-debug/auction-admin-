@@ -1,4 +1,4 @@
-import { auctions, customers, items, markets, orders, payments } from "@auction/db";
+import { auctions, customers, items, listings, markets, orders, payments } from "@auction/db";
 import { assertItemTransition, computeNoShowSettlement, type ItemStatus } from "@auction/domain";
 import { and, eq, gt, inArray, lte, sql } from "drizzle-orm";
 import { writeAudit, SYSTEM_ACTOR } from "../audit.js";
@@ -230,8 +230,14 @@ export class AuctionScheduler {
     const now = this.ctx.now();
     const windowEnd = new Date(now.getTime() + this.ctx.config.paymentReminderLeadHours * 3_600_000);
     const due = await this.ctx.db
-      .select({ id: orders.id, ref: orders.ref, customerId: orders.customerId, totalCents: orders.totalCents, deadline: orders.paymentDeadlineAt })
+      .select({
+        id: orders.id, ref: orders.ref, customerId: orders.customerId,
+        totalCents: orders.totalCents, deadline: orders.paymentDeadlineAt,
+        listingType: listings.type, restockFeeBp: markets.restockFeeBp,
+      })
       .from(orders)
+      .innerJoin(listings, eq(listings.id, orders.listingId))
+      .leftJoin(markets, eq(markets.code, orders.marketCode))
       .where(
         and(
           eq(orders.status, "awaiting_payment"),
@@ -250,6 +256,11 @@ export class AuctionScheduler {
           totalCents: o.totalCents,
           deadline: o.deadline ?? undefined,
           payUrl: buildPayUrl(this.ctx, o.ref, o.deadline),
+          // Напоминание тоже обязано называть верное последствие: у лота —
+          // комиссия, у товара с ценником — возврат в продажу без штрафа.
+          ...(o.listingType === "fixed"
+            ? { saleType: "buy_now" as const }
+            : { saleType: "auction" as const, restockPercent: Math.round((o.restockFeeBp ?? 500) / 100) }),
         },
         dedupeKey: reminderDedupeKey(o.id),
       });
@@ -302,7 +313,16 @@ export class AuctionScheduler {
 
         assertItemTransition(item!.status as ItemStatus, "unpaid_cancelled");
         const [market] = await tx.select().from(markets).where(eq(markets.code, order.marketCode));
-        const feeCents = computeNoShowSettlement(order.totalCents, market?.restockFeeBp ?? 500).feeCents;
+        // Комиссия и страйк — за нарушенное обязательство. Ставка на торгах
+        // им является: человек торговался, выиграл и обязан выкупить. Нажать
+        // «Купить» и не оплатить — это брошенная корзина, а не нарушение:
+        // товар просто возвращается в продажу, и мы ничего не теряем.
+        // Наказывать за это значит отучить людей нажимать кнопку.
+        const [listing] = await tx.select({ type: listings.type }).from(listings).where(eq(listings.id, order.listingId));
+        const fromAuction = listing?.type !== "fixed";
+        const feeCents = fromAuction
+          ? computeNoShowSettlement(order.totalCents, market?.restockFeeBp ?? 500).feeCents
+          : 0;
         await tx
           .update(orders)
           .set({ status: "cancelled", cancelledAt: now, cancelReason: "unpaid", restockFeeCents: feeCents })
@@ -328,24 +348,33 @@ export class AuctionScheduler {
           }, now);
           await tx.update(orders).set({ pointsAppliedCents: 0 }).where(eq(orders.id, order.id));
         }
-        await tx
-          .update(customers)
-          .set({ strikes: sql`${customers.strikes} + 1` })
-          .where(eq(customers.id, order.customerId));
-        await recordFee(tx, {
-          customerId: order.customerId,
-          orderId: order.id,
-          orderRef: order.ref,
-          type: "unpaid_restock",
-          amountCents: feeCents,
-          status: "outstanding",
-          note: "auto: payment deadline passed",
-          now,
-        });
+        if (fromAuction) {
+          await tx
+            .update(customers)
+            .set({ strikes: sql`${customers.strikes} + 1` })
+            .where(eq(customers.id, order.customerId));
+          await recordFee(tx, {
+            customerId: order.customerId,
+            orderId: order.id,
+            orderRef: order.ref,
+            type: "unpaid_restock",
+            amountCents: feeCents,
+            status: "outstanding",
+            note: "auto: payment deadline passed",
+            now,
+          });
+        }
         await enqueueNotification(this.ctx, tx, {
           customerId: order.customerId,
           type: "unpaid_cancelled",
-          template: { alias: "", lotTitle: "", orderRef: order.ref, feeCents },
+          template: {
+            alias: "",
+            lotTitle: "",
+            orderRef: order.ref,
+            feeCents,
+            saleType: fromAuction ? "auction" : "buy_now",
+            ...(fromAuction ? { restockPercent: Math.round((market?.restockFeeBp ?? 500) / 100) } : {}),
+          },
           dedupeKey: `unpaid_cancelled:${order.id}`,
         });
         await writeAudit(tx, SYSTEM_ACTOR, "order", "auto_cancelled_unpaid", order.ref, {

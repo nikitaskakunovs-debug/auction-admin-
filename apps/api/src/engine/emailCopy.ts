@@ -337,10 +337,12 @@ const W = {
     ru: "Если не оплатить до срока:",
     en: "If it is not paid by the deadline:",
   },
+  /** Аукцион: ставка — обязательство, поэтому за неоплату есть комиссия.
+   *  Процент подставляется из настроек рынка, а не зашит в текст. */
   lateFeeText: {
-    lv: "pasūtījums tiek atcelts un tiek piemērota 5% uzglabāšanas maksa. Ja vajag vairāk laika — atraksti mums.",
-    ru: "заказ будет отменён, и удерживается 5% плата за хранение. Нужно больше времени — напишите нам.",
-    en: "the order is cancelled and a 5% restocking fee applies. Need more time? Write to us.",
+    lv: "pasūtījums tiek atcelts un tiek piemērota maksa par lota atgriešanu noliktavā. Ja vajag vairāk laika — atraksti mums.",
+    ru: "заказ будет отменён, и удерживается комиссия за возврат лота на склад. Нужно больше времени — напишите нам.",
+    en: "the order is cancelled and a fee for returning the lot to stock applies. Need more time? Write to us.",
   },
 } as const;
 
@@ -366,6 +368,39 @@ function breakdown(i: TemplateInput, lang: Lang): MoneyLine[] | undefined {
   if (auction) lines.push({ label: w(W.premium, lang), value: moneyIn(i.premiumCents, lang) });
   if (i.vatCents !== undefined) lines.push({ label: w(W.vat, lang), value: moneyIn(i.vatCents, lang) });
   return lines;
+}
+
+/**
+ * Блок «если не оплатить до срока».
+ *
+ * Последствия у двух видов продажи разные, и письмо обязано назвать именно
+ * те, что наступят. Ставка на торгах — обязательство: за неоплату есть
+ * комиссия за возврат лота на склад. Нажать «Купить» и не оплатить —
+ * брошенная корзина: заказ просто отменяется, вещь возвращается в продажу.
+ */
+function lateNote(i: TemplateInput, lang: Lang): { title: string; text: string } {
+  if (i.saleType === "buy_now") {
+    return {
+      title: { lv: "Ja neapmaksā līdz termiņam:", ru: "Если не оплатить до срока:", en: "If it is not paid by the deadline:" }[lang],
+      text: {
+        lv: "pasūtījums tiek atcelts automātiski un prece atgriežas pārdošanā. Soda naudas nav — bet prece ir vienā eksemplārā, un to var paspēt nopirkt kāds cits.",
+        ru: "заказ отменяется автоматически, и товар возвращается в продажу. Никаких штрафов — но вещь в одном экземпляре, и её может успеть купить кто-то другой.",
+        en: "the order is cancelled automatically and the item goes back on sale. No penalty — but there is only one of it, and someone else may buy it first.",
+      }[lang],
+    };
+  }
+  const pct = i.restockPercent;
+  const fee = pct
+    ? { lv: `${pct}% maksa par lota atgriešanu noliktavā`, ru: `комиссия ${pct}% за возврат лота на склад`, en: `a ${pct}% fee for returning the lot to stock` }[lang]
+    : { lv: "maksa par lota atgriešanu noliktavā", ru: "комиссия за возврат лота на склад", en: "a fee for returning the lot to stock" }[lang];
+  return {
+    title: w(W.lateFee, lang),
+    text: {
+      lv: `pasūtījums tiek atcelts un tiek piemērota ${fee}. Ja vajag vairāk laika — atraksti mums.`,
+      ru: `заказ будет отменён, и удерживается ${fee}. Нужно больше времени — напишите нам.`,
+      en: `the order is cancelled and ${fee} applies. Need more time? Write to us.`,
+    }[lang],
+  };
 }
 
 function orderFacts(i: TemplateInput, lang: Lang, ctx: CopyContext, status: Phrase, tone: Fact["tone"]): Fact[] {
@@ -574,7 +609,7 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
           ctaNote: `${w(W.payBy, lang)} ${fmtDate(i.deadline, lang)}`,
           ctaSubnote: methodsLine(lang, ctx),
           notes: [
-            { title: w(W.lateFee, lang), text: w(W.lateFeeText, lang) },
+            lateNote(i, lang),
             {
               title: { lv: "Pēc apmaksas:", ru: "После оплаты:", en: "After payment:" }[lang],
               text: {
@@ -614,7 +649,7 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
           cta: payCta(i, lang, ctx),
           ctaNote: `${w(W.payBy, lang)} ${fmtDateTime(i.deadline, lang)}`,
           ctaSubnote: methodsLine(lang, ctx),
-          notes: [{ title: w(W.lateFee, lang), text: w(W.lateFeeText, lang), tone: "danger" }],
+          notes: [{ ...lateNote(i, lang), tone: "danger" }],
           footNote: i.orderRef,
           labels,
         },
@@ -764,15 +799,54 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
 
     // ── Cancelled: never paid ───────────────────────────────────────────────
     case "unpaid_cancelled": {
+      // Товар с ценником: заказ просто отменён, штрафа нет — и письмо не
+      // должно пугать несуществующим долгом.
+      if (i.saleType === "buy_now" || (i.feeCents ?? 0) <= 0) {
+        return {
+          subject: { lv: `Pasūtījums atcelts — ${i.orderRef}`, ru: `Заказ отменён — ${i.orderRef}`, en: `Order cancelled — ${i.orderRef}` }[lang],
+          text: {
+            lv: `Sveiki, ${i.alias}!\n\nPasūtījums ${i.orderRef} netika apmaksāts līdz termiņam un ir atcelts. Prece atgriezta pārdošanā.\n\nNekādu maksu par to nav — konts strādā kā parasti. Ja prece vēl interesē, paskaties, vai tā vēl ir katalogā: ${ctx.siteUrl}/katalogs\n\n[unpaid_cancelled]`,
+            ru: `Здравствуйте, ${i.alias}!\n\nЗаказ ${i.orderRef} не был оплачен в срок и отменён. Товар вернулся в продажу.\n\nНикаких сборов за это нет — аккаунт работает как обычно. Если вещь ещё интересна, посмотрите, осталась ли она в каталоге: ${ctx.siteUrl}/katalogs\n\n[unpaid_cancelled]`,
+            en: `Hi ${i.alias},\n\nOrder ${i.orderRef} was not paid by the deadline and has been cancelled. The item is back on sale.\n\nThere is no fee for this — your account works as usual. If you still want it, check whether it is still in the catalogue: ${ctx.siteUrl}/katalogs\n\n[unpaid_cancelled]`,
+          }[lang],
+          spec: {
+            preheader: { lv: "Prece atgriezta pārdošanā", ru: "Товар вернулся в продажу", en: "The item is back on sale" }[lang],
+            headline: { lv: "PASŪTĪJUMS ATCELTS", ru: "ЗАКАЗ ОТМЕНЁН", en: "ORDER CANCELLED" }[lang],
+            headlineTone: "warn",
+            greeting: hi,
+            intro: {
+              lv: `Pasūtījums ${i.orderRef} netika apmaksāts līdz termiņam, tāpēc tas ir atcelts, un prece atgriezta pārdošanā. Nekādu maksu par to nav.`,
+              ru: `Заказ ${i.orderRef} не был оплачен в срок, поэтому он отменён, а товар вернулся в продажу. Никаких сборов за это нет.`,
+              en: `Order ${i.orderRef} was not paid by the deadline, so it has been cancelled and the item is back on sale. There is no fee for this.`,
+            }[lang],
+            facts: orderFacts(i, lang, ctx, W.stCancelled, "warn"),
+            cta: {
+              label: { lv: "Skatīt katalogu", ru: "Посмотреть каталог", en: "Browse the catalogue" }[lang],
+              url: `${ctx.siteUrl}/katalogs`,
+            },
+            notes: [
+              {
+                title: { lv: "Ja prece vēl vajadzīga:", ru: "Если вещь ещё нужна:", en: "If you still want it:" }[lang],
+                text: {
+                  lv: "preces pie mums parasti ir vienā eksemplārā — paskaties katalogā, vai tā vēl ir brīva.",
+                  ru: "вещи у нас обычно в одном экземпляре — посмотрите в каталоге, свободна ли она ещё.",
+                  en: "our items are usually one of a kind — check the catalogue to see if it is still available.",
+                }[lang],
+              },
+            ],
+            labels,
+          },
+        };
+      }
       return {
         subject: { lv: `Pasūtījums atcelts (nav apmaksāts) — ${i.orderRef}`, ru: `Заказ отменён (не оплачен) — ${i.orderRef}`, en: `Order cancelled (not paid) — ${i.orderRef}` }[lang],
         text: {
-          lv: `Sveiki, ${i.alias}!\n\nPasūtījums ${i.orderRef} netika apmaksāts līdz termiņam un ir atcelts. Saskaņā ar noteikumiem tiek piemērota 5% uzglabāšanas maksa: ${moneyIn(i.feeCents, lang)}.\nKamēr maksa nav nokārtota, solīšana un pirkšana jūsu kontā ir apturēta.\n\n[unpaid_cancelled]`,
-          ru: `Здравствуйте, ${i.alias}!\n\nЗаказ ${i.orderRef} не был оплачен в срок и отменён. Согласно правилам удерживается 5% плата за хранение: ${moneyIn(i.feeCents, lang)}.\nПока она не погашена, ставки и покупки в вашем аккаунте приостановлены.\n\n[unpaid_cancelled]`,
-          en: `Hi ${i.alias},\n\nOrder ${i.orderRef} was not paid by the deadline and has been cancelled. Per our terms a 5% restocking fee applies: ${moneyIn(i.feeCents, lang)}.\nBidding and buying on your account are paused until the fee is settled.\n\n[unpaid_cancelled]`,
+          lv: `Sveiki, ${i.alias}!\n\nPasūtījums ${i.orderRef} netika apmaksāts līdz termiņam un ir atcelts. Saskaņā ar noteikumiem tiek piemērota maksa par lota atgriešanu noliktavā${i.restockPercent ? ` (${i.restockPercent}%)` : ""}: ${moneyIn(i.feeCents, lang)}.\nKamēr maksa nav nokārtota, solīšana un pirkšana jūsu kontā ir apturēta.\n\n[unpaid_cancelled]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nЗаказ ${i.orderRef} не был оплачен в срок и отменён. Согласно правилам удерживается комиссия за возврат лота на склад${i.restockPercent ? ` (${i.restockPercent}%)` : ""}: ${moneyIn(i.feeCents, lang)}.\nПока она не погашена, ставки и покупки в вашем аккаунте приостановлены.\n\n[unpaid_cancelled]`,
+          en: `Hi ${i.alias},\n\nOrder ${i.orderRef} was not paid by the deadline and has been cancelled. Per our terms a fee for returning the lot to stock${i.restockPercent ? ` (${i.restockPercent}%)` : ""} applies: ${moneyIn(i.feeCents, lang)}.\nBidding and buying on your account are paused until the fee is settled.\n\n[unpaid_cancelled]`,
         }[lang],
         spec: {
-          preheader: { lv: `Uzglabāšanas maksa ${moneyIn(i.feeCents, lang)}`, ru: `Плата за хранение ${moneyIn(i.feeCents, lang)}`, en: `Restocking fee ${moneyIn(i.feeCents, lang)}` }[lang],
+          preheader: { lv: `Atgriešanas maksa ${moneyIn(i.feeCents, lang)}`, ru: `Комиссия за возврат ${moneyIn(i.feeCents, lang)}`, en: `Restocking fee ${moneyIn(i.feeCents, lang)}` }[lang],
           headline: { lv: "PASŪTĪJUMS ATCELTS", ru: "ЗАКАЗ ОТМЕНЁН", en: "ORDER CANCELLED" }[lang],
           headlineTone: "danger",
           greeting: hi,
@@ -782,7 +856,11 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
             en: `Order ${i.orderRef} was not paid by the deadline, so it has been cancelled and the lot returned to sale.`,
           }[lang],
           amount: {
-            label: { lv: "Uzglabāšanas maksa (5%):", ru: "Плата за хранение (5%):", en: "Restocking fee (5%):" }[lang],
+            label: {
+              lv: `Maksa par atgriešanu noliktavā${i.restockPercent ? ` (${i.restockPercent}%)` : ""}:`,
+              ru: `Комиссия за возврат на склад${i.restockPercent ? ` (${i.restockPercent}%)` : ""}:`,
+              en: `Restocking fee${i.restockPercent ? ` (${i.restockPercent}%)` : ""}:`,
+            }[lang],
             value: moneyIn(i.feeCents, lang),
           },
           facts: orderFacts(i, lang, ctx, W.stCancelled, "danger"),
@@ -2435,14 +2513,14 @@ export function sampleInput(type: NotificationType, opts: { online?: boolean } =
     // сумма без НДС — цена товара. Образец обязан показывать это так же, как
     // увидит покупатель, иначе превью в админке врёт про наши же счета.
     case "purchased":
-      return { ...base, premiumCents: 0, hammerCents: base.hammerCents! + base.premiumCents! };
+      return { ...base, premiumCents: 0, hammerCents: base.hammerCents! + base.premiumCents!, saleType: "buy_now" };
     case "outbid":
       return { ...base, amountCents: 21_000, orderRef: undefined, totalCents: undefined };
     case "pickup_ready":
     case "pickup_reminder":
       return { ...base, pickupCode: "418209", deadline: new Date(Date.now() + 14 * 86_400_000) };
     case "unpaid_cancelled":
-      return { ...base, feeCents: 1_258 };
+      return { ...base, feeCents: 1_258, saleType: "auction", restockPercent: 5 };
     case "no_pickup_cancelled":
       return { ...base, feeCents: 1_258, refundCents: 23_898 };
     case "shipped":
