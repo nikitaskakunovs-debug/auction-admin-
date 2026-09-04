@@ -1,5 +1,5 @@
 import { items, orders, payments } from "@auction/db";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { verifyPayLinkToken } from "../auth/jwt.js";
@@ -56,6 +56,14 @@ function mapInbankStatus(providerStatus: string): "created" | "paid" | "failed" 
   if (["rejected", "cancelled", "failed", "terminated"].includes(providerStatus)) return "failed";
   return "created"; // pending / granted / processing — still in flight
 }
+
+/**
+ * Статусы Inbank, означающие «заявка у банка, решение ещё не принято».
+ * Намеренно НЕ включают первичное «created»: сессию мы создаём сами, до
+ * того как человек хоть что-то заполнил, и писать ему тогда не о чем.
+ * Незнакомый статус письма не рождает — лучше промолчать, чем соврать.
+ */
+const BNPL_IN_REVIEW = new Set(["granted", "processing", "in_progress", "signing", "awaiting_signature", "pending_signature"]);
 
 const mapProviderStatus = (provider: string, providerStatus: string) =>
   provider === "inbank" ? mapInbankStatus(providerStatus) : mapKlixStatus(providerStatus);
@@ -129,15 +137,68 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
         });
       }
     }
+    // Рассрочка: банк думает часами. Пишем один раз, когда заявка реально
+    // ушла в банк, — и говорим, что срок оплаты приостановлен (Б-2).
+    if (payment.provider === "inbank" && status === "created" && BNPL_IN_REVIEW.has(providerStatus.toLowerCase())) {
+      await notifyBnplPending(payment).catch((err) => console.error("bnpl_pending notice failed", err));
+    }
     // Письмо A6: платёж отклонён. Шлём по переходу статуса, а не при каждой
     // сверке, и только пока заказ ещё ждёт оплаты — по отменённому заказу
     // звать «оплатите снова» некуда.
     if (status === "failed" && payment.status !== "failed") {
+      // Банк отказал — время рассмотрения возвращаем человеку: пока заявка
+      // висела, автоотмена его не трогала, но и часы стоять сами не умеют.
+      if (payment.provider === "inbank") {
+        await resumeDeadlineAfterBnpl(payment).catch((err) =>
+          console.error("bnpl deadline resume failed", err),
+        );
+      }
       await notifyPaymentFailed(payment, providerStatus).catch((err) =>
         console.error("payment_failed notice failed", err),
       );
     }
     return status;
+  }
+
+  /**
+   * Письмо «заявка в банке» (Б-2). Один раз на заявку: ключ идемпотентности —
+   * сам платёж, а сверок по нему бывает много (колбэк, опрос витрины).
+   */
+  async function notifyBnplPending(payment: typeof payments.$inferSelect): Promise<void> {
+    const [row] = await ctx.db
+      .select({ order: orders, title: items.title })
+      .from(orders)
+      .innerJoin(items, eq(orders.itemId, items.id))
+      .where(eq(orders.id, payment.orderId));
+    if (!row || row.order.status !== "awaiting_payment") return;
+    await enqueueNotification(ctx, ctx.db, {
+      customerId: row.order.customerId,
+      type: "bnpl_pending",
+      template: {
+        alias: "",
+        lotTitle: row.title,
+        orderRef: row.order.ref,
+        totalCents: row.order.totalCents,
+      },
+      dedupeKey: `bnpl_pending:${payment.id}`,
+    });
+  }
+
+  /**
+   * Отказ банка: срок оплаты продлевается ровно на то время, что заявка была
+   * в работе. Пока она висела, заказ не отменялся (см. cancelUnpaidDue), но
+   * сам срок в базе не двигался — и без этого человек, подавший заявку за час
+   * до конца, получил бы отмену в ту же минуту, что и отказ.
+   */
+  async function resumeDeadlineAfterBnpl(payment: typeof payments.$inferSelect): Promise<void> {
+    const pendingMs = ctx.now().getTime() - payment.createdAt.getTime();
+    if (pendingMs <= 0) return;
+    for (const orderId of [payment.orderId, ...payment.groupOrderIds]) {
+      await ctx.db
+        .update(orders)
+        .set({ paymentDeadlineAt: sql`${orders.paymentDeadlineAt} + make_interval(secs => ${Math.round(pendingMs / 1000)})` })
+        .where(and(eq(orders.id, orderId), eq(orders.status, "awaiting_payment")));
+    }
   }
 
   /**

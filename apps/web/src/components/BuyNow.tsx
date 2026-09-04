@@ -38,7 +38,7 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
   // Аналитика (GTM): просмотр товара «Pērc uzreiz». Цена финальная —
   // раскладываем той же арифметикой, что движок (комиссия и НДС внутри).
   useEffect(() => {
-    const inv = computeInvoice(listing.priceCents, listing.marketCode);
+    const inv = computeInvoice(listing.priceCents, listing.marketCode, "buy_now");
     const netCents = inv.hammerCents + inv.premiumCents;
     track("view_item", {
       item_id: listing.sku, listing_id: listing.id, item_name: listing.title, item_category: listing.category,
@@ -60,7 +60,7 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
 
   /** Параметры add_to_cart — одни и те же для гостя и для покупки сразу. */
   const atcParams = () => {
-    const inv = computeInvoice(listing.priceCents, listing.marketCode);
+    const inv = computeInvoice(listing.priceCents, listing.marketCode, "buy_now");
     const netCents = inv.hammerCents + inv.premiumCents;
     const item = gaItem({
       sku: listing.sku, listingId: listing.id, name: listing.title, category: listing.category,

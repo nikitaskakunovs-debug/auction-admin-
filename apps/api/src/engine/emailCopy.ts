@@ -59,6 +59,8 @@ export type NotificationType =
   | "lot_withdrawn"
   /** Оплата не прошла — вернуться к оплате. */
   | "payment_failed"
+  /** Заявка на рассрочку принята банком и рассматривается. */
+  | "bnpl_pending"
   // ── Товары «Pērc uzreiz»: догоняющие письма (BN-1, BN-2) ──
   /** Корзина осталась неоплаченной — товар ещё ждёт. */
   | "cart_reminder"
@@ -146,6 +148,8 @@ export interface TemplateInput {
   oldPriceCents?: number | undefined;
   /** BN-2: на сколько процентов подешевело (целое число). */
   dropPercent?: number | undefined;
+  /** Через кого прошла оплата — «inbank» меняет объяснение в письме. */
+  paidVia?: string | undefined;
   /** Имя сохранённого поиска, которому письмо соответствует. */
   searchName?: string | undefined;
   /** Сколько нашлось всего, если в письме показан не весь список. */
@@ -282,6 +286,8 @@ const W = {
   status: { lv: "Statuss:", ru: "Статус:", en: "Status:" },
   totalDue: { lv: "Kopējā summa apmaksai:", ru: "Итого к оплате:", en: "Total due:" },
   hammer: { lv: "Āmura cena", ru: "Цена молотка", en: "Hammer price" },
+  /** Продажа по фиксированной цене: молотка не было, есть просто цена. */
+  priceNet: { lv: "Cena bez PVN", ru: "Цена без НДС", en: "Price excl. VAT" },
   premium: { lv: "Pircēja komisija", ru: "Комиссия покупателя", en: "Buyer's premium" },
   vat: { lv: "PVN", ru: "НДС", en: "VAT" },
   payBy: { lv: "Samaksāt līdz:", ru: "Оплатить до:", en: "Pay by:" },
@@ -324,10 +330,22 @@ type Phrase = { lv: string; ru: string; en: string };
 const w = (p: Phrase, lang: Lang): string => p[lang];
 
 /** Money card lines from the invoice breakdown, when the caller has it. */
+/**
+ * Расшифровка суммы под итогом.
+ *
+ * Нулевая комиссия покупателя означает ровно одно: торгов не было, это
+ * продажа по фиксированной цене. Тогда и «цены молотка» не существует —
+ * строка называется ценой, а строки комиссии нет вовсе. Показывать человеку
+ * «комиссия за проведение торгов 0,00 €» там, где торгов не было, значит
+ * объяснять несуществующее.
+ */
 function breakdown(i: TemplateInput, lang: Lang): MoneyLine[] | undefined {
   if (i.hammerCents === undefined) return undefined;
-  const lines: MoneyLine[] = [{ label: w(W.hammer, lang), value: moneyIn(i.hammerCents, lang) }];
-  if (i.premiumCents !== undefined) lines.push({ label: w(W.premium, lang), value: moneyIn(i.premiumCents, lang) });
+  const auction = (i.premiumCents ?? 0) > 0;
+  const lines: MoneyLine[] = [
+    { label: w(auction ? W.hammer : W.priceNet, lang), value: moneyIn(i.hammerCents, lang) },
+  ];
+  if (auction) lines.push({ label: w(W.premium, lang), value: moneyIn(i.premiumCents, lang) });
   if (i.vatCents !== undefined) lines.push({ label: w(W.vat, lang), value: moneyIn(i.vatCents, lang) });
   return lines;
 }
@@ -617,6 +635,19 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
           facts: orderFacts(i, lang, ctx, W.stPaid, "ok"),
           cta: { label: w(W.openOrders, lang), url: ctx.ordersUrl },
           notes: [
+            // Рассрочка: нам заплатил банк, и человек ничего не должен нам —
+            // но должен банку по его графику. Без этой строчки «оплачено»
+            // читается как «расчёты закончены», и это неправда.
+            ...(i.paidVia === "inbank"
+              ? [{
+                  title: { lv: "Par Inbank maksājumu:", ru: "Про оплату через Inbank:", en: "About your Inbank payment:" }[lang],
+                  text: {
+                    lv: "pasūtījums mums ir apmaksāts pilnā apmērā — mums tu vairs neko nemaksā. Turpmākie maksājumi notiek pēc Inbank grafika, un par tiem raksta Inbank.",
+                    ru: "заказ у нас оплачен полностью — нам вы больше ничего не должны. Дальнейшие платежи идут по графику Inbank, и по ним пишет Inbank.",
+                    en: "the order is paid in full on our side — you owe us nothing further. The remaining instalments follow Inbank's schedule, and Inbank contacts you about them.",
+                  }[lang],
+                }]
+              : []),
             {
               title: { lv: "Kas tālāk:", ru: "Что дальше:", en: "What happens next:" }[lang],
               text: {
@@ -1604,6 +1635,63 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
       };
     }
 
+    // ── BNPL: заявка на рассрочку рассматривается ─────────────────────────
+    // Решение банка занимает часы: одобрение, затем подписание договора.
+    // Всё это время человек не знает, купил он или нет, а срок оплаты идёт.
+    // Письмо закрывает обе тревоги: заявка у банка, срок мы приостановили.
+    case "bnpl_pending": {
+      const subject = {
+        lv: `Inbank pieteikums saņemts — ${i.orderRef}`,
+        ru: `Заявка в Inbank принята — ${i.orderRef}`,
+        en: `Inbank application received — ${i.orderRef}`,
+      }[lang];
+      return {
+        subject,
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nTavs Inbank pieteikums par pasūtījumu ${i.orderRef} (${moneyIn(i.totalCents, "lv")}) ir nodots bankai. Lēmumu pieņem Inbank, parasti dažu stundu laikā; dažreiz vēl jāparaksta līgums.\n\nPrece paliek rezervēta: apmaksas termiņš ir apturēts, kamēr banka lemj. Kad būs atbilde, uzrakstīsim.\n\n[bnpl_pending]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nВаша заявка в Inbank по заказу ${i.orderRef} (${moneyIn(i.totalCents, "ru")}) передана в банк. Решение принимает Inbank, обычно за несколько часов; иногда нужно ещё подписать договор.\n\nТовар остаётся за вами: срок оплаты приостановлен, пока банк думает. Как будет ответ — напишем.\n\n[bnpl_pending]`,
+          en: `Hi ${i.alias},\n\nYour Inbank application for order ${i.orderRef} (${moneyIn(i.totalCents, "en")}) has gone to the bank. Inbank makes the decision, usually within a few hours; sometimes a contract still needs signing.\n\nThe item stays reserved for you: the payment deadline is paused while the bank decides. We will write as soon as there is an answer.\n\n[bnpl_pending]`,
+        }[lang],
+        spec: {
+          preheader: {
+            lv: "Banka lemj · termiņš apturēts",
+            ru: "Банк рассматривает · срок приостановлен",
+            en: "The bank is deciding · deadline paused",
+          }[lang],
+          headline: { lv: "PIETEIKUMS BANKĀ", ru: "ЗАЯВКА В БАНКЕ", en: "APPLICATION WITH THE BANK" }[lang],
+          headlineTone: "accent",
+          greeting: hi,
+          intro: {
+            lv: "Lēmumu par kredītu pieņem Inbank, nevis mēs. Parasti tas aizņem dažas stundas; ja vajadzēs parakstīt līgumu, Inbank par to paziņos atsevišķi.",
+            ru: "Решение по кредиту принимает Inbank, а не мы. Обычно это несколько часов; если понадобится подписать договор, Inbank сообщит отдельно.",
+            en: "The credit decision is Inbank's, not ours. It usually takes a few hours; if a contract needs signing, Inbank will tell you separately.",
+          }[lang],
+          amount: { label: w(W.totalDue, lang), value: moneyIn(i.totalCents, lang) },
+          facts: [
+            ...(i.orderRef ? [{ label: w(W.orderNo, lang), value: i.orderRef }] : []),
+            { label: w(W.lot, lang), value: i.lotTitle },
+            {
+              label: w(W.status, lang),
+              value: { lv: "GAIDA BANKAS LĒMUMU", ru: "ЖДЁТ РЕШЕНИЯ БАНКА", en: "AWAITING THE BANK" }[lang],
+              tone: "accent" as const,
+            },
+          ],
+          cta: { label: w(W.openOrders, lang), url: ctx.ordersUrl },
+          notes: [
+            {
+              title: { lv: "Prece ir rezervēta:", ru: "Товар за вами:", en: "The item is held:" }[lang],
+              text: {
+                lv: "apmaksas termiņš neskrien, kamēr banka lemj. Ja Inbank atteiks, termiņš turpināsies no tās pašas vietas un varēsi samaksāt citādi.",
+                ru: "срок оплаты не идёт, пока банк рассматривает заявку. Если Inbank откажет, срок продолжится с того же места и можно будет оплатить иначе.",
+                en: "the payment deadline does not run while the bank decides. If Inbank declines, the clock resumes where it stopped and you can pay another way.",
+              }[lang],
+            },
+          ],
+          labels,
+        },
+      };
+    }
+
     // ══ Товары «Pērc uzreiz»: догоняющие письма (BN-1, BN-2) ══════════════
 
     // ── BN-1. Корзина осталась неоплаченной ───────────────────────────────
@@ -2171,6 +2259,11 @@ export function sampleInput(type: NotificationType, opts: { online?: boolean } =
   switch (type) {
     case "verify_email":
       return { ...base, actionUrl: "https://izsoli.lv/verify-email?token=sample", orderRef: undefined, totalCents: undefined };
+    // Покупка по фиксированной цене: комиссии за проведение торгов нет, вся
+    // сумма без НДС — цена товара. Образец обязан показывать это так же, как
+    // увидит покупатель, иначе превью в админке врёт про наши же счета.
+    case "purchased":
+      return { ...base, premiumCents: 0, hammerCents: base.hammerCents! + base.premiumCents! };
     case "outbid":
       return { ...base, amountCents: 21_000, orderRef: undefined, totalCents: undefined };
     case "pickup_ready":
@@ -2260,6 +2353,8 @@ export function sampleInput(type: NotificationType, opts: { online?: boolean } =
     case "payment_failed":
       return { ...base, failureReason: "banka noraidīja darījumu", payUrl: opts.online ? "https://izsoli.lv/maksat/A-1042" : null };
 
+    case "bnpl_pending":
+      return { ...base, totalCents: 24_900 };
     case "cart_reminder":
       return { ...base, amountCents: 4900, cartCount: 2, actionUrl: "https://izsoli.lv/grozs" };
     case "price_drop":

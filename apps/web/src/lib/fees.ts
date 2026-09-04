@@ -32,9 +32,14 @@ export interface Invoice {
 
 /** Цена — ФИНАЛЬНАЯ (комиссия и НДС внутри). Разложение вниз от суммы,
  *  которую видит клиент, — та же арифметика, что в движке: net = gross/(1+НДС),
- *  hammer = net/(1+комиссия), остатки — разностями, копейка в копейку. */
-export function computeInvoice(grossCents: number, market: string): Invoice {
-  const { buyerPremiumBp, vatRateBp } = marketFees(market);
+ *  hammer = net/(1+комиссия), остатки — разностями, копейка в копейку.
+ *
+ *  `saleType: "buy_now"` убирает комиссию: у продажи по фиксированной цене
+ *  торгов не было, цены молотка не существует, и делить сумму надвое не на
+ *  чем. Движок считает так же (engine/purchase.ts). */
+export function computeInvoice(grossCents: number, market: string, saleType: "auction" | "buy_now" = "auction"): Invoice {
+  const { buyerPremiumBp: marketPremiumBp, vatRateBp } = marketFees(market);
+  const buyerPremiumBp = saleType === "buy_now" ? 0 : marketPremiumBp;
   const netCents = Math.round((grossCents * 10_000) / (10_000 + vatRateBp));
   const vatCents = grossCents - netCents;
   const hammerCents = Math.round((netCents * 10_000) / (10_000 + buyerPremiumBp));

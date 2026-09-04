@@ -122,10 +122,11 @@ export function registerCartRoutes(app: FastifyInstance, ctx: AppContext): void 
     if (!row || !market || row.listing.priceCents === null) return null;
     const available =
       row.listing.status === "published" && row.listing.quantity > 0 && row.item.status === "listed";
-    // Раскладка та же, что выпишет счёт: цена финальная, комиссия и НДС внутри.
+    // Раскладка та же, что выпишет счёт: цена финальная, НДС внутри, комиссии
+    // покупателя у фиксированной цены нет (торгов не было — не за что).
     const inv = computeInvoice({
       grossCents: row.listing.priceCents,
-      buyerPremiumBp: market.buyerPremiumBp,
+      buyerPremiumBp: 0,
       vatRateBp: market.vatRateBp,
       reverseCharge: false,
     });

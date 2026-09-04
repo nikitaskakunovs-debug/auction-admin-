@@ -76,8 +76,10 @@ export function renderInvoicePdf(number: string, issuedAt: Date, d: InvoiceData)
     doc.text("SUMMA", colSum, y, { width: right - colSum, align: "right" });
     y += 14;
     line();
-    row(`Lots ${d.item.sku} · ${d.item.title}`, eur(d.hammerCents));
-    row("Pircēja komisija", eur(d.premiumCents));
+    row(`${d.premiumCents > 0 ? "Lots" : "Prece"} ${d.item.sku} · ${d.item.title}`, eur(d.hammerCents));
+    // Комиссия покупателя — плата за проведение торгов. У продажи по
+    // фиксированной цене торгов не было, поэтому и строки быть не должно.
+    if (d.premiumCents > 0) row("Pircēja komisija", eur(d.premiumCents));
     if (d.shippingCents > 0) row("Piegāde", eur(d.shippingCents));
     if (d.handlingCents > 0) row("Iepakošana", eur(d.handlingCents));
     if (d.shippingCents === 0) row("Saņemšana noliktavā", eur(0));

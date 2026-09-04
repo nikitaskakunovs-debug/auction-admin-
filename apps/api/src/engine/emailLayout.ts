@@ -154,6 +154,7 @@ const ART_BY_TYPE: Record<string, string> = {
   lot_withdrawn: "art-search",
   payment_failed: "art-wallet",
   // Догоняющие письма по товарам «Pērc uzreiz» (BN-1, BN-2).
+  bnpl_pending: "art-hourglass",
   cart_reminder: "art-box",
   price_drop: "art-tag",
   // Письма поставщикам (S1…S10).

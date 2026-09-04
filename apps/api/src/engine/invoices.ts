@@ -179,9 +179,15 @@ export function renderInvoiceHtml(number: string, issuedAt: Date, d: InvoiceData
     </div></div>
   </div>
   <table class="lines">
-    ${line(`Hammer price — ${esc(d.item.title)}`, formatEur(d.hammerCents))}
-    ${line("Buyer's premium (10%)", formatEur(d.premiumCents))}
-    ${line("Net amount", formatEur(d.netCents))}
+    ${line(
+      // Комиссия покупателя есть только у аукционной продажи. При фиксированной
+      // цене её ноль, цены молотка не существует — и строка называется тем,
+      // чем является: цена товара без НДС.
+      d.premiumCents > 0 ? `Hammer price — ${esc(d.item.title)}` : `${esc(d.item.title)} (excl. VAT)`,
+      formatEur(d.hammerCents),
+    )}
+    ${d.premiumCents > 0 ? line("Buyer's premium (10%)", formatEur(d.premiumCents)) : ""}
+    ${d.premiumCents > 0 ? line("Net amount", formatEur(d.netCents)) : ""}
     ${line(d.reverseCharge ? "VAT (reverse charge, 0%)" : `VAT (${vatPct}%)`, formatEur(d.vatCents))}
     ${d.shippingCents > 0 ? line("Shipping (Omniva)", formatEur(d.shippingCents)) : ""}
     ${(d.handlingCents ?? 0) > 0 ? line("Packing & handling", formatEur(d.handlingCents)) : ""}

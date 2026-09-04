@@ -110,9 +110,11 @@ describe("fulfilment selection (before payment)", () => {
     expect(order!.fulfilment).toBe("omniva_pm");
     expect(order!.totalCents).toBe(11_599);
     expect(order!.handlingCents).toBe(200);
-    // Комиссия и НДС разложены из финальных €110 и доставкой не трогаются:
-    // shipping + handling — плоские добавки поверх товарной части.
-    expect(order!.premiumCents).toBe(826);
+    // НДС разложен из финальных €110 и доставкой не трогается: shipping +
+    // handling — плоские добавки поверх товарной части. Комиссии покупателя
+    // у продажи по фиксированной цене нет, и выбор доставки её не рождает.
+    expect(order!.premiumCents).toBe(0);
+    expect(order!.hammerCents).toBe(9_091);
     expect(order!.vatCents).toBe(1_909);
     expect(order!.totalCents).toBe(order!.hammerCents + order!.premiumCents + order!.vatCents + order!.shippingCents + order!.handlingCents);
     expect(order!.shippingTo).toMatchObject({ provider: "omniva", machineId: "9910", zip: "9910" });

@@ -140,6 +140,7 @@ export const FIN2 = {
   "f2.sk.points_expiry_warn_days": { lv: "Brīdināt par punktu termiņu, dienas", ru: "Предупредить о сгорании баллов, дней", en: "Warn before points expire, days" },
   "f2.sk.supplier_discrepancy_days": { lv: "Piegādātāja atbilde par neatbilstību, darba dienas", ru: "Ответ поставщика по расхождению, рабочих дней", en: "Supplier reply on a discrepancy, working days" },
   "f2.sk.supplier_unsold_days": { lv: "Nepārdotais pēc pieņemšanas, dienas", ru: "Непроданное после приёмки, дней", en: "Unsold after intake, days" },
+  "f2.sk.bnpl_pending_max_days": { lv: "Inbank pieteikums tur pasūtījumu, dienas", ru: "Заявка Inbank держит заказ, дней", en: "An Inbank application holds the order, days" },
   "f2.sk.supplier_report_day": { lv: "Piegādātāja atskaites diena (0 — nesūtīt)", ru: "День отчёта поставщику (0 — не слать)", en: "Supplier report day (0 = do not send)" },
   "f2.sk.eu_threshold_cents": { lv: "EE+LT slieksnis, centi", ru: "Порог EE+LT, центы", en: "EE+LT threshold, cents" },
   "f2.sk.eu_alert_bp": { lv: "Brīdinājums pie, b.p. (8000 = 80%)", ru: "Предупреждение при, б.п. (8000 = 80%)", en: "Alert at, bp (8000 = 80%)" },

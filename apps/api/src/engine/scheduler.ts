@@ -1,4 +1,4 @@
-import { auctions, customers, items, markets, orders } from "@auction/db";
+import { auctions, customers, items, markets, orders, payments } from "@auction/db";
 import { assertItemTransition, computeNoShowSettlement, type ItemStatus } from "@auction/domain";
 import { and, eq, gt, inArray, lte, sql } from "drizzle-orm";
 import { writeAudit, SYSTEM_ACTOR } from "../audit.js";
@@ -257,13 +257,40 @@ export class AuctionScheduler {
    * Unpaid-winner handling: deadline passed → cancel order + strike + an
    * OUTSTANDING restock fee (we hold no funds to deduct from, so the fee is
    * a claim that blocks bidding/buying until settled or waived).
+   *
+   * Исключение — рассрочка. Решение Inbank идёт часами: одобрение, затем
+   * подписание договора. Человек, подавший заявку перед самым сроком, ничего
+   * не нарушил, и отменить его заказ ночью — значит выдать страйк и комиссию
+   * за возврат ни за что, а наутро получить деньги по отменённому заказу.
+   * Пока заявка жива, заказ не трогаем; после отказа срок продлевается ровно
+   * на время рассмотрения (см. resumeDeadlineAfterBnpl).
+   *
+   * Держит заявка не вечно: брошенная сессия старше bnpl_pending_max_days
+   * заказ больше не защищает — иначе лот заморозится навсегда.
    */
   private async cancelUnpaidDue(): Promise<void> {
     const now = this.ctx.now();
+    const { getFinSettings } = await import("./finSettings.js");
+    const finSettings = await getFinSettings(this.ctx);
+    const bnplFloor = new Date(now.getTime() - finSettings.bnpl_pending_max_days * 86_400_000);
     const due = await this.ctx.db
       .select({ id: orders.id })
       .from(orders)
-      .where(and(eq(orders.status, "awaiting_payment"), lte(orders.paymentDeadlineAt, now)));
+      .where(
+        and(
+          eq(orders.status, "awaiting_payment"),
+          lte(orders.paymentDeadlineAt, now),
+          // group_order_ids — jsonb-массив строк (один платёж закрывает
+          // несколько заказов), поэтому проверка вхождения через @>, а не any().
+          sql`not exists (
+            select 1 from payments p
+            where p.provider = 'inbank'
+              and p.status = 'created'
+              and p.created_at > ${bnplFloor}
+              and (p.order_id = ${orders.id} or p.group_order_ids @> to_jsonb(${orders.id}))
+          )`,
+        ),
+      );
     for (const o of due) {
       await this.ctx.db.transaction(async (tx) => {
         const [order] = await tx.select().from(orders).where(eq(orders.id, o.id)).for("update");

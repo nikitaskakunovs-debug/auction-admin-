@@ -40,6 +40,9 @@ export const FIN_SETTING_DEFAULTS = {
   eu_threshold_cents: 1_000_000,
   /** Уровень предупреждения о пороге, б.п. (8000 = флаг при 80%). */
   eu_alert_bp: 8000,
+  /** Сколько дней заявка в Inbank держит заказ от автоотмены. Банк решает
+   *  часами, но брошенная заявка не должна морозить лот навсегда. */
+  bnpl_pending_max_days: 7,
 } as const;
 
 export type FinSettingKey = keyof typeof FIN_SETTING_DEFAULTS;

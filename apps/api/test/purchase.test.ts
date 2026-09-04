@@ -64,12 +64,15 @@ describe("fixed-price buy it now", () => {
     expect(res.statusCode).toBe(200);
     const body = res.json() as { orderRef: string; totalCents: number };
     // Цена — финальная: клиент платит ровно витринные €100, внутри
-    // выделяются комиссия и НДС.
+    // выделяется НДС.
     expect(body.totalCents).toBe(10_000);
 
     const [order] = await world.ctx.db.select().from(orders).where(eq(orders.ref, body.orderRef));
     expect(order!.vatCents).toBe(1_736);
-    expect(order!.premiumCents).toBe(751);
+    // Комиссия покупателя — плата за проведение торгов. В продаже по
+    // фиксированной цене торгов нет, поэтому вся сумма без НДС — цена товара.
+    expect(order!.premiumCents).toBe(0);
+    expect(order!.hammerCents).toBe(8_264);
     expect(order!.hammerCents + order!.premiumCents + order!.vatCents).toBe(10_000);
     expect(order!.status).toBe("awaiting_payment");
 

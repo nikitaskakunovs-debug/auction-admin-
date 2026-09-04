@@ -94,11 +94,15 @@ export async function settleOrderPaid(
       provider: typeof meta.provider === "string" ? meta.provider : typeof meta.via === "string" ? meta.via : undefined,
     }, ctx.now());
 
+    // Через кого пришли деньги: при рассрочке письмо обязано объяснить, что
+    // нам заказ оплачен полностью, а платить дальше человек будет банку.
+    const paidVia = typeof meta.provider === "string" ? meta.provider : typeof meta.via === "string" ? meta.via : undefined;
     await enqueueNotification(ctx, tx, {
       customerId: order.customerId,
       type: "order_paid",
       template: {
         alias: "", lotTitle: "", orderRef: order.ref, totalCents: order.totalCents,
+        ...(paidVia ? { paidVia } : {}),
         ...(earned ? { pointsEarnedCents: earned.earnedCents, pointsBalanceCents: earned.balanceCents } : {}),
       },
     });
