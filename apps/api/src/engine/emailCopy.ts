@@ -92,7 +92,7 @@ export const SUPPLIER_TYPES = [
 export const isSupplierType = (t: NotificationType): boolean =>
   (SUPPLIER_TYPES as readonly string[]).includes(t);
 
-export const NOTIFICATION_TYPES: NotificationType[] = [
+const ALL_TYPES = [
   "verify_email", "outbid", "won", "purchased", "payment_reminder", "order_paid",
   "pickup_ready", "pickup_reminder", "no_pickup_cancelled", "unpaid_cancelled",
   "shipped", "refunded", "checked_in", "saved_search_hits", "watchlist_ending",
@@ -102,8 +102,23 @@ export const NOTIFICATION_TYPES: NotificationType[] = [
   "password_reset", "points_expiring", "security_alert", "delivered",
   "bid_voided", "lot_withdrawn", "payment_failed",
   "cart_reminder", "price_drop",
+  "bnpl_pending", "bnpl_declined", "storage_started",
   ...SUPPLIER_TYPES,
-];
+] as const satisfies readonly NotificationType[];
+
+/**
+ * Проверка на этапе сборки: КАЖДЫЙ тип письма обязан стоять в списке выше.
+ * Список — не украшение: по нему админка собирает раздел «Paziņojumi», где
+ * тексты правятся без деплоя. Забытый в нём тип продолжает уходить клиентам,
+ * но владелец не может ни увидеть его, ни поправить — письмо становится
+ * невидимым. Ровно это и случилось с тремя письмами про рассрочку и
+ * хранение; теперь такая забывчивость ломает сборку.
+ */
+type MissingFromTypeList = Exclude<NotificationType, (typeof ALL_TYPES)[number]>;
+const _everyTypeListed: MissingFromTypeList extends never ? true : MissingFromTypeList = true;
+void _everyTypeListed;
+
+export const NOTIFICATION_TYPES: NotificationType[] = [...ALL_TYPES];
 
 /** Типы, которые уходят как МАРКЕТИНГ (через enqueueMarketing): у них в
  *  подвале обязана быть видимая отписка. Сервисные письма отписки не несут —
