@@ -576,6 +576,58 @@ describe("Inbank BNPL (e-POS sessions)", () => {
     expect(after!.status).toBe("awaiting_payment");
   });
 
+  it("отказ банка — своё письмо, без причины и без «попробуйте ещё раз»", async () => {
+    const buyer = await registerBidder("inb_declined");
+    const { orderId, ref } = await unpaidOrder(buyer.accessToken);
+    await startInbank(ref, buyer.accessToken);
+    const [p] = await paymentRow(orderId);
+
+    inbank.setStatus(p!.providerId!, "rejected");
+    await world.server.app.inject({ method: "POST", url: `/api/public/payments/inbank/callback?payment=${p!.id}` });
+
+    const declined = await world.ctx.db
+      .select()
+      .from(notifications)
+      .where(and(eq(notifications.customerId, buyer.bidder.id), eq(notifications.type, "bnpl_declined")));
+    expect(declined).toHaveLength(1);
+    expect(declined[0]!.body).toContain(ref);
+    // Причину банка не пересказываем — её нам и не сообщают.
+    expect(declined[0]!.body?.toLowerCase()).not.toContain("rejected");
+
+    // Карточное «платёж не прошёл» при отказе в кредите не уходит: это
+    // разные события, и звать «попробуйте ещё раз» тут нечего.
+    const failed = await world.ctx.db
+      .select()
+      .from(notifications)
+      .where(and(eq(notifications.customerId, buyer.bidder.id), eq(notifications.type, "payment_failed")));
+    expect(failed).toHaveLength(0);
+
+    // Заказ жив.
+    const [order] = await world.ctx.db.select().from(orders).where(eq(orders.id, orderId));
+    expect(order!.status).toBe("awaiting_payment");
+  });
+
+  it("брошенное окно банка — это обычная неудача платежа, не отказ", async () => {
+    const buyer = await registerBidder("inb_abandoned");
+    const { orderId, ref } = await unpaidOrder(buyer.accessToken);
+    await startInbank(ref, buyer.accessToken);
+    const [p] = await paymentRow(orderId);
+
+    inbank.setStatus(p!.providerId!, "cancelled");
+    await world.server.app.inject({ method: "POST", url: `/api/public/payments/inbank/callback?payment=${p!.id}` });
+
+    const failed = await world.ctx.db
+      .select()
+      .from(notifications)
+      .where(and(eq(notifications.customerId, buyer.bidder.id), eq(notifications.type, "payment_failed")));
+    expect(failed).toHaveLength(1);
+    const declined = await world.ctx.db
+      .select()
+      .from(notifications)
+      .where(and(eq(notifications.customerId, buyer.bidder.id), eq(notifications.type, "bnpl_declined")));
+    expect(declined).toHaveLength(0);
+  });
+
   it("switching provider supersedes the open Klix checkout (cancelled at Klix) — one open checkout ever", async () => {
     const buyer = await registerBidder("inb_switch");
     const { orderId, ref } = await unpaidOrder(buyer.accessToken);

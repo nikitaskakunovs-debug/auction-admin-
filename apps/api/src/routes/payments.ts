@@ -65,6 +65,9 @@ function mapInbankStatus(providerStatus: string): "created" | "paid" | "failed" 
  */
 const BNPL_IN_REVIEW = new Set(["granted", "processing", "in_progress", "signing", "awaiting_signature", "pending_signature"]);
 
+/** Статусы Inbank, означающие отказ банка (а не брошенное человеком окно). */
+const BNPL_DECLINED = new Set(["rejected", "declined", "denied", "refused"]);
+
 const mapProviderStatus = (provider: string, providerStatus: string) =>
   provider === "inbank" ? mapInbankStatus(providerStatus) : mapKlixStatus(providerStatus);
 
@@ -148,13 +151,18 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
     if (status === "failed" && payment.status !== "failed") {
       // Банк отказал — время рассмотрения возвращаем человеку: пока заявка
       // висела, автоотмена его не трогала, но и часы стоять сами не умеют.
+      // Срок двигаем ДО письма: в нём стоит новая дата.
       if (payment.provider === "inbank") {
         await resumeDeadlineAfterBnpl(payment).catch((err) =>
           console.error("bnpl deadline resume failed", err),
         );
       }
-      await notifyPaymentFailed(payment, providerStatus).catch((err) =>
-        console.error("payment_failed notice failed", err),
+      // Отказ в кредите и неудавшийся платёж — разные события, и письма у
+      // них разные. Брошенную заявку (человек закрыл окно банка) считаем
+      // обычной неудачей: там «попробуйте ещё раз» уместно.
+      const declined = payment.provider === "inbank" && BNPL_DECLINED.has(providerStatus.toLowerCase());
+      await (declined ? notifyBnplDeclined(payment) : notifyPaymentFailed(payment, providerStatus)).catch((err) =>
+        console.error("payment failure notice failed", err),
       );
     }
     return status;
@@ -181,6 +189,34 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
         totalCents: row.order.totalCents,
       },
       dedupeKey: `bnpl_pending:${payment.id}`,
+    });
+  }
+
+  /**
+   * Письмо «банк не одобрил» (Б-4). Причину банка НЕ пересказываем: её нам не
+   * сообщают, а гадать о чужой кредитной истории — последнее, чем стоит
+   * заниматься в письме клиенту. Говорим то, что важно: заказ жив, срок
+   * продлён, оплатить можно иначе.
+   */
+  async function notifyBnplDeclined(payment: typeof payments.$inferSelect): Promise<void> {
+    const [row] = await ctx.db
+      .select({ order: orders, title: items.title })
+      .from(orders)
+      .innerJoin(items, eq(items.id, orders.itemId))
+      .where(eq(orders.id, payment.orderId));
+    if (!row || row.order.status !== "awaiting_payment") return;
+    await enqueueNotification(ctx, ctx.db, {
+      customerId: row.order.customerId,
+      type: "bnpl_declined",
+      template: {
+        alias: "",
+        lotTitle: row.title,
+        orderRef: row.order.ref,
+        totalCents: row.order.totalCents,
+        deadline: row.order.paymentDeadlineAt ?? undefined,
+        payUrl: buildPayUrl(ctx, row.order.ref, row.order.paymentDeadlineAt),
+      },
+      dedupeKey: `bnpl_declined:${payment.id}`,
     });
   }
 
@@ -212,11 +248,10 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
       .innerJoin(items, eq(orders.itemId, items.id))
       .where(eq(orders.id, payment.orderId));
     if (!row || row.order.status !== "awaiting_payment") return;
-    const reason = /reject|declin|blocked|error/i.test(providerStatus)
-      ? undefined // текст письма подставит общую формулировку про банк
-      : /cancel/i.test(providerStatus)
-        ? "maksājums tika atcelts"
-        : undefined;
+    // Вид неудачи, а не готовая фраза: письмо подберёт слова на языке
+    // получателя. Раньше сюда уезжала латышская строка, и русский читатель
+    // получал причину по-латышски.
+    const kind = /cancel/i.test(providerStatus) ? ("cancelled" as const) : undefined;
     await enqueueNotification(ctx, ctx.db, {
       customerId: row.order.customerId,
       type: "payment_failed",
@@ -227,7 +262,7 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
         totalCents: row.order.totalCents,
         deadline: row.order.paymentDeadlineAt ?? undefined,
         payUrl: buildPayUrl(ctx, row.order.ref, row.order.paymentDeadlineAt),
-        ...(reason ? { failureReason: reason } : {}),
+        ...(kind ? { failureKind: kind } : {}),
       },
       dedupeKey: `payment_failed:${payment.id}`,
     });

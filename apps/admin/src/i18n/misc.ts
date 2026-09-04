@@ -62,6 +62,7 @@ export const MISC = {
   "ms.nt.lot_withdrawn": { lv: "Lots noņemts", ru: "Лот снят с торгов", en: "Lot withdrawn" },
   "ms.nt.payment_failed": { lv: "Maksājums neizdevās", ru: "Платёж не прошёл", en: "Payment failed" },
   "ms.nt.bnpl_pending": { lv: "Inbank pieteikums", ru: "Заявка в Inbank", en: "Inbank application" },
+  "ms.nt.bnpl_declined": { lv: "Inbank neapstiprināja", ru: "Inbank не одобрил", en: "Inbank declined" },
   "ms.nt.cart_reminder": { lv: "Grozs gaida", ru: "Корзина ждёт", en: "Basket waiting" },
   "ms.nt.price_drop": { lv: "Cena samazināta", ru: "Цена снижена", en: "Price dropped" },
   // ── Письма поставщикам ──

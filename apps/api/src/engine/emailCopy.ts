@@ -61,6 +61,8 @@ export type NotificationType =
   | "payment_failed"
   /** Заявка на рассрочку принята банком и рассматривается. */
   | "bnpl_pending"
+  /** Банк не одобрил рассрочку — заказ жив, оплатить можно иначе. */
+  | "bnpl_declined"
   // ── Товары «Pērc uzreiz»: догоняющие письма (BN-1, BN-2) ──
   /** Корзина осталась неоплаченной — товар ещё ждёт. */
   | "cart_reminder"
@@ -150,6 +152,8 @@ export interface TemplateInput {
   dropPercent?: number | undefined;
   /** Через кого прошла оплата — «inbank» меняет объяснение в письме. */
   paidVia?: string | undefined;
+  /** Что именно случилось с платежом — фраза подбирается по языку письма. */
+  failureKind?: "cancelled" | undefined;
   /** Имя сохранённого поиска, которому письмо соответствует. */
   searchName?: string | undefined;
   /** Сколько нашлось всего, если в письме показан не весь список. */
@@ -1595,11 +1599,13 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
         ru: `Платёж не прошёл — ${i.orderRef}`,
         en: `Payment failed — ${i.orderRef}`,
       }[lang];
-      const why = i.failureReason?.trim() ?? {
-        lv: "banka vai karte darījumu neapstiprināja",
-        ru: "банк или карта не подтвердили операцию",
-        en: "the bank or card did not approve the transaction",
-      }[lang];
+      // Причина пишется на языке получателя. Готовую строку принимаем только
+      // от администратора (ручная отметка); коды провайдера сюда не попадают —
+      // человеку они ничего не объясняют, а иногда и пугают.
+      const why = i.failureReason?.trim()
+        ?? (i.failureKind === "cancelled"
+          ? { lv: "maksājums tika atcelts", ru: "платёж был отменён", en: "the payment was cancelled" }[lang]
+          : { lv: "banka vai karte darījumu neapstiprināja", ru: "банк или карта не подтвердили операцию", en: "the bank or card did not approve the transaction" }[lang]);
       const text = {
         lv: `Sveiki, ${i.alias}!\n\nMaksājums par pasūtījumu ${i.orderRef} (${moneyIn(i.totalCents, "lv")}) neizdevās: ${why}.\nPrece vēl ir rezervēta${i.deadline ? ` līdz ${fmtDate(i.deadline, "lv")}` : ""} — mēģini vēlreiz.${payLine(i, "lv")}\n\n[payment_failed]`,
         ru: `Здравствуйте, ${i.alias}!\n\nПлатёж по заказу ${i.orderRef} (${moneyIn(i.totalCents, "ru")}) не прошёл: ${why}.\nТовар ещё за вами${i.deadline ? ` до ${fmtDate(i.deadline, "ru")}` : ""} — попробуйте ещё раз.${payLine(i, "ru")}\n\n[payment_failed]`,
@@ -1684,6 +1690,69 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
                 lv: "apmaksas termiņš neskrien, kamēr banka lemj. Ja Inbank atteiks, termiņš turpināsies no tās pašas vietas un varēsi samaksāt citādi.",
                 ru: "срок оплаты не идёт, пока банк рассматривает заявку. Если Inbank откажет, срок продолжится с того же места и можно будет оплатить иначе.",
                 en: "the payment deadline does not run while the bank decides. If Inbank declines, the clock resumes where it stopped and you can pay another way.",
+              }[lang],
+            },
+          ],
+          labels,
+        },
+      };
+    }
+
+    // ── BNPL: банк не одобрил рассрочку ───────────────────────────────────
+    // Отказ в кредите — вещь личная. Поэтому здесь нет ни причины, ни намёка
+    // на неё: решение принимает банк, мы его не знаем и не храним. И нет
+    // предложения «попробуйте ещё раз» — повторно проситься в кредит, где
+    // только что отказали, унизительно и бессмысленно. Вместо этого прямая
+    // дорога: заказ жив, срок продлён, оплатить можно иначе.
+    case "bnpl_declined": {
+      const subject = {
+        lv: `Inbank neapstiprināja pieteikumu — ${i.orderRef}`,
+        ru: `Inbank не одобрил заявку — ${i.orderRef}`,
+        en: `Inbank did not approve the application — ${i.orderRef}`,
+      }[lang];
+      return {
+        subject,
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nInbank neapstiprināja pieteikumu par pasūtījumu ${i.orderRef} (${moneyIn(i.totalCents, "lv")}). Lēmums ir bankas, un tā iemeslus mums nepaziņo.\n\nPasūtījums paliek spēkā${i.deadline ? `, termiņš pagarināts līdz ${fmtDate(i.deadline, "lv")}` : ""}: to var apmaksāt ar karti vai bankas pārskaitījumu, kā arī skaidrā naudā pie letes.${payLine(i, "lv")}\n\n[bnpl_declined]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nInbank не одобрил заявку по заказу ${i.orderRef} (${moneyIn(i.totalCents, "ru")}). Решение принимает банк, и своих причин он нам не сообщает.\n\nЗаказ остаётся в силе${i.deadline ? `, срок продлён до ${fmtDate(i.deadline, "ru")}` : ""}: оплатить можно картой или банковским переводом, а также наличными на стойке.${payLine(i, "ru")}\n\n[bnpl_declined]`,
+          en: `Hi ${i.alias},\n\nInbank did not approve the application for order ${i.orderRef} (${moneyIn(i.totalCents, "en")}). The decision is the bank's, and they do not share their reasons with us.\n\nYour order stands${i.deadline ? `, and the deadline is extended to ${fmtDate(i.deadline, "en")}` : ""}: you can pay by card or bank transfer, or in cash at the counter.${payLine(i, "en")}\n\n[bnpl_declined]`,
+        }[lang],
+        spec: {
+          preheader: {
+            lv: "Pasūtījums paliek spēkā — var apmaksāt citādi",
+            ru: "Заказ в силе — можно оплатить иначе",
+            en: "Your order stands — you can pay another way",
+          }[lang],
+          headline: {
+            lv: "BANKA NEAPSTIPRINĀJA",
+            ru: "БАНК НЕ ОДОБРИЛ",
+            en: "THE BANK SAID NO",
+          }[lang],
+          headlineTone: "warn",
+          greeting: hi,
+          intro: {
+            lv: "Lēmumu par kredītu pieņem Inbank, un iemeslus banka mums nepaziņo — mēs tos nezinām un neglabājam. Uz tavu kontu pie mums tas nekādi neietekmē.",
+            ru: "Решение по кредиту принимает Inbank, и своих причин банк нам не сообщает — мы их не знаем и не храним. На ваш аккаунт у нас это никак не влияет.",
+            en: "The credit decision is Inbank's, and the bank does not tell us why — we neither know nor keep that. It does not affect your account with us in any way.",
+          }[lang],
+          amount: { label: w(W.totalDue, lang), value: moneyIn(i.totalCents, lang) },
+          facts: [
+            ...(i.orderRef ? [{ label: w(W.orderNo, lang), value: i.orderRef }] : []),
+            { label: w(W.lot, lang), value: i.lotTitle },
+            ...(i.deadline ? [{ label: w(W.payBy, lang), value: fmtDate(i.deadline, lang) }] : []),
+          ],
+          cta: {
+            label: { lv: "Apmaksāt citādi", ru: "Оплатить другим способом", en: "Pay another way" }[lang],
+            url: i.payUrl ?? ctx.ordersUrl,
+          },
+          ctaNote: methodsLine(lang, ctx),
+          notes: [
+            {
+              title: { lv: "Termiņš pagarināts:", ru: "Срок продлён:", en: "The deadline is extended:" }[lang],
+              text: {
+                lv: "laiks, kamēr banka izskatīja pieteikumu, tev atdots atpakaļ — tas neskrien pret tevi.",
+                ru: "время, пока банк рассматривал заявку, вам возвращено — оно не идёт против вас.",
+                en: "the time the bank spent deciding has been given back to you — it does not count against you.",
               }[lang],
             },
           ],
@@ -2355,6 +2424,8 @@ export function sampleInput(type: NotificationType, opts: { online?: boolean } =
 
     case "bnpl_pending":
       return { ...base, totalCents: 24_900 };
+    case "bnpl_declined":
+      return { ...base, totalCents: 24_900, payUrl: opts.online ? "https://izsoli.lv/maksat/A-1042" : null };
     case "cart_reminder":
       return { ...base, amountCents: 4900, cartCount: 2, actionUrl: "https://izsoli.lv/grozs" };
     case "price_drop":
