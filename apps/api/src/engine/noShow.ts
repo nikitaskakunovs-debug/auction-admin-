@@ -1,14 +1,15 @@
-import { customers, items, markets, orders, refunds } from "@auction/db";
+import { customerFees, customers, items, markets, orders, refunds } from "@auction/db";
 import { assertItemTransition, computeNoShowSettlement, type ItemStatus } from "@auction/domain";
 import { and, eq, gt, lte, sql } from "drizzle-orm";
 import { writeAudit, SYSTEM_ACTOR } from "../audit.js";
 import type { AppContext } from "../context.js";
 import { recordFee } from "./fees.js";
+import { applyStorageToRefund, storageFeeOfOrder } from "./storage.js";
 import { enqueueNotification, pickupReminderDedupeKey } from "./notifications.js";
 
 /**
  * The no-show flow (design decision 2026-07): paid orders must be collected
- * within the market's pickup window (14 days default). Reminders at 3 days
+ * within the market's pickup window (30 days default). Reminders at 3 days
  * and 1 day out; past the deadline the order is cancelled, a restock fee
  * (5% of the paid total by default) is retained, the remainder is recorded
  * as a refund, the client gets a strike, and the item enters the manual
@@ -80,6 +81,14 @@ export async function cancelNoShowDue(ctx: AppContext): Promise<void> {
 
       const [market] = await tx.select().from(markets).where(eq(markets.code, order.marketCode));
       const settlement = computeNoShowSettlement(order.totalCents, market?.restockFeeBp ?? 500);
+      // Накопленная плата за хранение удерживается из возврата — держать
+      // вещь на полке месяц стоило нам места, и счёт за это уже выставлен.
+      // Больше, чем человек заплатил, не удерживаем: остаток прощаем.
+      const storage = await storageFeeOfOrder(tx, order.id);
+      const withStorage = applyStorageToRefund({
+        refundCents: settlement.refundCents,
+        storageCents: storage?.amountCents ?? 0,
+      });
 
       assertItemTransition(item.status as ItemStatus, "no_pickup_cancelled");
       await tx
@@ -92,13 +101,26 @@ export async function cancelNoShowDue(ctx: AppContext): Promise<void> {
         })
         .where(eq(orders.id, order.id));
       await tx.update(items).set({ status: "no_pickup_cancelled", updatedAt: now }).where(eq(items.id, item.id));
-      if (settlement.refundCents > 0) {
+      if (withStorage.refundCents > 0) {
         await tx.insert(refunds).values({
           orderId: order.id,
-          amountCents: settlement.refundCents,
-          reason: `auto: not collected by deadline — restock fee ${settlement.feeCents} cents retained`,
+          amountCents: withStorage.refundCents,
+          reason: `auto: not collected by deadline — restock fee ${settlement.feeCents} cents${withStorage.storageRetainedCents > 0 ? ` + storage ${withStorage.storageRetainedCents} cents` : ""} retained`,
           actorId: null,
         });
+      }
+      // Долг за хранение закрыт удержанием — оставлять его висеть на человеке
+      // после того, как деньги уже удержаны, значило бы взять дважды.
+      if (storage && withStorage.storageRetainedCents > 0) {
+        await tx
+          .update(customerFees)
+          .set({
+            status: "settled",
+            settledAt: now,
+            amountCents: withStorage.storageRetainedCents,
+            note: "удержано из возврата при отмене",
+          })
+          .where(eq(customerFees.id, storage.id));
       }
       await tx
         .update(customers)

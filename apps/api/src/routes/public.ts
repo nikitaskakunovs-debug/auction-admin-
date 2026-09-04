@@ -981,9 +981,16 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
       .from(customerFees)
       .where(and(eq(customerFees.customerId, bidderId), eq(customerFees.status, "outstanding")))
       .orderBy(desc(customerFees.createdAt));
+    // Хранение считаем отдельно: это не штраф за нарушение, а плата за
+    // услугу, и в кабинете она должна объясняться своими словами. Общая
+    // сумма остаётся общей — ею меряется блокировка ставок и покупок.
+    const storageCents = rows
+      .filter((f) => f.type === "storage")
+      .reduce((sum, f) => sum + f.amountCents, 0);
     return {
       fees: rows,
       outstandingCents: rows.reduce((sum, f) => sum + f.amountCents, 0),
+      storageCents,
     };
   });
 

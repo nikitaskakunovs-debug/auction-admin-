@@ -37,7 +37,9 @@ export const markets = pgTable("markets", {
     .$type<Array<{ fromCents: number; incrementCents: number }>>()
     .notNull(),
   /** Days after payment the client has to collect (pickup fulfilment). */
-  pickupDeadlineDays: integer("pickup_deadline_days").notNull().default(14),
+  /** Дней от оплаты до автоотмены неполученного заказа. Первые дни хранения
+   *  бесплатны, дальше капает плата (см. настройки storage_*). */
+  pickupDeadlineDays: integer("pickup_deadline_days").notNull().default(30),
   /** No-show restock fee in basis points of the paid total (5% = 500). */
   restockFeeBp: integer("restock_fee_bp").notNull().default(500),
   /** Omniva parcel-machine delivery price for this market (flat, €3.99). */
@@ -821,6 +823,10 @@ export const orders = pgTable(
     /** 6-digit collection credential, set at mark-paid (pickup fulfilment). */
     pickupCode: text("pickup_code"),
     pickupDeadlineAt: timestamp("pickup_deadline_at", { withTimezone: true }),
+    /** За сколько платных дней хранения уже выставлен счёт. Считать сумму
+     *  заново каждый проход нельзя: тариф правится из админки, и вчерашние
+     *  дни должны остаться посчитанными по вчерашней цене. */
+    storageChargedDays: integer("storage_charged_days").notNull().default(0),
     /** How the buyer receives the goods: warehouse pickup or a carrier.
      * courier = door delivery to a street address; freight = oversized goods
      * carried by a separate haulier after a written quote. */

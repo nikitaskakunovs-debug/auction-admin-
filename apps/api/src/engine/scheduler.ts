@@ -183,6 +183,9 @@ export class AuctionScheduler {
       await runSupplierMonthly(this.ctx).catch((err) => console.error("supplier monthly failed", err));
       await runSupplierUnsold(this.ctx).catch((err) => console.error("supplier unsold failed", err));
       await closeExpiredDiscrepancies(this.ctx).catch((err) => console.error("discrepancy close failed", err));
+      // Плата за хранение: раз в сутки, тем же дневным маркером.
+      const { runStorageFees } = await import("./storage.js");
+      await runStorageFees(this.ctx).catch((err) => console.error("storage fees failed", err));
       const { runPointsExpiry, runPointsExpiryWarnings } = await import("./loyaltyExpiry.js");
       // Сначала предупреждаем, потом сжигаем: письмо «сгорит через 30 дней»
       // должно уйти раньше, чем баллы действительно исчезнут.

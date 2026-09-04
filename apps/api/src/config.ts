@@ -25,6 +25,9 @@ export interface ApiConfig {
   /** Admin panel origin — used to build admin password-reset links. */
   adminBaseUrl: string;
   paymentDeadlineHours: number;
+  /** Срок оплаты товара «Pērc uzreiz». Короче аукционного намеренно: вещь в
+   *  одном экземпляре, и три дня ожидания закрывают её для всех остальных. */
+  buyNowDeadlineHours: number;
   /**
    * Dev/staging bid simulation endpoint. The public bidder API is a later
    * phase; production keeps this OFF (shill bidding is explicitly excluded
@@ -318,6 +321,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     // dev falls back to the Vite dev server.
     adminBaseUrl: (env.ADMIN_BASE_URL ?? "http://localhost:5173").replace(/\/$/, ""),
     paymentDeadlineHours: Number(env.PAYMENT_DEADLINE_HOURS ?? 72),
+    buyNowDeadlineHours: Number(env.BUY_NOW_DEADLINE_HOURS ?? 24),
     allowBidSimulation: (env.ALLOW_BID_SIMULATION ?? (env.NODE_ENV === "production" ? "0" : "1")) === "1",
     schedulerEnabled: (env.SCHEDULER_ENABLED ?? "1") === "1",
     viesMode: (env.VIES_MODE ?? (env.NODE_ENV === "production" ? "live" : "simulate")) === "live" ? "live" : "simulate",

@@ -58,6 +58,7 @@ const TYPE_KEY: Record<string, TKey> = {
   payment_failed: "ms.nt.payment_failed",
   bnpl_pending: "ms.nt.bnpl_pending",
   bnpl_declined: "ms.nt.bnpl_declined",
+  storage_started: "ms.nt.storage_started",
   cart_reminder: "ms.nt.cart_reminder",
   price_drop: "ms.nt.price_drop",
   // Письма поставщикам (S1…S10).

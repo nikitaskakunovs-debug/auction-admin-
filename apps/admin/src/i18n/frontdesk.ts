@@ -15,6 +15,8 @@ export const FRONTDESK = {
   "fd.nothingToCollect": { lv: "Nav ko izsniegt", ru: "Нечего выдавать", en: "Nothing to collect" },
   "fd.toSettle": { lv: "Jāsakārto pirms izsniegšanas", ru: "Нужно закрыть перед выдачей", en: "To settle first" },
   "fd.restockFee": { lv: "Atlikusī maksa par neizpirktu lotu", ru: "Комиссия за невыкупленный лот", en: "Restock fee" },
+  "fd.storageFee": { lv: "Glabāšanas maksa", ru: "Плата за хранение", en: "Storage charge" },
+  "fd.blocksHandover": { lv: "Bez samaksas neizsniedz", ru: "Без оплаты не выдаётся", en: "Blocks handover" },
   "fd.blocksAccount": { lv: "Bloķē kontu", ru: "Блокирует аккаунт", en: "Blocks the account" },
   "fd.checkIn": { lv: "Reģistrēt ierašanos → talons", ru: "Зарегистрировать приход → талон", en: "Check in → ticket" },
   "fd.takePayment": { lv: "Pieņemt maksājumu", ru: "Принять оплату", en: "Take payment" },

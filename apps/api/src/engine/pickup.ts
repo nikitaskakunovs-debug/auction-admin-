@@ -2,6 +2,7 @@ import { randomInt } from "node:crypto";
 import {
   adminUsers,
   counters,
+  customerFees,
   customers,
   items,
   orders,
@@ -223,7 +224,7 @@ export async function checkInCustomer(ctx: AppContext, customerId: string, via: 
 
 export type TicketActionResult =
   | { ok: true; slackTicket?: number; slackMinutes?: number | null }
-  | { ok: false; error: string };
+  | { ok: false; error: string; storageDueCents?: number };
 
 export async function claimTicket(ctx: AppContext, ticketId: string, actor: Actor): Promise<TicketActionResult> {
   const result = await ctx.db.transaction(async (tx): Promise<TicketActionResult> => {
@@ -362,6 +363,32 @@ export async function completeTicket(
     } else if (!lineOrders.some((o) => o.pickupCode !== null && o.pickupCode === code)) {
       await writeAudit(tx, actor, "pickup", "handover_code_rejected", `#${ticket.number}`, { ticketId });
       return { ok: false, error: "invalid_pickup_code" };
+    }
+
+    // Плата за хранение берётся на выдаче: пока она висит, вещь не уходит.
+    // Кассир видит сумму в карточке клиента и принимает её тут же — отдать
+    // товар и выставить счёт вдогонку означало бы не получить эти деньги
+    // никогда. Списать долг можно, но только осознанно, из карточки клиента.
+    const unpaidStorage = await tx
+      .select({ orderId: customerFees.orderId, amountCents: customerFees.amountCents })
+      .from(customerFees)
+      .where(
+        and(
+          inArray(customerFees.orderId, lineOrders.map((o) => o.id)),
+          eq(customerFees.type, "storage"),
+          eq(customerFees.status, "outstanding"),
+        ),
+      );
+    if (unpaidStorage.length > 0) {
+      await writeAudit(tx, actor, "pickup", "handover_blocked_storage", `#${ticket.number}`, {
+        ticketId,
+        orders: unpaidStorage.length,
+      });
+      return {
+        ok: false,
+        error: "storage_unpaid",
+        storageDueCents: unpaidStorage.reduce((sum, f) => sum + f.amountCents, 0),
+      };
     }
 
     for (const line of lines.filter((l) => l.status === "picked")) {

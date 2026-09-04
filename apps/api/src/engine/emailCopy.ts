@@ -63,6 +63,8 @@ export type NotificationType =
   | "bnpl_pending"
   /** Банк не одобрил рассрочку — заказ жив, оплатить можно иначе. */
   | "bnpl_declined"
+  /** Пошла плата за хранение неполученного заказа. */
+  | "storage_started"
   // ── Товары «Pērc uzreiz»: догоняющие письма (BN-1, BN-2) ──
   /** Корзина осталась неоплаченной — товар ещё ждёт. */
   | "cart_reminder"
@@ -154,6 +156,18 @@ export interface TemplateInput {
   paidVia?: string | undefined;
   /** Что именно случилось с платежом — фраза подбирается по языку письма. */
   failureKind?: "cancelled" | undefined;
+  /** Имя оператора рассрочки: у нас их два (Inbank и Klix Pay Later). */
+  bnplProvider?: string | undefined;
+  /** Аукционный лот или продажа по фиксированной цене — последствия разные. */
+  saleType?: "auction" | "buy_now" | undefined;
+  /** Комиссия за отказ от аукционного лота, % (из настроек рынка). */
+  restockPercent?: number | undefined;
+  /** Накопившаяся плата за хранение, центы. */
+  storageCents?: number | undefined;
+  /** Тариф хранения за сутки, центы. */
+  storagePerDayCents?: number | undefined;
+  /** Сколько дней хранения были бесплатными. */
+  storageFreeDays?: number | undefined;
   /** Имя сохранённого поиска, которому письмо соответствует. */
   searchName?: string | undefined;
   /** Сколько нашлось всего, если в письме показан не весь список. */
@@ -642,13 +656,13 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
             // Рассрочка: нам заплатил банк, и человек ничего не должен нам —
             // но должен банку по его графику. Без этой строчки «оплачено»
             // читается как «расчёты закончены», и это неправда.
-            ...(i.paidVia === "inbank"
+            ...(i.paidVia === "inbank" || i.paidVia === "klix_pay_later"
               ? [{
-                  title: { lv: "Par Inbank maksājumu:", ru: "Про оплату через Inbank:", en: "About your Inbank payment:" }[lang],
+                  title: { lv: "Par nomaksas maksājumu:", ru: "Про оплату в рассрочку:", en: "About your instalment payment:" }[lang],
                   text: {
-                    lv: "pasūtījums mums ir apmaksāts pilnā apmērā — mums tu vairs neko nemaksā. Turpmākie maksājumi notiek pēc Inbank grafika, un par tiem raksta Inbank.",
-                    ru: "заказ у нас оплачен полностью — нам вы больше ничего не должны. Дальнейшие платежи идут по графику Inbank, и по ним пишет Inbank.",
-                    en: "the order is paid in full on our side — you owe us nothing further. The remaining instalments follow Inbank's schedule, and Inbank contacts you about them.",
+                    lv: `pasūtījums mums ir apmaksāts pilnā apmērā — mums tu vairs neko nemaksā. Turpmākie maksājumi notiek pēc ${i.bnplProvider ?? "bankas"} grafika, un par tiem raksta pati banka.`,
+                    ru: `заказ у нас оплачен полностью — нам вы больше ничего не должны. Дальнейшие платежи идут по графику ${i.bnplProvider ?? "банка"}, и по ним пишет сам банк.`,
+                    en: `the order is paid in full on our side — you owe us nothing further. The remaining instalments follow ${i.bnplProvider ?? "the bank"}'s schedule, and the bank contacts you about them.`,
                   }[lang],
                 }]
               : []),
@@ -1646,17 +1660,18 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
     // Всё это время человек не знает, купил он или нет, а срок оплаты идёт.
     // Письмо закрывает обе тревоги: заявка у банка, срок мы приостановили.
     case "bnpl_pending": {
+      const bnpl = i.bnplProvider ?? "Inbank";
       const subject = {
-        lv: `Inbank pieteikums saņemts — ${i.orderRef}`,
-        ru: `Заявка в Inbank принята — ${i.orderRef}`,
-        en: `Inbank application received — ${i.orderRef}`,
+        lv: `${bnpl} pieteikums saņemts — ${i.orderRef}`,
+        ru: `Заявка в ${bnpl} принята — ${i.orderRef}`,
+        en: `${bnpl} application received — ${i.orderRef}`,
       }[lang];
       return {
         subject,
         text: {
-          lv: `Sveiki, ${i.alias}!\n\nTavs Inbank pieteikums par pasūtījumu ${i.orderRef} (${moneyIn(i.totalCents, "lv")}) ir nodots bankai. Lēmumu pieņem Inbank, parasti dažu stundu laikā; dažreiz vēl jāparaksta līgums.\n\nPrece paliek rezervēta: apmaksas termiņš ir apturēts, kamēr banka lemj. Kad būs atbilde, uzrakstīsim.\n\n[bnpl_pending]`,
-          ru: `Здравствуйте, ${i.alias}!\n\nВаша заявка в Inbank по заказу ${i.orderRef} (${moneyIn(i.totalCents, "ru")}) передана в банк. Решение принимает Inbank, обычно за несколько часов; иногда нужно ещё подписать договор.\n\nТовар остаётся за вами: срок оплаты приостановлен, пока банк думает. Как будет ответ — напишем.\n\n[bnpl_pending]`,
-          en: `Hi ${i.alias},\n\nYour Inbank application for order ${i.orderRef} (${moneyIn(i.totalCents, "en")}) has gone to the bank. Inbank makes the decision, usually within a few hours; sometimes a contract still needs signing.\n\nThe item stays reserved for you: the payment deadline is paused while the bank decides. We will write as soon as there is an answer.\n\n[bnpl_pending]`,
+          lv: `Sveiki, ${i.alias}!\n\nTavs ${bnpl} pieteikums par pasūtījumu ${i.orderRef} (${moneyIn(i.totalCents, "lv")}) ir nodots bankai. Lēmumu pieņem ${bnpl}, parasti dažu stundu laikā; dažreiz vēl jāparaksta līgums.\n\nPrece paliek rezervēta: apmaksas termiņš ir apturēts, kamēr banka lemj. Kad būs atbilde, uzrakstīsim.\n\n[bnpl_pending]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nВаша заявка в ${bnpl} по заказу ${i.orderRef} (${moneyIn(i.totalCents, "ru")}) передана в банк. Решение принимает ${bnpl}, обычно за несколько часов; иногда нужно ещё подписать договор.\n\nТовар остаётся за вами: срок оплаты приостановлен, пока банк думает. Как будет ответ — напишем.\n\n[bnpl_pending]`,
+          en: `Hi ${i.alias},\n\nYour ${bnpl} application for order ${i.orderRef} (${moneyIn(i.totalCents, "en")}) has gone to the bank. ${bnpl} makes the decision, usually within a few hours; sometimes a contract still needs signing.\n\nThe item stays reserved for you: the payment deadline is paused while the bank decides. We will write as soon as there is an answer.\n\n[bnpl_pending]`,
         }[lang],
         spec: {
           preheader: {
@@ -1668,9 +1683,9 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
           headlineTone: "accent",
           greeting: hi,
           intro: {
-            lv: "Lēmumu par kredītu pieņem Inbank, nevis mēs. Parasti tas aizņem dažas stundas; ja vajadzēs parakstīt līgumu, Inbank par to paziņos atsevišķi.",
-            ru: "Решение по кредиту принимает Inbank, а не мы. Обычно это несколько часов; если понадобится подписать договор, Inbank сообщит отдельно.",
-            en: "The credit decision is Inbank's, not ours. It usually takes a few hours; if a contract needs signing, Inbank will tell you separately.",
+            lv: `Lēmumu par kredītu pieņem ${bnpl}, nevis mēs. Parasti tas aizņem dažas stundas; ja vajadzēs parakstīt līgumu, ${bnpl} par to paziņos atsevišķi.`,
+            ru: `Решение по кредиту принимает ${bnpl}, а не мы. Обычно это несколько часов; если понадобится подписать договор, ${bnpl} сообщит отдельно.`,
+            en: `The credit decision is ${bnpl}'s, not ours. It usually takes a few hours; if a contract needs signing, ${bnpl} will tell you separately.`,
           }[lang],
           amount: { label: w(W.totalDue, lang), value: moneyIn(i.totalCents, lang) },
           facts: [
@@ -1705,17 +1720,35 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
     // только что отказали, унизительно и бессмысленно. Вместо этого прямая
     // дорога: заказ жив, срок продлён, оплатить можно иначе.
     case "bnpl_declined": {
+      const bnpl = i.bnplProvider ?? "Inbank";
+      // Последствия у аукционного лота и у товара с ценником разные, и
+      // человек должен узнать про них здесь, а не постфактум: за лот, взятый
+      // на торгах, при неоплате удерживается комиссия; товар с ценником
+      // просто вернётся в продажу и может уйти другому.
+      const buyNow = i.saleType === "buy_now";
+      const pct = i.restockPercent ?? 5;
+      const consequence = buyNow
+        ? {
+            lv: `Ja apmaksa nepienāks līdz termiņam, pasūtījums tiks atcelts automātiski un prece atgriezīsies pārdošanā. Tā ir vienā eksemplārā — to var paspēt nopirkt kāds cits.`,
+            ru: `Если оплата не поступит до срока, заказ отменится автоматически и товар вернётся в продажу. Он в одном экземпляре — его может успеть купить кто-то другой.`,
+            en: `If payment does not arrive by the deadline, the order is cancelled automatically and the item goes back on sale. There is only one of it — someone else may buy it first.`,
+          }[lang]
+        : {
+            lv: `Ja apmaksa nepienāks līdz termiņam, pasūtījums tiks atcelts un tiks piemērota ${pct}% maksa par atgriešanu noliktavā — tā ir izsoles noteikumu daļa, nevis sods par bankas lēmumu.`,
+            ru: `Если оплата не поступит до срока, заказ будет отменён и удержится комиссия ${pct}% за возврат лота на склад — это условие торгов, а не наказание за решение банка.`,
+            en: `If payment does not arrive by the deadline, the order is cancelled and a ${pct}% restocking fee applies — that is a condition of bidding, not a penalty for the bank's decision.`,
+          }[lang];
       const subject = {
-        lv: `Inbank neapstiprināja pieteikumu — ${i.orderRef}`,
-        ru: `Inbank не одобрил заявку — ${i.orderRef}`,
-        en: `Inbank did not approve the application — ${i.orderRef}`,
+        lv: `${bnpl} neapstiprināja pieteikumu — ${i.orderRef}`,
+        ru: `${bnpl} не одобрил заявку — ${i.orderRef}`,
+        en: `${bnpl} did not approve the application — ${i.orderRef}`,
       }[lang];
       return {
         subject,
         text: {
-          lv: `Sveiki, ${i.alias}!\n\nInbank neapstiprināja pieteikumu par pasūtījumu ${i.orderRef} (${moneyIn(i.totalCents, "lv")}). Lēmums ir bankas, un tā iemeslus mums nepaziņo.\n\nPasūtījums paliek spēkā${i.deadline ? `, termiņš pagarināts līdz ${fmtDate(i.deadline, "lv")}` : ""}: to var apmaksāt ar karti vai bankas pārskaitījumu, kā arī skaidrā naudā pie letes.${payLine(i, "lv")}\n\n[bnpl_declined]`,
-          ru: `Здравствуйте, ${i.alias}!\n\nInbank не одобрил заявку по заказу ${i.orderRef} (${moneyIn(i.totalCents, "ru")}). Решение принимает банк, и своих причин он нам не сообщает.\n\nЗаказ остаётся в силе${i.deadline ? `, срок продлён до ${fmtDate(i.deadline, "ru")}` : ""}: оплатить можно картой или банковским переводом, а также наличными на стойке.${payLine(i, "ru")}\n\n[bnpl_declined]`,
-          en: `Hi ${i.alias},\n\nInbank did not approve the application for order ${i.orderRef} (${moneyIn(i.totalCents, "en")}). The decision is the bank's, and they do not share their reasons with us.\n\nYour order stands${i.deadline ? `, and the deadline is extended to ${fmtDate(i.deadline, "en")}` : ""}: you can pay by card or bank transfer, or in cash at the counter.${payLine(i, "en")}\n\n[bnpl_declined]`,
+          lv: `Sveiki, ${i.alias}!\n\n${bnpl} neapstiprināja pieteikumu par pasūtījumu ${i.orderRef} (${moneyIn(i.totalCents, "lv")}). Lēmums ir bankas, un tā iemeslus mums nepaziņo.\n\nPasūtījums paliek spēkā${i.deadline ? `, termiņš pagarināts līdz ${fmtDate(i.deadline, "lv")}` : ""}: to var apmaksāt ar karti vai bankas pārskaitījumu, kā arī skaidrā naudā pie letes.\n\n${consequence}${payLine(i, "lv")}\n\n[bnpl_declined]`,
+          ru: `Здравствуйте, ${i.alias}!\n\n${bnpl} не одобрил заявку по заказу ${i.orderRef} (${moneyIn(i.totalCents, "ru")}). Решение принимает банк, и своих причин он нам не сообщает.\n\nЗаказ остаётся в силе${i.deadline ? `, срок продлён до ${fmtDate(i.deadline, "ru")}` : ""}: оплатить можно картой или банковским переводом, а также наличными на стойке.\n\n${consequence}${payLine(i, "ru")}\n\n[bnpl_declined]`,
+          en: `Hi ${i.alias},\n\n${bnpl} did not approve the application for order ${i.orderRef} (${moneyIn(i.totalCents, "en")}). The decision is the bank's, and they do not share their reasons with us.\n\nYour order stands${i.deadline ? `, and the deadline is extended to ${fmtDate(i.deadline, "en")}` : ""}: you can pay by card or bank transfer, or in cash at the counter.\n\n${consequence}${payLine(i, "en")}\n\n[bnpl_declined]`,
         }[lang],
         spec: {
           preheader: {
@@ -1731,9 +1764,9 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
           headlineTone: "warn",
           greeting: hi,
           intro: {
-            lv: "Lēmumu par kredītu pieņem Inbank, un iemeslus banka mums nepaziņo — mēs tos nezinām un neglabājam. Uz tavu kontu pie mums tas nekādi neietekmē.",
-            ru: "Решение по кредиту принимает Inbank, и своих причин банк нам не сообщает — мы их не знаем и не храним. На ваш аккаунт у нас это никак не влияет.",
-            en: "The credit decision is Inbank's, and the bank does not tell us why — we neither know nor keep that. It does not affect your account with us in any way.",
+            lv: `Lēmumu par kredītu pieņem ${bnpl}, un iemeslus banka mums nepaziņo — mēs tos nezinām un neglabājam. Uz tavu kontu pie mums tas nekādi neietekmē.`,
+            ru: `Решение по кредиту принимает ${bnpl}, и своих причин банк нам не сообщает — мы их не знаем и не храним. На ваш аккаунт у нас это никак не влияет.`,
+            en: `The credit decision is ${bnpl}'s, and the bank does not tell us why — we neither know nor keep that. It does not affect your account with us in any way.`,
           }[lang],
           amount: { label: w(W.totalDue, lang), value: moneyIn(i.totalCents, lang) },
           facts: [
@@ -1753,6 +1786,76 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
                 lv: "laiks, kamēr banka izskatīja pieteikumu, tev atdots atpakaļ — tas neskrien pret tevi.",
                 ru: "время, пока банк рассматривал заявку, вам возвращено — оно не идёт против вас.",
                 en: "the time the bank spent deciding has been given back to you — it does not count against you.",
+              }[lang],
+            },
+            {
+              title: buyNow
+                ? { lv: "Ja nepaspēsi:", ru: "Если не успеть:", en: "If you do not make it:" }[lang]
+                : { lv: "Ja neapmaksāsi:", ru: "Если не оплатить:", en: "If it stays unpaid:" }[lang],
+              text: consequence,
+            },
+          ],
+          labels,
+        },
+      };
+    }
+
+    // ── Пошла плата за хранение ───────────────────────────────────────────
+    // Письмо уходит один раз — в день, когда бесплатные дни кончились.
+    // Дальше сумма видна в кабинете и в напоминании о выдаче: писать каждые
+    // сутки «вы должны ещё евро» — это давление, а не забота.
+    case "storage_started": {
+      const perDay = moneyIn(i.storagePerDayCents, lang);
+      const free = i.storageFreeDays ?? 7;
+      const subject = {
+        lv: `Sākusies glabāšanas maksa — ${i.orderRef}`,
+        ru: `Началась плата за хранение — ${i.orderRef}`,
+        en: `Storage charges have started — ${i.orderRef}`,
+      }[lang];
+      return {
+        subject,
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nPasūtījums ${i.orderRef} ir apmaksāts un gaida tevi noliktavā jau ${free} dienas — bezmaksas glabāšanas laiks beidzies. No šodienas par glabāšanu tiek rēķināts ${perDay} diennaktī; pašlaik uzkrāts ${moneyIn(i.storageCents, "lv")}.\n\nSummu samaksā pie letes kopā ar preces saņemšanu.${i.deadline ? `\n\nIzņem preci līdz ${fmtDate(i.deadline, "lv")} — pēc tam pasūtījums tiek atcelts.` : ""}\n\n[storage_started]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nЗаказ ${i.orderRef} оплачен и ждёт вас на складе уже ${free} дней — бесплатное хранение закончилось. С сегодняшнего дня за хранение начисляется ${perDay} в сутки; сейчас накопилось ${moneyIn(i.storageCents, "ru")}.\n\nСумма оплачивается на стойке вместе с получением товара.${i.deadline ? `\n\nЗаберите товар до ${fmtDate(i.deadline, "ru")} — после этого заказ отменяется.` : ""}\n\n[storage_started]`,
+          en: `Hi ${i.alias},\n\nOrder ${i.orderRef} is paid and has been waiting in our warehouse for ${free} days — the free storage period is over. From today storage costs ${perDay} per day; ${moneyIn(i.storageCents, "en")} has accrued so far.\n\nYou pay it at the counter when you collect.${i.deadline ? `\n\nPlease collect by ${fmtDate(i.deadline, "en")} — after that the order is cancelled.` : ""}\n\n[storage_started]`,
+        }[lang],
+        spec: {
+          preheader: {
+            lv: `${perDay} diennaktī · maksā pie saņemšanas`,
+            ru: `${perDay} в сутки · оплата при получении`,
+            en: `${perDay} per day · paid on collection`,
+          }[lang],
+          headline: {
+            lv: "SĀKUSIES GLABĀŠANA",
+            ru: "НАЧАЛОСЬ ПЛАТНОЕ ХРАНЕНИЕ",
+            en: "STORAGE IS NOW CHARGED",
+          }[lang],
+          headlineTone: "warn",
+          greeting: hi,
+          intro: {
+            lv: `Prece ir tava un nekur nepazūd — tā tikai aizņem vietu noliktavā. Pirmās ${free} dienas bija bez maksas, tālāk ${perDay} diennaktī.`,
+            ru: `Товар ваш и никуда не денется — он просто занимает место на складе. Первые ${free} дней были бесплатны, дальше ${perDay} в сутки.`,
+            en: `The item is yours and is not going anywhere — it is simply taking up shelf space. The first ${free} days were free; after that it is ${perDay} a day.`,
+          }[lang],
+          amount: {
+            label: { lv: "Uzkrāts par glabāšanu:", ru: "Накоплено за хранение:", en: "Storage so far:" }[lang],
+            value: moneyIn(i.storageCents, lang),
+          },
+          facts: [
+            ...(i.orderRef ? [{ label: w(W.orderNo, lang), value: i.orderRef }] : []),
+            { label: w(W.lot, lang), value: i.lotTitle },
+            { label: w(W.place, lang), value: ctx.pickupAddress },
+            ...(i.deadline ? [{ label: w(W.collectBy, lang), value: fmtDate(i.deadline, lang) }] : []),
+          ],
+          cta: { label: w(W.openOrders, lang), url: ctx.ordersUrl },
+          ctaNote: `${w(W.when, lang)} ${ctx.pickupHours}`,
+          notes: [
+            {
+              title: { lv: "Kā apmaksāt:", ru: "Как оплатить:", en: "How to pay:" }[lang],
+              text: {
+                lv: "atsevišķi maksāt nevajag — summu samaksā pie letes, kad izņem preci.",
+                ru: "отдельно платить не нужно — сумма оплачивается на стойке при получении товара.",
+                en: "there is nothing to pay separately — you settle it at the counter when you collect.",
               }[lang],
             },
           ],
@@ -2425,7 +2528,9 @@ export function sampleInput(type: NotificationType, opts: { online?: boolean } =
     case "bnpl_pending":
       return { ...base, totalCents: 24_900 };
     case "bnpl_declined":
-      return { ...base, totalCents: 24_900, payUrl: opts.online ? "https://izsoli.lv/maksat/A-1042" : null };
+      return { ...base, totalCents: 24_900, payUrl: opts.online ? "https://izsoli.lv/maksat/A-1042" : null, bnplProvider: "Inbank", saleType: "auction", restockPercent: 5 };
+    case "storage_started":
+      return { ...base, storageCents: 300, storagePerDayCents: 100, storageFreeDays: 7, deadline: new Date(Date.now() + 23 * 86_400_000) };
     case "cart_reminder":
       return { ...base, amountCents: 4900, cartCount: 2, actionUrl: "https://izsoli.lv/grozs" };
     case "price_drop":

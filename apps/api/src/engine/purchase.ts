@@ -112,7 +112,9 @@ export async function buyNow(
       .where(eq(counters.key, "order_ref"))
       .returning({ value: counters.value });
     const ref = `A-${counter!.value}`;
-    const paymentDeadlineAt = new Date(now.getTime() + ctx.config.paymentDeadlineHours * 3_600_000);
+    // Товар с ценником ждёт оплату сутки, а не трое: он в одном экземпляре,
+    // и всё это время его не может купить никто другой.
+    const paymentDeadlineAt = new Date(now.getTime() + ctx.config.buyNowDeadlineHours * 3_600_000);
 
     // Одна единица из остатка или последняя? Последняя идёт классическим
     // путём — витринная карточка и есть проданная вещь. Не последняя получает

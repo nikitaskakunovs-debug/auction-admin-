@@ -1,4 +1,4 @@
-import { items, orders, payments } from "@auction/db";
+import { items, listings, markets, orders, payments } from "@auction/db";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -67,6 +67,34 @@ const BNPL_IN_REVIEW = new Set(["granted", "processing", "in_progress", "signing
 
 /** Статусы Inbank, означающие отказ банка (а не брошенное человеком окно). */
 const BNPL_DECLINED = new Set(["rejected", "declined", "denied", "refused"]);
+
+/**
+ * Рассрочка у нас от двух операторов: Inbank отдельным провайдером, а Klix
+ * Pay Later — способом внутри Klix. Для покупателя это одно и то же событие
+ * («банк рассматривает», «банк отказал»), поэтому и письма общие; отличается
+ * только словарь статусов и имя, которое стоит назвать в письме.
+ */
+const KLIX_PAY_LATER = "klix_pay_later";
+const KLIX_BNPL_IN_REVIEW = new Set(["pending_execute", "hold"]);
+const KLIX_BNPL_DECLINED = new Set(["blocked", "error"]);
+
+const isBnpl = (payment: { provider: string; method: string | null }): boolean =>
+  payment.provider === "inbank" || payment.method === KLIX_PAY_LATER;
+
+const bnplName = (payment: { provider: string; method: string | null }): string =>
+  payment.provider === "inbank" ? "Inbank" : "Klix Pay Later";
+
+/** Заявка у банка, решения ещё нет. */
+const bnplInReview = (payment: { provider: string; method: string | null }, providerStatus: string): boolean => {
+  const st = providerStatus.toLowerCase();
+  return payment.provider === "inbank" ? BNPL_IN_REVIEW.has(st) : payment.method === KLIX_PAY_LATER && KLIX_BNPL_IN_REVIEW.has(st);
+};
+
+/** Банк отказал (а не человек закрыл окно — это обычная неудача платежа). */
+const bnplDeclined = (payment: { provider: string; method: string | null }, providerStatus: string): boolean => {
+  const st = providerStatus.toLowerCase();
+  return payment.provider === "inbank" ? BNPL_DECLINED.has(st) : payment.method === KLIX_PAY_LATER && KLIX_BNPL_DECLINED.has(st);
+};
 
 const mapProviderStatus = (provider: string, providerStatus: string) =>
   provider === "inbank" ? mapInbankStatus(providerStatus) : mapKlixStatus(providerStatus);
@@ -140,10 +168,13 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
         });
       }
     }
+    // Способ оплаты Klix узнаёт только сейчас: до выбора на странице банка
+    // мы не знаем, карта это или Pay Later. Дальше рассуждаем по свежему.
+    const fresh = { ...payment, method: state.method ?? payment.method };
     // Рассрочка: банк думает часами. Пишем один раз, когда заявка реально
     // ушла в банк, — и говорим, что срок оплаты приостановлен (Б-2).
-    if (payment.provider === "inbank" && status === "created" && BNPL_IN_REVIEW.has(providerStatus.toLowerCase())) {
-      await notifyBnplPending(payment).catch((err) => console.error("bnpl_pending notice failed", err));
+    if (status === "created" && bnplInReview(fresh, providerStatus)) {
+      await notifyBnplPending(fresh).catch((err) => console.error("bnpl_pending notice failed", err));
     }
     // Письмо A6: платёж отклонён. Шлём по переходу статуса, а не при каждой
     // сверке, и только пока заказ ещё ждёт оплаты — по отменённому заказу
@@ -152,7 +183,7 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
       // Банк отказал — время рассмотрения возвращаем человеку: пока заявка
       // висела, автоотмена его не трогала, но и часы стоять сами не умеют.
       // Срок двигаем ДО письма: в нём стоит новая дата.
-      if (payment.provider === "inbank") {
+      if (isBnpl(fresh)) {
         await resumeDeadlineAfterBnpl(payment).catch((err) =>
           console.error("bnpl deadline resume failed", err),
         );
@@ -160,8 +191,8 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
       // Отказ в кредите и неудавшийся платёж — разные события, и письма у
       // них разные. Брошенную заявку (человек закрыл окно банка) считаем
       // обычной неудачей: там «попробуйте ещё раз» уместно.
-      const declined = payment.provider === "inbank" && BNPL_DECLINED.has(providerStatus.toLowerCase());
-      await (declined ? notifyBnplDeclined(payment) : notifyPaymentFailed(payment, providerStatus)).catch((err) =>
+      const declined = bnplDeclined(fresh, providerStatus);
+      await (declined ? notifyBnplDeclined(fresh) : notifyPaymentFailed(payment, providerStatus)).catch((err) =>
         console.error("payment failure notice failed", err),
       );
     }
@@ -187,6 +218,7 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
         lotTitle: row.title,
         orderRef: row.order.ref,
         totalCents: row.order.totalCents,
+        bnplProvider: bnplName(payment),
       },
       dedupeKey: `bnpl_pending:${payment.id}`,
     });
@@ -198,13 +230,19 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
    * заниматься в письме клиенту. Говорим то, что важно: заказ жив, срок
    * продлён, оплатить можно иначе.
    */
-  async function notifyBnplDeclined(payment: typeof payments.$inferSelect): Promise<void> {
+  async function notifyBnplDeclined(payment: { id: string; orderId: string; provider: string; method: string | null }): Promise<void> {
     const [row] = await ctx.db
-      .select({ order: orders, title: items.title })
+      .select({ order: orders, title: items.title, listingType: listings.type, restockFeeBp: markets.restockFeeBp })
       .from(orders)
       .innerJoin(items, eq(items.id, orders.itemId))
+      .innerJoin(listings, eq(listings.id, orders.listingId))
+      .leftJoin(markets, eq(markets.code, orders.marketCode))
       .where(eq(orders.id, payment.orderId));
     if (!row || row.order.status !== "awaiting_payment") return;
+    // Последствия неоплаты у лота и у товара с ценником разные, и письмо
+    // обязано назвать те, что наступят именно здесь. Процент берём из
+    // настроек рынка, а не из текста: разойтись они не имеют права.
+    const buyNow = row.listingType === "fixed";
     await enqueueNotification(ctx, ctx.db, {
       customerId: row.order.customerId,
       type: "bnpl_declined",
@@ -215,6 +253,9 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
         totalCents: row.order.totalCents,
         deadline: row.order.paymentDeadlineAt ?? undefined,
         payUrl: buildPayUrl(ctx, row.order.ref, row.order.paymentDeadlineAt),
+        bnplProvider: bnplName(payment),
+        saleType: buyNow ? "buy_now" : "auction",
+        ...(buyNow ? {} : { restockPercent: Math.round((row.restockFeeBp ?? 500) / 100) }),
       },
       dedupeKey: `bnpl_declined:${payment.id}`,
     });

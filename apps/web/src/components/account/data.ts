@@ -57,7 +57,7 @@ export function useAccountData() {
   const [me, setMe] = useState<Me | null>(null);
   const [bids, setBids] = useState<MyBidAuction[]>([]);
   const [orders, setOrders] = useState<MyOrder[]>([]);
-  const [fees, setFees] = useState<{ outstandingCents: number } | null>(null);
+  const [fees, setFees] = useState<{ outstandingCents: number; storageCents?: number } | null>(null);
   const [pickup, setPickup] = useState<PickupInfo>({ pickup: [], ticket: null });
   const [shipments, setShipments] = useState<MyShipment[]>([]);
   const [notifications, setNotifications] = useState<MyNotification[]>([]);
@@ -77,7 +77,7 @@ export function useAccountData() {
       .catch(() => undefined);
     void publicApi.get<{ bids: MyBidAuction[] }>("/api/public/me/bids").then((r) => setBids(r.bids)).catch(() => undefined);
     void publicApi.get<{ orders: MyOrder[] }>("/api/public/me/orders").then((r) => setOrders(r.orders)).catch(() => undefined);
-    void publicApi.get<{ outstandingCents: number }>("/api/public/me/fees").then(setFees).catch(() => undefined);
+    void publicApi.get<{ outstandingCents: number; storageCents: number }>("/api/public/me/fees").then(setFees).catch(() => undefined);
     void publicApi.get<PickupInfo>("/api/public/me/pickup").then(setPickup).catch(() => undefined);
     void publicApi.get<{ shipments: MyShipment[] }>("/api/public/me/shipments").then((r) => setShipments(r.shipments)).catch(() => undefined);
     void publicApi

@@ -288,7 +288,7 @@ export default function AccountPage() {
           {tab === "parskats" && <InterestsCard />}
           {tab === "parskats" && (
             <Overview
-              bids={bids} unpaid={unpaid} feesCents={fees?.outstandingCents ?? 0}
+              bids={bids} unpaid={unpaid} feesCents={fees?.outstandingCents ?? 0} storageCents={fees?.storageCents ?? 0}
               pickupCount={pickup.pickup.length} goTab={goTab} lang={lang}
               onHistory={(id) => {
                 setTab("izsoles"); setHistoryLot(id);
@@ -473,11 +473,12 @@ export default function AccountPage() {
  * Непустого макета для Pārskats в комплекте нет — экран собран из
  * утверждённых частей: рядов «Manas izsoles» и горячих ссылок. */
 function Overview({
-  bids, unpaid, feesCents, pickupCount, goTab, onHistory, lang, verifyBlock,
+  bids, unpaid, feesCents, storageCents, pickupCount, goTab, onHistory, lang, verifyBlock,
 }: {
   bids: MyBidAuction[];
   unpaid: MyOrder[];
   feesCents: number;
+  storageCents: number;
   pickupCount: number;
   goTab: (t: Tab) => void;
   onHistory: (id: string) => void;
@@ -487,7 +488,7 @@ function Overview({
   const { t } = useT();
   const liveBids = bids.filter((b) => b.status === "live");
   const unpaidCents = unpaid.reduce((s, o) => s + o.totalCents, 0);
-  const hasTodo = feesCents > 0 || unpaid.length > 0 || pickupCount > 0;
+  const hasTodo = feesCents > 0 || storageCents > 0 || unpaid.length > 0 || pickupCount > 0;
 
   return (
     <div className="acct">
@@ -502,10 +503,22 @@ function Overview({
 
       {hasTodo && (
         <div className="todo">
-          {feesCents > 0 && (
+          {/* Плата за хранение — не штраф, а счёт за услугу, и объяснять её
+              надо своими словами: почему набежала и как её закрыть. */}
+          {storageCents > 0 && (
+            <button className="hot" type="button" onClick={() => goTab("iznemsana")}>
+              <span className="ic"><Ph name="package" size={18} /></span>
+              <span className="t">
+                <b>{t("stor.due")}: {formatEur(storageCents)}</b>
+                <small>{t("stor.note")}</small>
+              </span>
+              <Ph name="caret-right" size={14} className="go" />
+            </button>
+          )}
+          {feesCents - storageCents > 0 && (
             <button className="hot" type="button" onClick={() => goTab("pirkumi")}>
               <span className="ic"><Ph name="shield-check" size={18} /></span>
-              <span className="t"><b>{t("fees.banner")} {formatEur(feesCents)}</b></span>
+              <span className="t"><b>{t("fees.banner")} {formatEur(feesCents - storageCents)}</b></span>
               <Ph name="caret-right" size={14} className="go" />
             </button>
           )}

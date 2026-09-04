@@ -507,8 +507,15 @@ export function FrontDeskScreen({ nav }: { nav: Nav }) {
                       />
                     </ATd>
                     <ATd mono>{f.orderRef}</ATd>
-                    <ATd>{t("fd.restockFee")}</ATd>
-                    <ATd><ABadge tone="danger">{t("fd.blocksAccount")}</ABadge></ATd>
+                    {/* Хранение и штраф за невыкуп — разные вещи, и кассир
+                        должен видеть, что именно он берёт: за хранение вещь
+                        не отдают, пока не оплачено, а не «аккаунт заблокирован». */}
+                    <ATd>{f.type === "storage" ? t("fd.storageFee") : t("fd.restockFee")}</ATd>
+                    <ATd>
+                      <ABadge tone={f.type === "storage" ? "warn" : "danger"}>
+                        {f.type === "storage" ? t("fd.blocksHandover") : t("fd.blocksAccount")}
+                      </ABadge>
+                    </ATd>
                     <ATd mono right><strong>{formatEur(f.amountCents)}</strong></ATd>
                   </ATr>
                 ))}
