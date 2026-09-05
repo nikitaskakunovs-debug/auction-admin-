@@ -37,6 +37,14 @@ function hashOf(s: string): number {
   return h;
 }
 
+/**
+ * Какой вариант кампании получит клиент. Только от его id: повтор прогона
+ * даёт тот же вариант, и тест может спросить то же правило, а не гадать.
+ */
+export function abVariantOf(customerId: string): "a" | "b" {
+  return hashOf(customerId) % 2 === 1 ? "b" : "a";
+}
+
 /** drizzle execute: node-postgres отдаёт {rows}, другие драйверы — массив. */
 function rowsOf<T>(res: unknown): T[] {
   if (Array.isArray(res)) return res as T[];
@@ -254,7 +262,7 @@ export async function dispatchCampaigns(ctx: AppContext): Promise<void> {
     for (const customerId of recipients) {
       // A/B: детерминированный сплит по id клиента — повтор прогона даёт тот
       // же вариант, случайность не смешивает группы (MD §6.6).
-      const variant: "a" | "b" = hasB && hashOf(customerId) % 2 === 1 ? "b" : "a";
+      const variant: "a" | "b" = hasB ? abVariantOf(customerId) : "a";
       const content = variant === "b" ? c.contentB! : c.content;
       const res = await enqueueMarketing(ctx, ctx.db, {
         customerId,

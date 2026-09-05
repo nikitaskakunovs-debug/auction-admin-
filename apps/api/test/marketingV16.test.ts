@@ -2,7 +2,7 @@ import { auctions, campaigns, customers, giftCards, items, listings, loyaltyLedg
 import { and, desc, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { issueGiftCard, redeemGiftCard } from "../src/engine/giftCards.js";
-import { dispatchCampaigns, runAbandonedBidNudges, runSecondPurchaseNudges, rebuildCoPurchases } from "../src/engine/growth.js";
+import { abVariantOf, dispatchCampaigns, runAbandonedBidNudges, runSecondPurchaseNudges, rebuildCoPurchases } from "../src/engine/growth.js";
 import { movePoints, tierFor } from "../src/engine/loyalty.js";
 import { withEmailTracking } from "../src/engine/notifications.js";
 import { auth, createWorld, loginAs, type TestWorld } from "./helpers.js";
@@ -203,9 +203,16 @@ describe("надстройка v15: карты, уровни, free_shipping, а�
   });
 
   it("A/B кампания: детерминированный сплит, пиксель и клик пишут отметки", async () => {
-    // Достаточно получателей, чтобы встретились оба варианта.
+    // Вариант — функция от id клиента, а id каждый прогон новые. Набираем
+    // получателей, пока не встретятся оба варианта: иначе тест зависел бы от
+    // везения (шесть человек в одну группу — один прогон из 64).
     const people: string[] = [];
-    for (let i = 0; i < 6; i += 1) {
+    for (let i = 0; i < 24 && new Set(people.map(abVariantOf)).size < 2; i += 1) {
+      const r = await register(`ab.${i}@v16.lv`, { marketingOptIn: true });
+      people.push(r.bidder.id);
+    }
+    // Ниже нужно минимум четыре письма — добиваем до четырёх.
+    for (let i = people.length; i < 4; i += 1) {
       const r = await register(`ab.${i}@v16.lv`, { marketingOptIn: true });
       people.push(r.bidder.id);
     }
@@ -230,6 +237,8 @@ describe("надстройка v15: карты, уровни, free_shipping, а�
     expect(variants.has("a")).toBe(true);
     expect(variants.has("b")).toBe(true);
     for (const r of sentRows) {
+      // Каждому — ровно тот вариант, что предписан его id, и текст того варианта.
+      expect(r.variant).toBe(abVariantOf(r.customerId!));
       expect(r.subject).toBe(r.variant === "b" ? "Variants B" : "Variants A");
     }
 
