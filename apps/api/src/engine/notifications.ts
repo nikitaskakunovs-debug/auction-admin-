@@ -488,9 +488,10 @@ export function withEmailTracking(html: string, notificationId: string, apiBase:
 }
 
 export async function dispatchNotifications(ctx: AppContext, batch = 50): Promise<number> {
-  const pending = await ctx.db
-    .select()
+  const rows = await ctx.db
+    .select({ n: notifications, bouncedAt: customers.emailBouncedAt })
     .from(notifications)
+    .leftJoin(customers, eq(customers.id, notifications.customerId))
     .where(and(
       eq(notifications.status, "pending"),
       // Маркетинг, отложенный из-за ночной тишины, ждёт своего часа;
@@ -501,7 +502,19 @@ export async function dispatchNotifications(ctx: AppContext, batch = 50): Promis
     .limit(batch);
 
   let sent = 0;
-  for (const n of pending) {
+  for (const { n, bouncedAt } of rows) {
+    // Ящика не существует — и служебное письмо туда не идёт. Проверка была
+    // только у рассылок, а напоминания об оплате ходили в мёртвый адрес
+    // каждый день; каждый такой отбой — минус к репутации домена, а значит
+    // к доставке счетов всем остальным. Кто исправит почту в кабинете,
+    // снимет отметку — и письма пойдут снова.
+    if (bouncedAt !== null && bouncedAt !== undefined) {
+      await ctx.db
+        .update(notifications)
+        .set({ status: "failed", attempts: n.attempts + 1, lastError: "address bounced" })
+        .where(eq(notifications.id, n.id));
+      continue;
+    }
     try {
       const body = await resolvePayLaterExample(ctx, n.body);
       // Rows written before HTML emails existed have no html — they still go

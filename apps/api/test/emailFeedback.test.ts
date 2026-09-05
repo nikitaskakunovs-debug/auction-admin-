@@ -1,7 +1,8 @@
 import { customers, notifications } from "@auction/db";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { parseEmailFeedback } from "../src/engine/emailFeedback.js";
+import { clearBounce, parseEmailFeedback } from "../src/engine/emailFeedback.js";
+import { dispatchNotifications } from "../src/engine/notifications.js";
 import { loadConfig } from "../src/config.js";
 import { scrubSecrets } from "../src/instrument.js";
 import { createWorld, type TestWorld } from "./helpers.js";
@@ -102,6 +103,47 @@ describe("отказы почты и жалобы", () => {
       .from(notifications)
       .where(and(eq(notifications.customerId, person.bidder.id), eq(notifications.status, "pending")));
     expect(queued).toHaveLength(0);
+  });
+
+  it("в мёртвый ящик не идут и служебные письма — ни завтра, ни через месяц", async () => {
+    const person = await register("dead_forever");
+    await hook({
+      type: "email.bounced",
+      data: { to: ["dead_forever@bounce.test"], bounce: { type: "Permanent" } },
+    });
+
+    // Назавтра движок ставит в очередь новое напоминание — как делал бы с
+    // любым неоплаченным заказом. Раньше оно уходило: проверка стояла только
+    // у рассылок.
+    await world.ctx.db.insert(notifications).values({
+      customerId: person.bidder.id,
+      type: "payment_reminder",
+      kind: "service",
+      channel: "email",
+      toEmail: "dead_forever@bounce.test",
+      subject: "reminder",
+      body: "reminder",
+      status: "pending",
+    });
+    const before = world.email.sent.length;
+    await dispatchNotifications(world.ctx);
+
+    expect(world.email.sent.length).toBe(before);
+    const [row] = await world.ctx.db
+      .select()
+      .from(notifications)
+      .where(and(eq(notifications.customerId, person.bidder.id), eq(notifications.type, "payment_reminder")));
+    expect(row!.status).toBe("failed");
+    expect(row!.lastError).toBe("address bounced");
+
+    // Человек исправил адрес — отметка снята, письма пошли снова.
+    await clearBounce(world.ctx, person.bidder.id);
+    await world.ctx.db
+      .update(notifications)
+      .set({ status: "pending" })
+      .where(eq(notifications.id, row!.id));
+    await dispatchNotifications(world.ctx);
+    expect(world.email.sent.length).toBe(before + 1);
   });
 
   it("временный отказ ничего не ломает — ящик просто переполнен", async () => {

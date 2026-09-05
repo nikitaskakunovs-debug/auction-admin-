@@ -833,8 +833,14 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
         if (taken) return reply.code(409).send({ error: "email_exists" });
         patch.email = nextEmail;
         patch.emailVerifiedAt = null;
+        // Новый адрес — чистый лист: отметка «ящик мёртв» относилась к старому.
+        patch.emailBouncedAt = null;
         emailChanged = true;
-        previousEmail = { email: current.email, alias: current.alias, lang: current.lang, country: current.country };
+        // В мёртвый прежний ящик предупреждение не шлём: оно не дойдёт, а
+        // отбой запишут нам.
+        previousEmail = current.emailBouncedAt
+          ? null
+          : { email: current.email, alias: current.alias, lang: current.lang, country: current.country };
       }
     }
     if (Object.keys(patch).length === 0) return reply.code(400).send({ error: "empty_patch" });
