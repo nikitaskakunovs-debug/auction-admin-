@@ -1072,7 +1072,8 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
         createdAt: notifications.createdAt,
       })
       .from(notifications)
-      .where(eq(notifications.customerId, bidderId))
+      // Скрытое крестиком в ленту не возвращается — но в журнале остаётся.
+      .where(and(eq(notifications.customerId, bidderId), sql`${notifications.dismissedAt} is null`))
       .orderBy(desc(notifications.createdAt))
       .limit(50);
     return {
@@ -1085,6 +1086,27 @@ export function registerPublicRoutes(app: FastifyInstance, ctx: AppContext): voi
         createdAt: n.createdAt,
       })),
     };
+  });
+
+  /** Крестик в ленте: убрать одно уведомление или все разом. Запись не
+   *  удаляется — письмо было отправлено, и журнал это помнит; человек лишь
+   *  снимает его с глаз. Свои — только свои: чужие id молча не трогаются. */
+  app.post("/api/public/me/notifications/dismiss", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const body = (req.body ?? {}) as { ids?: unknown };
+    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const ids = Array.isArray(body.ids)
+      ? body.ids.filter((x): x is string => typeof x === "string" && UUID.test(x)).slice(0, 200)
+      : null;
+    if (ids && ids.length === 0) return { dismissed: 0 };
+    const mine = and(eq(notifications.customerId, bidderId), sql`${notifications.dismissedAt} is null`);
+    const rows = await ctx.db
+      .update(notifications)
+      .set({ dismissedAt: ctx.now() })
+      .where(ids ? and(mine, inArray(notifications.id, ids)) : mine)
+      .returning({ id: notifications.id });
+    return { dismissed: rows.length };
   });
 
   /** «Manas piegādes» на экране izņemšanas: посылки человека по перевозчикам

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { BidHistory } from "@/components/account/BidHistory";
 import { Console } from "@/components/account/Console";
-import { relTime, useAccountData, type MyBidAuction } from "@/components/account/data";
+import { dismissNotifications, notificationHref, relTime, useAccountData, type MyBidAuction } from "@/components/account/data";
 import { CreditBoard, InvoicePdfButton, Receipt } from "@/components/account/Money";
 import { Friends, PerkCards } from "@/components/account/Perks";
 import { Pickup } from "@/components/account/Pickup";
@@ -20,7 +20,7 @@ import { publicApi } from "@/lib/api";
 import { setCartCount } from "@/lib/cart";
 import { dateLocale, useT, type Lang } from "@/lib/i18n";
 import { loginHref } from "@/lib/nav";
-import { copyText, usePerks } from "@/lib/perks";
+import { copyText, dismissWelcome, usePerks } from "@/lib/perks";
 import { addToCartOnce, adsUserData, orderEcom, purchaseOnce, saleTypeOf, track } from "@/lib/track";
 import { photoThumb } from "@/lib/photos";
 import { formatEur, type MyOrder } from "@/lib/types";
@@ -184,7 +184,7 @@ export default function AccountPage() {
     izsoles: liveBids.length,
     pirkumi: orders.length,
     velmes: watchIds.length,
-    bridinajumi: perks.welcome ? 1 : 0,
+    bridinajumi: perks.welcome && !perks.welcomeDismissed ? 1 : 0,
     iznemsana: pickup.pickup.length,
     draugi: 0,
     verifikacija: 0,
@@ -401,7 +401,21 @@ export default function AccountPage() {
                   <p className="cnt">{t("kb.alertsSub")}</p>
                 </div>
               </div>
-              {notifications.length === 0 && !perks.welcome ? (
+              {(notifications.length > 0 || (perks.welcome && !perks.welcomeDismissed)) && (
+                <div className="feed-tools">
+                  <button className="btn btn-outline btn-sm" type="button"
+                          onClick={() => {
+                            // Крестик «все»: убираем и напоминание о коде, и письма.
+                            if (perks.welcome) dismissWelcome();
+                            if (notifications.length > 0) {
+                              void dismissNotifications().then(() => { data.refresh(); say(t("kb.cleared")); });
+                            }
+                          }}>
+                    <Ph name="x" size={14} /> {t("kb.clearAll")}
+                  </button>
+                </div>
+              )}
+              {notifications.length === 0 && !(perks.welcome && !perks.welcomeDismissed) ? (
                 <div className="empty">
                   <span className="ic" aria-hidden="true"><Ph name="bell" size={22} /></span>
                   <h3>{t("kb.emptyAlertsT")}</h3>
@@ -412,7 +426,7 @@ export default function AccountPage() {
                 <div className="feedcard">
                   {/* Закреплено сверху, пока код не потрачен: это единственное
                       уведомление, которое человеку выгодно не пропустить. */}
-                  {perks.welcome && (
+                  {perks.welcome && !perks.welcomeDismissed && (
                     <div className="feedrow perk-row">
                       <span className="ic t-won" aria-hidden="true"><Ph name="gift" size={16} /></span>
                       <span className="t">
@@ -423,18 +437,28 @@ export default function AccountPage() {
                               onClick={() => { void copyText(perks.welcome!.code).then((ok) => say(ok ? t("perk.codeCopied") : perks.welcome!.code)); }}>
                         {t("perk.copyCode")}
                       </button>
+                      <button className="x" type="button" aria-label={t("kb.dismissOne")} onClick={dismissWelcome}>
+                        <Ph name="x" size={14} />
+                      </button>
                     </div>
                   )}
                   {notifications.map((n) => (
+                    /* Строка ведёт туда, где с этим разбираться: ставка — в
+                       «Manas izsoles», счёт — в «Pirkumi». Крестик убирает
+                       только эту строку. */
                     <div className="feedrow" key={n.id}>
                       <span className={`ic t-${n.type}`} aria-hidden="true">
                         <Ph name={n.type === "outbid" ? "gavel" : n.type === "won" ? "check" : "bell"} size={16} />
                       </span>
-                      <span className="t">
+                      <Link className="t go" href={notificationHref(n.type)}>
                         <b>{n.subject}</b>
                         <small>{n.body}</small>
-                      </span>
+                      </Link>
                       <small className="when">{relTime(n.createdAt, t)}</small>
+                      <button className="x" type="button" aria-label={t("kb.dismissOne")}
+                              onClick={() => { void dismissNotifications([n.id]).then(() => data.refresh()); }}>
+                        <Ph name="x" size={14} />
+                      </button>
                     </div>
                   ))}
                 </div>

@@ -146,3 +146,38 @@ export function alertsSeenAt(): number {
 export function markAlertsSeen(): void {
   try { localStorage.setItem(SEEN_KEY, String(Date.now())); } catch { /* приватный режим */ }
 }
+
+/**
+ * Куда ведёт уведомление по клику. У письма в журнале нет ссылки на объект —
+ * только тип; но тип и определяет, где человек будет разбираться дальше:
+ * ставка — в «Manas izsoles», счёт — в «Pirkumi», код выдачи — в «Izņemšana».
+ */
+export function notificationHref(type: string): string {
+  switch (type) {
+    case "outbid": case "won": case "bid_voided": case "lot_withdrawn": case "abandoned_bid": case "watchlist_ending":
+      return "/account?tab=izsoles";
+    case "payment_reminder": case "cart_reminder": case "payment_failed":
+      return "/grozs";
+    case "purchased": case "order_paid": case "unpaid_cancelled": case "refunded": case "shipped": case "delivered":
+    case "bnpl_pending": case "bnpl_declined": case "review_request":
+      return "/account?tab=pirkumi";
+    case "pickup_ready": case "pickup_reminder": case "no_pickup_cancelled": case "storage_started": case "checked_in":
+      return "/account?tab=iznemsana";
+    case "verify_email":
+      return "/account?tab=verifikacija";
+    case "password_reset": case "security_alert":
+      return "/account?tab=iestatijumi";
+    case "referral_invite":
+      return "/account?tab=draugi";
+    case "gift_card_received": case "points_expiring":
+      return "/punkti";
+    default:
+      return "/katalogs";
+  }
+}
+
+/** Крестик: убрать одно уведомление (ids) или все (без аргумента). */
+export async function dismissNotifications(ids?: string[]): Promise<number> {
+  const r = await publicApi.post<{ dismissed: number }>("/api/public/me/notifications/dismiss", ids ? { ids } : {});
+  return r.dismissed;
+}

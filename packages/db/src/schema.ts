@@ -1287,6 +1287,9 @@ export const notifications = pgTable(
     /** Первое открытие (пиксель) и первый клик — только маркетинговые письма. */
     openedAt: timestamp("opened_at", { withTimezone: true }),
     clickedAt: timestamp("clicked_at", { withTimezone: true }),
+    /** Убрано человеком из ленты кабинета (крестик). Письмо остаётся в
+     * журнале — отправка была, это факт; человек лишь не хочет его видеть. */
+    dismissedAt: timestamp("dismissed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

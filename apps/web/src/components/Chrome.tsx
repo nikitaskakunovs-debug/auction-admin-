@@ -14,7 +14,7 @@ import { copyText, usePerks } from "@/lib/perks";
 import { trackPageView } from "@/lib/track";
 import { formatEur } from "@/lib/types";
 import { watchStore } from "@/lib/watch";
-import { markAlertsSeen, relTime, type MyNotification } from "./account/data";
+import { markAlertsSeen, notificationHref, relTime, type MyNotification } from "./account/data";
 import { CatalogMenu } from "./CatalogMenu";
 import { Ph } from "./Ph";
 import { COUNTRY_LABEL, LANG_NAME, RegionMenu } from "./RegionMenu";
@@ -179,7 +179,8 @@ export function Chrome({ country = "LV" }: { country?: Country }) {
 
           <div className="head-act">
             {signedIn ? (
-              <BellMenu alerts={alerts + (perks.welcome ? 1 : 0)} welcome={perks.welcome} />
+              <BellMenu alerts={alerts + (perks.welcome && !perks.welcomeDismissed ? 1 : 0)}
+                        welcome={perks.welcome && !perks.welcomeDismissed ? perks.welcome : null} />
             ) : (
               <Link className="icon-link" href="/account?tab=bridinajumi">
                 <Icon name="bell" size={22} />{t("nav.alerts")}
@@ -318,7 +319,7 @@ function BellMenu({ alerts, welcome }: { alerts: number; welcome: MyPromoCode | 
             </button>
           )}
           {(rows ?? []).slice(0, 4).map((n) => (
-            <div className="dd-row" key={n.id}>
+            <Link className="dd-row go" key={n.id} role="menuitem" href={notificationHref(n.type)} onClick={() => setOpen(false)}>
               <span className="ic" aria-hidden="true">
                 <Ph name={n.type === "outbid" ? "gavel" : n.type === "won" ? "check" : "bell"} size={14} />
               </span>
@@ -327,7 +328,7 @@ function BellMenu({ alerts, welcome }: { alerts: number; welcome: MyPromoCode | 
                 <small>{n.body}</small>
               </span>
               <small className="when">{relTime(n.createdAt, t)}</small>
-            </div>
+            </Link>
           ))}
           {rows !== null && rows.length === 0 && !welcome && <p className="dd-empty">{t("kb.emptyAlertsT")}</p>}
           <Link className="dd-all" href="/account?tab=bridinajumi" onClick={() => setOpen(false)}>

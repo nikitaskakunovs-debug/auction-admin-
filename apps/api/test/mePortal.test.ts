@@ -60,6 +60,42 @@ describe("кабинет: уведомления, посылки, талон", (
     expect(anon.statusCode).toBe(401);
   });
 
+  it("крестик убирает уведомление из ленты, но не из журнала; чужое не трогает", async () => {
+    const auth = { authorization: `Bearer ${token}` };
+    const list = async () =>
+      (await world.server.app.inject({ method: "GET", url: "/api/public/me/notifications", headers: auth })).json() as {
+        notifications: Array<{ id: string; subject: string }>;
+      };
+    const before = (await list()).notifications;
+    const outbid = before.find((n) => n.subject === "Tevi pārsolīja")!;
+    const [foreign] = await world.ctx.db
+      .select({ id: notifications.id })
+      .from(notifications)
+      .where(eq(notifications.subject, "ČUŽOJE"));
+
+    // Одно своё и одно чужое: убирается только своё.
+    const one = await world.server.app.inject({
+      method: "POST", url: "/api/public/me/notifications/dismiss", headers: auth, payload: { ids: [outbid.id, foreign!.id] },
+    });
+    expect(one.statusCode).toBe(200);
+    expect(one.json()).toEqual({ dismissed: 1 });
+    const after = (await list()).notifications;
+    expect(after.map((n) => n.subject)).not.toContain("Tevi pārsolīja");
+    expect(after.length).toBe(before.length - 1);
+    // Журнал помнит: строка на месте, отмечена, а не удалена.
+    const [row] = await world.ctx.db.select().from(notifications).where(eq(notifications.id, outbid.id));
+    expect(row!.dismissedAt).not.toBeNull();
+    const [other] = await world.ctx.db.select().from(notifications).where(eq(notifications.id, foreign!.id));
+    expect(other!.dismissedAt).toBeNull();
+
+    // «Все» — лента пустеет, повторный вызов ничего не находит.
+    const all = await world.server.app.inject({ method: "POST", url: "/api/public/me/notifications/dismiss", headers: auth, payload: {} });
+    expect((all.json() as { dismissed: number }).dismissed).toBe(before.length - 1);
+    expect((await list()).notifications).toHaveLength(0);
+    const again = await world.server.app.inject({ method: "POST", url: "/api/public/me/notifications/dismiss", headers: auth, payload: {} });
+    expect(again.json()).toEqual({ dismissed: 0 });
+  });
+
   it("отдаёт свои посылки с последним событием и талон очереди с местом в ней", async () => {
     // Заказ с посылкой Omniva.
     const [item] = await world.ctx.db

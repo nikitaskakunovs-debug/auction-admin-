@@ -7,6 +7,28 @@ import { useT } from "@/lib/i18n";
 import { Icon } from "./Icon";
 import { say } from "./Toast";
 
+/**
+ * Почтовые службы, популярные у наших покупателей: кнопка «Atvērt Gmail»
+ * ведёт прямо в ящик, чтобы подтверждение не терялось на полпути между
+ * нашей вкладкой и вкладкой почты. По домену адреса угадываем нужную;
+ * если не угадали — показываем три самые распространённые в Латвии.
+ */
+const MAIL_PROVIDERS: Array<{ test: RegExp; name: string; url: string }> = [
+  { test: /@(gmail|googlemail)\./i, name: "Gmail", url: "https://mail.google.com/" },
+  { test: /@inbox\.(lv|lt|eu)$/i, name: "Inbox.lv", url: "https://mail.inbox.lv/" },
+  { test: /@(outlook|hotmail|live|msn)\./i, name: "Outlook", url: "https://outlook.live.com/mail/" },
+  { test: /@apollo\.lv$/i, name: "Apollo", url: "https://mail.apollo.lv/" },
+  { test: /@(mail\.ru|bk\.ru|list\.ru|inbox\.ru)$/i, name: "Mail.ru", url: "https://e.mail.ru/inbox/" },
+  { test: /@(yahoo|ymail)\./i, name: "Yahoo", url: "https://mail.yahoo.com/" },
+  { test: /@(icloud|me|mac)\.com$/i, name: "iCloud", url: "https://www.icloud.com/mail/" },
+];
+const DEFAULT_PROVIDERS = MAIL_PROVIDERS.slice(0, 3);
+
+export function mailProvidersFor(email: string): Array<{ name: string; url: string }> {
+  const hit = MAIL_PROVIDERS.find((p) => p.test.test(email));
+  return hit ? [hit] : DEFAULT_PROVIDERS;
+}
+
 /** Экран «проверь почту» после регистрации.
  *
  *  Контракт с движком:
@@ -42,12 +64,22 @@ export function VerifyNotice({ email, compact }: { email: string; compact?: bool
       <p className="note" style={{ fontSize: 15 }}>
         {t("vn.intro")} <b>{email || t("vn.yourEmail")}</b>. {t("vn.introTail")}
       </p>
+      {/* Главное действие — открыть ящик, а не «выслать ещё раз»: письмо в
+          девяти случаях из десяти уже там. */}
+      <div className="mail-cta">
+        {mailProvidersFor(email).map((p) => (
+          <a key={p.name} className="btn btn-primary" href={p.url} target="_blank" rel="noopener noreferrer">
+            <Icon name="mail" size={16} /> {t("vn.openMail", { p: p.name })}
+          </a>
+        ))}
+      </div>
+      <p className="note" style={{ marginTop: 8 }}>{t("vn.openMailHint")}</p>
       <ul className="rep-list" style={{ marginTop: 12 }}>
         <li className="in"><Icon name="check" size={16} />{t("vn.checkSpam")}</li>
         <li className="in"><Icon name="check" size={16} />{t("vn.fromAddress")}</li>
       </ul>
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 16 }}>
-        <button className="btn btn-primary" type="button" disabled={busy || left > 0}
+        <button className="btn btn-outline" type="button" disabled={busy || left > 0}
                 onClick={() => void resend()}>
           {left > 0 ? t("vn.resendIn", { n: left }) : t("vn.resend")}
         </button>

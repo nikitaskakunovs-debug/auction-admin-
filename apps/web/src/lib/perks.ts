@@ -28,11 +28,29 @@ export interface Referral {
 export interface Perks {
   /** Личный процентный код, ещё действующий; null — нет или истёк. */
   welcome: MyPromoCode | null;
+  /** Человек закрыл напоминание о коде крестиком: из ленты и колокольчика
+   *  оно уходит, карточка в Pārskats и строка меню остаются. */
+  welcomeDismissed: boolean;
   referral: Referral | null;
   loaded: boolean;
 }
 
-const EMPTY: Perks = { welcome: null, referral: null, loaded: false };
+const EMPTY: Perks = { welcome: null, welcomeDismissed: false, referral: null, loaded: false };
+const HIDDEN_KEY = "izsoli_perk_hidden_v1";
+
+function isHidden(code: string | undefined): boolean {
+  if (!code) return false;
+  try { return localStorage.getItem(HIDDEN_KEY) === code; } catch { return false; }
+}
+
+/** Крестик на напоминании о коде — запоминаем по самому коду: новый код
+ *  (после реферала, например) покажется снова. */
+export function dismissWelcome(): void {
+  if (!state.welcome) return;
+  try { localStorage.setItem(HIDDEN_KEY, state.welcome.code); } catch { /* нет хранилища */ }
+  state = { ...state, welcomeDismissed: true };
+  emit();
+}
 let state: Perks = EMPTY;
 let inflight: Promise<void> | null = null;
 const subs = new Set<() => void>();
@@ -59,11 +77,21 @@ export function loadPerks(force = false): Promise<void> {
   }
   if (inflight && !force) return inflight;
   inflight = Promise.all([
+    publicApi.get<{ bidder: { emailVerified?: boolean } }>("/api/public/auth/me").catch(() => null),
     myPromoCodes().catch(() => ({ codes: [] as MyPromoCode[] })),
     publicApi.get<Referral>("/api/public/me/referral").catch(() => null),
   ])
-    .then(([codes, referral]) => {
-      state = { welcome: pickWelcome(codes.codes), referral, loaded: true };
+    .then(([me, codes, referral]) => {
+      // Сразу после регистрации у человека одна задача — подтвердить почту.
+      // Подарок и приглашение до этого не показываем вовсе: ни карточкой,
+      // ни в меню, ни на колокольчике. Подтвердил — появятся сами.
+      if (me?.bidder.emailVerified === false) {
+        state = { ...EMPTY, loaded: true };
+        emit();
+        return;
+      }
+      const welcome = pickWelcome(codes.codes);
+      state = { welcome, welcomeDismissed: isHidden(welcome?.code), referral, loaded: true };
       emit();
     })
     .finally(() => { inflight = null; });
