@@ -43,11 +43,16 @@ const TABS: Array<[Tab, string, string]> = [
   ["velmes", "nav.watchlist", "heart"],
   ["bridinajumi", "nav.alerts", "bell"],
   ["iznemsana", "ac.pickup", "map-pin"],
+  ["iestatijumi", "ac.settings", "gear"],
   // «Пригласи друга» — свой раздел, а не абзац на странице о баллах:
   // о программе должен узнавать каждый, а не только подписанный на рассылку.
+  // Место — последнее: это предложение, а не дело, которое ждёт человека.
   ["draugi", "ref.tab", "users-three"],
-  ["iestatijumi", "ac.settings", "gear"],
 ];
+
+/** Хвост меню: настройки и приглашение всегда внизу, что бы ни добавилось
+ *  выше. «Verifikācija» вклинивается перед ними, а не после. */
+const NAV_TAIL: Tab[] = ["iestatijumi", "draugi"];
 
 type PayBanner = "confirming" | "success" | "failed" | "cancelled" | "processing" | null;
 
@@ -221,9 +226,9 @@ export default function AccountPage() {
   // почты — до этапа аккаунтов его просто нет, врать статусом нельзя.
   const showVerif = me?.emailVerified !== undefined;
   const navItems: Array<[Tab, string, string]> = [
-    ...TABS.slice(0, 7),
+    ...TABS.filter(([id]) => !NAV_TAIL.includes(id)),
     ...(showVerif ? ([["verifikacija", "kb.verification", "shield-check"]] as Array<[Tab, string, string]>) : []),
-    TABS[7]!,
+    ...TABS.filter(([id]) => NAV_TAIL.includes(id)),
   ];
 
   const userCard = (

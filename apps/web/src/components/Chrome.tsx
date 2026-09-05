@@ -390,8 +390,9 @@ function UserMenu() {
     ["velmes", "nav.watchlist", watchStore.list().length],
     ["bridinajumi", "nav.alerts", 0],
     ["iznemsana", "ac.pickup", counts?.pickup ?? 0],
-    ["draugi", "ref.tab", 0],
     ["iestatijumi", "ac.settings", 0],
+    // Последним — как в боковом меню кабинета: предложение, а не дело.
+    ["draugi", "ref.tab", 0],
   ];
   const refTotal = perks.referral ? perks.referral.rewards.signupCents + perks.referral.rewards.orderCents : 0;
 
