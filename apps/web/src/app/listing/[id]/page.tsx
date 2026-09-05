@@ -25,10 +25,27 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const [l, host] = await Promise.all([fetchListing(id), headers().then((h) => h.get("host"))]);
   if (!l) return { title: "Listing" };
   const country = resolveCountry(host);
+  const origin = SITE_ORIGINS[country.code];
+  const description = `€${(l.priceCents / 100).toFixed(2)} · ${l.description.slice(0, 140) || l.title}`;
   return {
     title: l.title,
-    description: l.description.slice(0, 160) || `Buy now: ${l.title}`,
+    description,
     alternates: alternatesFor(country, `/listing/${id}`),
+    // Превью в мессенджерах и соцсетях: фото товара, цена, название (№ 05).
+    openGraph: {
+      title: l.title,
+      description,
+      url: `${origin}/listing/${id}`,
+      siteName: "Izsoli.lv",
+      type: "website",
+      ...(l.photos[0] ? { images: [{ url: l.photos[0], width: 1200, height: 900, alt: l.title }] } : {}),
+    },
+    twitter: {
+      card: l.photos[0] ? "summary_large_image" : "summary",
+      title: l.title,
+      description,
+      ...(l.photos[0] ? { images: [l.photos[0]] } : {}),
+    },
   };
 }
 

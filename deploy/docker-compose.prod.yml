@@ -51,12 +51,33 @@ services:
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
       S3_SECRET_KEY: ${S3_SECRET_KEY:-}
       S3_PUBLIC_URL: ${S3_PUBLIC_URL:-}
+      # Meta Conversions API. Токен живёт ТОЛЬКО здесь, в deploy/.env на
+      # сервере: во фронтенд, в GTM и в репозиторий он не попадает. Пусто —
+      # серверная отправка выключена, браузерный пиксель работает как прежде.
+      META_CAPI_ACCESS_TOKEN: ${META_CAPI_ACCESS_TOKEN:-}
+      META_DATASET_ID: ${META_DATASET_ID:-}
+      META_GRAPH_VERSION: ${META_GRAPH_VERSION:-v21.0}
+      # Код тестовых событий — только на время проверки в Meta Test Events.
+      META_TEST_EVENT_CODE: ${META_TEST_EVENT_CODE:-}
       EMAIL_MODE: ${EMAIL_MODE:-console}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
       EMAIL_FROM: ${EMAIL_FROM:-}
+      # Куда уходит ответ клиента на любое наше письмо (по умолчанию —
+      # COMPANY_EMAIL). Секрет вебхука почты: путь отказов/жалоб от Resend
+      # или SES. Оба живут только в deploy/.env.
+      EMAIL_REPLY_TO: ${EMAIL_REPLY_TO:-}
+      # Ответы по «столам»: счета/возвраты, поддержка, поставщики. Пусто —
+      # всё в общий EMAIL_REPLY_TO.
+      EMAIL_REPLY_TO_BILLING: ${EMAIL_REPLY_TO_BILLING:-}
+      EMAIL_REPLY_TO_SUPPORT: ${EMAIL_REPLY_TO_SUPPORT:-}
+      EMAIL_REPLY_TO_PARTNERS: ${EMAIL_REPLY_TO_PARTNERS:-}
+      EMAIL_WEBHOOK_SECRET: ${EMAIL_WEBHOOK_SECRET:-}
+      BUY_NOW_DEADLINE_HOURS: ${BUY_NOW_DEADLINE_HOURS:-24}
+      # Партнёрский кабинет живёт на своём имени; ссылки в письмах поставщикам.
+      SUPPLIER_PORTAL_URL: ${SUPPLIER_PORTAL_URL:-https://partner.${DOMAIN}}
       INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:-}
       INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
       VIES_MODE: live
@@ -109,6 +130,16 @@ services:
       DPD_API_URL: ${DPD_API_URL:-}
       DPD_API_TOKEN: ${DPD_API_TOKEN:-}
       DPD_SERVICE_ALIAS: ${DPD_SERVICE_ALIAS:-}
+      # Social sign-in (№ 50, 52–54). Each provider switches on by its own key
+      # pair from deploy/.env; a provider without keys shows an honest
+      # "still being connected" toast instead of a broken button.
+      SOCIAL_MODE: ${SOCIAL_MODE:-off}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      FACEBOOK_APP_ID: ${FACEBOOK_APP_ID:-}
+      FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_BOT_NAME: ${TELEGRAM_BOT_NAME:-}
       # Jira problem reports (off until the integration account token; then JIRA_MODE=live).
       JIRA_MODE: ${JIRA_MODE:-off}
       JIRA_BASE_URL: ${JIRA_BASE_URL:-}
@@ -141,6 +172,17 @@ services:
         NEXT_PUBLIC_ORIGIN_EE: ${ORIGIN_EE:-https://${DOMAIN}}
         NEXT_PUBLIC_ORIGIN_LT: ${ORIGIN_LT:-https://${DOMAIN}}
         NEXT_PUBLIC_SENTRY_DSN: ${SENTRY_DSN_WEB:-}
+        # Google Tag Manager (аналитика и пиксели, Consent Mode внутри).
+        NEXT_PUBLIC_GTM_ID: ${NEXT_PUBLIC_GTM_ID:-GTM-WGN2M7KZ}
+        # Meta PageView. Включать ТОЛЬКО после публикации изменений GTM, где
+        # базовый тег переведён на событие meta_page_view и получает eventID:
+        # иначе просмотр посчитается дважды. Значение попадает в сборку, а не
+        # в рантайм, поэтому смена требует пересборки web.
+        NEXT_PUBLIC_META_PAGEVIEW: ${NEXT_PUBLIC_META_PAGEVIEW:-0}
+        # Google AdSense: базовый скрипт в <head> (верификация сайта).
+        # Auto Ads не включаются; рекламные места — только будущими
+        # <AdSenseSlot /> под отдельным флагом.
+        NEXT_PUBLIC_ADSENSE_CLIENT: ${NEXT_PUBLIC_ADSENSE_CLIENT:-ca-pub-9932986165940423}
     restart: unless-stopped
     depends_on:
       - api

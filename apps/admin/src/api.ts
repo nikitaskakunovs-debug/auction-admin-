@@ -150,6 +150,21 @@ export interface Order {
   recipientPhone: string | null;
   itemSku?: string;
   itemStatus?: string;
+  /** Откуда пришёл заказ: снимок первого и последнего касания клиента. */
+  attribution?: Attribution | null;
+  attributionLast?: Attribution | null;
+}
+
+/** Метки рекламы одного захода. Персональных данных нет — только кампании. */
+export interface Attribution {
+  source?: string;
+  medium?: string;
+  campaign?: string;
+  content?: string;
+  term?: string;
+  referrer?: string;
+  landing?: string;
+  at?: string;
 }
 
 export interface Customer {
@@ -175,6 +190,23 @@ export interface Customer {
   marketingOptInAt?: string | null;
   marketingSource?: string | null;
   marketingOptOutAt?: string | null;
+  /** Подтверждение почты и привязанные соцсети — видно, как человек входит. */
+  emailVerifiedAt?: string | null;
+  googleId?: string | null;
+  facebookId?: string | null;
+  telegramId?: string | null;
+  /** Отписка из письма и «мёртвый» адрес — отдельно от снятой галочки. */
+  unsubscribedAt?: string | null;
+  emailBouncedAt?: string | null;
+  /** Откуда пришёл: первое касание (привёл) и последнее (вернуло). */
+  attribution?: Attribution | null;
+  attributionLast?: Attribution | null;
+  attributionTouches?: number;
+  visitorId?: string | null;
+  /** Чем воспользовался на последнем входе: password | google | … */
+  lastLoginMethod?: string | null;
+  lastLoginAt?: string | null;
+  lang?: string | null;
   createdAt: string;
   /** Present on the A3 power list response. */
   outstandingFeeCents?: number;

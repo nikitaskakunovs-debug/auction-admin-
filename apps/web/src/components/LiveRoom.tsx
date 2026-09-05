@@ -7,7 +7,9 @@ import { PUBLIC_API_URL } from "@/lib/config";
 import { conditionLabel } from "@/lib/conditions";
 import { increment, marketFees } from "@/lib/fees";
 import { useT } from "@/lib/i18n";
+import { loginHref } from "@/lib/nav";
 import { photoWeb } from "@/lib/photos";
+import { trackPlaceBid } from "@/lib/track";
 import { useStickyBar } from "@/lib/ui";
 import { formatEur, type AuctionDetail, type PublicAuction } from "@/lib/types";
 import { Icon } from "./Icon";
@@ -142,17 +144,35 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
   const bid = async () => {
     setBusy(true); setNotice(null);
     try {
-      const r = await publicApi.post<{ youLead: boolean; currentPriceCents: number; extended: boolean }>(
+      const r = await publicApi.post<{ youLead: boolean; currentPriceCents: number; extended: boolean; firstBid?: boolean; priceChanged?: boolean; eventId?: string }>(
         `/api/public/auctions/${stage.id}/bids`, { maxCents: ask },
       );
-      setNotice(r.youLead
-        ? { text: t("a.youLead"), tone: "win" }
-        : { text: `${t("a.outbid")} — ${formatEur(r.currentPriceCents)}`, tone: "out" });
-      say(r.youLead ? t("a.youLead") : t("a.outbid"));
+      // Лидер поднял собственный максимум: цена не растёт и новой строки в
+      // истории нет — так работают прокси-торги. Без отдельного сообщения
+      // это выглядит как «ставка не сделалась».
+      const maxRaised = r.youLead && r.priceChanged === false;
+      setNotice(maxRaised
+        ? { text: t("a.maxRaised", { sum: formatEur(ask) }), tone: "win" }
+        : r.youLead
+          ? { text: t("a.youLead"), tone: "win" }
+          : { text: `${t("a.outbid")} — ${formatEur(r.currentPriceCents)}`, tone: "out" });
+      say(maxRaised ? t("a.maxRaised", { sum: formatEur(ask) }) : r.youLead ? t("a.youLead") : t("a.outbid"));
+      // Аналитика (GTM): единый обработчик успешной ставки. Зал торгов —
+      // ставка без открытия карточки, поэтому bid_source: quick_bid.
+      trackPlaceBid({
+        sku: stage.sku, listingId: stage.id, title: stage.title, category: stage.category,
+        marketCode: stage.marketCode, amountCents: ask,
+        firstBid: r.firstBid === true, lead: r.youLead, eventId: r.eventId,
+        source: "quick_bid",
+      });
       await load(stage.id);
     } catch (err) {
       if (err instanceof PublicApiError && err.body.code === "EMAIL_NOT_VERIFIED") {
         setNotice({ text: t("lc.verifyFirst"), tone: "out" });
+      } else if (err instanceof PublicApiError && err.body.code === "NOT_ABOVE_OWN_MAX" && typeof err.body.minAcceptableCents === "number") {
+        // Он уже лидирует с максимумом выше введённого: подсказываем сам
+        // максимум (это его собственная цифра, ему её видеть можно).
+        setNotice({ text: t("a.aboveOwnMax", { sum: formatEur(Number(err.body.minAcceptableCents) - 1) }), tone: "out" });
       } else if (err instanceof PublicApiError && typeof err.body.minAcceptableCents === "number") {
         setNotice({ text: `${t("a.minBid")}: ${formatEur(err.body.minAcceptableCents)}`, tone: "out" });
       } else {
@@ -232,7 +252,7 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
                   {t("lc.bid")}<span className="tnum">{formatEur(ask)}</span>
                 </button>
               ) : (
-                <Link className="btn btn-primary btn-lg" href="/login">{t("a.signinToBid")}</Link>
+                <Link className="btn btn-primary btn-lg" href={loginHref("/tiesraide")}>{t("a.signinToBid")}</Link>
               )}
               {left > 0 && (
                 <button className="btn btn-outline btn-lg" type="button"
@@ -305,7 +325,7 @@ export function LiveRoom({ auctions }: { auctions: PublicAuction[] }) {
               {t("lc.bid")}<span className="tnum">{formatEur(ask)}</span>
             </button>
           ) : (
-            <Link className="btn btn-primary" href="/login?next=/tiesraide">{t("a.signinToBid")}</Link>
+            <Link className="btn btn-primary" href={loginHref("/tiesraide")}>{t("a.signinToBid")}</Link>
           )}
         </div>
       )}

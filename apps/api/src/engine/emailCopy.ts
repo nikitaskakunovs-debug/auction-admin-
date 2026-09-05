@@ -18,6 +18,7 @@ export type Lang = "lv" | "ru" | "en";
 export const LANGS: Lang[] = ["lv", "ru", "en"];
 
 export type NotificationType =
+  | "verify_email"
   | "outbid"
   | "won"
   | "purchased"
@@ -29,13 +30,171 @@ export type NotificationType =
   | "unpaid_cancelled"
   | "shipped"
   | "refunded"
-  | "checked_in";
+  | "checked_in"
+  | "saved_search_hits"
+  | "watchlist_ending"
+  // ── Lifecycle-письма плана v15 (маркетинг + сегментация) ──
+  | "welcome_reminder"
+  | "inactive_nudge"
+  | "winback_offer"
+  | "lost_bid_similar"
+  | "review_request"
+  | "referral_invite"
+  // ── Надстройка v15 (MD §6) ──
+  | "abandoned_bid"
+  | "second_purchase"
+  | "gift_card_received"
+  // ── Пробелы, закрытые после запуска фин-слоя (план писем, часть A) ──
+  /** Сброс пароля: раньше уходил голым текстом мимо этой системы. */
+  | "password_reset"
+  /** Баллы сгорят через N дней — обязательное предупреждение. */
+  | "points_expiring"
+  /** Вход с нового устройства, смена пароля или адреса. */
+  | "security_alert"
+  /** Посылка доставлена или ждёт в автомате. */
+  | "delivered"
+  /** Ставка аннулирована администратором. */
+  | "bid_voided"
+  /** Лот снят с торгов — участникам. */
+  | "lot_withdrawn"
+  /** Оплата не прошла — вернуться к оплате. */
+  | "payment_failed"
+  /** Заявка на рассрочку принята банком и рассматривается. */
+  | "bnpl_pending"
+  /** Банк не одобрил рассрочку — заказ жив, оплатить можно иначе. */
+  | "bnpl_declined"
+  /** Пошла плата за хранение неполученного заказа. */
+  | "storage_started"
+  // ── Товары «Pērc uzreiz»: догоняющие письма (BN-1, BN-2) ──
+  /** Корзина осталась неоплаченной — товар ещё ждёт. */
+  | "cart_reminder"
+  /** Цена на отслеживаемый товар снизилась. */
+  | "price_drop"
+  // ── Письма поставщикам (S1…S10) ──
+  | "sup_invite"
+  | "sup_welcome"
+  | "sup_intake_done"
+  | "sup_discrepancy"
+  | "sup_invoice_accepted"
+  | "sup_invoice_rejected"
+  | "sup_payment_sent"
+  | "sup_monthly_report"
+  | "sup_sales_report"
+  | "sup_unsold";
 
-export const NOTIFICATION_TYPES: NotificationType[] = [
-  "outbid", "won", "purchased", "payment_reminder", "order_paid",
+/** Письма поставщикам: адресат — supplier, а не customer. */
+export const SUPPLIER_TYPES = [
+  "sup_invite", "sup_welcome", "sup_intake_done", "sup_discrepancy",
+  "sup_invoice_accepted", "sup_invoice_rejected", "sup_payment_sent",
+  "sup_monthly_report", "sup_sales_report", "sup_unsold",
+] as const satisfies readonly NotificationType[];
+
+export const isSupplierType = (t: NotificationType): boolean =>
+  (SUPPLIER_TYPES as readonly string[]).includes(t);
+
+/**
+ * Куда попадёт ответ человека на письмо — «стол», за которым его прочитают.
+ *
+ * Все письма уходят с noreply, но ответ на счёт должен лечь к бухгалтеру, а
+ * «где мой заказ» — к поддержке, не в одну общую кучу. Адреса столов задаёт
+ * конфиг; здесь — только принадлежность типа письма столу. Запись обязана
+ * быть у каждого типа: забытый новый тип не собирается.
+ */
+export type ReplyDesk = "general" | "billing" | "support" | "partners";
+
+const REPLY_DESK: Record<NotificationType, ReplyDesk> = {
+  // Деньги: счета, оплата, возвраты, рассрочка, платы. Ответ — бухгалтерии.
+  won: "billing",
+  purchased: "billing",
+  payment_reminder: "billing",
+  order_paid: "billing",
+  unpaid_cancelled: "billing",
+  no_pickup_cancelled: "billing",
+  refunded: "billing",
+  payment_failed: "billing",
+  bnpl_pending: "billing",
+  bnpl_declined: "billing",
+  storage_started: "billing",
+  // Заказ, выдача, доставка, доступ к кабинету. Ответ — поддержке.
+  verify_email: "support",
+  password_reset: "support",
+  security_alert: "support",
+  outbid: "support",
+  pickup_ready: "support",
+  pickup_reminder: "support",
+  checked_in: "support",
+  shipped: "support",
+  delivered: "support",
+  bid_voided: "support",
+  lot_withdrawn: "support",
+  points_expiring: "support",
+  gift_card_received: "support",
+  // Рассылки и подсказки: общий ящик.
+  saved_search_hits: "general",
+  watchlist_ending: "general",
+  welcome_reminder: "general",
+  inactive_nudge: "general",
+  winback_offer: "general",
+  lost_bid_similar: "general",
+  review_request: "general",
+  referral_invite: "general",
+  abandoned_bid: "general",
+  second_purchase: "general",
+  cart_reminder: "general",
+  price_drop: "general",
+  // Поставщики — свой стол.
+  sup_invite: "partners",
+  sup_welcome: "partners",
+  sup_intake_done: "partners",
+  sup_discrepancy: "partners",
+  sup_invoice_accepted: "partners",
+  sup_invoice_rejected: "partners",
+  sup_payment_sent: "partners",
+  sup_monthly_report: "partners",
+  sup_sales_report: "partners",
+  sup_unsold: "partners",
+};
+
+export const replyDeskOf = (t: NotificationType): ReplyDesk => REPLY_DESK[t];
+
+const ALL_TYPES = [
+  "verify_email", "outbid", "won", "purchased", "payment_reminder", "order_paid",
   "pickup_ready", "pickup_reminder", "no_pickup_cancelled", "unpaid_cancelled",
-  "shipped", "refunded", "checked_in",
-];
+  "shipped", "refunded", "checked_in", "saved_search_hits", "watchlist_ending",
+  "welcome_reminder", "inactive_nudge", "winback_offer", "lost_bid_similar",
+  "review_request", "referral_invite",
+  "abandoned_bid", "second_purchase", "gift_card_received",
+  "password_reset", "points_expiring", "security_alert", "delivered",
+  "bid_voided", "lot_withdrawn", "payment_failed",
+  "cart_reminder", "price_drop",
+  "bnpl_pending", "bnpl_declined", "storage_started",
+  ...SUPPLIER_TYPES,
+] as const satisfies readonly NotificationType[];
+
+/**
+ * Проверка на этапе сборки: КАЖДЫЙ тип письма обязан стоять в списке выше.
+ * Список — не украшение: по нему админка собирает раздел «Paziņojumi», где
+ * тексты правятся без деплоя. Забытый в нём тип продолжает уходить клиентам,
+ * но владелец не может ни увидеть его, ни поправить — письмо становится
+ * невидимым. Ровно это и случилось с тремя письмами про рассрочку и
+ * хранение; теперь такая забывчивость ломает сборку.
+ */
+type MissingFromTypeList = Exclude<NotificationType, (typeof ALL_TYPES)[number]>;
+const _everyTypeListed: MissingFromTypeList extends never ? true : MissingFromTypeList = true;
+void _everyTypeListed;
+
+export const NOTIFICATION_TYPES: NotificationType[] = [...ALL_TYPES];
+
+/** Типы, которые уходят как МАРКЕТИНГ (через enqueueMarketing): у них в
+ *  подвале обязана быть видимая отписка. Сервисные письма отписки не несут —
+ *  их отменяют не так (счёт и выдачу отпиской не выключить). Превью в
+ *  админке ориентируется на этот же список, чтобы показывать 1:1. */
+export const MARKETING_TYPES: ReadonlySet<NotificationType> = new Set([
+  "saved_search_hits", "watchlist_ending",
+  "welcome_reminder", "inactive_nudge", "winback_offer", "lost_bid_similar",
+  "review_request", "referral_invite", "abandoned_bid", "second_purchase",
+  "cart_reminder", "price_drop",
+]);
 
 export interface TemplateInput {
   alias: string;
@@ -62,11 +221,113 @@ export interface TemplateInput {
   ticketNumber?: number | undefined;
   /** How many items that ticket bundles. */
   lineCount?: number | undefined;
+  /** Ссылка действия письма — подтверждение почты. */
+  actionUrl?: string | undefined;
+  /** Подборка лотов для писем-списков: новые по сохранённому поиску, лоты
+   *  из вэлмес на исходе. Цена — та, что человек видит на витрине. */
+  lots?: Array<{ title: string; priceCents: number; endsAt?: Date | undefined }> | undefined;
+  /** BN-1: сколько всего позиций в брошенной корзине. */
+  cartCount?: number | undefined;
+  /** BN-2: цена до снижения. */
+  oldPriceCents?: number | undefined;
+  /** BN-2: на сколько процентов подешевело (целое число). */
+  dropPercent?: number | undefined;
+  /** Через кого прошла оплата — «inbank» меняет объяснение в письме. */
+  paidVia?: string | undefined;
+  /** Что именно случилось с платежом — фраза подбирается по языку письма. */
+  failureKind?: "cancelled" | undefined;
+  /** Имя оператора рассрочки: у нас их два (Inbank и Klix Pay Later). */
+  bnplProvider?: string | undefined;
+  /** Аукционный лот или продажа по фиксированной цене — последствия разные. */
+  saleType?: "auction" | "buy_now" | undefined;
+  /** Комиссия за отказ от аукционного лота, % (из настроек рынка). */
+  restockPercent?: number | undefined;
+  /** Накопившаяся плата за хранение, центы. */
+  storageCents?: number | undefined;
+  /** Тариф хранения за сутки, центы. */
+  storagePerDayCents?: number | undefined;
+  /** Сколько дней хранения были бесплатными. */
+  storageFreeDays?: number | undefined;
+  /** Имя сохранённого поиска, которому письмо соответствует. */
+  searchName?: string | undefined;
+  /** Сколько нашлось всего, если в письме показан не весь список. */
+  totalCount?: number | undefined;
+  /** Промокод (welcome / win-back): сам код, процент и срок действия.
+   *  Числа приходят из marketing_settings — в шаблонах их не зашивать. */
+  promoCode?: string | undefined;
+  promoPercent?: number | undefined;
+  promoDeadline?: Date | undefined;
+  /** Баллы лояльности: начислено этим заказом и текущий баланс (в центах). */
+  pointsEarnedCents?: number | undefined;
+  pointsBalanceCents?: number | undefined;
+  /** Реферальная программа: личная ссылка и размеры наград (в центах). */
+  referralUrl?: string | undefined;
+  referralSignupCents?: number | undefined;
+  referralOrderCents?: number | undefined;
+  referralPercent?: number | undefined;
+  /** Человеческое название категории — для писем «похожие лоты». */
+  categoryLabel?: string | undefined;
+
+  // ── Письма части A (пробелы покупательской переписки) ──
+  /** Сколько часов живёт ссылка сброса пароля. */
+  validHours?: number | undefined;
+  /** Баллы, которые сгорят, и дата сгорания. */
+  expiringCents?: number | undefined;
+  expiresAt?: Date | undefined;
+  /** Событие безопасности: password_changed | email_changed | new_device. */
+  securityEvent?: string | undefined;
+  /** Что видно про устройство/место входа — без точного IP в письме. */
+  deviceLabel?: string | undefined;
+  eventAt?: Date | undefined;
+  /** Доставка: посылка выдана на руки или ждёт в автомате N дней. */
+  waitingDays?: number | undefined;
+  /** Почему платёж не прошёл (человеческим языком, без кодов провайдера). */
+  failureReason?: string | undefined;
+
+  // ── Письма поставщикам (S1…S10) ──
+  /** Название поставщика и человек, к которому обращаемся. */
+  supplierName?: string | undefined;
+  /** Ссылка приглашения в кабинет поставщика и срок её жизни (дни). */
+  inviteUrl?: string | undefined;
+  inviteDays?: number | undefined;
+  /** Поставка: наш номер, заявлено/принято/брак. */
+  consignmentRef?: string | undefined;
+  declaredCount?: number | undefined;
+  acceptedCount?: number | undefined;
+  rejectedCount?: number | undefined;
+  /** Что именно не так и до какого числа ждём ответ. */
+  discrepancyNote?: string | undefined;
+  replyByDate?: Date | undefined;
+  /** Счёт поставщика: его номер, сумма, дата оплаты или причина отказа. */
+  invoiceNumber?: string | undefined;
+  dueDate?: Date | undefined;
+  rejectReason?: string | undefined;
+  /** Платёж: что оплачено и с каким референсом. */
+  paymentRef?: string | undefined;
+  paidAt?: Date | undefined;
+  invoiceNumbers?: string[] | undefined;
+  /** Период отчёта и его цифры. */
+  periodLabel?: string | undefined;
+  receivedCount?: number | undefined;
+  soldCount?: number | undefined;
+  soldGrossCents?: number | undefined;
+  sellThroughPercent?: number | undefined;
+  /** Комиссионная модель: наша комиссия и сумма к выплате. */
+  commissionCents?: number | undefined;
+  commissionPercent?: number | undefined;
+  payoutCents?: number | undefined;
+  /** Непроданный остаток: сколько единиц и до какой даты решить. */
+  unsoldCount?: number | undefined;
+  decideByDate?: Date | undefined;
+  /** Строки отчёта: что продано и за сколько. */
+  soldLots?: Array<{ title: string; priceCents: number }> | undefined;
 }
 
 /** Links and addresses the copy needs; supplied by config, never hard-coded. */
 export interface CopyContext {
   siteUrl: string;
+  /** Адрес кабинета поставщика: свой поддомен либо витрина + /piegadatajs. */
+  portalUrl: string;
   ordersUrl: string;
   feesUrl: string;
   pickupPassUrl: string;
@@ -123,6 +384,8 @@ const W = {
   status: { lv: "Statuss:", ru: "Статус:", en: "Status:" },
   totalDue: { lv: "Kopējā summa apmaksai:", ru: "Итого к оплате:", en: "Total due:" },
   hammer: { lv: "Āmura cena", ru: "Цена молотка", en: "Hammer price" },
+  /** Продажа по фиксированной цене: молотка не было, есть просто цена. */
+  priceNet: { lv: "Cena bez PVN", ru: "Цена без НДС", en: "Price excl. VAT" },
   premium: { lv: "Pircēja komisija", ru: "Комиссия покупателя", en: "Buyer's premium" },
   vat: { lv: "PVN", ru: "НДС", en: "VAT" },
   payBy: { lv: "Samaksāt līdz:", ru: "Оплатить до:", en: "Pay by:" },
@@ -154,10 +417,12 @@ const W = {
     ru: "Если не оплатить до срока:",
     en: "If it is not paid by the deadline:",
   },
+  /** Аукцион: ставка — обязательство, поэтому за неоплату есть комиссия.
+   *  Процент подставляется из настроек рынка, а не зашит в текст. */
   lateFeeText: {
-    lv: "pasūtījums tiek atcelts un tiek piemērota 5% uzglabāšanas maksa. Ja vajag vairāk laika — atraksti mums.",
-    ru: "заказ будет отменён, и удерживается 5% плата за хранение. Нужно больше времени — напишите нам.",
-    en: "the order is cancelled and a 5% restocking fee applies. Need more time? Write to us.",
+    lv: "pasūtījums tiek atcelts un tiek piemērota maksa par lota atgriešanu noliktavā. Ja vajag vairāk laika — atraksti mums.",
+    ru: "заказ будет отменён, и удерживается комиссия за возврат лота на склад. Нужно больше времени — напишите нам.",
+    en: "the order is cancelled and a fee for returning the lot to stock applies. Need more time? Write to us.",
   },
 } as const;
 
@@ -165,12 +430,57 @@ type Phrase = { lv: string; ru: string; en: string };
 const w = (p: Phrase, lang: Lang): string => p[lang];
 
 /** Money card lines from the invoice breakdown, when the caller has it. */
+/**
+ * Расшифровка суммы под итогом.
+ *
+ * Нулевая комиссия покупателя означает ровно одно: торгов не было, это
+ * продажа по фиксированной цене. Тогда и «цены молотка» не существует —
+ * строка называется ценой, а строки комиссии нет вовсе. Показывать человеку
+ * «комиссия за проведение торгов 0,00 €» там, где торгов не было, значит
+ * объяснять несуществующее.
+ */
 function breakdown(i: TemplateInput, lang: Lang): MoneyLine[] | undefined {
   if (i.hammerCents === undefined) return undefined;
-  const lines: MoneyLine[] = [{ label: w(W.hammer, lang), value: moneyIn(i.hammerCents, lang) }];
-  if (i.premiumCents !== undefined) lines.push({ label: w(W.premium, lang), value: moneyIn(i.premiumCents, lang) });
+  const auction = (i.premiumCents ?? 0) > 0;
+  const lines: MoneyLine[] = [
+    { label: w(auction ? W.hammer : W.priceNet, lang), value: moneyIn(i.hammerCents, lang) },
+  ];
+  if (auction) lines.push({ label: w(W.premium, lang), value: moneyIn(i.premiumCents, lang) });
   if (i.vatCents !== undefined) lines.push({ label: w(W.vat, lang), value: moneyIn(i.vatCents, lang) });
   return lines;
+}
+
+/**
+ * Блок «если не оплатить до срока».
+ *
+ * Последствия у двух видов продажи разные, и письмо обязано назвать именно
+ * те, что наступят. Ставка на торгах — обязательство: за неоплату есть
+ * комиссия за возврат лота на склад. Нажать «Купить» и не оплатить —
+ * брошенная корзина: заказ просто отменяется, вещь возвращается в продажу.
+ */
+function lateNote(i: TemplateInput, lang: Lang): { title: string; text: string } {
+  if (i.saleType === "buy_now") {
+    return {
+      title: { lv: "Ja neapmaksā līdz termiņam:", ru: "Если не оплатить до срока:", en: "If it is not paid by the deadline:" }[lang],
+      text: {
+        lv: "pasūtījums tiek atcelts automātiski un prece atgriežas pārdošanā. Soda naudas nav — bet prece ir vienā eksemplārā, un to var paspēt nopirkt kāds cits.",
+        ru: "заказ отменяется автоматически, и товар возвращается в продажу. Никаких штрафов — но вещь в одном экземпляре, и её может успеть купить кто-то другой.",
+        en: "the order is cancelled automatically and the item goes back on sale. No penalty — but there is only one of it, and someone else may buy it first.",
+      }[lang],
+    };
+  }
+  const pct = i.restockPercent;
+  const fee = pct
+    ? { lv: `${pct}% maksa par lota atgriešanu noliktavā`, ru: `комиссия ${pct}% за возврат лота на склад`, en: `a ${pct}% fee for returning the lot to stock` }[lang]
+    : { lv: "maksa par lota atgriešanu noliktavā", ru: "комиссия за возврат лота на склад", en: "a fee for returning the lot to stock" }[lang];
+  return {
+    title: w(W.lateFee, lang),
+    text: {
+      lv: `pasūtījums tiek atcelts un tiek piemērota ${fee}. Ja vajag vairāk laika — atraksti mums.`,
+      ru: `заказ будет отменён, и удерживается ${fee}. Нужно больше времени — напишите нам.`,
+      en: `the order is cancelled and ${fee} applies. Need more time? Write to us.`,
+    }[lang],
+  };
 }
 
 function orderFacts(i: TemplateInput, lang: Lang, ctx: CopyContext, status: Phrase, tone: Fact["tone"]): Fact[] {
@@ -244,6 +554,63 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
   const labels = labelsFor(lang);
 
   switch (type) {
+    // ── Подтверди почту ─────────────────────────────────────────────────────
+    case "verify_email": {
+      const subject = {
+        lv: "Apstiprini savu e-pastu — Izsoli.lv",
+        ru: "Подтвердите свою почту — Izsoli.lv",
+        en: "Confirm your e-mail — Izsoli.lv",
+      }[lang];
+      // Приветственный код −N% (IZ-P01): сервисная часть этого же письма,
+      // отдельной отправки нет. Появляется, когда движок его выпустил.
+      const promo = i.promoCode
+        ? {
+            lv: `\n\nDāvana pirmajam pirkumam: kods ${i.promoCode} dod −${i.promoPercent ?? 10}% jebkurai precei${i.promoDeadline ? ` līdz ${fmtDate(i.promoDeadline, "lv")}` : ""}.`,
+            ru: `\n\nПодарок на первую покупку: код ${i.promoCode} даёт −${i.promoPercent ?? 10}% на любой товар${i.promoDeadline ? ` до ${fmtDate(i.promoDeadline, "ru")}` : ""}.`,
+            en: `\n\nA first-purchase gift: code ${i.promoCode} gives ${i.promoPercent ?? 10}% off anything${i.promoDeadline ? ` until ${fmtDate(i.promoDeadline, "en")}` : ""}.`,
+          }[lang]
+        : "";
+      const text = {
+        lv: `Sveiki, ${i.alias}!\n\nApstiprini savu e-pastu, lai varētu solīt un pirkt: ${i.actionUrl}\nSaite derīga 24 stundas. Ja kontu neveidoji tu — vienkārši ignorē šo vēstuli.${promo}\n\n[verify_email]`,
+        ru: `Здравствуйте, ${i.alias}!\n\nПодтвердите почту, чтобы делать ставки и покупать: ${i.actionUrl}\nСсылка действует 24 часа. Если аккаунт создавали не вы — просто игнорируйте письмо.${promo}\n\n[verify_email]`,
+        en: `Hi ${i.alias},\n\nConfirm your e-mail to bid and buy: ${i.actionUrl}\nThe link is valid for 24 hours. If you did not create this account, just ignore this message.${promo}\n\n[verify_email]`,
+      }[lang];
+      return {
+        subject,
+        text,
+        spec: {
+          ...(i.promoCode
+            ? {
+                code: {
+                  label: { lv: "DĀVANA: ATLAIDES KODS", ru: "ПОДАРОК: КОД СКИДКИ", en: "GIFT: DISCOUNT CODE" }[lang],
+                  value: i.promoCode,
+                  note: {
+                    lv: `−${i.promoPercent ?? 10}% pirmajam pirkumam${i.promoDeadline ? ` · līdz ${fmtDate(i.promoDeadline, "lv")}` : ""}`,
+                    ru: `−${i.promoPercent ?? 10}% на первую покупку${i.promoDeadline ? ` · до ${fmtDate(i.promoDeadline, "ru")}` : ""}`,
+                    en: `${i.promoPercent ?? 10}% off your first purchase${i.promoDeadline ? ` · until ${fmtDate(i.promoDeadline, "en")}` : ""}`,
+                  }[lang],
+                },
+              }
+            : {}),
+          preheader: { lv: "Saite derīga 24 stundas", ru: "Ссылка действует 24 часа", en: "The link is valid for 24 hours" }[lang],
+          headline: { lv: "APSTIPRINI E-PASTU", ru: "ПОДТВЕРДИТЕ ПОЧТУ", en: "CONFIRM YOUR E-MAIL" }[lang],
+          headlineTone: "accent",
+          greeting: hi,
+          intro: {
+            lv: "Bez apstiprināta e-pasta solīšana un pirkšana ir slēgta — mēs nevarētu tev atsūtīt ne rēķinu, ne brīdinājumu par pārsolīšanu.",
+            ru: "Без подтверждённой почты ставки и покупки закрыты — мы не сможем прислать ни счёт, ни уведомление о перебитой ставке.",
+            en: "Bidding and buying stay locked until your e-mail is confirmed — we could not send you an invoice or an outbid alert otherwise.",
+          }[lang],
+          facts: [],
+          cta: {
+            label: { lv: "Apstiprināt e-pastu", ru: "Подтвердить почту", en: "Confirm e-mail" }[lang],
+            url: i.actionUrl ?? ctx.siteUrl,
+          },
+          labels,
+        },
+      };
+    }
+
     // ── Someone bid over you ────────────────────────────────────────────────
     case "outbid": {
       const subject = {
@@ -322,7 +689,7 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
           ctaNote: `${w(W.payBy, lang)} ${fmtDate(i.deadline, lang)}`,
           ctaSubnote: methodsLine(lang, ctx),
           notes: [
-            { title: w(W.lateFee, lang), text: w(W.lateFeeText, lang) },
+            lateNote(i, lang),
             {
               title: { lv: "Pēc apmaksas:", ru: "После оплаты:", en: "After payment:" }[lang],
               text: {
@@ -362,7 +729,7 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
           cta: payCta(i, lang, ctx),
           ctaNote: `${w(W.payBy, lang)} ${fmtDateTime(i.deadline, lang)}`,
           ctaSubnote: methodsLine(lang, ctx),
-          notes: [{ title: w(W.lateFee, lang), text: w(W.lateFeeText, lang), tone: "danger" }],
+          notes: [{ ...lateNote(i, lang), tone: "danger" }],
           footNote: i.orderRef,
           labels,
         },
@@ -371,12 +738,21 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
 
     // ── Money arrived ───────────────────────────────────────────────────────
     case "order_paid": {
+      // Баллы лояльности (IZ-P06): транзакционный абзац в письме об оплате —
+      // первый момент, когда система баллов становится осязаемой (MD §5a.3).
+      const pts = i.pointsEarnedCents
+        ? {
+            lv: `\n\nPar šo pirkumu tev ieskaitīti ${moneyIn(i.pointsEarnedCents, "lv")} punktos (kopā: ${moneyIn(i.pointsBalanceCents ?? i.pointsEarnedCents, "lv")}). 1 punkts = 1 € atlaide nākamajam pirkumam: ${ctx.siteUrl}/punkti`,
+            ru: `\n\nЗа эту покупку вам начислено ${moneyIn(i.pointsEarnedCents, "ru")} баллами (всего: ${moneyIn(i.pointsBalanceCents ?? i.pointsEarnedCents, "ru")}). 1 балл = скидка 1 € на следующую покупку: ${ctx.siteUrl}/punkti`,
+            en: `\n\nThis purchase earned you ${moneyIn(i.pointsEarnedCents, "en")} in points (balance: ${moneyIn(i.pointsBalanceCents ?? i.pointsEarnedCents, "en")}). 1 point = €1 off a future order: ${ctx.siteUrl}/punkti`,
+          }[lang]
+        : "";
       return {
         subject: { lv: `Apmaksa saņemta — ${i.orderRef}`, ru: `Оплата получена — ${i.orderRef}`, en: `Payment received — ${i.orderRef}` }[lang],
         text: {
-          lv: `Sveiki, ${i.alias}!\n\nMēs saņēmām apmaksu par pasūtījumu ${i.orderRef} (${moneyIn(i.totalCents, lang)}). Paldies!\n\n[order_paid]`,
-          ru: `Здравствуйте, ${i.alias}!\n\nМы получили оплату по заказу ${i.orderRef} (${moneyIn(i.totalCents, lang)}). Спасибо!\n\n[order_paid]`,
-          en: `Hi ${i.alias},\n\nWe received payment for order ${i.orderRef} (${moneyIn(i.totalCents, lang)}). Thank you!\n\n[order_paid]`,
+          lv: `Sveiki, ${i.alias}!\n\nMēs saņēmām apmaksu par pasūtījumu ${i.orderRef} (${moneyIn(i.totalCents, lang)}). Paldies!${pts}\n\n[order_paid]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nМы получили оплату по заказу ${i.orderRef} (${moneyIn(i.totalCents, lang)}). Спасибо!${pts}\n\n[order_paid]`,
+          en: `Hi ${i.alias},\n\nWe received payment for order ${i.orderRef} (${moneyIn(i.totalCents, lang)}). Thank you!${pts}\n\n[order_paid]`,
         }[lang],
         spec: {
           preheader: { lv: `${moneyIn(i.totalCents, lang)} saņemti · paldies!`, ru: `${moneyIn(i.totalCents, lang)} получены · спасибо!`, en: `${moneyIn(i.totalCents, lang)} received · thank you!` }[lang],
@@ -392,6 +768,19 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
           facts: orderFacts(i, lang, ctx, W.stPaid, "ok"),
           cta: { label: w(W.openOrders, lang), url: ctx.ordersUrl },
           notes: [
+            // Рассрочка: нам заплатил банк, и человек ничего не должен нам —
+            // но должен банку по его графику. Без этой строчки «оплачено»
+            // читается как «расчёты закончены», и это неправда.
+            ...(i.paidVia === "inbank" || i.paidVia === "klix_pay_later"
+              ? [{
+                  title: { lv: "Par nomaksas maksājumu:", ru: "Про оплату в рассрочку:", en: "About your instalment payment:" }[lang],
+                  text: {
+                    lv: `pasūtījums mums ir apmaksāts pilnā apmērā — mums tu vairs neko nemaksā. Turpmākie maksājumi notiek pēc ${i.bnplProvider ?? "bankas"} grafika, un par tiem raksta pati banka.`,
+                    ru: `заказ у нас оплачен полностью — нам вы больше ничего не должны. Дальнейшие платежи идут по графику ${i.bnplProvider ?? "банка"}, и по ним пишет сам банк.`,
+                    en: `the order is paid in full on our side — you owe us nothing further. The remaining instalments follow ${i.bnplProvider ?? "the bank"}'s schedule, and the bank contacts you about them.`,
+                  }[lang],
+                }]
+              : []),
             {
               title: { lv: "Kas tālāk:", ru: "Что дальше:", en: "What happens next:" }[lang],
               text: {
@@ -400,6 +789,17 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
                 en: "we will send the collection code in a separate email as soon as the lot is ready.",
               }[lang],
             },
+            ...(i.pointsEarnedCents
+              ? [{
+                  title: { lv: "Tavi punkti:", ru: "Ваши баллы:", en: "Your points:" }[lang],
+                  text: {
+                    lv: `par šo pirkumu ieskaitīti ${moneyIn(i.pointsEarnedCents, "lv")} punktos (kopā ${moneyIn(i.pointsBalanceCents ?? i.pointsEarnedCents, "lv")}). 1 punkts = 1 € atlaide nākamajam pirkumam.`,
+                    ru: `за эту покупку начислено ${moneyIn(i.pointsEarnedCents, "ru")} баллами (всего ${moneyIn(i.pointsBalanceCents ?? i.pointsEarnedCents, "ru")}). 1 балл = скидка 1 € на следующую покупку.`,
+                    en: `this purchase earned ${moneyIn(i.pointsEarnedCents, "en")} in points (balance ${moneyIn(i.pointsBalanceCents ?? i.pointsEarnedCents, "en")}). 1 point = €1 off a future order.`,
+                  }[lang],
+                  tone: "ok" as const,
+                }]
+              : []),
           ],
           footNote: i.orderRef,
           labels,
@@ -479,15 +879,54 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
 
     // ── Cancelled: never paid ───────────────────────────────────────────────
     case "unpaid_cancelled": {
+      // Товар с ценником: заказ просто отменён, штрафа нет — и письмо не
+      // должно пугать несуществующим долгом.
+      if (i.saleType === "buy_now" || (i.feeCents ?? 0) <= 0) {
+        return {
+          subject: { lv: `Pasūtījums atcelts — ${i.orderRef}`, ru: `Заказ отменён — ${i.orderRef}`, en: `Order cancelled — ${i.orderRef}` }[lang],
+          text: {
+            lv: `Sveiki, ${i.alias}!\n\nPasūtījums ${i.orderRef} netika apmaksāts līdz termiņam un ir atcelts. Prece atgriezta pārdošanā.\n\nNekādu maksu par to nav — konts strādā kā parasti. Ja prece vēl interesē, paskaties, vai tā vēl ir katalogā: ${ctx.siteUrl}/katalogs\n\n[unpaid_cancelled]`,
+            ru: `Здравствуйте, ${i.alias}!\n\nЗаказ ${i.orderRef} не был оплачен в срок и отменён. Товар вернулся в продажу.\n\nНикаких сборов за это нет — аккаунт работает как обычно. Если вещь ещё интересна, посмотрите, осталась ли она в каталоге: ${ctx.siteUrl}/katalogs\n\n[unpaid_cancelled]`,
+            en: `Hi ${i.alias},\n\nOrder ${i.orderRef} was not paid by the deadline and has been cancelled. The item is back on sale.\n\nThere is no fee for this — your account works as usual. If you still want it, check whether it is still in the catalogue: ${ctx.siteUrl}/katalogs\n\n[unpaid_cancelled]`,
+          }[lang],
+          spec: {
+            preheader: { lv: "Prece atgriezta pārdošanā", ru: "Товар вернулся в продажу", en: "The item is back on sale" }[lang],
+            headline: { lv: "PASŪTĪJUMS ATCELTS", ru: "ЗАКАЗ ОТМЕНЁН", en: "ORDER CANCELLED" }[lang],
+            headlineTone: "warn",
+            greeting: hi,
+            intro: {
+              lv: `Pasūtījums ${i.orderRef} netika apmaksāts līdz termiņam, tāpēc tas ir atcelts, un prece atgriezta pārdošanā. Nekādu maksu par to nav.`,
+              ru: `Заказ ${i.orderRef} не был оплачен в срок, поэтому он отменён, а товар вернулся в продажу. Никаких сборов за это нет.`,
+              en: `Order ${i.orderRef} was not paid by the deadline, so it has been cancelled and the item is back on sale. There is no fee for this.`,
+            }[lang],
+            facts: orderFacts(i, lang, ctx, W.stCancelled, "warn"),
+            cta: {
+              label: { lv: "Skatīt katalogu", ru: "Посмотреть каталог", en: "Browse the catalogue" }[lang],
+              url: `${ctx.siteUrl}/katalogs`,
+            },
+            notes: [
+              {
+                title: { lv: "Ja prece vēl vajadzīga:", ru: "Если вещь ещё нужна:", en: "If you still want it:" }[lang],
+                text: {
+                  lv: "preces pie mums parasti ir vienā eksemplārā — paskaties katalogā, vai tā vēl ir brīva.",
+                  ru: "вещи у нас обычно в одном экземпляре — посмотрите в каталоге, свободна ли она ещё.",
+                  en: "our items are usually one of a kind — check the catalogue to see if it is still available.",
+                }[lang],
+              },
+            ],
+            labels,
+          },
+        };
+      }
       return {
         subject: { lv: `Pasūtījums atcelts (nav apmaksāts) — ${i.orderRef}`, ru: `Заказ отменён (не оплачен) — ${i.orderRef}`, en: `Order cancelled (not paid) — ${i.orderRef}` }[lang],
         text: {
-          lv: `Sveiki, ${i.alias}!\n\nPasūtījums ${i.orderRef} netika apmaksāts līdz termiņam un ir atcelts. Saskaņā ar noteikumiem tiek piemērota 5% uzglabāšanas maksa: ${moneyIn(i.feeCents, lang)}.\nKamēr maksa nav nokārtota, solīšana un pirkšana jūsu kontā ir apturēta.\n\n[unpaid_cancelled]`,
-          ru: `Здравствуйте, ${i.alias}!\n\nЗаказ ${i.orderRef} не был оплачен в срок и отменён. Согласно правилам удерживается 5% плата за хранение: ${moneyIn(i.feeCents, lang)}.\nПока она не погашена, ставки и покупки в вашем аккаунте приостановлены.\n\n[unpaid_cancelled]`,
-          en: `Hi ${i.alias},\n\nOrder ${i.orderRef} was not paid by the deadline and has been cancelled. Per our terms a 5% restocking fee applies: ${moneyIn(i.feeCents, lang)}.\nBidding and buying on your account are paused until the fee is settled.\n\n[unpaid_cancelled]`,
+          lv: `Sveiki, ${i.alias}!\n\nPasūtījums ${i.orderRef} netika apmaksāts līdz termiņam un ir atcelts. Saskaņā ar noteikumiem tiek piemērota maksa par lota atgriešanu noliktavā${i.restockPercent ? ` (${i.restockPercent}%)` : ""}: ${moneyIn(i.feeCents, lang)}.\nKamēr maksa nav nokārtota, solīšana un pirkšana jūsu kontā ir apturēta.\n\n[unpaid_cancelled]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nЗаказ ${i.orderRef} не был оплачен в срок и отменён. Согласно правилам удерживается комиссия за возврат лота на склад${i.restockPercent ? ` (${i.restockPercent}%)` : ""}: ${moneyIn(i.feeCents, lang)}.\nПока она не погашена, ставки и покупки в вашем аккаунте приостановлены.\n\n[unpaid_cancelled]`,
+          en: `Hi ${i.alias},\n\nOrder ${i.orderRef} was not paid by the deadline and has been cancelled. Per our terms a fee for returning the lot to stock${i.restockPercent ? ` (${i.restockPercent}%)` : ""} applies: ${moneyIn(i.feeCents, lang)}.\nBidding and buying on your account are paused until the fee is settled.\n\n[unpaid_cancelled]`,
         }[lang],
         spec: {
-          preheader: { lv: `Uzglabāšanas maksa ${moneyIn(i.feeCents, lang)}`, ru: `Плата за хранение ${moneyIn(i.feeCents, lang)}`, en: `Restocking fee ${moneyIn(i.feeCents, lang)}` }[lang],
+          preheader: { lv: `Atgriešanas maksa ${moneyIn(i.feeCents, lang)}`, ru: `Комиссия за возврат ${moneyIn(i.feeCents, lang)}`, en: `Restocking fee ${moneyIn(i.feeCents, lang)}` }[lang],
           headline: { lv: "PASŪTĪJUMS ATCELTS", ru: "ЗАКАЗ ОТМЕНЁН", en: "ORDER CANCELLED" }[lang],
           headlineTone: "danger",
           greeting: hi,
@@ -497,7 +936,11 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
             en: `Order ${i.orderRef} was not paid by the deadline, so it has been cancelled and the lot returned to sale.`,
           }[lang],
           amount: {
-            label: { lv: "Uzglabāšanas maksa (5%):", ru: "Плата за хранение (5%):", en: "Restocking fee (5%):" }[lang],
+            label: {
+              lv: `Maksa par atgriešanu noliktavā${i.restockPercent ? ` (${i.restockPercent}%)` : ""}:`,
+              ru: `Комиссия за возврат на склад${i.restockPercent ? ` (${i.restockPercent}%)` : ""}:`,
+              en: `Restocking fee${i.restockPercent ? ` (${i.restockPercent}%)` : ""}:`,
+            }[lang],
             value: moneyIn(i.feeCents, lang),
           },
           facts: orderFacts(i, lang, ctx, W.stCancelled, "danger"),
@@ -690,6 +1133,1430 @@ export function renderCopy(type: NotificationType, lang: Lang, i: TemplateInput,
         },
       };
     }
+
+    // ── Marketing: new lots matching a saved search (LC-02) ─────────────────
+    case "saved_search_hits": {
+      const lots = i.lots ?? [];
+      const total = i.totalCount ?? lots.length;
+      const name = i.searchName ?? "";
+      const listText = lots
+        .map((l) => `• ${l.title} — ${moneyIn(l.priceCents, lang)}`)
+        .join("\n");
+      const more = total > lots.length
+        ? { lv: `\n…un vēl ${total - lots.length} loti.`, ru: `\n…и ещё ${total - lots.length} лотов.`, en: `\n…and ${total - lots.length} more lots.` }[lang]
+        : "";
+      return {
+        subject: {
+          lv: `Jauni loti: ${name} (${total})`,
+          ru: `Новые лоты: ${name} (${total})`,
+          en: `New lots: ${name} (${total})`,
+        }[lang],
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nPēc jūsu saglabātā meklējuma «${name}» ir parādījušies jauni loti:\n\n${listText}${more}\n\nSkatīt visus: ${ctx.siteUrl}/meklet\n\n[saved_search_hits]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nПо вашему сохранённому поиску «${name}» появились новые лоты:\n\n${listText}${more}\n\nСмотреть все: ${ctx.siteUrl}/meklet\n\n[saved_search_hits]`,
+          en: `Hi ${i.alias},\n\nNew lots have appeared for your saved search "${name}":\n\n${listText}${more}\n\nSee them all: ${ctx.siteUrl}/meklet\n\n[saved_search_hits]`,
+        }[lang],
+        spec: {
+          preheader: {
+            lv: `${total} jauni loti pēc meklējuma «${name}»`,
+            ru: `${total} новых лотов по поиску «${name}»`,
+            en: `${total} new lots for "${name}"`,
+          }[lang],
+          headline: { lv: "JAUNI LOTI JŪSU MEKLĒJUMĀ", ru: "НОВЫЕ ЛОТЫ ПО ВАШЕМУ ПОИСКУ", en: "NEW LOTS FOR YOUR SEARCH" }[lang],
+          headlineTone: "accent",
+          greeting: hi,
+          intro: {
+            lv: `Pēc saglabātā meklējuma «${name}» kopš pēdējās vēstules ir parādījušies ${total} jauni loti. Cena ir galīgā — bez piemaksām pie kases.`,
+            ru: `По сохранённому поиску «${name}» с прошлого письма появились новые лоты: ${total}. Цена финальная — без доплат на кассе.`,
+            en: `Since our last message, ${total} new lots have appeared for your saved search "${name}". The price you see is final — nothing added at checkout.`,
+          }[lang],
+          facts: lots.map((l) => ({ label: `${l.title}:`, value: moneyIn(l.priceCents, lang) })),
+          cta: { label: { lv: "Skatīt lotus", ru: "Смотреть лоты", en: "See the lots" }[lang], url: `${ctx.siteUrl}/meklet` },
+          ...(total > lots.length
+            ? {
+                ctaNote: {
+                  lv: `Vēstulē redzami pirmie ${lots.length} — pavisam ${total}.`,
+                  ru: `В письме первые ${lots.length} — всего ${total}.`,
+                  en: `Showing the first ${lots.length} of ${total}.`,
+                }[lang],
+              }
+            : {}),
+          labels,
+        },
+      };
+    }
+
+    // ── Marketing: watched lots about to close ──────────────────────────────
+    case "watchlist_ending": {
+      const lots = i.lots ?? [];
+      const listText = lots
+        .map((l) => `• ${l.title} — ${moneyIn(l.priceCents, lang)}${l.endsAt ? ` (${fmtDateTime(l.endsAt, lang)})` : ""}`)
+        .join("\n");
+      const one = lots.length === 1;
+      return {
+        subject: one
+          ? { lv: `Drīz noslēgsies: ${lots[0]!.title}`, ru: `Скоро завершится: ${lots[0]!.title}`, en: `Ending soon: ${lots[0]!.title}` }[lang]
+          : { lv: `${lots.length} jūsu vēlmju loti drīz noslēgsies`, ru: `${lots.length} лотов из вашего списка скоро завершатся`, en: `${lots.length} of your watched lots are ending soon` }[lang],
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nLoti no jūsu vēlmju saraksta drīz noslēgsies:\n\n${listText}\n\nPaspējiet nosolīt: ${ctx.siteUrl}/velmes\n\n[watchlist_ending]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nЛоты из вашего списка желаний скоро завершатся:\n\n${listText}\n\nУспейте сделать ставку: ${ctx.siteUrl}/velmes\n\n[watchlist_ending]`,
+          en: `Hi ${i.alias},\n\nLots on your watchlist are about to close:\n\n${listText}\n\nThere is still time to bid: ${ctx.siteUrl}/velmes\n\n[watchlist_ending]`,
+        }[lang],
+        spec: {
+          preheader: {
+            lv: "Pēdējā iespēja nosolīt sekotos lotus",
+            ru: "Последний шанс поставить на отслеживаемые лоты",
+            en: "Last chance to bid on the lots you follow",
+          }[lang],
+          headline: { lv: "DRĪZ NOSLĒGSIES", ru: "СКОРО ЗАВЕРШИТСЯ", en: "ENDING SOON" }[lang],
+          headlineTone: "warn",
+          greeting: hi,
+          intro: {
+            lv: "Loti, kuriem sekojat, tuvojas beigām. Ja kāds no tiem ir jūsējais — tagad ir īstais brīdis.",
+            ru: "Лоты, за которыми вы следите, подходят к концу. Если какой-то из них ваш — сейчас самое время.",
+            en: "The lots you follow are coming to a close. If one of them is yours, now is the moment.",
+          }[lang],
+          facts: lots.map((l) => ({
+            label: `${l.title}:`,
+            value: `${moneyIn(l.priceCents, lang)}${l.endsAt ? ` · ${fmtDateTime(l.endsAt, lang)}` : ""}`,
+            tone: "warn" as const,
+          })),
+          cta: { label: { lv: "Uz vēlmju sarakstu", ru: "К списку желаний", en: "To your watchlist" }[lang], url: `${ctx.siteUrl}/velmes` },
+          labels,
+        },
+      };
+    }
+
+    // ── v15: напоминание о неиспользованном welcome-коде (IZ-P02) ──────────
+    case "welcome_reminder": {
+      const pct = i.promoPercent ?? 10;
+      const code = i.promoCode ?? "";
+      const till = fmtDate(i.promoDeadline, lang);
+      return {
+        subject: {
+          lv: `Tava atlaide −${pct}% vēl gaida — derīga līdz ${till}`,
+          ru: `Ваша скидка −${pct}% ещё ждёт — действует до ${till}`,
+          en: `Your ${pct}% discount is still waiting — valid until ${till}`,
+        }[lang],
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nTavs atlaides kods pirmajam pirkumam vēl nav izmantots:\n\n${code} — −${pct}% jebkurai precei, derīgs līdz ${till}.\n\nIzvēlies preci: ${ctx.siteUrl}/katalogs\n\n[welcome_reminder]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nВаш код скидки на первую покупку ещё не использован:\n\n${code} — −${pct}% на любой товар, действует до ${till}.\n\nВыбрать товар: ${ctx.siteUrl}/katalogs\n\n[welcome_reminder]`,
+          en: `Hi ${i.alias},\n\nYour first-purchase discount code is still unused:\n\n${code} — ${pct}% off anything, valid until ${till}.\n\nPick something: ${ctx.siteUrl}/katalogs\n\n[welcome_reminder]`,
+        }[lang],
+        spec: {
+          preheader: { lv: `Kods ${code} derīgs līdz ${till}`, ru: `Код ${code} действует до ${till}`, en: `Code ${code} valid until ${till}` }[lang],
+          headline: { lv: `TAVA ATLAIDE −${pct}%`, ru: `ВАША СКИДКА −${pct}%`, en: `YOUR ${pct}% DISCOUNT` }[lang],
+          headlineTone: "accent",
+          greeting: hi,
+          intro: {
+            lv: `Reģistrējoties tu saņēmi −${pct}% pirmajam pirkumam. Kods vēl nav izmantots — un drīz beigsies.`,
+            ru: `При регистрации вы получили −${pct}% на первую покупку. Код ещё не использован — и скоро сгорит.`,
+            en: `You received ${pct}% off your first purchase when you signed up. The code is still unused — and about to expire.`,
+          }[lang],
+          code: { label: { lv: "ATLAIDES KODS", ru: "КОД СКИДКИ", en: "DISCOUNT CODE" }[lang], value: code, note: { lv: `Derīgs līdz ${till}`, ru: `Действует до ${till}`, en: `Valid until ${till}` }[lang] },
+          cta: { label: { lv: "Izvēlēties preci", ru: "Выбрать товар", en: "Pick something" }[lang], url: `${ctx.siteUrl}/katalogs` },
+          labels,
+        },
+      };
+    }
+
+    // ── v15: 14 дней тишины — топ-лоты любимой категории (IZ-P03) ─────────
+    case "inactive_nudge": {
+      const lots = i.lots ?? [];
+      const cat = i.categoryLabel ?? "";
+      const listText = lots.map((l) => `• ${l.title} — ${moneyIn(l.priceCents, lang)}`).join("\n");
+      return {
+        subject: cat
+          ? { lv: `Jaunumi kategorijā ${cat}`, ru: `Новинки в категории «${cat}»`, en: `New in ${cat}` }[lang]
+          : { lv: "Šobrīd izsolē — atlasīts tev", ru: "Сейчас на торгах — подборка для вас", en: "On the block right now — picked for you" }[lang],
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nKamēr tevis nebija, izsolē parādījās loti, kas varētu interesēt:\n\n${listText}\n\nSkatīt: ${ctx.siteUrl}/katalogs\n\n[inactive_nudge]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nПока вас не было, на торгах появились лоты, которые могут быть интересны:\n\n${listText}\n\nСмотреть: ${ctx.siteUrl}/katalogs\n\n[inactive_nudge]`,
+          en: `Hi ${i.alias},\n\nWhile you were away, lots you might like have come up:\n\n${listText}\n\nHave a look: ${ctx.siteUrl}/katalogs\n\n[inactive_nudge]`,
+        }[lang],
+        spec: {
+          preheader: { lv: "Atlasīti loti pēc tavām interesēm", ru: "Лоты, подобранные по вашим интересам", en: "Lots picked around your interests" }[lang],
+          headline: { lv: "TEV VARĒTU PATIKT", ru: "ВАМ МОЖЕТ ПОНРАВИТЬСЯ", en: "YOU MIGHT LIKE THESE" }[lang],
+          headlineTone: "accent",
+          greeting: hi,
+          intro: cat
+            ? { lv: `Kategorijā «${cat}», kuru skaties visbiežāk, ir jauni loti. Cena — galīgā, bez piemaksām.`, ru: `В категории «${cat}», которую вы смотрите чаще всего, новые лоты. Цена финальная, без доплат.`, en: `New lots in ${cat} — the category you browse most. The price you see is final.` }[lang]
+            : { lv: "Šobrīd izsolē ir loti, kas sasaucas ar tavām interesēm.", ru: "Сейчас на торгах есть лоты, созвучные вашим интересам.", en: "There are lots on the block right now that match your interests." }[lang],
+          facts: lots.map((l) => ({ label: `${l.title}:`, value: moneyIn(l.priceCents, lang) })),
+          cta: { label: { lv: "Skatīt katalogu", ru: "Смотреть каталог", en: "Browse the catalogue" }[lang], url: `${ctx.siteUrl}/katalogs` },
+          labels,
+        },
+      };
+    }
+
+    // ── v15: win-back спящему клиенту с личным кодом (IZ-P11) ─────────────
+    case "winback_offer": {
+      const pct = i.promoPercent ?? 15;
+      const code = i.promoCode ?? "";
+      const till = fmtDate(i.promoDeadline, lang);
+      const cat = i.categoryLabel;
+      return {
+        subject: cat
+          ? { lv: `−${pct}% kategorijā ${cat} — tikai tev`, ru: `−${pct}% в категории «${cat}» — только для вас`, en: `${pct}% off in ${cat} — just for you` }[lang]
+          : { lv: `Sen neredzēts — −${pct}% nākamajam pirkumam`, ru: `Давно не виделись — −${pct}% на следующую покупку`, en: `It has been a while — ${pct}% off your next purchase` }[lang],
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nSen neesi pie mums iegriezies. Atgriešanās dāvana:\n\n${code} — −${pct}%${cat ? ` kategorijā «${cat}»` : ""}, derīgs līdz ${till}.\n\nSkatīt lotus: ${ctx.siteUrl}/katalogs\n\n[winback_offer]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nВы давно к нам не заглядывали. Подарок на возвращение:\n\n${code} — −${pct}%${cat ? ` в категории «${cat}»` : ""}, действует до ${till}.\n\nСмотреть лоты: ${ctx.siteUrl}/katalogs\n\n[winback_offer]`,
+          en: `Hi ${i.alias},\n\nIt has been a while. A welcome-back gift:\n\n${code} — ${pct}% off${cat ? ` in ${cat}` : ""}, valid until ${till}.\n\nSee the lots: ${ctx.siteUrl}/katalogs\n\n[winback_offer]`,
+        }[lang],
+        spec: {
+          preheader: { lv: `Personīgs kods ${code} līdz ${till}`, ru: `Личный код ${code} до ${till}`, en: `Personal code ${code} until ${till}` }[lang],
+          headline: { lv: "ATGRIEŠANĀS DĀVANA", ru: "ПОДАРОК НА ВОЗВРАЩЕНИЕ", en: "A WELCOME-BACK GIFT" }[lang],
+          headlineTone: "accent",
+          greeting: hi,
+          intro: cat
+            ? { lv: `Kopš pēdējā pirkuma kategorijā «${cat}» ir daudz jauna. Šis kods ir personīgs un der tikai tev.`, ru: `С вашей последней покупки в категории «${cat}» много нового. Этот код личный и действует только для вас.`, en: `A lot has arrived in ${cat} since your last purchase. This code is personal to you.` }[lang]
+            : { lv: "Kopš pēdējā pirkuma pie mums ir daudz jauna. Šis kods ir personīgs un der tikai tev.", ru: "С вашей последней покупки у нас много нового. Этот код личный и действует только для вас.", en: "A lot has arrived since your last purchase. This code is personal to you." }[lang],
+          code: { label: { lv: "TAVS KODS", ru: "ВАШ КОД", en: "YOUR CODE" }[lang], value: code, note: { lv: `−${pct}% · līdz ${till}`, ru: `−${pct}% · до ${till}`, en: `${pct}% off · until ${till}` }[lang] },
+          cta: { label: { lv: "Skatīt lotus", ru: "Смотреть лоты", en: "See the lots" }[lang], url: `${ctx.siteUrl}/katalogs` },
+          labels,
+        },
+      };
+    }
+
+    // ── v15: похожие лоты после проигранных торгов (IZ-P05) ───────────────
+    case "lost_bid_similar": {
+      const lots = i.lots ?? [];
+      const listText = lots.map((l) => `• ${l.title} — ${moneyIn(l.priceCents, lang)}`).join("\n");
+      return {
+        subject: {
+          lv: `Šī izsole aizgāja citam — bet ir līdzīgi loti`,
+          ru: `Этот лот ушёл другому — но есть похожие`,
+          en: `That one got away — but there are similar lots`,
+        }[lang],
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nIzsole "${i.lotTitle}" noslēdzās bez tavas uzvaras. Šobrīd solās līdzīgi loti:\n\n${listText}\n\nSkatīt: ${ctx.siteUrl}/katalogs\n\n[lost_bid_similar]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nТорги «${i.lotTitle}» завершились не в вашу пользу. Сейчас на торгах похожие лоты:\n\n${listText}\n\nСмотреть: ${ctx.siteUrl}/katalogs\n\n[lost_bid_similar]`,
+          en: `Hi ${i.alias},\n\nThe auction for "${i.lotTitle}" closed without you. Similar lots are on the block right now:\n\n${listText}\n\nHave a look: ${ctx.siteUrl}/katalogs\n\n[lost_bid_similar]`,
+        }[lang],
+        spec: {
+          preheader: { lv: "Līdzīgi loti vēl solās", ru: "Похожие лоты ещё торгуются", en: "Similar lots are still open" }[lang],
+          headline: { lv: "VĒL NAV PAR VĒLU", ru: "ЕЩЁ НЕ ПОЗДНО", en: "NOT TOO LATE" }[lang],
+          headlineTone: "accent",
+          greeting: hi,
+          intro: {
+            lv: `"${i.lotTitle}" aizgāja citam solītājam — bet līdzīgi loti vēl ir spēlē.`,
+            ru: `«${i.lotTitle}» достался другому участнику — но похожие лоты ещё в игре.`,
+            en: `"${i.lotTitle}" went to another bidder — but similar lots are still in play.`,
+          }[lang],
+          facts: lots.map((l) => ({ label: `${l.title}:`, value: moneyIn(l.priceCents, lang) })),
+          cta: { label: { lv: "Skatīt līdzīgos", ru: "Смотреть похожие", en: "See similar lots" }[lang], url: `${ctx.siteUrl}/katalogs` },
+          labels,
+        },
+      };
+    }
+
+    // ── v15: запрос отзыва после выдачи (IZ-P07) ──────────────────────────
+    case "review_request": {
+      const url = i.actionUrl ?? ctx.siteUrl;
+      return {
+        subject: {
+          lv: `Kā tev ar pirkumu «${i.lotTitle}»?`,
+          ru: `Как вам покупка «${i.lotTitle}»?`,
+          en: `How is your "${i.lotTitle}"?`,
+        }[lang],
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nCeram, ka «${i.lotTitle}» (pasūtījums ${i.orderRef}) tevi priecē. Īss atsauksme palīdz gan mums, gan nākamajiem pircējiem: ${url}\n\n[review_request]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nНадеемся, «${i.lotTitle}» (заказ ${i.orderRef}) вас радует. Короткий отзыв помогает и нам, и следующим покупателям: ${url}\n\n[review_request]`,
+          en: `Hi ${i.alias},\n\nWe hope you are enjoying "${i.lotTitle}" (order ${i.orderRef}). A short review helps us and the next buyers alike: ${url}\n\n[review_request]`,
+        }[lang],
+        spec: {
+          preheader: { lv: "Divas minūtes — un tavs viedoklis palīdz citiem", ru: "Две минуты — и ваше мнение поможет другим", en: "Two minutes — and your view helps others" }[lang],
+          headline: { lv: "PASTĀSTI, KĀ SANĀCA", ru: "РАССКАЖИТЕ, КАК ВСЁ ПРОШЛО", en: "TELL US HOW IT WENT" }[lang],
+          headlineTone: "accent",
+          greeting: hi,
+          intro: {
+            lv: `Pirkums «${i.lotTitle}» ir pie tevis. Ja atradīsi divas minūtes atsauksmei — mēs to tiešām izlasām, un nākamajiem pircējiem tā ir zelta vērtē.`,
+            ru: `Покупка «${i.lotTitle}» уже у вас. Если найдёте две минуты на отзыв — мы правда его читаем, а следующим покупателям он на вес золота.`,
+            en: `Your purchase "${i.lotTitle}" is with you now. If you can spare two minutes for a review — we genuinely read them, and future buyers rely on them.`,
+          }[lang],
+          facts: i.orderRef ? [{ label: w(W.orderNo, lang), value: i.orderRef }] : [],
+          cta: { label: { lv: "Atstāt atsauksmi", ru: "Оставить отзыв", en: "Leave a review" }[lang], url },
+          labels,
+        },
+      };
+    }
+
+    // ── v15: приглашение в реферальную программу (IZ-P04) ─────────────────
+    case "referral_invite": {
+      const url = i.referralUrl ?? ctx.siteUrl;
+      const s = moneyIn(i.referralSignupCents, lang);
+      const o = moneyIn(i.referralOrderCents, lang);
+      const pct = i.referralPercent ?? 15;
+      return {
+        subject: {
+          lv: "Uzaicini draugu — nopelni punktus",
+          ru: "Пригласите друга — заработайте баллы",
+          en: "Invite a friend — earn points",
+        }[lang],
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nTev acīmredzot pie mums patīk — uzaicini draugu! Draugs saņem −${pct}% pirmajam pirkumam, tu — ${s} punktos par viņa reģistrāciju un vēl ${o}, kad viņš izdara pirmo pirkumu.\n\nTava personīgā saite: ${url}\n\n[referral_invite]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nПохоже, вам у нас нравится — пригласите друга! Друг получит −${pct}% на первую покупку, вы — ${s} баллами за его регистрацию и ещё ${o}, когда он совершит первую покупку.\n\nВаша личная ссылка: ${url}\n\n[referral_invite]`,
+          en: `Hi ${i.alias},\n\nIt looks like you are enjoying izsoli.lv — invite a friend! They get ${pct}% off their first purchase; you get ${s} in points when they sign up and another ${o} when they make their first purchase.\n\nYour personal link: ${url}\n\n[referral_invite]`,
+        }[lang],
+        spec: {
+          preheader: { lv: `Draugam −${pct}%, tev punkti`, ru: `Другу −${pct}%, вам баллы`, en: `${pct}% for them, points for you` }[lang],
+          headline: { lv: "UZAICINI DRAUGU", ru: "ПРИГЛАСИТЕ ДРУГА", en: "INVITE A FRIEND" }[lang],
+          headlineTone: "accent",
+          greeting: hi,
+          intro: {
+            lv: `Draugs saņem −${pct}% pirmajam pirkumam. Tu nopelni ${s}, kad viņš apstiprina e-pastu, un vēl ${o}, kad viņš izdara pirmo pirkumu.`,
+            ru: `Друг получает −${pct}% на первую покупку. Вы зарабатываете ${s}, когда он подтвердит почту, и ещё ${o} после его первой покупки.`,
+            en: `Your friend gets ${pct}% off their first purchase. You earn ${s} when they confirm their e-mail and another ${o} after their first purchase.`,
+          }[lang],
+          facts: [],
+          cta: { label: { lv: "Dalīties ar saiti", ru: "Поделиться ссылкой", en: "Share your link" }[lang], url },
+          ctaNote: url,
+          labels,
+        },
+      };
+    }
+
+    // ── §6.1: смотрел лот, не ставил, торги на исходе ─────────────────────
+    case "abandoned_bid": {
+      const price = moneyIn(i.amountCents, lang);
+      const url = i.actionUrl ?? `${ctx.siteUrl}/katalogs`;
+      return {
+        subject: {
+          lv: `«${i.lotTitle}» drīz noslēgsies — tu to apskatīji`,
+          ru: `«${i.lotTitle}» скоро закроется — вы его смотрели`,
+          en: `"${i.lotTitle}" is about to close — you were looking at it`,
+        }[lang],
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nLots, kuru nesen apskatīji, drīz noslēgsies:\n\n${i.lotTitle} — pašlaik ${price}.\n\nJa tas vēl interesē, tagad ir īstais brīdis: ${url}\n\n[abandoned_bid]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nЛот, который вы недавно смотрели, скоро закроется:\n\n${i.lotTitle} — сейчас ${price}.\n\nЕсли он ещё интересен, сейчас самое время: ${url}\n\n[abandoned_bid]`,
+          en: `Hi ${i.alias},\n\nA lot you looked at recently is about to close:\n\n${i.lotTitle} — currently at ${price}.\n\nIf you are still interested, now is the moment: ${url}\n\n[abandoned_bid]`,
+        }[lang],
+        spec: {
+          preheader: { lv: "Izsole tuvojas beigām", ru: "Торги подходят к концу", en: "The auction is ending" }[lang],
+          headline: { lv: "DRĪZ NOSLĒGSIES", ru: "СКОРО ЗАКРОЕТСЯ", en: "CLOSING SOON" }[lang],
+          headlineTone: "accent",
+          greeting: hi,
+          intro: {
+            lv: `«${i.lotTitle}» ir izsolē pēdējās stundas — pašlaik ${price}. Tu to apskatīji, bet solījumu neizdarīji.`,
+            ru: `«${i.lotTitle}» на торгах последние часы — сейчас ${price}. Вы его смотрели, но ставку не сделали.`,
+            en: `"${i.lotTitle}" is in its final hours — currently at ${price}. You looked but did not bid.`,
+          }[lang],
+          cta: { label: { lv: "Atvērt lotu", ru: "Открыть лот", en: "Open the lot" }[lang], url },
+          labels,
+        },
+      };
+    }
+
+    // ── §6.2: N dienas pēc pirmā pirkuma — otrā vēl nav ───────────────────
+    case "second_purchase": {
+      const lots = i.lots ?? [];
+      const cat = i.categoryLabel;
+      const listText = lots.map((l) => `• ${l.title} — ${moneyIn(l.priceCents, lang)}`).join("\n");
+      const pts = i.pointsBalanceCents ?? 0;
+      const ptsLine = pts >= 100
+        ? { lv: `\n\nAtgādinām: tavā kontā ir ${moneyIn(pts, lang)} punktos — tos var izmantot apmaksā.`, ru: `\n\nНапоминаем: на вашем счету ${moneyIn(pts, lang)} баллами — их можно использовать при оплате.`, en: `\n\nReminder: you have ${moneyIn(pts, lang)} in points — you can spend them at checkout.` }[lang]
+        : "";
+      return {
+        subject: {
+          lv: "Kā tev patika pirmais pirkums?",
+          ru: "Как вам первая покупка?",
+          en: "How was your first purchase?",
+        }[lang],
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nPriecājamies, ka izdarīji pirmo pirkumu! Šobrīd izsolē ir loti, kas varētu iepatikties:\n\n${listText}${ptsLine}\n\nSkatīt: ${ctx.siteUrl}/katalogs\n\n[second_purchase]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nРады, что вы сделали первую покупку! Сейчас на торгах лоты, которые могут понравиться:\n\n${listText}${ptsLine}\n\nСмотреть: ${ctx.siteUrl}/katalogs\n\n[second_purchase]`,
+          en: `Hi ${i.alias},\n\nGlad you made your first purchase! Lots you might like are on the block now:\n\n${listText}${ptsLine}\n\nHave a look: ${ctx.siteUrl}/katalogs\n\n[second_purchase]`,
+        }[lang],
+        spec: {
+          preheader: { lv: "Atlasīts pēc tava pirmā pirkuma", ru: "Подобрано по вашей первой покупке", en: "Picked after your first purchase" }[lang],
+          headline: { lv: "TURPINĀM?", ru: "ПРОДОЛЖИМ?", en: "SHALL WE CONTINUE?" }[lang],
+          headlineTone: "accent",
+          greeting: hi,
+          intro: cat
+            ? { lv: `Pēc tava pirmā pirkuma kategorijā «${cat}» esam atlasījuši vēl dažus lotus. Cena — galīgā, bez piemaksām.`, ru: `После вашей первой покупки в категории «${cat}» мы подобрали ещё несколько лотов. Цена финальная, без доплат.`, en: `After your first purchase in ${cat}, we picked a few more lots. The price you see is final.` }[lang]
+            : { lv: "Pēc tava pirmā pirkuma esam atlasījuši vēl dažus lotus, kas varētu iepatikties.", ru: "После вашей первой покупки мы подобрали ещё несколько лотов, которые могут понравиться.", en: "After your first purchase, we picked a few more lots you might like." }[lang],
+          facts: lots.map((l) => ({ label: `${l.title}:`, value: moneyIn(l.priceCents, lang) })),
+          cta: { label: { lv: "Skatīt katalogu", ru: "Смотреть каталог", en: "Browse the catalogue" }[lang], url: `${ctx.siteUrl}/katalogs` },
+          labels,
+        },
+      };
+    }
+
+    // ── Dāvanu karte ieskaitīta kredītā ───────────────────────────────────
+    case "gift_card_received": {
+      const sum = moneyIn(i.amountCents, lang);
+      return {
+        subject: {
+          lv: `Dāvanu karte ${sum} ieskaitīta tavā kontā`,
+          ru: `Подарочная карта ${sum} зачислена на ваш счёт`,
+          en: `Gift card ${sum} added to your account`,
+        }[lang],
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nDāvanu karte ${sum} ir ieskaitīta tavā kontā kā kredīts. Tas automātiski samazinās nākamā pirkuma summu.\n\nSkatīt lotus: ${ctx.siteUrl}/katalogs\n\n[gift_card_received]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nПодарочная карта ${sum} зачислена на ваш счёт как кредит. Он автоматически уменьшит сумму следующей покупки.\n\nСмотреть лоты: ${ctx.siteUrl}/katalogs\n\n[gift_card_received]`,
+          en: `Hi ${i.alias},\n\nA gift card of ${sum} has been added to your account as credit. It will automatically reduce your next order total.\n\nSee the lots: ${ctx.siteUrl}/katalogs\n\n[gift_card_received]`,
+        }[lang],
+        spec: {
+          preheader: { lv: `Kredīts ${sum} jau kontā`, ru: `Кредит ${sum} уже на счету`, en: `${sum} credit is on your account` }[lang],
+          headline: { lv: "DĀVANA SAŅEMTA", ru: "ПОДАРОК ПОЛУЧЕН", en: "GIFT RECEIVED" }[lang],
+          headlineTone: "accent",
+          greeting: hi,
+          intro: {
+            lv: `Kartes vērtība ${sum} tagad ir tavs konta kredīts — tas automātiski piemērosies nākamajai apmaksai.`,
+            ru: `Номинал карты ${sum} теперь кредит вашего счёта — он автоматически применится к следующей оплате.`,
+            en: `The card value of ${sum} is now account credit — it applies automatically to your next payment.`,
+          }[lang],
+          facts: [{ label: { lv: "Ieskaitīts:", ru: "Зачислено:", en: "Credited:" }[lang], value: sum }],
+          cta: { label: { lv: "Skatīt lotus", ru: "Смотреть лоты", en: "See the lots" }[lang], url: `${ctx.siteUrl}/katalogs` },
+          labels,
+        },
+      };
+    }
+
+    // ── Сброс пароля ────────────────────────────────────────────────────────
+    // Ссылка живёт минутами и даёт доступ к аккаунту, поэтому это письмо
+    // единственное, которое НЕ попадает в журнал уведомлений (см.
+    // sendPasswordReset): оформление и правки текста — общие, хранения нет.
+    case "password_reset": {
+      const hours = i.validHours ?? 1;
+      const subject = {
+        lv: "Paroles atjaunošana — Izsoli.lv",
+        ru: "Восстановление пароля — Izsoli.lv",
+        en: "Password reset — Izsoli.lv",
+      }[lang];
+      const validity = {
+        lv: hours === 1 ? "Saite derīga 1 stundu." : `Saite derīga ${hours} stundas.`,
+        ru: hours === 1 ? "Ссылка действует 1 час." : `Ссылка действует ${hours} ч.`,
+        en: hours === 1 ? "The link is valid for 1 hour." : `The link is valid for ${hours} hours.`,
+      }[lang];
+      const text = {
+        lv: `Sveiki, ${i.alias}!\n\nJauno paroli var iestatīt šeit: ${i.actionUrl}\n${validity}\n\nJa paroli neprasīji tu — nedari neko, vecā parole paliek spēkā.\n\n[password_reset]`,
+        ru: `Здравствуйте, ${i.alias}!\n\nНовый пароль можно задать здесь: ${i.actionUrl}\n${validity}\n\nЕсли пароль запрашивали не вы — ничего не делайте, старый остаётся действующим.\n\n[password_reset]`,
+        en: `Hi ${i.alias},\n\nSet a new password here: ${i.actionUrl}\n${validity}\n\nIf you did not ask for this, do nothing — your current password stays valid.\n\n[password_reset]`,
+      }[lang];
+      return {
+        subject,
+        text,
+        spec: {
+          preheader: validity,
+          headline: { lv: "JAUNA PAROLE", ru: "НОВЫЙ ПАРОЛЬ", en: "NEW PASSWORD" }[lang],
+          headlineTone: "accent",
+          greeting: hi,
+          intro: {
+            lv: "Saņēmām pieprasījumu nomainīt paroli. Nospied pogu un iestati jaunu — vecā pārstās darboties uzreiz.",
+            ru: "Мы получили запрос на смену пароля. Нажмите кнопку и задайте новый — старый перестанет работать сразу.",
+            en: "We received a request to change your password. Press the button and set a new one — the old password stops working immediately.",
+          }[lang],
+          facts: [],
+          cta: {
+            label: { lv: "Iestatīt jaunu paroli", ru: "Задать новый пароль", en: "Set a new password" }[lang],
+            url: i.actionUrl ?? ctx.siteUrl,
+          },
+          ctaNote: validity,
+          notes: [{ text: {
+            lv: "Ja paroli neprasīji tu — vienkārši ignorē šo vēstuli. Konts paliek ar veco paroli.",
+            ru: "Если пароль запрашивали не вы — просто игнорируйте письмо. Аккаунт останется со старым паролем.",
+            en: "If this was not you, just ignore this e-mail. Your account keeps its current password.",
+          }[lang] }],
+          labels,
+        },
+      };
+    }
+
+    // ── Баллы скоро сгорят ──────────────────────────────────────────────────
+    case "points_expiring": {
+      const sum = moneyIn(i.expiringCents, lang);
+      const when = fmtDate(i.expiresAt, lang);
+      const subject = {
+        lv: `${sum} punktu sadegs ${when}`,
+        ru: `${sum} баллов сгорят ${when}`,
+        en: `${sum} in points expires on ${when}`,
+      }[lang];
+      const text = {
+        lv: `Sveiki, ${i.alias}!\n\n${sum} no taviem punktiem sadegs ${when}. Punkti sedz līdz pusei no pasūtījuma summas — tos var izmantot jebkurai precei.\n\nSkatīt lotus: ${ctx.siteUrl}/katalogs\n\n[points_expiring]`,
+        ru: `Здравствуйте, ${i.alias}!\n\n${sum} ваших баллов сгорят ${when}. Баллами можно закрыть до половины суммы заказа — на любой товар.\n\nСмотреть лоты: ${ctx.siteUrl}/katalogs\n\n[points_expiring]`,
+        en: `Hi ${i.alias},\n\n${sum} of your points expires on ${when}. Points cover up to half of an order — on anything you like.\n\nSee the lots: ${ctx.siteUrl}/katalogs\n\n[points_expiring]`,
+      }[lang];
+      return {
+        subject,
+        text,
+        spec: {
+          preheader: { lv: `Izmanto līdz ${when}`, ru: `Используйте до ${when}`, en: `Use them before ${when}` }[lang],
+          headline: { lv: "PUNKTI DRĪZ SADEGS", ru: "БАЛЛЫ СКОРО СГОРЯТ", en: "YOUR POINTS EXPIRE SOON" }[lang],
+          headlineTone: "warn",
+          greeting: hi,
+          intro: {
+            lv: "Nopelnītie punkti dzīvo 12 mēnešus. Daļa no taviem tuvojas termiņa beigām — brīdinām laikus, lai tie nepazustu klusi.",
+            ru: "Заработанные баллы живут 12 месяцев. Часть ваших подходит к концу срока — предупреждаем заранее, чтобы они не пропали молча.",
+            en: "Points last 12 months from the day they were earned. Some of yours are close to that date — here is a heads-up so they don't vanish quietly.",
+          }[lang],
+          amount: {
+            label: { lv: "Sadegs:", ru: "Сгорит:", en: "Expiring:" }[lang],
+            value: sum,
+            ...(i.pointsBalanceCents !== undefined
+              ? {
+                  lines: [{
+                    label: { lv: "Kopējais atlikums", ru: "Всего на счету", en: "Total balance" }[lang],
+                    value: moneyIn(i.pointsBalanceCents, lang),
+                  }],
+                }
+              : {}),
+          },
+          facts: [{ label: { lv: "Termiņš:", ru: "Срок:", en: "Expires:" }[lang], value: when }],
+          cta: { label: { lv: "Izmantot punktus", ru: "Потратить баллы", en: "Spend the points" }[lang], url: `${ctx.siteUrl}/katalogs` },
+          labels,
+        },
+      };
+    }
+
+    // ── Безопасность аккаунта ───────────────────────────────────────────────
+    case "security_alert": {
+      const ev = i.securityEvent ?? "new_device";
+      const what = {
+        password_changed: { lv: "Parole nomainīta", ru: "Пароль изменён", en: "Password changed" },
+        email_changed: { lv: "Nomainīta e-pasta adrese", ru: "Изменён адрес почты", en: "E-mail address changed" },
+        new_device: { lv: "Jauna ierīce kontā", ru: "Вход с нового устройства", en: "New device signed in" },
+      }[ev] ?? { lv: "Konta izmaiņas", ru: "Изменения в аккаунте", en: "Account change" };
+      const subject = `${what[lang]} — Izsoli.lv`;
+      const when = i.eventAt ? fmtDate(i.eventAt, lang) : "";
+      const device = i.deviceLabel ?? "—";
+      const text = {
+        lv: `Sveiki, ${i.alias}!\n\n${what.lv}. Ierīce: ${device}${when ? `, ${when}` : ""}.\n\nJa tas biji tu — nekas nav jādara. Ja nē — nekavējoties nomaini paroli: ${ctx.siteUrl}/aizmirsu-paroli\n\n[security_alert]`,
+        ru: `Здравствуйте, ${i.alias}!\n\n${what.ru}. Устройство: ${device}${when ? `, ${when}` : ""}.\n\nЕсли это вы — делать ничего не нужно. Если нет — немедленно смените пароль: ${ctx.siteUrl}/aizmirsu-paroli\n\n[security_alert]`,
+        en: `Hi ${i.alias},\n\n${what.en}. Device: ${device}${when ? `, ${when}` : ""}.\n\nIf this was you, there is nothing to do. If not, change your password right away: ${ctx.siteUrl}/aizmirsu-paroli\n\n[security_alert]`,
+      }[lang];
+      return {
+        subject,
+        text,
+        spec: {
+          preheader: { lv: "Ja tas nebiji tu — nomaini paroli", ru: "Если это не вы — смените пароль", en: "If this wasn't you, change your password" }[lang],
+          headline: { lv: "KONTA DROŠĪBA", ru: "БЕЗОПАСНОСТЬ АККАУНТА", en: "ACCOUNT SECURITY" }[lang],
+          headlineTone: "warn",
+          greeting: hi,
+          intro: `${what[lang]}. ${{
+            lv: "Šo vēstuli sūtām vienmēr, kad kontā notiek kaut kas svarīgs — lai svešs cilvēks nevarētu to izdarīt klusi.",
+            ru: "Такое письмо мы шлём всегда, когда в аккаунте происходит что-то важное — чтобы чужой человек не сделал это незаметно.",
+            en: "We always send this when something important happens to your account — so nobody can do it quietly.",
+          }[lang]}`,
+          facts: [
+            { label: { lv: "Notikums:", ru: "Событие:", en: "Event:" }[lang], value: what[lang] },
+            { label: { lv: "Ierīce:", ru: "Устройство:", en: "Device:" }[lang], value: device },
+            ...(when ? [{ label: { lv: "Laiks:", ru: "Время:", en: "Time:" }[lang], value: when }] : []),
+          ],
+          cta: { label: { lv: "Nomainīt paroli", ru: "Сменить пароль", en: "Change password" }[lang], url: `${ctx.siteUrl}/aizmirsu-paroli` },
+          ctaNote: { lv: "Nospied tikai tad, ja tas nebiji tu.", ru: "Нажимайте, только если это были не вы.", en: "Only press this if it wasn't you." }[lang],
+          labels,
+        },
+      };
+    }
+
+    // ── Посылка доставлена / ждёт в автомате ────────────────────────────────
+    case "delivered": {
+      const waiting = i.waitingDays ?? 0;
+      const inMachine = Boolean(i.machineName) && waiting > 0;
+      const subject = inMachine
+        ? { lv: `Sūtījums gaida pakomātā — ${i.lotTitle}`, ru: `Посылка ждёт в автомате — ${i.lotTitle}`, en: `Your parcel is waiting — ${i.lotTitle}` }[lang]
+        : { lv: `Sūtījums piegādāts — ${i.lotTitle}`, ru: `Посылка доставлена — ${i.lotTitle}`, en: `Parcel delivered — ${i.lotTitle}` }[lang];
+      const text = inMachine
+        ? {
+            lv: `Sveiki, ${i.alias}!\n\nSūtījums ar "${i.lotTitle}" ir pakomātā ${i.machineName}. Tas gaida ${waiting} dienas, pēc tam atgriežas pie mums.\nPasūtījums: ${i.orderRef}\n\n[delivered]`,
+            ru: `Здравствуйте, ${i.alias}!\n\nПосылка с "${i.lotTitle}" в автомате ${i.machineName}. Она ждёт ${waiting} дн., потом возвращается к нам.\nЗаказ: ${i.orderRef}\n\n[delivered]`,
+            en: `Hi ${i.alias},\n\nYour parcel with "${i.lotTitle}" is at ${i.machineName}. It waits ${waiting} days before coming back to us.\nOrder: ${i.orderRef}\n\n[delivered]`,
+          }[lang]
+        : {
+            lv: `Sveiki, ${i.alias}!\n\nSūtījums ar "${i.lotTitle}" ir piegādāts. Pasūtījums: ${i.orderRef}.\nJa ar preci kaut kas nav kārtībā, atraksti 14 dienu laikā.\n\n[delivered]`,
+            ru: `Здравствуйте, ${i.alias}!\n\nПосылка с "${i.lotTitle}" доставлена. Заказ: ${i.orderRef}.\nЕсли с товаром что-то не так — напишите в течение 14 дней.\n\n[delivered]`,
+            en: `Hi ${i.alias},\n\nYour parcel with "${i.lotTitle}" has been delivered. Order: ${i.orderRef}.\nIf anything is wrong with the item, write to us within 14 days.\n\n[delivered]`,
+          }[lang];
+      return {
+        subject,
+        text,
+        spec: {
+          preheader: inMachine
+            ? { lv: `Gaida ${waiting} dienas`, ru: `Ждёт ${waiting} дн.`, en: `Waiting ${waiting} days` }[lang]
+            : { lv: "Sūtījums nogādāts", ru: "Посылка у вас", en: "Parcel delivered" }[lang],
+          headline: inMachine
+            ? { lv: "SŪTĪJUMS GAIDA", ru: "ПОСЫЛКА ЖДЁТ", en: "YOUR PARCEL IS WAITING" }[lang]
+            : { lv: "SŪTĪJUMS PIEGĀDĀTS", ru: "ПОСЫЛКА ДОСТАВЛЕНА", en: "PARCEL DELIVERED" }[lang],
+          headlineTone: inMachine ? "warn" : "ok",
+          greeting: hi,
+          intro: inMachine
+            ? {
+                lv: `Preci vari izņemt jebkurā laikā. Pēc ${waiting} dienām pakomāts sūtījumu atdod atpakaļ mums, un izņemšana kļūst sarežģītāka.`,
+                ru: `Забрать можно в любое время. Через ${waiting} дн. автомат вернёт посылку нам, и получить её станет сложнее.`,
+                en: `You can collect it any time. After ${waiting} days the machine returns the parcel to us and collecting it gets harder.`,
+              }[lang]
+            : {
+                lv: "Prece ir pie tevis. Ja kaut kas nav kārtībā — apraksti problēmu 14 dienu laikā, un mēs to atrisināsim.",
+                ru: "Товар у вас. Если что-то не так — опишите проблему в течение 14 дней, и мы её решим.",
+                en: "The item is with you. If something is wrong, describe the problem within 14 days and we will sort it out.",
+              }[lang],
+          facts: [
+            { label: w(W.lot, lang), value: i.lotTitle },
+            { label: w(W.orderNo, lang), value: i.orderRef ?? "" },
+            ...(i.machineName ? [{ label: w(W.place, lang), value: i.machineName }] : []),
+            ...(i.carrier ? [{ label: { lv: "Pārvadātājs:", ru: "Перевозчик:", en: "Carrier:" }[lang], value: i.carrier }] : []),
+          ],
+          cta: {
+            label: inMachine
+              ? { lv: "Sekot sūtījumam", ru: "Отследить посылку", en: "Track the parcel" }[lang]
+              : { lv: "Mani pasūtījumi", ru: "Мои заказы", en: "My orders" }[lang],
+            url: (inMachine ? i.trackingUrl : ctx.ordersUrl) ?? ctx.ordersUrl,
+          },
+          labels,
+        },
+      };
+    }
+
+    // ── Ставка аннулирована / лот снят ──────────────────────────────────────
+    case "bid_voided":
+    case "lot_withdrawn": {
+      const voided = type === "bid_voided";
+      const subject = voided
+        ? { lv: `Solījums anulēts — ${i.lotTitle}`, ru: `Ставка аннулирована — ${i.lotTitle}`, en: `Bid voided — ${i.lotTitle}` }[lang]
+        : { lv: `Lots noņemts no izsoles — ${i.lotTitle}`, ru: `Лот снят с торгов — ${i.lotTitle}`, en: `Lot withdrawn — ${i.lotTitle}` }[lang];
+      const why = i.reason?.trim()
+        ? i.reason
+        : { lv: "iemesls nav norādīts", ru: "причина не указана", en: "no reason given" }[lang];
+      const text = voided
+        ? {
+            lv: `Sveiki, ${i.alias}!\n\nTavs solījums izsolē "${i.lotTitle}" ir anulēts. Iemesls: ${why}.\nJa uzskati, ka tā ir kļūda, atraksti mums — pārbaudīsim.\n\n[bid_voided]`,
+            ru: `Здравствуйте, ${i.alias}!\n\nВаша ставка на "${i.lotTitle}" аннулирована. Причина: ${why}.\nЕсли считаете это ошибкой — напишите нам, проверим.\n\n[bid_voided]`,
+            en: `Hi ${i.alias},\n\nYour bid on "${i.lotTitle}" has been voided. Reason: ${why}.\nIf you think this is a mistake, write to us and we will check.\n\n[bid_voided]`,
+          }[lang]
+        : {
+            lv: `Sveiki, ${i.alias}!\n\nLots "${i.lotTitle}" ir noņemts no izsoles, un visi solījumi ir atcelti. Iemesls: ${why}.\nNauda netika ieturēta. Līdzīgas preces atradīsi katalogā.\n\n[lot_withdrawn]`,
+            ru: `Здравствуйте, ${i.alias}!\n\nЛот "${i.lotTitle}" снят с торгов, все ставки отменены. Причина: ${why}.\nДеньги не списывались. Похожие товары есть в каталоге.\n\n[lot_withdrawn]`,
+            en: `Hi ${i.alias},\n\nThe lot "${i.lotTitle}" has been withdrawn and all bids are cancelled. Reason: ${why}.\nNo money was taken. You will find similar items in the catalogue.\n\n[lot_withdrawn]`,
+          }[lang];
+      return {
+        subject,
+        text,
+        spec: {
+          preheader: voided
+            ? { lv: "Solījums vairs nav spēkā", ru: "Ставка больше не действует", en: "The bid no longer stands" }[lang]
+            : { lv: "Visi solījumi atcelti", ru: "Все ставки отменены", en: "All bids cancelled" }[lang],
+          headline: voided
+            ? { lv: "SOLĪJUMS ANULĒTS", ru: "СТАВКА АННУЛИРОВАНА", en: "BID VOIDED" }[lang]
+            : { lv: "LOTS NOŅEMTS", ru: "ЛОТ СНЯТ С ТОРГОВ", en: "LOT WITHDRAWN" }[lang],
+          headlineTone: "warn",
+          greeting: hi,
+          intro: voided
+            ? {
+                lv: "Solījumu atcēla mūsu darbinieks. Tas notiek reti — piemēram, tehniskas kļūdas vai pārbaudes dēļ.",
+                ru: "Ставку отменил наш сотрудник. Так бывает редко — например, из-за технической ошибки или проверки.",
+                en: "A member of our team voided the bid. This is rare — a technical error or a check, usually.",
+              }[lang]
+            : {
+                lv: "Preci nācās izņemt no izsoles. Nekādas saistības tev nepaliek — un mēs piedāvājam paskatīties līdzīgas.",
+                ru: "Товар пришлось снять с торгов. Никаких обязательств у вас не остаётся — предлагаем посмотреть похожие.",
+                en: "We had to pull the item from the auction. You are left with no obligation — have a look at similar lots instead.",
+              }[lang],
+          facts: [
+            { label: w(W.lot, lang), value: i.lotTitle },
+            ...(i.amountCents !== undefined ? [{ label: { lv: "Solījums:", ru: "Ставка:", en: "Bid:" }[lang], value: moneyIn(i.amountCents, lang) }] : []),
+            { label: { lv: "Iemesls:", ru: "Причина:", en: "Reason:" }[lang], value: why },
+          ],
+          cta: { label: { lv: "Skatīt katalogu", ru: "Смотреть каталог", en: "Browse the catalogue" }[lang], url: `${ctx.siteUrl}/katalogs` },
+          labels,
+        },
+      };
+    }
+
+    // ── Платёж не прошёл ────────────────────────────────────────────────────
+    case "payment_failed": {
+      const subject = {
+        lv: `Maksājums neizdevās — ${i.orderRef}`,
+        ru: `Платёж не прошёл — ${i.orderRef}`,
+        en: `Payment failed — ${i.orderRef}`,
+      }[lang];
+      // Причина пишется на языке получателя. Готовую строку принимаем только
+      // от администратора (ручная отметка); коды провайдера сюда не попадают —
+      // человеку они ничего не объясняют, а иногда и пугают.
+      const why = i.failureReason?.trim()
+        ?? (i.failureKind === "cancelled"
+          ? { lv: "maksājums tika atcelts", ru: "платёж был отменён", en: "the payment was cancelled" }[lang]
+          : { lv: "banka vai karte darījumu neapstiprināja", ru: "банк или карта не подтвердили операцию", en: "the bank or card did not approve the transaction" }[lang]);
+      const text = {
+        lv: `Sveiki, ${i.alias}!\n\nMaksājums par pasūtījumu ${i.orderRef} (${moneyIn(i.totalCents, "lv")}) neizdevās: ${why}.\nPrece vēl ir rezervēta${i.deadline ? ` līdz ${fmtDate(i.deadline, "lv")}` : ""} — mēģini vēlreiz.${payLine(i, "lv")}\n\n[payment_failed]`,
+        ru: `Здравствуйте, ${i.alias}!\n\nПлатёж по заказу ${i.orderRef} (${moneyIn(i.totalCents, "ru")}) не прошёл: ${why}.\nТовар ещё за вами${i.deadline ? ` до ${fmtDate(i.deadline, "ru")}` : ""} — попробуйте ещё раз.${payLine(i, "ru")}\n\n[payment_failed]`,
+        en: `Hi ${i.alias},\n\nThe payment for order ${i.orderRef} (${moneyIn(i.totalCents, "en")}) did not go through: ${why}.\nThe item is still held for you${i.deadline ? ` until ${fmtDate(i.deadline, "en")}` : ""} — please try again.${payLine(i, "en")}\n\n[payment_failed]`,
+      }[lang];
+      return {
+        subject,
+        text,
+        spec: {
+          preheader: { lv: "Prece vēl ir rezervēta — mēģini vēlreiz", ru: "Товар ещё за вами — попробуйте снова", en: "The item is still held — try again" }[lang],
+          headline: { lv: "MAKSĀJUMS NEIZDEVĀS", ru: "ПЛАТЁЖ НЕ ПРОШЁЛ", en: "PAYMENT FAILED" }[lang],
+          headlineTone: "warn",
+          greeting: hi,
+          intro: {
+            lv: "Nauda no konta netika noņemta. Visbiežāk pietiek mēģināt vēlreiz vai izvēlēties citu maksājuma veidu.",
+            ru: "Деньги со счёта не списаны. Чаще всего достаточно повторить оплату или выбрать другой способ.",
+            en: "No money left your account. Usually it is enough to try again or pick a different payment method.",
+          }[lang],
+          amount: { label: w(W.totalDue, lang), value: moneyIn(i.totalCents, lang) },
+          facts: [
+            { label: w(W.lot, lang), value: i.lotTitle },
+            { label: w(W.orderNo, lang), value: i.orderRef ?? "" },
+            { label: { lv: "Kļūda:", ru: "Причина:", en: "Reason:" }[lang], value: why },
+            ...(i.deadline ? [{ label: w(W.payBy, lang), value: fmtDate(i.deadline, lang) }] : []),
+          ],
+          cta: {
+            label: { lv: "Apmaksāt vēlreiz", ru: "Оплатить снова", en: "Pay again" }[lang],
+            url: i.payUrl ?? ctx.ordersUrl,
+          },
+          ctaNote: methodsLine(lang, ctx),
+          labels,
+        },
+      };
+    }
+
+    // ── BNPL: заявка на рассрочку рассматривается ─────────────────────────
+    // Решение банка занимает часы: одобрение, затем подписание договора.
+    // Всё это время человек не знает, купил он или нет, а срок оплаты идёт.
+    // Письмо закрывает обе тревоги: заявка у банка, срок мы приостановили.
+    case "bnpl_pending": {
+      const bnpl = i.bnplProvider ?? "Inbank";
+      const subject = {
+        lv: `${bnpl} pieteikums saņemts — ${i.orderRef}`,
+        ru: `Заявка в ${bnpl} принята — ${i.orderRef}`,
+        en: `${bnpl} application received — ${i.orderRef}`,
+      }[lang];
+      return {
+        subject,
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nTavs ${bnpl} pieteikums par pasūtījumu ${i.orderRef} (${moneyIn(i.totalCents, "lv")}) ir nodots bankai. Lēmumu pieņem ${bnpl}, parasti dažu stundu laikā; dažreiz vēl jāparaksta līgums.\n\nPrece paliek rezervēta: apmaksas termiņš ir apturēts, kamēr banka lemj. Kad būs atbilde, uzrakstīsim.\n\n[bnpl_pending]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nВаша заявка в ${bnpl} по заказу ${i.orderRef} (${moneyIn(i.totalCents, "ru")}) передана в банк. Решение принимает ${bnpl}, обычно за несколько часов; иногда нужно ещё подписать договор.\n\nТовар остаётся за вами: срок оплаты приостановлен, пока банк думает. Как будет ответ — напишем.\n\n[bnpl_pending]`,
+          en: `Hi ${i.alias},\n\nYour ${bnpl} application for order ${i.orderRef} (${moneyIn(i.totalCents, "en")}) has gone to the bank. ${bnpl} makes the decision, usually within a few hours; sometimes a contract still needs signing.\n\nThe item stays reserved for you: the payment deadline is paused while the bank decides. We will write as soon as there is an answer.\n\n[bnpl_pending]`,
+        }[lang],
+        spec: {
+          preheader: {
+            lv: "Banka lemj · termiņš apturēts",
+            ru: "Банк рассматривает · срок приостановлен",
+            en: "The bank is deciding · deadline paused",
+          }[lang],
+          headline: { lv: "PIETEIKUMS BANKĀ", ru: "ЗАЯВКА В БАНКЕ", en: "APPLICATION WITH THE BANK" }[lang],
+          headlineTone: "accent",
+          greeting: hi,
+          intro: {
+            lv: `Lēmumu par kredītu pieņem ${bnpl}, nevis mēs. Parasti tas aizņem dažas stundas; ja vajadzēs parakstīt līgumu, ${bnpl} par to paziņos atsevišķi.`,
+            ru: `Решение по кредиту принимает ${bnpl}, а не мы. Обычно это несколько часов; если понадобится подписать договор, ${bnpl} сообщит отдельно.`,
+            en: `The credit decision is ${bnpl}'s, not ours. It usually takes a few hours; if a contract needs signing, ${bnpl} will tell you separately.`,
+          }[lang],
+          amount: { label: w(W.totalDue, lang), value: moneyIn(i.totalCents, lang) },
+          facts: [
+            ...(i.orderRef ? [{ label: w(W.orderNo, lang), value: i.orderRef }] : []),
+            { label: w(W.lot, lang), value: i.lotTitle },
+            {
+              label: w(W.status, lang),
+              value: { lv: "GAIDA BANKAS LĒMUMU", ru: "ЖДЁТ РЕШЕНИЯ БАНКА", en: "AWAITING THE BANK" }[lang],
+              tone: "accent" as const,
+            },
+          ],
+          cta: { label: w(W.openOrders, lang), url: ctx.ordersUrl },
+          notes: [
+            {
+              title: { lv: "Prece ir rezervēta:", ru: "Товар за вами:", en: "The item is held:" }[lang],
+              text: {
+                lv: "apmaksas termiņš neskrien, kamēr banka lemj. Ja Inbank atteiks, termiņš turpināsies no tās pašas vietas un varēsi samaksāt citādi.",
+                ru: "срок оплаты не идёт, пока банк рассматривает заявку. Если Inbank откажет, срок продолжится с того же места и можно будет оплатить иначе.",
+                en: "the payment deadline does not run while the bank decides. If Inbank declines, the clock resumes where it stopped and you can pay another way.",
+              }[lang],
+            },
+          ],
+          labels,
+        },
+      };
+    }
+
+    // ── BNPL: банк не одобрил рассрочку ───────────────────────────────────
+    // Отказ в кредите — вещь личная. Поэтому здесь нет ни причины, ни намёка
+    // на неё: решение принимает банк, мы его не знаем и не храним. И нет
+    // предложения «попробуйте ещё раз» — повторно проситься в кредит, где
+    // только что отказали, унизительно и бессмысленно. Вместо этого прямая
+    // дорога: заказ жив, срок продлён, оплатить можно иначе.
+    case "bnpl_declined": {
+      const bnpl = i.bnplProvider ?? "Inbank";
+      // Последствия у аукционного лота и у товара с ценником разные, и
+      // человек должен узнать про них здесь, а не постфактум: за лот, взятый
+      // на торгах, при неоплате удерживается комиссия; товар с ценником
+      // просто вернётся в продажу и может уйти другому.
+      const buyNow = i.saleType === "buy_now";
+      const pct = i.restockPercent ?? 5;
+      const consequence = buyNow
+        ? {
+            lv: `Ja apmaksa nepienāks līdz termiņam, pasūtījums tiks atcelts automātiski un prece atgriezīsies pārdošanā. Tā ir vienā eksemplārā — to var paspēt nopirkt kāds cits.`,
+            ru: `Если оплата не поступит до срока, заказ отменится автоматически и товар вернётся в продажу. Он в одном экземпляре — его может успеть купить кто-то другой.`,
+            en: `If payment does not arrive by the deadline, the order is cancelled automatically and the item goes back on sale. There is only one of it — someone else may buy it first.`,
+          }[lang]
+        : {
+            lv: `Ja apmaksa nepienāks līdz termiņam, pasūtījums tiks atcelts un tiks piemērota ${pct}% maksa par atgriešanu noliktavā — tā ir izsoles noteikumu daļa, nevis sods par bankas lēmumu.`,
+            ru: `Если оплата не поступит до срока, заказ будет отменён и удержится комиссия ${pct}% за возврат лота на склад — это условие торгов, а не наказание за решение банка.`,
+            en: `If payment does not arrive by the deadline, the order is cancelled and a ${pct}% restocking fee applies — that is a condition of bidding, not a penalty for the bank's decision.`,
+          }[lang];
+      const subject = {
+        lv: `${bnpl} neapstiprināja pieteikumu — ${i.orderRef}`,
+        ru: `${bnpl} не одобрил заявку — ${i.orderRef}`,
+        en: `${bnpl} did not approve the application — ${i.orderRef}`,
+      }[lang];
+      return {
+        subject,
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\n${bnpl} neapstiprināja pieteikumu par pasūtījumu ${i.orderRef} (${moneyIn(i.totalCents, "lv")}). Lēmums ir bankas, un tā iemeslus mums nepaziņo.\n\nPasūtījums paliek spēkā${i.deadline ? `, termiņš pagarināts līdz ${fmtDate(i.deadline, "lv")}` : ""}: to var apmaksāt ar karti vai bankas pārskaitījumu, kā arī skaidrā naudā pie letes.\n\n${consequence}${payLine(i, "lv")}\n\n[bnpl_declined]`,
+          ru: `Здравствуйте, ${i.alias}!\n\n${bnpl} не одобрил заявку по заказу ${i.orderRef} (${moneyIn(i.totalCents, "ru")}). Решение принимает банк, и своих причин он нам не сообщает.\n\nЗаказ остаётся в силе${i.deadline ? `, срок продлён до ${fmtDate(i.deadline, "ru")}` : ""}: оплатить можно картой или банковским переводом, а также наличными на стойке.\n\n${consequence}${payLine(i, "ru")}\n\n[bnpl_declined]`,
+          en: `Hi ${i.alias},\n\n${bnpl} did not approve the application for order ${i.orderRef} (${moneyIn(i.totalCents, "en")}). The decision is the bank's, and they do not share their reasons with us.\n\nYour order stands${i.deadline ? `, and the deadline is extended to ${fmtDate(i.deadline, "en")}` : ""}: you can pay by card or bank transfer, or in cash at the counter.\n\n${consequence}${payLine(i, "en")}\n\n[bnpl_declined]`,
+        }[lang],
+        spec: {
+          preheader: {
+            lv: "Pasūtījums paliek spēkā — var apmaksāt citādi",
+            ru: "Заказ в силе — можно оплатить иначе",
+            en: "Your order stands — you can pay another way",
+          }[lang],
+          headline: {
+            lv: "BANKA NEAPSTIPRINĀJA",
+            ru: "БАНК НЕ ОДОБРИЛ",
+            en: "THE BANK SAID NO",
+          }[lang],
+          headlineTone: "warn",
+          greeting: hi,
+          intro: {
+            lv: `Lēmumu par kredītu pieņem ${bnpl}, un iemeslus banka mums nepaziņo — mēs tos nezinām un neglabājam. Uz tavu kontu pie mums tas nekādi neietekmē.`,
+            ru: `Решение по кредиту принимает ${bnpl}, и своих причин банк нам не сообщает — мы их не знаем и не храним. На ваш аккаунт у нас это никак не влияет.`,
+            en: `The credit decision is ${bnpl}'s, and the bank does not tell us why — we neither know nor keep that. It does not affect your account with us in any way.`,
+          }[lang],
+          amount: { label: w(W.totalDue, lang), value: moneyIn(i.totalCents, lang) },
+          facts: [
+            ...(i.orderRef ? [{ label: w(W.orderNo, lang), value: i.orderRef }] : []),
+            { label: w(W.lot, lang), value: i.lotTitle },
+            ...(i.deadline ? [{ label: w(W.payBy, lang), value: fmtDate(i.deadline, lang) }] : []),
+          ],
+          cta: {
+            label: { lv: "Apmaksāt citādi", ru: "Оплатить другим способом", en: "Pay another way" }[lang],
+            url: i.payUrl ?? ctx.ordersUrl,
+          },
+          ctaNote: methodsLine(lang, ctx),
+          notes: [
+            {
+              title: { lv: "Termiņš pagarināts:", ru: "Срок продлён:", en: "The deadline is extended:" }[lang],
+              text: {
+                lv: "laiks, kamēr banka izskatīja pieteikumu, tev atdots atpakaļ — tas neskrien pret tevi.",
+                ru: "время, пока банк рассматривал заявку, вам возвращено — оно не идёт против вас.",
+                en: "the time the bank spent deciding has been given back to you — it does not count against you.",
+              }[lang],
+            },
+            {
+              title: buyNow
+                ? { lv: "Ja nepaspēsi:", ru: "Если не успеть:", en: "If you do not make it:" }[lang]
+                : { lv: "Ja neapmaksāsi:", ru: "Если не оплатить:", en: "If it stays unpaid:" }[lang],
+              text: consequence,
+            },
+          ],
+          labels,
+        },
+      };
+    }
+
+    // ── Пошла плата за хранение ───────────────────────────────────────────
+    // Письмо уходит один раз — в день, когда бесплатные дни кончились.
+    // Дальше сумма видна в кабинете и в напоминании о выдаче: писать каждые
+    // сутки «вы должны ещё евро» — это давление, а не забота.
+    case "storage_started": {
+      const perDay = moneyIn(i.storagePerDayCents, lang);
+      const free = i.storageFreeDays ?? 7;
+      const subject = {
+        lv: `Sākusies glabāšanas maksa — ${i.orderRef}`,
+        ru: `Началась плата за хранение — ${i.orderRef}`,
+        en: `Storage charges have started — ${i.orderRef}`,
+      }[lang];
+      return {
+        subject,
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nPasūtījums ${i.orderRef} ir apmaksāts un gaida tevi noliktavā jau ${free} dienas — bezmaksas glabāšanas laiks beidzies. No šodienas par glabāšanu tiek rēķināts ${perDay} diennaktī; pašlaik uzkrāts ${moneyIn(i.storageCents, "lv")}.\n\nSummu samaksā pie letes kopā ar preces saņemšanu.${i.deadline ? `\n\nIzņem preci līdz ${fmtDate(i.deadline, "lv")} — pēc tam pasūtījums tiek atcelts.` : ""}\n\n[storage_started]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nЗаказ ${i.orderRef} оплачен и ждёт вас на складе уже ${free} дней — бесплатное хранение закончилось. С сегодняшнего дня за хранение начисляется ${perDay} в сутки; сейчас накопилось ${moneyIn(i.storageCents, "ru")}.\n\nСумма оплачивается на стойке вместе с получением товара.${i.deadline ? `\n\nЗаберите товар до ${fmtDate(i.deadline, "ru")} — после этого заказ отменяется.` : ""}\n\n[storage_started]`,
+          en: `Hi ${i.alias},\n\nOrder ${i.orderRef} is paid and has been waiting in our warehouse for ${free} days — the free storage period is over. From today storage costs ${perDay} per day; ${moneyIn(i.storageCents, "en")} has accrued so far.\n\nYou pay it at the counter when you collect.${i.deadline ? `\n\nPlease collect by ${fmtDate(i.deadline, "en")} — after that the order is cancelled.` : ""}\n\n[storage_started]`,
+        }[lang],
+        spec: {
+          preheader: {
+            lv: `${perDay} diennaktī · maksā pie saņemšanas`,
+            ru: `${perDay} в сутки · оплата при получении`,
+            en: `${perDay} per day · paid on collection`,
+          }[lang],
+          headline: {
+            lv: "SĀKUSIES GLABĀŠANA",
+            ru: "НАЧАЛОСЬ ПЛАТНОЕ ХРАНЕНИЕ",
+            en: "STORAGE IS NOW CHARGED",
+          }[lang],
+          headlineTone: "warn",
+          greeting: hi,
+          intro: {
+            lv: `Prece ir tava un nekur nepazūd — tā tikai aizņem vietu noliktavā. Pirmās ${free} dienas bija bez maksas, tālāk ${perDay} diennaktī.`,
+            ru: `Товар ваш и никуда не денется — он просто занимает место на складе. Первые ${free} дней были бесплатны, дальше ${perDay} в сутки.`,
+            en: `The item is yours and is not going anywhere — it is simply taking up shelf space. The first ${free} days were free; after that it is ${perDay} a day.`,
+          }[lang],
+          amount: {
+            label: { lv: "Uzkrāts par glabāšanu:", ru: "Накоплено за хранение:", en: "Storage so far:" }[lang],
+            value: moneyIn(i.storageCents, lang),
+          },
+          facts: [
+            ...(i.orderRef ? [{ label: w(W.orderNo, lang), value: i.orderRef }] : []),
+            { label: w(W.lot, lang), value: i.lotTitle },
+            { label: w(W.place, lang), value: ctx.pickupAddress },
+            ...(i.deadline ? [{ label: w(W.collectBy, lang), value: fmtDate(i.deadline, lang) }] : []),
+          ],
+          cta: { label: w(W.openOrders, lang), url: ctx.ordersUrl },
+          ctaNote: `${w(W.when, lang)} ${ctx.pickupHours}`,
+          notes: [
+            {
+              title: { lv: "Kā apmaksāt:", ru: "Как оплатить:", en: "How to pay:" }[lang],
+              text: {
+                lv: "atsevišķi maksāt nevajag — summu samaksā pie letes, kad izņem preci.",
+                ru: "отдельно платить не нужно — сумма оплачивается на стойке при получении товара.",
+                en: "there is nothing to pay separately — you settle it at the counter when you collect.",
+              }[lang],
+            },
+          ],
+          labels,
+        },
+      };
+    }
+
+    // ══ Товары «Pērc uzreiz»: догоняющие письма (BN-1, BN-2) ══════════════
+
+    // ── BN-1. Корзина осталась неоплаченной ───────────────────────────────
+    // Аукционного «outbid» у товара с фиксированной ценой нет: если человек
+    // ушёл, его не возвращает ничто. Это письмо — единственная догонялка, и
+    // потому оно должно быть коротким и без давления: товар не исчезнет
+    // через час, врать про это нельзя — единица действительно не зарезервирована.
+    case "cart_reminder": {
+      const n = i.cartCount ?? 1;
+      const rest = Math.max(n - 1, 0);
+      const url = i.actionUrl ?? `${ctx.siteUrl}/grozs`;
+      const price = moneyIn(i.amountCents, lang);
+      const more = rest > 0
+        ? { lv: ` un vēl ${rest} ${rest === 1 ? "prece" : "preces"}`, ru: ` и ещё ${rest} ${rest === 1 ? "товар" : "товара(ов)"}`, en: ` and ${rest} more item${rest === 1 ? "" : "s"}` }[lang]
+        : "";
+      const subject = {
+        lv: `«${i.lotTitle}» palika tavā grozā`,
+        ru: `«${i.lotTitle}» остался в вашей корзине`,
+        en: `"${i.lotTitle}" is still in your basket`,
+      }[lang];
+      return {
+        subject,
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nTavā grozā palika «${i.lotTitle}» — ${price}${more}.\n\nSvarīgi: grozs preci nerezervē. Lielākā daļa mūsu preču ir vienā eksemplārā, un tās aizņem tas, kurš pirmais pabeidz pirkumu.\n\nPabeigt pirkumu: ${url}\n\n[cart_reminder]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nВ вашей корзине остался «${i.lotTitle}» — ${price}${more}.\n\nВажно: корзина товар не резервирует. Большинство наших вещей в одном экземпляре, и достаётся она тому, кто первым завершит покупку.\n\nЗавершить покупку: ${url}\n\n[cart_reminder]`,
+          en: `Hi ${i.alias},\n\n"${i.lotTitle}" is still in your basket — ${price}${more}.\n\nOne thing worth knowing: the basket does not reserve anything. Most of our items are one of a kind and go to whoever completes the purchase first.\n\nFinish your purchase: ${url}\n\n[cart_reminder]`,
+        }[lang],
+        spec: {
+          preheader: { lv: "Grozs preci nerezervē", ru: "Корзина не резервирует товар", en: "The basket does not hold the item" }[lang],
+          headline: { lv: "TAVS GROZS GAIDA", ru: "КОРЗИНА ЖДЁТ ВАС", en: "YOUR BASKET IS WAITING" }[lang],
+          headlineTone: "accent",
+          greeting: hi,
+          intro: {
+            lv: "Grozs preci nerezervē — lielākā daļa mūsu preču ir vienā eksemplārā un aiziet tam, kurš pirmais pabeidz pirkumu.",
+            ru: "Корзина товар не резервирует — большинство наших вещей в одном экземпляре и достаются тому, кто первым завершит покупку.",
+            en: "The basket does not hold anything — most of our items are one of a kind and go to whoever checks out first.",
+          }[lang],
+          amount: { label: w(W.totalDue, lang), value: price },
+          facts: [
+            { label: w(W.lot, lang), value: i.lotTitle },
+            ...(rest > 0
+              ? [{
+                  label: { lv: "Grozā kopā:", ru: "Всего в корзине:", en: "In the basket:" }[lang],
+                  value: { lv: `${n} preces`, ru: `${n} шт.`, en: `${n} items` }[lang],
+                }]
+              : []),
+          ],
+          cta: { label: { lv: "Pabeigt pirkumu", ru: "Завершить покупку", en: "Finish the purchase" }[lang], url },
+          ctaNote: methodsLine(lang, ctx),
+          labels,
+        },
+      };
+    }
+
+    // ── BN-2. Цена на отслеживаемый товар снизилась ───────────────────────
+    // Уходит только тем, кто сам добавил лот в отслеживаемые: это ответ на
+    // их просьбу, а не рассылка. Старая цена в письме обязана быть настоящей —
+    // «зачёркнутая цена, которой не было» в ЕС прямо запрещена.
+    case "price_drop": {
+      const now = moneyIn(i.amountCents, lang);
+      const was = moneyIn(i.oldPriceCents, lang);
+      const pct = i.dropPercent ?? 0;
+      const url = i.actionUrl ?? `${ctx.siteUrl}/katalogs`;
+      const subject = {
+        lv: `«${i.lotTitle}» tagad ${now} (−${pct}%)`,
+        ru: `«${i.lotTitle}» теперь ${now} (−${pct}%)`,
+        en: `"${i.lotTitle}" is now ${now} (−${pct}%)`,
+      }[lang];
+      return {
+        subject,
+        text: {
+          lv: `Sveiki, ${i.alias}!\n\nPrecei, kuru tu seko, samazināta cena:\n\n${i.lotTitle}\nBija ${was} — tagad ${now} (−${pct}%).\n\nSkatīt preci: ${url}\n\n[price_drop]`,
+          ru: `Здравствуйте, ${i.alias}!\n\nНа товар, за которым вы следите, снижена цена:\n\n${i.lotTitle}\nБыло ${was} — стало ${now} (−${pct}%).\n\nПосмотреть товар: ${url}\n\n[price_drop]`,
+          en: `Hi ${i.alias},\n\nAn item on your watchlist just got cheaper:\n\n${i.lotTitle}\nWas ${was} — now ${now} (−${pct}%).\n\nSee the item: ${url}\n\n[price_drop]`,
+        }[lang],
+        spec: {
+          preheader: { lv: `Bija ${was}, tagad ${now}`, ru: `Было ${was}, стало ${now}`, en: `Was ${was}, now ${now}` }[lang],
+          headline: { lv: "CENA SAMAZINĀTA", ru: "ЦЕНА СНИЖЕНА", en: "PRICE DROPPED" }[lang],
+          headlineTone: "accent",
+          greeting: hi,
+          intro: {
+            lv: "Šī prece ir tavā sekošanas sarakstā — tāpēc rakstām. Prece ir viena, un tā aiziet tam, kurš pirmais pabeidz pirkumu.",
+            ru: "Этот товар в вашем списке отслеживания — поэтому пишем. Вещь одна, и достанется тому, кто первым завершит покупку.",
+            en: "This item is on your watchlist, which is why we are writing. There is one of it, and it goes to whoever buys first.",
+          }[lang],
+          amount: { label: { lv: "Jaunā cena:", ru: "Новая цена:", en: "New price:" }[lang], value: now },
+          facts: [
+            { label: w(W.lot, lang), value: i.lotTitle },
+            { label: { lv: "Bija:", ru: "Было:", en: "Was:" }[lang], value: was },
+            { label: { lv: "Ietaupījums:", ru: "Экономия:", en: "You save:" }[lang], value: `−${pct}%` },
+          ],
+          cta: { label: { lv: "Skatīt preci", ru: "Посмотреть товар", en: "See the item" }[lang], url },
+          labels,
+        },
+      };
+    }
+
+    // ══ Письма поставщикам (S1…S10) ═══════════════════════════════════════
+    // Адресат — компания, а не покупатель: обращение по контактному лицу,
+    // тон деловой, все письма служебные (часть договорных отношений).
+
+    // ── S1. Приглашение в кабинет ──────────────────────────────────────────
+    case "sup_invite": {
+      const days = i.inviteDays ?? 7;
+      const portal = i.inviteUrl ?? `${ctx.portalUrl}`;
+      const subject = {
+        lv: "Piekļuve piegādātāja kabinetam — Izsoli.lv",
+        ru: "Доступ в кабинет поставщика — Izsoli.lv",
+        en: "Your supplier portal access — Izsoli.lv",
+      }[lang];
+      const validity = {
+        lv: `Saite derīga ${days} dienas.`,
+        ru: `Ссылка действует ${days} дн.`,
+        en: `The link is valid for ${days} days.`,
+      }[lang];
+      const text = {
+        lv: `Labdien, ${i.alias}!\n\nIzsoli.lv ir izveidojis kabinetu uzņēmumam ${i.supplierName ?? ""}. Tajā redzams piegāžu statuss, pieņemšanas akti, rēķinu apstrāde un maksājumi.\n\nIzveido paroli: ${portal}\n${validity}\n\n[sup_invite]`,
+        ru: `Добрый день, ${i.alias}!\n\nIzsoli.lv завёл кабинет для компании ${i.supplierName ?? ""}. В нём видно статус поставок, акты приёмки, обработку счетов и платежи.\n\nЗадайте пароль: ${portal}\n${validity}\n\n[sup_invite]`,
+        en: `Hello ${i.alias},\n\nIzsoli.lv has created a portal account for ${i.supplierName ?? ""}. It shows delivery status, intake reports, invoice processing and payments.\n\nSet your password: ${portal}\n${validity}\n\n[sup_invite]`,
+      }[lang];
+      return {
+        subject,
+        text,
+        spec: {
+          preheader: validity,
+          headline: { lv: "PIEGĀDĀTĀJA KABINETS", ru: "КАБИНЕТ ПОСТАВЩИКА", en: "SUPPLIER PORTAL" }[lang],
+          headlineTone: "accent",
+          greeting: `${{ lv: "Labdien", ru: "Добрый день", en: "Hello" }[lang]}, ${i.alias}!`,
+          intro: {
+            lv: "Kabinetā vienuviet ir viss, kas parasti izklīst pa sarakstēm: piegāžu statusi, pieņemšanas akti ar bildēm, rēķinu apstrāde un maksājumu vēsture.",
+            ru: "В кабинете в одном месте всё, что обычно расползается по переписке: статусы поставок, акты приёмки с фото, обработка счетов и история платежей.",
+            en: "The portal keeps in one place what usually scatters across chats: delivery status, intake reports with photos, invoice processing and payment history.",
+          }[lang],
+          facts: [
+            ...(i.supplierName ? [{ label: { lv: "Uzņēmums:", ru: "Компания:", en: "Company:" }[lang], value: i.supplierName }] : []),
+          ],
+          cta: { label: { lv: "Izveidot paroli", ru: "Задать пароль", en: "Set your password" }[lang], url: portal },
+          ctaNote: validity,
+          notes: [{ text: {
+            lv: "Ja saite nostrādāja par vēlu, uzraksti mums — nosūtīsim jaunu.",
+            ru: "Если ссылка уже не работает — напишите нам, вышлем новую.",
+            en: "If the link has expired, write to us and we will send a new one.",
+          }[lang] }],
+          labels,
+        },
+      };
+    }
+
+    // ── S2. Как мы работаем ────────────────────────────────────────────────
+    case "sup_welcome": {
+      const commission = i.commissionPercent !== undefined && i.commissionPercent > 0;
+      const subject = {
+        lv: "Kā mēs strādājam — Izsoli.lv",
+        ru: "Как мы работаем — Izsoli.lv",
+        en: "How we work together — Izsoli.lv",
+      }[lang];
+      const terms = i.validHours; // не используется здесь; сроки идут фактами
+      void terms;
+      const text = {
+        lv: `Labdien, ${i.alias}!\n\nKabinets ir aktivizēts. Īsi par kārtību:\n• piegādi piesaki kabinetā pirms atvešanas;\n• pēc pieņemšanas saņemsi aktu ar skaitiem un bildēm;\n• rēķinu ielādē kabinetā — tur redzēsi tā statusu un maksājuma datumu;\n• reizi mēnesī atsūtīsim pārskatu par pieņemto un pārdoto.\n\nKabinets: ${ctx.portalUrl}\n\n[sup_welcome]`,
+        ru: `Добрый день, ${i.alias}!\n\nКабинет активирован. Коротко о порядке:\n• поставку заявляйте в кабинете до приезда;\n• после приёмки получите акт с количествами и фото;\n• счёт загружайте в кабинет — там же виден его статус и дата оплаты;\n• раз в месяц пришлём сводку по принятому и проданному.\n\nКабинет: ${ctx.portalUrl}\n\n[sup_welcome]`,
+        en: `Hello ${i.alias},\n\nYour portal is active. In short:\n• announce a delivery in the portal before it arrives;\n• after intake you receive a report with counts and photos;\n• upload your invoice in the portal — its status and payment date are there;\n• once a month we send a summary of what was received and sold.\n\nPortal: ${ctx.portalUrl}\n\n[sup_welcome]`,
+      }[lang];
+      return {
+        subject,
+        text,
+        spec: {
+          preheader: { lv: "Kabinets ir aktivizēts", ru: "Кабинет активирован", en: "Your portal is active" }[lang],
+          headline: { lv: "SĀKAM DARBU", ru: "НАЧИНАЕМ РАБОТУ", en: "LET'S GET STARTED" }[lang],
+          headlineTone: "ok",
+          greeting: `${{ lv: "Labdien", ru: "Добрый день", en: "Hello" }[lang]}, ${i.alias}!`,
+          intro: {
+            lv: "Kabinets ir gatavs. Zemāk — galvenais par mūsu sadarbību; detaļas vienmēr atradīsi kabinetā.",
+            ru: "Кабинет готов. Ниже — главное о нашей работе; детали всегда в кабинете.",
+            en: "Your portal is ready. Below is the essence of how we work; the details always live in the portal.",
+          }[lang],
+          facts: [
+            {
+              label: { lv: "Sadarbības veids:", ru: "Модель работы:", en: "Model:" }[lang],
+              value: commission
+                ? { lv: "komisija", ru: "комиссия", en: "commission" }[lang]
+                : { lv: "izpirkums", ru: "выкуп", en: "buy-out" }[lang],
+            },
+            ...(commission
+              ? [{ label: { lv: "Mūsu komisija:", ru: "Наша комиссия:", en: "Our commission:" }[lang], value: `${i.commissionPercent}%` }]
+              : []),
+            ...(i.inviteDays !== undefined
+              ? [{ label: { lv: "Apmaksas termiņš:", ru: "Срок оплаты:", en: "Payment terms:" }[lang], value: `${i.inviteDays} ${{ lv: "dienas", ru: "дн.", en: "days" }[lang]}` }]
+              : []),
+          ],
+          cta: { label: { lv: "Atvērt kabinetu", ru: "Открыть кабинет", en: "Open the portal" }[lang], url: `${ctx.portalUrl}` },
+          notes: [{ text: {
+            lv: "Jautājumi par konkrētu piegādi — raksti tieši kabinetā pie tās; tā atbilde nepazūd sarakstē.",
+            ru: "Вопросы по конкретной поставке пишите прямо в кабинете рядом с ней — так ответ не теряется в переписке.",
+            en: "Questions about a delivery are best written in the portal next to it — that way the answer does not get lost.",
+          }[lang] }],
+          labels,
+        },
+      };
+    }
+
+    // ── S3. Акт приёмки ────────────────────────────────────────────────────
+    case "sup_intake_done": {
+      const accepted = i.acceptedCount ?? 0;
+      const declared = i.declaredCount ?? accepted;
+      const rejected = i.rejectedCount ?? 0;
+      const ref = i.consignmentRef ?? "";
+      const subject = {
+        lv: `Piegāde pieņemta — ${ref}`,
+        ru: `Поставка принята — ${ref}`,
+        en: `Delivery accepted — ${ref}`,
+      }[lang];
+      const text = {
+        lv: `Labdien, ${i.alias}!\n\nPiegāde ${ref} ir pieņemta.\nPieteikts: ${declared}\nPieņemts: ${accepted}\nNoraidīts: ${rejected}\n\nAkts ar bildēm: ${ctx.portalUrl}\n\n[sup_intake_done]`,
+        ru: `Добрый день, ${i.alias}!\n\nПоставка ${ref} принята.\nЗаявлено: ${declared}\nПринято: ${accepted}\nОтклонено: ${rejected}\n\nАкт с фото: ${ctx.portalUrl}\n\n[sup_intake_done]`,
+        en: `Hello ${i.alias},\n\nDelivery ${ref} has been accepted.\nDeclared: ${declared}\nAccepted: ${accepted}\nRejected: ${rejected}\n\nReport with photos: ${ctx.portalUrl}\n\n[sup_intake_done]`,
+      }[lang];
+      return {
+        subject,
+        text,
+        spec: {
+          preheader: { lv: `Pieņemtas ${accepted} vienības`, ru: `Принято единиц: ${accepted}`, en: `${accepted} units accepted` }[lang],
+          headline: { lv: "PIEGĀDE PIEŅEMTA", ru: "ПОСТАВКА ПРИНЯТА", en: "DELIVERY ACCEPTED" }[lang],
+          headlineTone: rejected > 0 ? "warn" : "ok",
+          greeting: `${{ lv: "Labdien", ru: "Добрый день", en: "Hello" }[lang]}, ${i.alias}!`,
+          intro: {
+            lv: "Preces ir saskaitītas un pārbaudītas. Zemāk skaitļi; pilns akts ar bildēm par katru noraidīto vienību — kabinetā.",
+            ru: "Товар пересчитан и проверен. Ниже цифры; полный акт с фото по каждой отклонённой единице — в кабинете.",
+            en: "The goods have been counted and checked. The figures are below; the full report with photos of every rejected unit is in the portal.",
+          }[lang],
+          facts: [
+            { label: { lv: "Piegāde:", ru: "Поставка:", en: "Delivery:" }[lang], value: ref },
+            { label: { lv: "Pieteikts:", ru: "Заявлено:", en: "Declared:" }[lang], value: String(declared) },
+            { label: { lv: "Pieņemts:", ru: "Принято:", en: "Accepted:" }[lang], value: String(accepted) },
+            { label: { lv: "Noraidīts:", ru: "Отклонено:", en: "Rejected:" }[lang], value: String(rejected) },
+          ],
+          cta: { label: { lv: "Skatīt aktu", ru: "Смотреть акт", en: "View the report" }[lang], url: `${ctx.portalUrl}` },
+          labels,
+        },
+      };
+    }
+
+    // ── S4. Расхождение при приёмке ────────────────────────────────────────
+    case "sup_discrepancy": {
+      const ref = i.consignmentRef ?? "";
+      const by = fmtDate(i.replyByDate, lang);
+      const subject = {
+        lv: `Neatbilstība piegādē ${ref} — gaidām atbildi`,
+        ru: `Расхождение по поставке ${ref} — ждём ответ`,
+        en: `Discrepancy in delivery ${ref} — reply needed`,
+      }[lang];
+      const note = i.discrepancyNote ?? "";
+      const text = {
+        lv: `Labdien, ${i.alias}!\n\nPieņemot piegādi ${ref}, konstatējām neatbilstību:\n${note}\n\nPieteikts: ${i.declaredCount ?? "—"}, pieņemts: ${i.acceptedCount ?? "—"}, noraidīts: ${i.rejectedCount ?? "—"}.\nLūdzam atbildēt kabinetā līdz ${by}. Ja atbildes nebūs, akts tiks uzskatīts par pieņemtu.\n\n[sup_discrepancy]`,
+        ru: `Добрый день, ${i.alias}!\n\nПри приёмке поставки ${ref} обнаружено расхождение:\n${note}\n\nЗаявлено: ${i.declaredCount ?? "—"}, принято: ${i.acceptedCount ?? "—"}, отклонено: ${i.rejectedCount ?? "—"}.\nПросим ответить в кабинете до ${by}. Без ответа акт считается принятым.\n\n[sup_discrepancy]`,
+        en: `Hello ${i.alias},\n\nWhile receiving delivery ${ref} we found a discrepancy:\n${note}\n\nDeclared: ${i.declaredCount ?? "—"}, accepted: ${i.acceptedCount ?? "—"}, rejected: ${i.rejectedCount ?? "—"}.\nPlease reply in the portal by ${by}. Without a reply the report is treated as accepted.\n\n[sup_discrepancy]`,
+      }[lang];
+      return {
+        subject,
+        text,
+        spec: {
+          preheader: { lv: `Atbilde līdz ${by}`, ru: `Ответ до ${by}`, en: `Reply by ${by}` }[lang],
+          headline: { lv: "NEATBILSTĪBA PIEGĀDĒ", ru: "РАСХОЖДЕНИЕ ПО ПОСТАВКЕ", en: "DELIVERY DISCREPANCY" }[lang],
+          headlineTone: "warn",
+          greeting: `${{ lv: "Labdien", ru: "Добрый день", en: "Hello" }[lang]}, ${i.alias}!`,
+          intro: {
+            lv: "Skaitļi nesakrīt ar pavaddokumentiem. Bildes un detaļas ir kabinetā — apskati un apstiprini vai apstrīdi.",
+            ru: "Цифры не сошлись с сопроводительными документами. Фото и детали — в кабинете: посмотрите и согласитесь или оспорьте.",
+            en: "The counts do not match the paperwork. Photos and details are in the portal — review and either accept or dispute.",
+          }[lang],
+          facts: [
+            { label: { lv: "Piegāde:", ru: "Поставка:", en: "Delivery:" }[lang], value: ref },
+            ...(note ? [{ label: { lv: "Konstatēts:", ru: "Обнаружено:", en: "Found:" }[lang], value: note }] : []),
+            { label: { lv: "Atbildēt līdz:", ru: "Ответить до:", en: "Reply by:" }[lang], value: by },
+          ],
+          cta: { label: { lv: "Atbildēt kabinetā", ru: "Ответить в кабинете", en: "Reply in the portal" }[lang], url: `${ctx.portalUrl}` },
+          ctaNote: {
+            lv: "Bez atbildes noteiktajā termiņā akts stājas spēkā tāds, kāds ir.",
+            ru: "Без ответа в срок акт вступает в силу в текущем виде.",
+            en: "With no reply by that date the report stands as it is.",
+          }[lang],
+          labels,
+        },
+      };
+    }
+
+    // ── S5. Счёт принят ────────────────────────────────────────────────────
+    case "sup_invoice_accepted": {
+      const num = i.invoiceNumber ?? "";
+      const due = fmtDate(i.dueDate, lang);
+      const sum = moneyIn(i.amountCents, lang);
+      const subject = {
+        lv: `Rēķins ${num} pieņemts — apmaksa ${due}`,
+        ru: `Счёт ${num} принят — оплата ${due}`,
+        en: `Invoice ${num} accepted — payment on ${due}`,
+      }[lang];
+      const text = {
+        lv: `Labdien, ${i.alias}!\n\nRēķins ${num} par ${sum} ir pārbaudīts un apstiprināts apmaksai.\nPlānotais maksājuma datums: ${due}.\n\nStatuss kabinetā: ${ctx.portalUrl}\n\n[sup_invoice_accepted]`,
+        ru: `Добрый день, ${i.alias}!\n\nСчёт ${num} на ${sum} проверен и согласован к оплате.\nПлановая дата платежа: ${due}.\n\nСтатус в кабинете: ${ctx.portalUrl}\n\n[sup_invoice_accepted]`,
+        en: `Hello ${i.alias},\n\nInvoice ${num} for ${sum} has been checked and approved for payment.\nPlanned payment date: ${due}.\n\nStatus in the portal: ${ctx.portalUrl}\n\n[sup_invoice_accepted]`,
+      }[lang];
+      return {
+        subject,
+        text,
+        spec: {
+          preheader: { lv: `Apmaksa plānota ${due}`, ru: `Оплата запланирована на ${due}`, en: `Payment planned for ${due}` }[lang],
+          headline: { lv: "RĒĶINS PIEŅEMTS", ru: "СЧЁТ ПРИНЯТ", en: "INVOICE ACCEPTED" }[lang],
+          headlineTone: "ok",
+          greeting: `${{ lv: "Labdien", ru: "Добрый день", en: "Hello" }[lang]}, ${i.alias}!`,
+          intro: {
+            lv: "Rēķins izgājis pārbaudi un apstiprināšanu. Datums zemāk ir tas, uz kuru plānojam maksājumu — atgādināt nevajag.",
+            ru: "Счёт прошёл проверку и согласование. Дата ниже — та, на которую запланирован платёж; напоминать не нужно.",
+            en: "The invoice has passed checking and approval. The date below is when we plan to pay — no need to chase us.",
+          }[lang],
+          amount: { label: { lv: "Summa:", ru: "Сумма:", en: "Amount:" }[lang], value: sum },
+          facts: [
+            { label: { lv: "Rēķins:", ru: "Счёт:", en: "Invoice:" }[lang], value: num },
+            { label: { lv: "Apmaksa:", ru: "Оплата:", en: "Payment:" }[lang], value: due },
+          ],
+          cta: { label: { lv: "Skatīt kabinetā", ru: "Смотреть в кабинете", en: "View in the portal" }[lang], url: `${ctx.portalUrl}` },
+          labels,
+        },
+      };
+    }
+
+    // ── S6. Счёт отклонён ──────────────────────────────────────────────────
+    case "sup_invoice_rejected": {
+      const num = i.invoiceNumber ?? "";
+      const why = i.rejectReason?.trim() ?? { lv: "nav norādīts", ru: "не указана", en: "not stated" }[lang];
+      const subject = {
+        lv: `Rēķins ${num} noraidīts`,
+        ru: `Счёт ${num} отклонён`,
+        en: `Invoice ${num} rejected`,
+      }[lang];
+      const text = {
+        lv: `Labdien, ${i.alias}!\n\nRēķinu ${num} par ${moneyIn(i.amountCents, "lv")} nevaram pieņemt apmaksai.\nIemesls: ${why}\n\nLūdzam iesniegt labotu rēķinu kabinetā: ${ctx.portalUrl}\n\n[sup_invoice_rejected]`,
+        ru: `Добрый день, ${i.alias}!\n\nСчёт ${num} на ${moneyIn(i.amountCents, "ru")} не может быть принят к оплате.\nПричина: ${why}\n\nПросим загрузить исправленный счёт в кабинет: ${ctx.portalUrl}\n\n[sup_invoice_rejected]`,
+        en: `Hello ${i.alias},\n\nInvoice ${num} for ${moneyIn(i.amountCents, "en")} cannot be accepted for payment.\nReason: ${why}\n\nPlease upload a corrected invoice in the portal: ${ctx.portalUrl}\n\n[sup_invoice_rejected]`,
+      }[lang];
+      return {
+        subject,
+        text,
+        spec: {
+          preheader: { lv: "Vajadzīgs labots rēķins", ru: "Нужен исправленный счёт", en: "A corrected invoice is needed" }[lang],
+          headline: { lv: "RĒĶINS NORAIDĪTS", ru: "СЧЁТ ОТКЛОНЁН", en: "INVOICE REJECTED" }[lang],
+          headlineTone: "warn",
+          greeting: `${{ lv: "Labdien", ru: "Добрый день", en: "Hello" }[lang]}, ${i.alias}!`,
+          intro: {
+            lv: "Rēķinu atgriežam labošanai — apmaksas termiņš sāksies no labotā rēķina saņemšanas.",
+            ru: "Возвращаем счёт на исправление — срок оплаты пойдёт от получения исправленного.",
+            en: "We are returning the invoice for correction — the payment term starts from the corrected one.",
+          }[lang],
+          facts: [
+            { label: { lv: "Rēķins:", ru: "Счёт:", en: "Invoice:" }[lang], value: num },
+            { label: { lv: "Summa:", ru: "Сумма:", en: "Amount:" }[lang], value: moneyIn(i.amountCents, lang) },
+            { label: { lv: "Iemesls:", ru: "Причина:", en: "Reason:" }[lang], value: why },
+          ],
+          cta: { label: { lv: "Iesniegt labotu", ru: "Загрузить исправленный", en: "Upload a corrected invoice" }[lang], url: `${ctx.portalUrl}` },
+          labels,
+        },
+      };
+    }
+
+    // ── S7. Оплата отправлена ──────────────────────────────────────────────
+    case "sup_payment_sent": {
+      const sum = moneyIn(i.amountCents, lang);
+      const when = fmtDate(i.paidAt, lang);
+      const nums = (i.invoiceNumbers ?? []).join(", ");
+      const subject = {
+        lv: `Maksājums nosūtīts — ${sum}`,
+        ru: `Платёж отправлен — ${sum}`,
+        en: `Payment sent — ${sum}`,
+      }[lang];
+      const text = {
+        lv: `Labdien, ${i.alias}!\n\nMaksājums ${sum} nosūtīts ${when}.\nRēķini: ${nums || "—"}\nMaksājuma references: ${i.paymentRef ?? "—"}\n\n[sup_payment_sent]`,
+        ru: `Добрый день, ${i.alias}!\n\nПлатёж ${sum} отправлен ${when}.\nСчета: ${nums || "—"}\nРеференс платежа: ${i.paymentRef ?? "—"}\n\n[sup_payment_sent]`,
+        en: `Hello ${i.alias},\n\nA payment of ${sum} was sent on ${when}.\nInvoices: ${nums || "—"}\nPayment reference: ${i.paymentRef ?? "—"}\n\n[sup_payment_sent]`,
+      }[lang];
+      return {
+        subject,
+        text,
+        spec: {
+          preheader: { lv: `Nosūtīts ${when}`, ru: `Отправлен ${when}`, en: `Sent on ${when}` }[lang],
+          headline: { lv: "MAKSĀJUMS NOSŪTĪTS", ru: "ПЛАТЁЖ ОТПРАВЛЕН", en: "PAYMENT SENT" }[lang],
+          headlineTone: "ok",
+          greeting: `${{ lv: "Labdien", ru: "Добрый день", en: "Hello" }[lang]}, ${i.alias}!`,
+          intro: {
+            lv: "Nauda ir izsūtīta no mūsu konta. Atkarībā no bankas tā parasti ir jūsu kontā tajā pašā vai nākamajā darba dienā.",
+            ru: "Деньги отправлены с нашего счёта. В зависимости от банка они обычно у вас в тот же или на следующий рабочий день.",
+            en: "The money has left our account. Depending on the banks it usually arrives the same or the next business day.",
+          }[lang],
+          amount: { label: { lv: "Summa:", ru: "Сумма:", en: "Amount:" }[lang], value: sum },
+          facts: [
+            ...(nums ? [{ label: { lv: "Rēķini:", ru: "Счета:", en: "Invoices:" }[lang], value: nums }] : []),
+            { label: { lv: "Datums:", ru: "Дата:", en: "Date:" }[lang], value: when },
+            ...(i.paymentRef ? [{ label: { lv: "References:", ru: "Референс:", en: "Reference:" }[lang], value: i.paymentRef }] : []),
+          ],
+          cta: { label: { lv: "Maksājumu vēsture", ru: "История платежей", en: "Payment history" }[lang], url: `${ctx.portalUrl}` },
+          labels,
+        },
+      };
+    }
+
+    // ── S8. Месячная сводка ────────────────────────────────────────────────
+    case "sup_monthly_report": {
+      const period = i.periodLabel ?? "";
+      const st = i.sellThroughPercent ?? 0;
+      const subject = {
+        lv: `Pārskats par ${period}`,
+        ru: `Сводка за ${period}`,
+        en: `Summary for ${period}`,
+      }[lang];
+      const text = {
+        lv: `Labdien, ${i.alias}!\n\nPārskats par ${period}:\n• pieņemts: ${i.receivedCount ?? 0} vienības\n• pārdots: ${i.soldCount ?? 0} vienības (${st}%)\n• pārdošanas apjoms: ${moneyIn(i.soldGrossCents, "lv")}\n• izmaksāts: ${moneyIn(i.payoutCents, "lv")}\n\nDetaļas kabinetā: ${ctx.portalUrl}\n\n[sup_monthly_report]`,
+        ru: `Добрый день, ${i.alias}!\n\nСводка за ${period}:\n• принято: ${i.receivedCount ?? 0} ед.\n• продано: ${i.soldCount ?? 0} ед. (${st}%)\n• объём продаж: ${moneyIn(i.soldGrossCents, "ru")}\n• выплачено: ${moneyIn(i.payoutCents, "ru")}\n\nДетали в кабинете: ${ctx.portalUrl}\n\n[sup_monthly_report]`,
+        en: `Hello ${i.alias},\n\nSummary for ${period}:\n• received: ${i.receivedCount ?? 0} units\n• sold: ${i.soldCount ?? 0} units (${st}%)\n• sales volume: ${moneyIn(i.soldGrossCents, "en")}\n• paid out: ${moneyIn(i.payoutCents, "en")}\n\nDetails in the portal: ${ctx.portalUrl}\n\n[sup_monthly_report]`,
+      }[lang];
+      return {
+        subject,
+        text,
+        spec: {
+          preheader: { lv: `Pārdots ${st}% no pieņemtā`, ru: `Продано ${st}% принятого`, en: `${st}% of intake sold` }[lang],
+          headline: { lv: "MĒNEŠA PĀRSKATS", ru: "СВОДКА ЗА МЕСЯЦ", en: "MONTHLY SUMMARY" }[lang],
+          headlineTone: "accent",
+          greeting: `${{ lv: "Labdien", ru: "Добрый день", en: "Hello" }[lang]}, ${i.alias}!`,
+          intro: {
+            lv: "Īsi par to, kā gāja jūsu precēm pagājušajā mēnesī. Sadalījums pa vienībām ar cenām ir kabinetā.",
+            ru: "Коротко о том, как прошёл месяц у ваших товаров. Разбивка по единицам с ценами — в кабинете.",
+            en: "A short view of how your goods did last month. The per-unit breakdown with prices is in the portal.",
+          }[lang],
+          amount: {
+            label: { lv: "Pārdošanas apjoms:", ru: "Объём продаж:", en: "Sales volume:" }[lang],
+            value: moneyIn(i.soldGrossCents, lang),
+            lines: [
+              { label: { lv: "Izmaksāts periodā", ru: "Выплачено за период", en: "Paid out in the period" }[lang], value: moneyIn(i.payoutCents, lang) },
+            ],
+          },
+          facts: [
+            { label: { lv: "Periods:", ru: "Период:", en: "Period:" }[lang], value: period },
+            { label: { lv: "Pieņemts:", ru: "Принято:", en: "Received:" }[lang], value: String(i.receivedCount ?? 0) },
+            { label: { lv: "Pārdots:", ru: "Продано:", en: "Sold:" }[lang], value: `${i.soldCount ?? 0} (${st}%)` },
+          ],
+          cta: { label: { lv: "Atvērt pārskatu", ru: "Открыть отчёт", en: "Open the report" }[lang], url: `${ctx.portalUrl}` },
+          labels,
+        },
+      };
+    }
+
+    // ── S9. Отчёт о продажах и расчёт комиссии (self-billing) ──────────────
+    case "sup_sales_report": {
+      const period = i.periodLabel ?? "";
+      const lots = i.soldLots ?? [];
+      const listText = lots.map((l) => `• ${l.title} — ${moneyIn(l.priceCents, lang)}`).join("\n");
+      const subject = {
+        lv: `Pārdošanas atskaite un aprēķins — ${period}`,
+        ru: `Отчёт о продажах и расчёт — ${period}`,
+        en: `Sales report and settlement — ${period}`,
+      }[lang];
+      const text = {
+        lv: `Labdien, ${i.alias}!\n\nPārdošanas atskaite par ${period}:\n${listText}\n\nKopā pārdots: ${moneyIn(i.soldGrossCents, "lv")}\nMūsu komisija (${i.commissionPercent ?? 0}%): ${moneyIn(i.commissionCents, "lv")}\nIzmaksai: ${moneyIn(i.payoutCents, "lv")}\n\nAtskaite kabinetā: ${ctx.portalUrl}\n\n[sup_sales_report]`,
+        ru: `Добрый день, ${i.alias}!\n\nОтчёт о продажах за ${period}:\n${listText}\n\nПродано на: ${moneyIn(i.soldGrossCents, "ru")}\nНаша комиссия (${i.commissionPercent ?? 0}%): ${moneyIn(i.commissionCents, "ru")}\nК выплате: ${moneyIn(i.payoutCents, "ru")}\n\nОтчёт в кабинете: ${ctx.portalUrl}\n\n[sup_sales_report]`,
+        en: `Hello ${i.alias},\n\nSales report for ${period}:\n${listText}\n\nSold for: ${moneyIn(i.soldGrossCents, "en")}\nOur commission (${i.commissionPercent ?? 0}%): ${moneyIn(i.commissionCents, "en")}\nDue to you: ${moneyIn(i.payoutCents, "en")}\n\nReport in the portal: ${ctx.portalUrl}\n\n[sup_sales_report]`,
+      }[lang];
+      return {
+        subject,
+        text,
+        spec: {
+          preheader: { lv: `Izmaksai ${moneyIn(i.payoutCents, lang)}`, ru: `К выплате ${moneyIn(i.payoutCents, lang)}`, en: `Due to you: ${moneyIn(i.payoutCents, lang)}` }[lang],
+          headline: { lv: "PĀRDOŠANAS ATSKAITE", ru: "ОТЧЁТ О ПРОДАЖАХ", en: "SALES REPORT" }[lang],
+          headlineTone: "accent",
+          greeting: `${{ lv: "Labdien", ru: "Добрый день", en: "Hello" }[lang]}, ${i.alias}!`,
+          intro: {
+            lv: "Šī atskaite aizstāj jūsu rēķinu: tā ir pamats izmaksai. Ja kaut kas nesakrīt, atraksti pirms maksājuma datuma.",
+            ru: "Этот отчёт заменяет ваш счёт: он основание для выплаты. Если что-то не сходится — напишите до даты платежа.",
+            en: "This report replaces your invoice: it is the basis for the payout. If anything looks wrong, write before the payment date.",
+          }[lang],
+          amount: {
+            label: { lv: "Izmaksai:", ru: "К выплате:", en: "Due to you:" }[lang],
+            value: moneyIn(i.payoutCents, lang),
+            lines: [
+              { label: { lv: "Pārdots kopā", ru: "Продано всего", en: "Sold in total" }[lang], value: moneyIn(i.soldGrossCents, lang) },
+              { label: `${{ lv: "Komisija", ru: "Комиссия", en: "Commission" }[lang]} ${i.commissionPercent ?? 0}%`, value: `− ${moneyIn(i.commissionCents, lang)}` },
+            ],
+          },
+          // Период идёт первым фактом намеренно: в сводной шапке письма
+          // показывается первый факт, и там уместнее период, чем случайный
+          // первый лот из списка.
+          facts: [
+            { label: { lv: "Periods:", ru: "Период:", en: "Period:" }[lang], value: period },
+            ...lots.map((l) => ({ label: `${l.title}:`, value: moneyIn(l.priceCents, lang) })),
+          ],
+          cta: { label: { lv: "Skatīt atskaiti", ru: "Смотреть отчёт", en: "View the report" }[lang], url: `${ctx.portalUrl}` },
+          labels,
+        },
+      };
+    }
+
+    // ── S10. Непроданный остаток ───────────────────────────────────────────
+    case "sup_unsold": {
+      const count = i.unsoldCount ?? 0;
+      const by = fmtDate(i.decideByDate, lang);
+      const days = i.waitingDays ?? 60;
+      const subject = {
+        lv: `Nepārdotās preces — jālemj līdz ${by}`,
+        ru: `Непроданный остаток — решение до ${by}`,
+        en: `Unsold items — decision needed by ${by}`,
+      }[lang];
+      const text = {
+        lv: `Labdien, ${i.alias}!\n\n${count} vienības no jūsu piegādēm nav pārdotas ${days} dienu laikā.\nIespējas: pazemināt cenu, izņemt atpakaļ vai norakstīt utilizācijai.\nLūdzam izvēlēties kabinetā līdz ${by}.\n\n${ctx.portalUrl}\n\n[sup_unsold]`,
+        ru: `Добрый день, ${i.alias}!\n\n${count} единиц из ваших поставок не продались за ${days} дн.\nВарианты: снизить цену, забрать обратно или списать на утилизацию.\nПросим выбрать в кабинете до ${by}.\n\n${ctx.portalUrl}\n\n[sup_unsold]`,
+        en: `Hello ${i.alias},\n\n${count} units from your deliveries have not sold within ${days} days.\nOptions: lower the price, take them back, or write them off.\nPlease choose in the portal by ${by}.\n\n${ctx.portalUrl}\n\n[sup_unsold]`,
+      }[lang];
+      return {
+        subject,
+        text,
+        spec: {
+          preheader: { lv: `${count} vienības gaida lēmumu`, ru: `${count} ед. ждут решения`, en: `${count} units await a decision` }[lang],
+          headline: { lv: "NEPĀRDOTĀS PRECES", ru: "НЕПРОДАННЫЙ ОСТАТОК", en: "UNSOLD ITEMS" }[lang],
+          headlineTone: "warn",
+          greeting: `${{ lv: "Labdien", ru: "Добрый день", en: "Hello" }[lang]}, ${i.alias}!`,
+          intro: {
+            lv: "Šīs preces stāv noliktavā un neienes neko ne jums, ne mums. Izvēlies, ko ar tām darīt — katra iespēja ir kabinetā ar vienu pogu.",
+            ru: "Этот товар стоит на складе и не приносит ничего ни вам, ни нам. Выберите, что с ним делать — каждый вариант в кабинете одной кнопкой.",
+            en: "These items sit in the warehouse earning nothing for either of us. Choose what to do — each option is one button in the portal.",
+          }[lang],
+          facts: [
+            { label: { lv: "Vienības:", ru: "Единиц:", en: "Units:" }[lang], value: String(count) },
+            { label: { lv: "Noliktavā:", ru: "На складе:", en: "In stock:" }[lang], value: `${days} ${{ lv: "dienas", ru: "дн.", en: "days" }[lang]}` },
+            { label: { lv: "Lēmums līdz:", ru: "Решение до:", en: "Decide by:" }[lang], value: by },
+          ],
+          cta: { label: { lv: "Izvēlēties kabinetā", ru: "Выбрать в кабинете", en: "Choose in the portal" }[lang], url: `${ctx.portalUrl}` },
+          labels,
+        },
+      };
+    }
   }
 }
 
@@ -709,14 +2576,31 @@ export function sampleInput(type: NotificationType, opts: { online?: boolean } =
     vatCents: 4_366,
     deadline: inFiveDays,
   };
+  // Письма поставщикам: адресат — компания, а не покупатель, поэтому у них
+  // своя «болванка» без лота, заказа и покупательских сумм.
+  const supBase: TemplateInput = {
+    alias: "Jānis Ozols",
+    supplierName: "Baltic Wholesale SIA",
+    lotTitle: "",
+    orderRef: undefined,
+    totalCents: undefined,
+    payUrl: null,
+  };
   switch (type) {
+    case "verify_email":
+      return { ...base, actionUrl: "https://izsoli.lv/verify-email?token=sample", orderRef: undefined, totalCents: undefined };
+    // Покупка по фиксированной цене: комиссии за проведение торгов нет, вся
+    // сумма без НДС — цена товара. Образец обязан показывать это так же, как
+    // увидит покупатель, иначе превью в админке врёт про наши же счета.
+    case "purchased":
+      return { ...base, premiumCents: 0, hammerCents: base.hammerCents! + base.premiumCents!, saleType: "buy_now" };
     case "outbid":
       return { ...base, amountCents: 21_000, orderRef: undefined, totalCents: undefined };
     case "pickup_ready":
     case "pickup_reminder":
       return { ...base, pickupCode: "418209", deadline: new Date(Date.now() + 14 * 86_400_000) };
     case "unpaid_cancelled":
-      return { ...base, feeCents: 1_258 };
+      return { ...base, feeCents: 1_258, saleType: "auction", restockPercent: 5 };
     case "no_pickup_cancelled":
       return { ...base, feeCents: 1_258, refundCents: 23_898 };
     case "shipped":
@@ -725,6 +2609,125 @@ export function sampleInput(type: NotificationType, opts: { online?: boolean } =
       return { ...base, refundCents: 25_156, reason: "Prece neatbilda aprakstam" };
     case "checked_in":
       return { ...base, ticketNumber: 119, lineCount: 2 };
+    case "saved_search_hits":
+      return {
+        ...base,
+        orderRef: undefined, totalCents: undefined, hammerCents: undefined, premiumCents: undefined, vatCents: undefined,
+        searchName: "Rolex pulksteņi",
+        totalCount: 4,
+        lots: [
+          { title: "Rolex Datejust 36, 1985", priceCents: 312_000 },
+          { title: "Rolex Air-King, 2001", priceCents: 258_000 },
+          { title: "Tudor Black Bay 58", priceCents: 189_000 },
+        ],
+      };
+    case "watchlist_ending":
+      return {
+        ...base,
+        orderRef: undefined, totalCents: undefined, hammerCents: undefined, premiumCents: undefined, vatCents: undefined,
+        lots: [
+          { title: "Omega Seamaster, 1970. gadi", priceCents: 25_156, endsAt: new Date(Date.now() + 6 * 3_600_000) },
+          { title: "Dyson V15 putekļsūcējs", priceCents: 18_900, endsAt: new Date(Date.now() + 9 * 3_600_000) },
+        ],
+      };
+    case "welcome_reminder":
+      return { ...base, orderRef: undefined, totalCents: undefined, promoCode: "SVEIKI10", promoPercent: 10, promoDeadline: inFiveDays };
+    case "winback_offer":
+      return { ...base, orderRef: undefined, totalCents: undefined, promoCode: "ATPAKAL15", promoPercent: 15, promoDeadline: new Date(Date.now() + 14 * 86_400_000), categoryLabel: "Pulksteņi" };
+    case "inactive_nudge":
+      return {
+        ...base, orderRef: undefined, totalCents: undefined, categoryLabel: "Elektronika",
+        lots: [
+          { title: "Sony WH-1000XM5 austiņas", priceCents: 21_900 },
+          { title: "iPad Air M2, 128 GB", priceCents: 54_900 },
+        ],
+      };
+    case "lost_bid_similar":
+      return {
+        ...base, orderRef: undefined, totalCents: undefined,
+        lots: [
+          { title: "Omega Speedmaster, 1998", priceCents: 289_000 },
+          { title: "Longines Conquest, 2015", priceCents: 96_000 },
+        ],
+      };
+    case "review_request":
+      return { ...base, actionUrl: "https://izsoli.lv/atsauksme?order=A-1042" };
+    case "referral_invite":
+      return { ...base, orderRef: undefined, totalCents: undefined, referralUrl: "https://izsoli.lv/?ref=ELINA7", referralSignupCents: 500, referralOrderCents: 1_000, referralPercent: 15 };
+    case "abandoned_bid":
+      return { ...base, orderRef: undefined, totalCents: undefined, amountCents: 18_900, actionUrl: "https://izsoli.lv/lots/sample" };
+    case "second_purchase":
+      return {
+        ...base, orderRef: undefined, totalCents: undefined, categoryLabel: "Pulksteņi", pointsBalanceCents: 1_200,
+        lots: [
+          { title: "Seiko Presage, 2020", priceCents: 34_900 },
+          { title: "Tissot PRX, 2022", priceCents: 28_500 },
+        ],
+      };
+    case "gift_card_received":
+      return { ...base, orderRef: undefined, totalCents: undefined, amountCents: 5_000 };
+
+    // ── Письма части A ──
+    case "password_reset":
+      return { ...base, orderRef: undefined, totalCents: undefined, actionUrl: "https://izsoli.lv/reset-password?token=paraugs", validHours: 1 };
+    case "points_expiring":
+      return { ...base, orderRef: undefined, totalCents: undefined, expiringCents: 4_000, pointsBalanceCents: 6_500, expiresAt: inFiveDays };
+    case "security_alert":
+      return { ...base, orderRef: undefined, totalCents: undefined, securityEvent: "new_device", deviceLabel: "Chrome · Windows · Rīga", eventAt: new Date() };
+    case "delivered":
+      return { ...base, carrier: "Omniva", machineName: "Rīga, Alfa pakomāts", waitingDays: 7, trackingUrl: "https://omniva.lv/track" };
+    case "bid_voided":
+      return { ...base, orderRef: undefined, totalCents: undefined, amountCents: 18_900, reason: "tehniska kļūda solīšanā" };
+    case "lot_withdrawn":
+      return { ...base, orderRef: undefined, totalCents: undefined, amountCents: 18_900, reason: "prece atsaukta pārbaudes dēļ" };
+    case "payment_failed":
+      return { ...base, failureReason: "banka noraidīja darījumu", payUrl: opts.online ? "https://izsoli.lv/maksat/A-1042" : null };
+
+    case "bnpl_pending":
+      return { ...base, totalCents: 24_900 };
+    case "bnpl_declined":
+      return { ...base, totalCents: 24_900, payUrl: opts.online ? "https://izsoli.lv/maksat/A-1042" : null, bnplProvider: "Inbank", saleType: "auction", restockPercent: 5 };
+    case "storage_started":
+      return { ...base, storageCents: 300, storagePerDayCents: 100, storageFreeDays: 7, deadline: new Date(Date.now() + 23 * 86_400_000) };
+    case "cart_reminder":
+      return { ...base, amountCents: 4900, cartCount: 2, actionUrl: "https://izsoli.lv/grozs" };
+    case "price_drop":
+      return { ...base, amountCents: 3900, oldPriceCents: 4900, dropPercent: 20, actionUrl: "https://izsoli.lv/lots/paraugs" };
+
+    // ── Письма поставщикам ──
+    case "sup_invite":
+      return { ...supBase, inviteUrl: "https://izsoli.lv/piegadatajs/uzaicinajums?token=paraugs", inviteDays: 7 };
+    case "sup_welcome":
+      return { ...supBase, commissionPercent: 25, inviteDays: 14 };
+    case "sup_intake_done":
+      return { ...supBase, consignmentRef: "CON-0042", declaredCount: 120, acceptedCount: 116, rejectedCount: 4 };
+    case "sup_discrepancy":
+      return {
+        ...supBase, consignmentRef: "CON-0042", declaredCount: 120, acceptedCount: 116, rejectedCount: 4,
+        discrepancyNote: "4 vienības ar bojātu iepakojumu un ūdens pēdām",
+        replyByDate: inFiveDays,
+      };
+    case "sup_invoice_accepted":
+      return { ...supBase, invoiceNumber: "PS-2026-114", amountCents: 184_000, dueDate: inFiveDays };
+    case "sup_invoice_rejected":
+      return { ...supBase, invoiceNumber: "PS-2026-114", amountCents: 184_000, rejectReason: "summa nesakrīt ar pieņemšanas aktu (CON-0042)" };
+    case "sup_payment_sent":
+      return { ...supBase, amountCents: 184_000, paidAt: new Date(), paymentRef: "IZS-2026-0731", invoiceNumbers: ["PS-2026-114", "PS-2026-118"] };
+    case "sup_monthly_report":
+      return { ...supBase, periodLabel: "2026. gada jūlijs", receivedCount: 240, soldCount: 186, soldGrossCents: 812_400, sellThroughPercent: 78, payoutCents: 512_000 };
+    case "sup_sales_report":
+      return {
+        ...supBase, periodLabel: "2026. gada jūlijs", soldGrossCents: 812_400, commissionPercent: 25,
+        commissionCents: 203_100, payoutCents: 609_300,
+        soldLots: [
+          { title: "Seiko Presage, 2020", priceCents: 34_900 },
+          { title: "Bosch urbjmašīna GSB 18V", priceCents: 12_500 },
+          { title: "Dyson V11 putekļsūcējs", priceCents: 28_900 },
+        ],
+      };
+    case "sup_unsold":
+      return { ...supBase, unsoldCount: 34, waitingDays: 60, decideByDate: inFiveDays };
+
     default:
       return base;
   }

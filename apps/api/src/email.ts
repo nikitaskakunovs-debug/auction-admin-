@@ -12,6 +12,11 @@ export interface EmailMessage {
   /** Designed body. Always sent alongside `text`, never instead of it — a
    * client that refuses HTML still gets every fact. */
   html?: string;
+  /** Служебные заголовки письма. Сегодня это List-Unsubscribe: без него
+   * Gmail не показывает свою кнопку отписки и хуже пропускает рассылку. */
+  headers?: Record<string, string>;
+  /** Куда уйдёт ответ на это письмо. Пусто — общий ящик из конфига. */
+  replyTo?: string;
 }
 
 export interface EmailAdapter {
@@ -60,6 +65,15 @@ export interface SmtpConfig {
   pass: string;
   /** e.g. "Izsoli.lv <noreply@izsoli.lv>" */
   from: string;
+  /**
+   * Живой ящик, куда попадёт ответ человека.
+   *
+   * Письма уходят с noreply-адреса — так принято, и он защищён от автоответов.
+   * Но человек, получивший «товар готов к выдаче», нажимает «Ответить», а не
+   * ищет контакты на сайте. Без этого заголовка его вопрос уходит в никуда, и
+   * он уверен, что написал нам.
+   */
+  replyTo?: string;
 }
 
 export class SmtpEmailAdapter implements EmailAdapter {
@@ -92,6 +106,11 @@ export class SmtpEmailAdapter implements EmailAdapter {
       subject: msg.subject,
       text: msg.text,
       ...(msg.html ? { html: msg.html } : {}),
+      ...(msg.headers ? { headers: msg.headers } : {}),
+      // Отправитель — noreply, отвечать надо в живой ящик. Письмо может
+      // назвать свой стол (счета — бухгалтерии); иначе общий ящик из конфига.
+      // Умолчание стоит здесь, а не в каждом вызове: забыть его нельзя.
+      ...(msg.replyTo || this.cfg.replyTo ? { replyTo: msg.replyTo || this.cfg.replyTo } : {}),
     });
   }
 }

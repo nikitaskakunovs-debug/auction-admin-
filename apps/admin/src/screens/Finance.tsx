@@ -6,6 +6,7 @@ import { exportCSV, exportPDFPrint, exportXLS } from "../exporters.js";
 import { formatDate, formatDay, formatEur } from "../format.js";
 import { useT, type TKey } from "../i18n.js";
 import { isBnpl, methodLabel, providerLabel } from "../paymentLabels.js";
+import { ApprovalsTab, FinSettingsTab, FlagsTab, LedgerTab, RefundsTab } from "./FinancePlus.js";
 import {
   dateInputStyle, ExportMenu, makeFilterTools, SearchBox, useDebounced, useSavedViews,
   useStoredFilters, ViewsBar,
@@ -30,6 +31,12 @@ const TABS: { id: string; label: TKey; permission: string }[] = [
   // R1: what we owe suppliers — money going out, same permission as the money
   // coming in on Profit.
   { id: "payables", label: "fin.pay.tab", permission: "finance.view" },
+  // ── Финансовый слой (fin-architecture): каждая вкладка — своё право ──
+  { id: "flags", label: "f2.tab.flags", permission: "fin.flags_view" },
+  { id: "approvals", label: "f2.tab.approvals", permission: "fin.approvals_view" },
+  { id: "refunds2", label: "f2.tab.refunds", permission: "fin.refunds_manage" },
+  { id: "ledger", label: "f2.tab.ledger", permission: "fin.ledger_view" },
+  { id: "finSettings", label: "f2.tab.finSettings", permission: "fin.flags_view" },
 ];
 
 function monthStart(): string {
@@ -65,7 +72,12 @@ export function FinanceScreen({ nav: _nav }: { nav: Nav }) {
           : active === "vat" ? <VatTab />
             : active === "profit" ? <ProfitTab />
               : active === "payables" ? <PayablesTab />
-                : <AEmpty text={t("fin.noTabs")} />}
+                : active === "flags" ? <FlagsTab />
+                  : active === "approvals" ? <ApprovalsTab />
+                    : active === "refunds2" ? <RefundsTab />
+                      : active === "ledger" ? <LedgerTab />
+                        : active === "finSettings" ? <FinSettingsTab />
+                          : <AEmpty text={t("fin.noTabs")} />}
     </div>
   );
 }

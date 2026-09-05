@@ -2,18 +2,27 @@ import { describe, expect, it } from "vitest";
 import { computeInvoice } from "./invoice.js";
 import { applyBasisPoints, formatEur } from "./money.js";
 
-describe("computeInvoice — design-doc worked example", () => {
-  it("€100 hammer, LV 21% VAT, 10% premium → €133.10", () => {
-    const inv = computeInvoice({ hammerCents: 10_000, buyerPremiumBp: 1_000, vatRateBp: 2_100 });
-    expect(inv.premiumCents).toBe(1_000); // €10.00
+describe("computeInvoice — цена финальная, разложение вниз", () => {
+  it("€133.10 финальная, LV 21% PVN, 10% komisija → молоток €100", () => {
+    const inv = computeInvoice({ grossCents: 13_310, buyerPremiumBp: 1_000, vatRateBp: 2_100 });
     expect(inv.netCents).toBe(11_000); // €110.00
     expect(inv.vatCents).toBe(2_310); // €23.10
-    expect(inv.totalCents).toBe(13_310); // €133.10
+    expect(inv.hammerCents).toBe(10_000); // €100.00
+    expect(inv.premiumCents).toBe(1_000); // €10.00
+    expect(inv.totalCents).toBe(13_310); // ровно то, что видел клиент
   });
 
-  it("adds shipping after VAT", () => {
+  it("части всегда сходятся с финальной ценой копейка в копейку", () => {
+    for (const gross of [1, 7, 99, 500_00, 123_457, 999_999]) {
+      const inv = computeInvoice({ grossCents: gross, buyerPremiumBp: 1_000, vatRateBp: 2_100 });
+      expect(inv.hammerCents + inv.premiumCents + inv.vatCents).toBe(gross);
+      expect(inv.totalCents).toBe(gross);
+    }
+  });
+
+  it("доставка добавляется поверх финальной цены товара", () => {
     const inv = computeInvoice({
-      hammerCents: 10_000,
+      grossCents: 13_310,
       buyerPremiumBp: 1_000,
       vatRateBp: 2_100,
       shippingCents: 349,
@@ -21,15 +30,16 @@ describe("computeInvoice — design-doc worked example", () => {
     expect(inv.totalCents).toBe(13_310 + 349);
   });
 
-  it("Estonia 24% on the same hammer", () => {
-    const inv = computeInvoice({ hammerCents: 10_000, buyerPremiumBp: 1_000, vatRateBp: 2_400 });
+  it("Эстония 24% — из той же финальной цены другой НДС", () => {
+    const inv = computeInvoice({ grossCents: 13_640, buyerPremiumBp: 1_000, vatRateBp: 2_400 });
+    expect(inv.netCents).toBe(11_000);
     expect(inv.vatCents).toBe(2_640);
     expect(inv.totalCents).toBe(13_640);
   });
 
-  it("reverse charge zero-rates VAT and keeps everything else", () => {
+  it("reverse charge: юрлицо платит минус НДС-часть", () => {
     const inv = computeInvoice({
-      hammerCents: 10_000,
+      grossCents: 13_310,
       buyerPremiumBp: 1_000,
       vatRateBp: 2_100,
       reverseCharge: true,
@@ -37,21 +47,19 @@ describe("computeInvoice — design-doc worked example", () => {
     expect(inv.vatCents).toBe(0);
     expect(inv.vatRateBp).toBe(0);
     expect(inv.reverseCharge).toBe(true);
-    expect(inv.totalCents).toBe(11_000);
+    expect(inv.totalCents).toBe(11_000); // net без НДС
+    expect(inv.hammerCents + inv.premiumCents).toBe(11_000);
   });
 
-  it("rounds premium and VAT half-up per component", () => {
-    // hammer €0.05 → premium 0.5 cents → rounds to 1 cent
-    const inv = computeInvoice({ hammerCents: 5, buyerPremiumBp: 1_000, vatRateBp: 2_100 });
-    expect(inv.premiumCents).toBe(1);
-    // net 6 cents * 21% = 1.26 → 1 cent
-    expect(inv.vatCents).toBe(1);
-    expect(inv.totalCents).toBe(7); // 6 net + 1 VAT
+  it("копеечные суммы не рассыпаются", () => {
+    const inv = computeInvoice({ grossCents: 7, buyerPremiumBp: 1_000, vatRateBp: 2_100 });
+    expect(inv.hammerCents + inv.premiumCents + inv.vatCents).toBe(7);
+    expect(inv.totalCents).toBe(7);
   });
 
   it("rejects fractional or negative money", () => {
-    expect(() => computeInvoice({ hammerCents: 10.5, buyerPremiumBp: 1_000, vatRateBp: 2_100 })).toThrow();
-    expect(() => computeInvoice({ hammerCents: -1, buyerPremiumBp: 1_000, vatRateBp: 2_100 })).toThrow();
+    expect(() => computeInvoice({ grossCents: 10.5, buyerPremiumBp: 1_000, vatRateBp: 2_100 })).toThrow();
+    expect(() => computeInvoice({ grossCents: -1, buyerPremiumBp: 1_000, vatRateBp: 2_100 })).toThrow();
   });
 });
 

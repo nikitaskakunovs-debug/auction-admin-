@@ -1,12 +1,16 @@
-import { items, orders, payments } from "@auction/db";
-import { and, desc, eq } from "drizzle-orm";
+import { items, listings, markets, orders, payments } from "@auction/db";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { verifyPayLinkToken } from "../auth/jwt.js";
 import type { AppContext } from "../context.js";
 import { InbankError } from "../engine/inbank.js";
 import { KlixError } from "../engine/klix.js";
+import { getOrCreateCredit, moveCredit } from "../engine/credits.js";
+import { movePoints, redeemablePointsCents } from "../engine/loyalty.js";
 import { settleOrderPaid } from "../engine/settlement.js";
+import { enqueueNotification } from "../engine/notifications.js";
+import { buildPayUrl } from "../engine/payLink.js";
 
 /**
  * Online payment through two hosted providers:
@@ -52,6 +56,45 @@ function mapInbankStatus(providerStatus: string): "created" | "paid" | "failed" 
   if (["rejected", "cancelled", "failed", "terminated"].includes(providerStatus)) return "failed";
   return "created"; // pending / granted / processing — still in flight
 }
+
+/**
+ * Статусы Inbank, означающие «заявка у банка, решение ещё не принято».
+ * Намеренно НЕ включают первичное «created»: сессию мы создаём сами, до
+ * того как человек хоть что-то заполнил, и писать ему тогда не о чем.
+ * Незнакомый статус письма не рождает — лучше промолчать, чем соврать.
+ */
+const BNPL_IN_REVIEW = new Set(["granted", "processing", "in_progress", "signing", "awaiting_signature", "pending_signature"]);
+
+/** Статусы Inbank, означающие отказ банка (а не брошенное человеком окно). */
+const BNPL_DECLINED = new Set(["rejected", "declined", "denied", "refused"]);
+
+/**
+ * Рассрочка у нас от двух операторов: Inbank отдельным провайдером, а Klix
+ * Pay Later — способом внутри Klix. Для покупателя это одно и то же событие
+ * («банк рассматривает», «банк отказал»), поэтому и письма общие; отличается
+ * только словарь статусов и имя, которое стоит назвать в письме.
+ */
+const KLIX_PAY_LATER = "klix_pay_later";
+const KLIX_BNPL_IN_REVIEW = new Set(["pending_execute", "hold"]);
+const KLIX_BNPL_DECLINED = new Set(["blocked", "error"]);
+
+const isBnpl = (payment: { provider: string; method: string | null }): boolean =>
+  payment.provider === "inbank" || payment.method === KLIX_PAY_LATER;
+
+const bnplName = (payment: { provider: string; method: string | null }): string =>
+  payment.provider === "inbank" ? "Inbank" : "Klix Pay Later";
+
+/** Заявка у банка, решения ещё нет. */
+const bnplInReview = (payment: { provider: string; method: string | null }, providerStatus: string): boolean => {
+  const st = providerStatus.toLowerCase();
+  return payment.provider === "inbank" ? BNPL_IN_REVIEW.has(st) : payment.method === KLIX_PAY_LATER && KLIX_BNPL_IN_REVIEW.has(st);
+};
+
+/** Банк отказал (а не человек закрыл окно — это обычная неудача платежа). */
+const bnplDeclined = (payment: { provider: string; method: string | null }, providerStatus: string): boolean => {
+  const st = providerStatus.toLowerCase();
+  return payment.provider === "inbank" ? BNPL_DECLINED.has(st) : payment.method === KLIX_PAY_LATER && KLIX_BNPL_DECLINED.has(st);
+};
 
 const mapProviderStatus = (provider: string, providerStatus: string) =>
   provider === "inbank" ? mapInbankStatus(providerStatus) : mapKlixStatus(providerStatus);
@@ -116,13 +159,154 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
     if (status === "paid") {
       // Idempotent: a second callback (or a poll racing the callback) finds
       // the order already paid and no-ops.
-      await settleOrderPaid(ctx, payment.orderId, ACTORS[payment.provider as PayProvider] ?? ACTORS.klix, {
-        via: payment.provider,
-        paymentId: payment.id,
-        purchaseId: payment.providerId,
-      });
+      // Один платёж мог закрыть несколько заказов (макет № 48) — гасим все.
+      for (const orderId of [payment.orderId, ...payment.groupOrderIds]) {
+        await settleOrderPaid(ctx, orderId, ACTORS[payment.provider as PayProvider] ?? ACTORS.klix, {
+          via: payment.provider,
+          paymentId: payment.id,
+          purchaseId: payment.providerId,
+        });
+      }
+    }
+    // Способ оплаты Klix узнаёт только сейчас: до выбора на странице банка
+    // мы не знаем, карта это или Pay Later. Дальше рассуждаем по свежему.
+    const fresh = { ...payment, method: state.method ?? payment.method };
+    // Рассрочка: банк думает часами. Пишем один раз, когда заявка реально
+    // ушла в банк, — и говорим, что срок оплаты приостановлен (Б-2).
+    if (status === "created" && bnplInReview(fresh, providerStatus)) {
+      await notifyBnplPending(fresh).catch((err) => console.error("bnpl_pending notice failed", err));
+    }
+    // Письмо A6: платёж отклонён. Шлём по переходу статуса, а не при каждой
+    // сверке, и только пока заказ ещё ждёт оплаты — по отменённому заказу
+    // звать «оплатите снова» некуда.
+    if (status === "failed" && payment.status !== "failed") {
+      // Банк отказал — время рассмотрения возвращаем человеку: пока заявка
+      // висела, автоотмена его не трогала, но и часы стоять сами не умеют.
+      // Срок двигаем ДО письма: в нём стоит новая дата.
+      if (isBnpl(fresh)) {
+        await resumeDeadlineAfterBnpl(payment).catch((err) =>
+          console.error("bnpl deadline resume failed", err),
+        );
+      }
+      // Отказ в кредите и неудавшийся платёж — разные события, и письма у
+      // них разные. Брошенную заявку (человек закрыл окно банка) считаем
+      // обычной неудачей: там «попробуйте ещё раз» уместно.
+      const declined = bnplDeclined(fresh, providerStatus);
+      await (declined ? notifyBnplDeclined(fresh) : notifyPaymentFailed(payment, providerStatus)).catch((err) =>
+        console.error("payment failure notice failed", err),
+      );
     }
     return status;
+  }
+
+  /**
+   * Письмо «заявка в банке» (Б-2). Один раз на заявку: ключ идемпотентности —
+   * сам платёж, а сверок по нему бывает много (колбэк, опрос витрины).
+   */
+  async function notifyBnplPending(payment: typeof payments.$inferSelect): Promise<void> {
+    const [row] = await ctx.db
+      .select({ order: orders, title: items.title })
+      .from(orders)
+      .innerJoin(items, eq(orders.itemId, items.id))
+      .where(eq(orders.id, payment.orderId));
+    if (!row || row.order.status !== "awaiting_payment") return;
+    await enqueueNotification(ctx, ctx.db, {
+      customerId: row.order.customerId,
+      type: "bnpl_pending",
+      template: {
+        alias: "",
+        lotTitle: row.title,
+        orderRef: row.order.ref,
+        totalCents: row.order.totalCents,
+        bnplProvider: bnplName(payment),
+      },
+      dedupeKey: `bnpl_pending:${payment.id}`,
+    });
+  }
+
+  /**
+   * Письмо «банк не одобрил» (Б-4). Причину банка НЕ пересказываем: её нам не
+   * сообщают, а гадать о чужой кредитной истории — последнее, чем стоит
+   * заниматься в письме клиенту. Говорим то, что важно: заказ жив, срок
+   * продлён, оплатить можно иначе.
+   */
+  async function notifyBnplDeclined(payment: { id: string; orderId: string; provider: string; method: string | null }): Promise<void> {
+    const [row] = await ctx.db
+      .select({ order: orders, title: items.title, listingType: listings.type, restockFeeBp: markets.restockFeeBp })
+      .from(orders)
+      .innerJoin(items, eq(items.id, orders.itemId))
+      .innerJoin(listings, eq(listings.id, orders.listingId))
+      .leftJoin(markets, eq(markets.code, orders.marketCode))
+      .where(eq(orders.id, payment.orderId));
+    if (!row || row.order.status !== "awaiting_payment") return;
+    // Последствия неоплаты у лота и у товара с ценником разные, и письмо
+    // обязано назвать те, что наступят именно здесь. Процент берём из
+    // настроек рынка, а не из текста: разойтись они не имеют права.
+    const buyNow = row.listingType === "fixed";
+    await enqueueNotification(ctx, ctx.db, {
+      customerId: row.order.customerId,
+      type: "bnpl_declined",
+      template: {
+        alias: "",
+        lotTitle: row.title,
+        orderRef: row.order.ref,
+        totalCents: row.order.totalCents,
+        deadline: row.order.paymentDeadlineAt ?? undefined,
+        payUrl: buildPayUrl(ctx, row.order.ref, row.order.paymentDeadlineAt),
+        bnplProvider: bnplName(payment),
+        saleType: buyNow ? "buy_now" : "auction",
+        ...(buyNow ? {} : { restockPercent: Math.round((row.restockFeeBp ?? 500) / 100) }),
+      },
+      dedupeKey: `bnpl_declined:${payment.id}`,
+    });
+  }
+
+  /**
+   * Отказ банка: срок оплаты продлевается ровно на то время, что заявка была
+   * в работе. Пока она висела, заказ не отменялся (см. cancelUnpaidDue), но
+   * сам срок в базе не двигался — и без этого человек, подавший заявку за час
+   * до конца, получил бы отмену в ту же минуту, что и отказ.
+   */
+  async function resumeDeadlineAfterBnpl(payment: typeof payments.$inferSelect): Promise<void> {
+    const pendingMs = ctx.now().getTime() - payment.createdAt.getTime();
+    if (pendingMs <= 0) return;
+    for (const orderId of [payment.orderId, ...payment.groupOrderIds]) {
+      await ctx.db
+        .update(orders)
+        .set({ paymentDeadlineAt: sql`${orders.paymentDeadlineAt} + make_interval(secs => ${Math.round(pendingMs / 1000)})` })
+        .where(and(eq(orders.id, orderId), eq(orders.status, "awaiting_payment")));
+    }
+  }
+
+  /**
+   * Письмо «платёж не прошёл» (A6). Причину переводим в человеческую фразу:
+   * коды провайдера в письме клиенту бесполезны, а иногда и пугают.
+   */
+  async function notifyPaymentFailed(payment: typeof payments.$inferSelect, providerStatus: string): Promise<void> {
+    const [row] = await ctx.db
+      .select({ order: orders, title: items.title })
+      .from(orders)
+      .innerJoin(items, eq(orders.itemId, items.id))
+      .where(eq(orders.id, payment.orderId));
+    if (!row || row.order.status !== "awaiting_payment") return;
+    // Вид неудачи, а не готовая фраза: письмо подберёт слова на языке
+    // получателя. Раньше сюда уезжала латышская строка, и русский читатель
+    // получал причину по-латышски.
+    const kind = /cancel/i.test(providerStatus) ? ("cancelled" as const) : undefined;
+    await enqueueNotification(ctx, ctx.db, {
+      customerId: row.order.customerId,
+      type: "payment_failed",
+      template: {
+        alias: "",
+        lotTitle: row.title,
+        orderRef: row.order.ref,
+        totalCents: row.order.totalCents,
+        deadline: row.order.paymentDeadlineAt ?? undefined,
+        payUrl: buildPayUrl(ctx, row.order.ref, row.order.paymentDeadlineAt),
+        ...(kind ? { failureKind: kind } : {}),
+      },
+      dedupeKey: `payment_failed:${payment.id}`,
+    });
   }
 
   /**
@@ -138,22 +322,36 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
     provider: PayProvider,
     channel: "web" | "email",
     language: string,
+    /** Попутные заказы, которые закрывает этот же платёж (макеты № 47, 48). */
+    alsoRows: Array<{ order: typeof orders.$inferSelect; itemTitle: string }> = [],
   ): Promise<{ ok: true; checkoutUrl: string } | { ok: false; status: number; error: string }> {
+    // Провайдеру уходит остаток после зачёта аванса и баллов — не полный итог.
+    const allRows = [row, ...alsoRows];
+    const chargeCents = allRows.reduce(
+      (sum, r) => sum + r.order.totalCents - r.order.creditAppliedCents - r.order.pointsAppliedCents,
+      0,
+    );
+    const groupOrderIds = alsoRows.map((r) => r.order.id);
     if ((provider === "klix" && !ctx.klix) || (provider === "inbank" && !ctx.inbank)) {
       return { ok: false, status: 503, error: "payments_unavailable" };
     }
     const [existing] = await ctx.db
       .select()
       .from(payments)
-      .where(and(eq(payments.orderId, row.order.id), eq(payments.status, "created")))
+      .where(and(inArray(payments.orderId, allRows.map((r) => r.order.id)), eq(payments.status, "created")))
       .orderBy(desc(payments.createdAt))
       .limit(1);
     if (
       existing?.checkoutUrl &&
       existing.provider === provider &&
+      // Тот же набор заказов: чекаут за один лот нельзя переиспользовать
+      // для корзины из двух — сумма будет чужой.
+      existing.orderId === row.order.id &&
+      existing.groupOrderIds.length === groupOrderIds.length &&
+      existing.groupOrderIds.every((id) => groupOrderIds.includes(id)) &&
       // A fulfilment change reprices the order — a checkout carrying a stale
       // amount must never be reused, only superseded.
-      existing.amountCents === row.order.totalCents &&
+      existing.amountCents === chargeCents &&
       ctx.now().getTime() - existing.createdAt.getTime() < CHECKOUT_REUSE_MS
     ) {
       return { ok: true, checkoutUrl: existing.checkoutUrl };
@@ -185,7 +383,7 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
     const ref = encodeURIComponent(row.order.ref);
     const [payment] = await ctx.db
       .insert(payments)
-      .values({ orderId: row.order.id, provider, channel, amountCents: row.order.totalCents })
+      .values({ orderId: row.order.id, provider, channel, amountCents: chargeCents, groupOrderIds })
       .returning();
     const callbackUrl = `${ctx.config.publicBaseUrl}/api/public/payments/${provider}/callback?payment=${payment!.id}`;
     try {
@@ -194,7 +392,7 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
       let providerStatus: string;
       if (provider === "inbank") {
         const session = await ctx.inbank!.createSession({
-          amountCents: row.order.totalCents,
+          amountCents: chargeCents,
           reference: row.order.ref,
           redirectUrl: `${accountUrl}?paid=1&order=${ref}`,
           cancelUrl: `${accountUrl}?paid=cancel&order=${ref}`,
@@ -205,8 +403,10 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
         providerStatus = session.status;
       } else {
         const purchase = await ctx.klix!.createPurchase({
-          amountCents: row.order.totalCents,
-          name: `${row.order.ref} — ${row.itemTitle}`.slice(0, 250),
+          amountCents: chargeCents,
+          name: allRows.length > 1
+            ? `${allRows.map((r) => r.order.ref).join(", ")} — ${allRows.length} loti`.slice(0, 250)
+            : `${row.order.ref} — ${row.itemTitle}`.slice(0, 250),
           reference: row.order.ref,
           clientEmail: row.order.customerEmail,
           language,
@@ -261,6 +461,12 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
   const paySchema = z.object({
     language: z.enum(["lv", "ru", "en", "et", "lt"]).optional(),
     provider: z.enum(["klix", "inbank"]).optional(),
+    /** Зачесть аванс (№ 72): остаток уходит провайдеру; если аванс покрывает
+     *  всё — заказ оплачивается сразу, без провайдера. */
+    useCredit: z.boolean().optional(),
+    /** Списать баллы лояльности (MD §5a): целыми евро, не больше потолка из
+     *  настроек (стандартно 50% итога) — заказ целиком баллами не закрыть. */
+    usePoints: z.boolean().optional(),
   });
 
   /** Start (or resume) checkout for the bidder's own unpaid order. */
@@ -269,14 +475,107 @@ export function registerPaymentRoutes(app: FastifyInstance, ctx: AppContext): vo
     if (!bidderId) return;
     const body = paySchema.safeParse(req.body ?? {});
     if (!body.success) return reply.code(400).send({ error: "invalid_body" });
-    const provider = body.data.provider ?? defaultProvider();
-    if (!provider) return reply.code(503).send({ error: "payments_unavailable" });
     const { ref } = req.params as { ref: string };
-    const row = await ownOrderByRef(ref, bidderId);
+    let row = await ownOrderByRef(ref, bidderId);
     if (!row) return reply.code(404).send({ error: "not_found" });
     if (row.order.status !== "awaiting_payment") return reply.code(409).send({ error: "order_not_awaiting_payment" });
+
+    if (body.data.useCredit) {
+      // Аванс списывается до похода к провайдеру, одной транзакцией с заказом.
+      await ctx.db.transaction(async (tx) => {
+        const [locked] = await tx.select().from(orders).where(eq(orders.id, row!.order.id)).for("update");
+        if (!locked || locked.status !== "awaiting_payment") return;
+        const remaining = locked.totalCents - locked.creditAppliedCents;
+        if (remaining <= 0) return;
+        const credit = await getOrCreateCredit(tx, bidderId);
+        const apply = Math.min(credit.balanceCents, remaining);
+        if (apply <= 0) return;
+        await moveCredit(tx, bidderId, { kind: "used_for_order", amountCents: -apply, orderRef: locked.ref }, ctx.now());
+        await tx
+          .update(orders)
+          .set({ creditAppliedCents: locked.creditAppliedCents + apply })
+          .where(eq(orders.id, locked.id));
+      });
+      row = await ownOrderByRef(ref, bidderId);
+      if (!row) return reply.code(404).send({ error: "not_found" });
+      if (row.order.totalCents - row.order.creditAppliedCents - row.order.pointsAppliedCents <= 0) {
+        // Аванс покрыл всё — деньги уже у нас, провайдер не нужен.
+        await settleOrderPaid(ctx, row.order.id, { id: null, label: "avanss" }, { creditAppliedCents: row.order.creditAppliedCents });
+        return { paid: true };
+      }
+    }
+
+    if (body.data.usePoints) {
+      // Баллы — как аванс, но со своим потолком: не больше доли итога из
+      // настроек и только целыми евро. Полностью закрыть заказ баллами
+      // нельзя (решение владельца), поэтому провайдер остаётся всегда.
+      await ctx.db.transaction(async (tx) => {
+        const [locked] = await tx.select().from(orders).where(eq(orders.id, row!.order.id)).for("update");
+        if (!locked || locked.status !== "awaiting_payment") return;
+        const remaining = locked.totalCents - locked.creditAppliedCents - locked.pointsAppliedCents;
+        if (remaining <= 0) return;
+        const apply = await redeemablePointsCents(ctx, tx, {
+          customerId: bidderId,
+          orderTotalCents: locked.totalCents,
+          alreadyAppliedCents: locked.pointsAppliedCents,
+          remainingCents: remaining,
+        });
+        if (apply <= 0) return;
+        await movePoints(tx, bidderId, { reason: "redemption", amountCents: -apply, orderRef: locked.ref }, ctx.now());
+        await tx
+          .update(orders)
+          .set({ pointsAppliedCents: locked.pointsAppliedCents + apply })
+          .where(eq(orders.id, locked.id));
+      });
+      row = await ownOrderByRef(ref, bidderId);
+      if (!row) return reply.code(404).send({ error: "not_found" });
+    }
+
+    const provider = body.data.provider ?? defaultProvider();
+    if (!provider) return reply.code(503).send({ error: "payments_unavailable" });
     const language = body.data.language ?? MARKET_LANGUAGE[row.order.marketCode] ?? "en";
     const result = await openCheckout(row, provider, "web", language);
+    if (!result.ok) return reply.code(result.status).send({ error: result.error });
+    return { checkoutUrl: result.checkoutUrl };
+  });
+
+  /**
+   * Оплата нескольких лотов одним платежом (макеты № 47 и 48).
+   *
+   * Заказы остаются раздельными: у каждого свой счёт, своя доставка и своя
+   * выдача — общей становится только касса. Провайдеру уходит одна сумма, и
+   * когда она приходит, гасятся все заказы группы.
+   */
+  app.post("/api/public/orders/pay-group", async (req, reply) => {
+    const bidderId = requireBidder(req, reply);
+    if (!bidderId) return;
+    const body = z
+      .object({
+        // Повторы отсекаем: ["A-1","A-1"] удвоил бы сумму у провайдера,
+        // а погасился бы заказ один раз.
+        refs: z.array(z.string().min(1)).min(2).max(20)
+          .refine((r) => new Set(r).size === r.length, "duplicate refs"),
+        language: z.enum(["lv", "ru", "en", "et", "lt"]).optional(),
+        provider: z.enum(["klix", "inbank"]).optional(),
+      })
+      .safeParse(req.body ?? {});
+    if (!body.success) return reply.code(400).send({ error: "invalid_body" });
+
+    const rows: Array<{ order: typeof orders.$inferSelect; itemTitle: string }> = [];
+    for (const ref of body.data.refs) {
+      const row = await ownOrderByRef(ref, bidderId);
+      if (!row) return reply.code(404).send({ error: "not_found", ref });
+      if (row.order.status !== "awaiting_payment") {
+        return reply.code(409).send({ error: "order_not_awaiting_payment", ref });
+      }
+      rows.push(row);
+    }
+
+    const provider = body.data.provider ?? defaultProvider();
+    if (!provider) return reply.code(503).send({ error: "payments_unavailable" });
+    const first = rows[0]!;
+    const language = body.data.language ?? MARKET_LANGUAGE[first.order.marketCode] ?? "en";
+    const result = await openCheckout(first, provider, "web", language, rows.slice(1));
     if (!result.ok) return reply.code(result.status).send({ error: result.error });
     return { checkoutUrl: result.checkoutUrl };
   });

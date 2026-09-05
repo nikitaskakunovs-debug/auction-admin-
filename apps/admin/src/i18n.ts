@@ -15,6 +15,10 @@ import { POWERKIT } from "./i18n/powerkit.js";
 import { RECEIVING } from "./i18n/receiving.js";
 import { SETTINGS } from "./i18n/settings.js";
 import { SHELL } from "./i18n/shell.js";
+import { MARKETING } from "./i18n/marketing.js";
+import { ATTRIBUTION } from "./i18n/attribution.js";
+import { GROWTH } from "./i18n/growth.js";
+import { FIN2 } from "./i18n/fin2.js";
 import { WHSTATS } from "./i18n/whstats.js";
 
 /**
@@ -365,6 +369,10 @@ const ALL = {
   ...RECEIVING,
   ...PICKUP,
   ...WHSTATS,
+  ...MARKETING,
+  ...ATTRIBUTION,
+  ...GROWTH,
+  ...FIN2,
   ...CUSTOMERS,
   ...FINANCE,
   ...FRONTDESK,
@@ -375,8 +383,23 @@ const ALL = {
 
 export type TKey = keyof typeof ALL;
 
+/**
+ * Перевод по ключу.
+ *
+ * Ключ может прийти собранным на лету — `f2.sk.${settingKey}`, `f2.ft.${type}`
+ * и подобные: тип этого не ловит, потому что там стоит приведение к TKey. Если
+ * подписи нет, показываем сам ключ. Раньше здесь падало обращение к undefined,
+ * и одна забытая строка гасила весь экран: администратор видел пустую
+ * страницу вместо, скажем, финансовых настроек. Недостающий перевод — это
+ * некрасиво, но работать всё обязано.
+ */
 export function t(key: TKey): string {
-  return ALL[key][current];
+  return pick(key, current);
+}
+
+function pick(key: TKey, lang: Lang): string {
+  const entry = (ALL as Record<string, Entry | undefined>)[key];
+  return entry ? entry[lang] : String(key);
 }
 
 // ── Status-label helpers ─────────────────────────────────────────────────────
@@ -401,5 +424,5 @@ export const auditActionLabel = (a: string): string => {
 /** Reactive translator — re-renders the component when the language changes. */
 export function useT(): { t: (key: TKey) => string; lang: Lang; setLang: (l: Lang) => void } {
   const lang = useLang();
-  return { t: (key) => ALL[key][lang], lang, setLang };
+  return { t: (key) => pick(key, lang), lang, setLang };
 }

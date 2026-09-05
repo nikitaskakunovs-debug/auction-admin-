@@ -1,8 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
 import { useT } from "@/lib/i18n";
+import { safeNext } from "@/lib/nav";
+import { track } from "@/lib/track";
 import { AuthCard } from "@/components/authUi";
 import { SocialAuth } from "@/components/SocialAuth";
 import { VerifyNotice } from "@/components/VerifyNotice";
@@ -10,6 +13,14 @@ import Link from "next/link";
 
 export default function RegisterPage() {
   const { t } = useT();
+  const router = useRouter();
+  // Куда вернуть после входа через соцсеть; регистрация почтой уходит на
+  // подтверждение e-mail, и там возврат теряет смысл.
+  const params = useSearchParams();
+  const next = safeNext(params.get("next"));
+  // Реферальная ссылка «Uzaicini draugu»: код тихо едет с регистрацией —
+  // друг получает повышенную приветственную скидку, пригласивший — баллы.
+  const refCode = /^[A-Z0-9-]{3,24}$/i.test(params.get("ref") ?? "") ? params.get("ref")! : null;
   const [email, setEmail] = useState("");
   const [alias, setAlias] = useState("");
   const [password, setPassword] = useState("");
@@ -19,16 +30,39 @@ export default function RegisterPage() {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
 
+  // Вошедшему регистрация не нужна — как и /login, страница молча уводит
+  // дальше. Только на первом кадре: свежая регистрация остаётся на месте,
+  // чтобы показать «подтвердите почту».
+  useEffect(() => {
+    if (publicApi.hasSession) router.replace(next === "/" ? "/account" : next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Живой намёк по сегвардсу: браузеры любят автозаполнять сюда e-mail, и
+  // человек получал отказ по-английски без объяснения, какое поле виновато.
+  const aliasTrim = alias.trim();
+  const aliasOk = /^[a-zA-Z0-9_.-]{3,24}$/.test(aliasTrim);
+  const aliasHint = aliasTrim.length === 0
+    ? null
+    : aliasTrim.includes("@") ? t("auth.aliasNotEmail")
+    : !aliasOk ? t("auth.aliasRules")
+    : null;
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      await publicApi.register({ email: email.trim().toLowerCase(), alias: alias.trim(), password, country, marketingOptIn: marketing });
+      const bidder = await publicApi.register({
+        email: email.trim().toLowerCase(), alias: aliasTrim, password, country, marketingOptIn: marketing,
+        ...(refCode ? { ref: refCode } : {}),
+      });
+      track("sign_up", { method: "email", user_id: bidder.id });
       setDone(true);
     } catch (err) {
-      if (err instanceof PublicApiError && err.body.error === "email_exists") setError("Email already registered.");
-      else setError("Registration failed — alias 3-24 chars (letters/digits/_.-), password min 8.");
+      if (err instanceof PublicApiError && err.body.error === "email_exists") setError(t("auth.errEmailExists"));
+      else if (err instanceof PublicApiError && err.body.error === "alias_exists") setError(t("auth.errAliasExists"));
+      else setError(t("auth.errGeneric"));
     } finally {
       setBusy(false);
     }
@@ -39,10 +73,14 @@ export default function RegisterPage() {
   return (
     <AuthCard title={t("auth.register")}>
       <form onSubmit={submit} className="fields">
-        <input type="email" placeholder={t("auth.email")} value={email} onChange={(e) => setEmail(e.target.value)} autoFocus />
-        <input placeholder={t("auth.alias")} value={alias} onChange={(e) => setAlias(e.target.value)} />
-        <input type="password" placeholder={t("auth.password")} value={password} onChange={(e) => setPassword(e.target.value)}
-               aria-describedby="pw-hint" minLength={8} />
+        <input type="email" placeholder={t("auth.email")} value={email} autoComplete="email"
+               onChange={(e) => setEmail(e.target.value)} autoFocus />
+        {/* autoComplete="nickname": иначе браузер вписывает сюда почту. */}
+        <input placeholder={t("auth.alias")} value={alias} autoComplete="nickname" maxLength={24}
+               aria-invalid={aliasHint !== null} onChange={(e) => setAlias(e.target.value)} />
+        {aliasHint && <p className="note" style={{ color: "var(--live)" }}>{aliasHint}</p>}
+        <input type="password" placeholder={t("auth.password")} value={password} autoComplete="new-password"
+               onChange={(e) => setPassword(e.target.value)} aria-describedby="pw-hint" minLength={8} />
         {/* Кнопка неактивна, пока пароль короткий, — требование должно быть
             видно сразу, иначе кнопка выглядит сломанной. */}
         <p className="note" id="pw-hint">
@@ -62,11 +100,12 @@ export default function RegisterPage() {
           <span>{t("reg.marketing")}</span>
         </label>
         {error && <div className="auth-err">{error}</div>}
-        <button className="btn btn-primary btn-lg btn-block" type="submit" disabled={busy || !email || !alias || password.length < 8}>{t("auth.register")}</button>
+        <button className="btn btn-primary btn-lg btn-block" type="submit"
+                disabled={busy || !email || !aliasOk || password.length < 8}>{t("auth.register")}</button>
       </form>
-      <SocialAuth />
+      <SocialAuth next={next} />
       <p className="auth-alt">
-        {t("auth.haveAccount")} <Link href="/login">{t("auth.signin")}</Link>
+        {t("auth.haveAccount")} <Link href={`/login?next=${encodeURIComponent(next)}`}>{t("auth.signin")}</Link>
       </p>
     </AuthCard>
   );

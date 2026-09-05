@@ -269,8 +269,9 @@ describe("no-show engine: reminders, 5% restock fee, strike, restock queue", () 
 
   it("past the deadline: cancel + 5% fee + refund record + strike + manual restock to draft", async () => {
     const buyer = await registerBidder("gone_gary");
-    const { orderId, itemId, totalCents } = await paidOrder(buyer.accessToken, 11_000); // total 13310
-    expect(totalCents).toBe(13_310);
+    const { orderId, itemId, totalCents } = await paidOrder(buyer.accessToken, 11_000); // финальная цена = итог 11000
+    // Ставка финальная: итог равен максимальной ставке (11 000).
+    expect(totalCents).toBe(11_000);
 
     // Warp past the 14-day deadline.
     world.setNow(new Date(Date.now() + 15 * 86_400_000));
@@ -280,11 +281,11 @@ describe("no-show engine: reminders, 5% restock fee, strike, restock queue", () 
       const [order] = await world.ctx.db.select().from(orders).where(eq(orders.id, orderId));
       expect(order!.status).toBe("cancelled");
       expect(order!.cancelReason).toBe("no_pickup");
-      expect(order!.restockFeeCents).toBe(666); // 5% of 13310, half-up
+      expect(order!.restockFeeCents).toBe(550); // 5% от 11000, half-up
 
       const refundRows = await world.ctx.db.select().from(refunds).where(eq(refunds.orderId, orderId));
       expect(refundRows).toHaveLength(1);
-      expect(refundRows[0]!.amountCents).toBe(12_644);
+      expect(refundRows[0]!.amountCents).toBe(10_450); // 11000 минус 5% максa
       expect(refundRows[0]!.actorId).toBeNull(); // system action
 
       const [cust] = await world.ctx.db.select().from(customers).where(eq(customers.id, buyer.bidder.id));
@@ -298,8 +299,8 @@ describe("no-show engine: reminders, 5% restock fee, strike, restock queue", () 
         .from(notifications)
         .where(and(eq(notifications.customerId, buyer.bidder.id), eq(notifications.type, "no_pickup_cancelled")));
       expect(mails).toHaveLength(1);
-      expect(mails[0]!.body, "fee, in Latvian money format").toContain("6,66 €");
-      expect(mails[0]!.body).toContain("126,44 €"); // refund
+      expect(mails[0]!.body, "fee, in Latvian money format").toContain("5,50 €");
+      expect(mails[0]!.body).toContain("104,50 €"); // refund
 
       // Running again changes nothing (order no longer 'paid').
       await cancelNoShowDue(world.ctx);

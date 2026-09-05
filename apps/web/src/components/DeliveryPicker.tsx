@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { publicApi } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { formatEur, type MyOrder, type ParcelLocation, type ShippingOption } from "@/lib/types";
+import { PhoneField, fromE164, phoneComplete } from "./PhoneField";
 
 /**
  * Delivery selection for an unpaid order: warehouse pickup (free) or an
@@ -11,7 +12,7 @@ import { formatEur, type MyOrder, type ParcelLocation, type ShippingOption } fro
  * order server-side, so the parent must reload orders afterwards.
  */
 export function DeliveryPicker({ order, onSaved }: { order: MyOrder; onSaved: () => void }) {
-  const { t } = useT();
+  const { t, lang } = useT();
   const [options, setOptions] = useState<ShippingOption[]>([]);
   const [method, setMethod] = useState(order.fulfilment);
   const [locationsByProvider, setLocationsByProvider] = useState<Record<string, ParcelLocation[]>>({});
@@ -82,7 +83,7 @@ export function DeliveryPicker({ order, onSaved }: { order: MyOrder; onSaved: ()
 
   const canSave =
     method !== order.fulfilment || (method !== "pickup" && machineId !== (order.shippingTo?.machineId ?? ""))
-      ? method === "pickup" || (machineId && phone.replace(/\D/g, "").length >= 7)
+      ? method === "pickup" || Boolean(machineId && phoneComplete(fromE164(phone).digits, fromE164(phone).iso))
       : false;
 
   return (
@@ -110,7 +111,7 @@ export function DeliveryPicker({ order, onSaved }: { order: MyOrder; onSaved: ()
               </option>
             ))}
           </select>
-          <input style={inputStyle} placeholder={t("acc.phone")} value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" />
+          <PhoneField id="dp-phone" label={t("acc.phone")} lang={lang} value={phone} onChange={setPhone} />
         </div>
       )}
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>

@@ -4,46 +4,24 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { publicApi } from "@/lib/api";
+import { cartStore } from "@/lib/cart";
 import { useT } from "@/lib/i18n";
 import { Icon } from "./Icon";
 
-/** Нижний док макета: прячется при скролле вниз, возвращается при скролле вверх. */
+/** Нижний док макета.
+ *
+ *  Док НЕ прячется при скролле. Раньше он уезжал вниз при скролле вниз и
+ *  возвращался при скролле вверх, с порогом в 6 px. На iOS инерционная
+ *  прокрутка постоянно даёт колебания в несколько пикселей, поэтому на записи
+ *  реального айфона док менял состояние 31 раз за 125 секунд — это читается
+ *  как мигание, а не как поведение. Единственное место, где док скрывается, —
+ *  открытая модалка (`body.no-scroll .dock`).
+ */
 export function Dock() {
   const { t } = useT();
   const path = usePathname();
-  const [hidden, setHidden] = useState(false);
   const [initial, setInitial] = useState("N");
-
-  /* Док прячется при движении вниз и возвращается при движении вверх.
-   *
-   * Отправная точка берётся из текущего положения страницы, а не из нуля.
-   * Раньше она была нулём: если страница открывалась уже прокрученной —
-   * при возврате назад или по ссылке с якорем, — первое же событие скролла
-   * читалось как «ушли далеко вниз», и док прятался сразу. Отсюда и брались
-   * экраны, где его просто нет. */
-  useEffect(() => {
-    let last = window.scrollY, raf = 0;
-    const read = () => {
-      raf = 0;
-      const y = window.scrollY;
-      const next = y > 320 && y > last + 6 ? true : (y < last - 6 || y <= 320) ? false : null;
-      last = y;
-      if (next !== null) setHidden((cur) => (cur === next ? cur : next));
-    };
-    const onScroll = () => { if (!raf) raf = requestAnimationFrame(read); };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      window.removeEventListener("scroll", onScroll);
-      if (raf) cancelAnimationFrame(raf);
-    };
-  }, []);
-
-  /* Переход на другую страницу всегда возвращает док.
-   *
-   * Без этого он оставался спрятанным: короткая страница не порождает ни
-   * одного события скролла, значит и вернуть его было нечему. Это вторая
-   * половина «где-то появляется, где-то нет». */
-  useEffect(() => { setHidden(false); }, [path]);
+  const [cart, setCart] = useState(0);
 
   useEffect(() => {
     const sync = () => setInitial(publicApi.hasSession ? "•" : "N");
@@ -52,10 +30,20 @@ export function Dock() {
     return () => { publicApi.listeners.delete(sync); };
   }, []);
 
+  useEffect(() => {
+    const sync = () => setCart(cartStore.count());
+    sync();
+    return cartStore.subscribe(sync);
+  }, []);
+
   const cur = (href: string) => (path === href ? "page" : undefined);
 
+  // Кабинет поставщика — не покупательский экран: нижняя панель витрины там
+  // только мешает (она перекрывала кнопки ответа на акт приёмки).
+  if (path?.startsWith("/piegadatajs")) return null;
+
   return (
-    <nav className={`dock${hidden ? " is-hidden" : ""}`} aria-label={t("nav.mainNav")}>
+    <nav className="dock" aria-label={t("nav.mainNav")}>
       <Link href="/" aria-current={cur("/")}><Icon name="home" /><span className="lbl">{t("nav.home")}</span></Link>
       <Link href="/tiesraide">
         <Icon name="bolt" /><span className="lbl">{t("rail.live")}</span>
@@ -63,6 +51,16 @@ export function Dock() {
       </Link>
       <Link href="/meklet"><Icon name="search" /><span className="lbl">{t("nav.search")}</span></Link>
       <Link href="/velmes"><Icon name="heart" /><span className="lbl">{t("nav.watchlist")}</span></Link>
+      {/* Корзина появляется, только когда в ней что-то есть: значки шапки на
+          телефоне скрыты, и без этой кнопки попасть в корзину с телефона было
+          бы неоткуда. Пустой она бы лишь теснила остальные пять. */}
+      {cart > 0 && (
+        <Link href="/grozs" aria-current={cur("/grozs")}>
+          <Icon name="cart" /><span className="lbl">{t("nav.cart")}</span>
+          <span className="n" aria-hidden="true">{cart}</span>
+          <span className="sr">{t("nav.cartN", { n: cart })}</span>
+        </Link>
+      )}
       <Link href="/account">
         <span className="ava" aria-hidden="true">{initial}</span><span className="lbl">{t("nav.profile")}</span>
       </Link>

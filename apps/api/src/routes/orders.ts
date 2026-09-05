@@ -33,6 +33,9 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext, perms
       status?: string; market?: string; fulfilment?: string; q?: string;
       min?: string; max?: string; from?: string; to?: string; sort?: string;
       limit?: string; offset?: string;
+      /** Отбор по рекламе: source|medium|campaign и модель касания. Так из
+       *  отчёта «Reklāmas atdeve» можно провалиться в сами заказы кампании. */
+      attrSource?: string; attrMedium?: string; attrCampaign?: string; attrModel?: string;
     };
     const limit = Math.min(Math.max(Number(q.limit) || 50, 1), 200);
     const offset = Math.max(Number(q.offset) || 0, 0);
@@ -63,6 +66,17 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext, perms
           sql`translate(lower(${orders.customerEmail}), 'āčēģīķļņšūž', 'acegiklnsuz') like ${like}`,
         ) as SQL,
       );
+    }
+
+    // Отбор по кампании. Пустая строка — осмысленное значение: так отбирается
+    // «прямой заход / без меток», иначе эта самая крупная строка отчёта была
+    // бы единственной, в которую нельзя провалиться.
+    if (q.attrSource !== undefined || q.attrMedium !== undefined || q.attrCampaign !== undefined) {
+      const col = q.attrModel === "first" ? orders.attribution : orders.attributionLast;
+      const at = (key: string, value: string) => sql`coalesce(${col}->>${key}, '') = ${value}`;
+      if (q.attrSource !== undefined) base.push(at("source", q.attrSource) as SQL);
+      if (q.attrMedium !== undefined) base.push(at("medium", q.attrMedium) as SQL);
+      if (q.attrCampaign !== undefined) base.push(at("campaign", q.attrCampaign) as SQL);
     }
 
     const withStatus = q.status ? [...base, eq(orders.status, q.status) as SQL] : base;
@@ -211,7 +225,33 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext, perms
       .where(and(eq(invoices.orderId, id), isNull(invoices.voidedAt)));
     const paymentRows = await ctx.db.select().from(payments).where(eq(payments.orderId, id)).orderBy(desc(payments.createdAt));
     const shipmentRows = await ctx.db.select().from(shipments).where(eq(shipments.orderId, id)).orderBy(desc(shipments.createdAt));
-    return { order: row.order, item: row.item, refunds: refundRows, invoice: invoice ?? null, payments: paymentRows, shipments: shipmentRows };
+    /* Кто покупатель — рядом с заказом, а не «сходите поищите в клиентах».
+     * Здесь же его первое касание: если у заказа снимок пустой (старый заказ,
+     * созданный до атрибуции), карточка всё равно скажет, откуда человек. */
+    const [buyer] = await ctx.db
+      .select({
+        id: customers.id,
+        alias: customers.alias,
+        email: customers.email,
+        blocked: customers.blocked,
+        strikes: customers.strikes,
+        createdAt: customers.createdAt,
+        attribution: customers.attribution,
+        attributionLast: customers.attributionLast,
+        lastLoginMethod: customers.lastLoginMethod,
+        ordersCount: sql<string>`(select count(*) from orders o2 where o2.customer_id = customers.id)`,
+      })
+      .from(customers)
+      .where(eq(customers.id, row.order.customerId));
+    return {
+      order: row.order,
+      item: row.item,
+      refunds: refundRows,
+      invoice: invoice ?? null,
+      payments: paymentRows,
+      shipments: shipmentRows,
+      buyer: buyer ? { ...buyer, ordersCount: Number(buyer.ordersCount) } : null,
+    };
   });
 
   app.post("/api/orders/:id/mark-paid", guard("orders.mark_paid"), async (req, reply) => {
@@ -231,6 +271,8 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext, perms
      * already sent back manually in the Klix portal, or refunded in cash.
      */
     viaProvider: z.boolean().default(true),
+    /** bank — банковский перевод бухгалтера: очередь Refund Pending (5.2). */
+    method: z.enum(["card", "cash", "bank"]).optional(),
   });
   app.post("/api/orders/:id/refund", guard("orders.refund"), async (req, reply) => {
     const { id } = req.params as { id: string };

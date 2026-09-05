@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { SaveSearchButton } from "./account/SavedSearches";
+import { track } from "@/lib/track";
 import { useSearchParams } from "next/navigation";
 import { CATEGORY_CODES } from "@/lib/categories";
 import { CONDITION_CODES, conditionBadge } from "@/lib/conditions";
@@ -79,6 +81,11 @@ export function Catalogue({
   const bar = useRef<HTMLDivElement>(null);
   const colls = useRail<HTMLDivElement>();
   const [now, setNow] = useState(() => Date.now());
+
+  // Аналитика (GTM): поисковый запрос — раз на заход с этим запросом.
+  useEffect(() => {
+    if (q.trim().length >= 2) track("search", { search_term: q.trim() });
+  }, [q]);
 
   // Пересчитываем только когда время реально влияет на выдачу — как в макете.
   const timeMatters = sort === "ending" || quick.length > 0 || when !== "any";
@@ -237,9 +244,22 @@ export function Catalogue({
           <h1 data-hero>{heading ?? t("cg.allActive")}</h1>
           <p className="cnt">{t("cg.lotsLive", { n: rows.length })}</p>
         </div>
-        <Link className="link" href="/tiesraide">
-          {t("cg.watchLive")} <Icon name="arrow" size={16} />
-        </Link>
+        <span className="cg-head-acts">
+          {/* Макет № 80: сохранить текущий набор фильтров как поиск. */}
+          <SaveSearchButton
+            query={{
+              ...(q ? { q } : {}),
+              ...(cat !== "all" ? { category: cat } : {}),
+              ...(min > 0 ? { priceMinCents: min * 100 } : {}),
+              ...(max < PRICE_MAX ? { priceMaxCents: max * 100 } : {}),
+              ...(quick.includes("nores") ? { noReserve: true } : {}),
+              ...(grades.length === 1 ? { condition: grades[0]! } : {}),
+            }}
+          />
+          <Link className="link" href="/tiesraide">
+            {t("cg.watchLive")} <Icon name="arrow" size={16} />
+          </Link>
+        </span>
       </div>
 
       <div className="hrail" style={{ gap: 8, paddingBottom: 8 }} ref={colls}>

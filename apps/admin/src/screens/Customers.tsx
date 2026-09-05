@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError, type Customer, type Order } from "../api.js";
+import { AttributionCard } from "../attribution.js";
 import type { Nav } from "../App.js";
 import { useAuth } from "../auth.js";
 import { exportCSV, exportPDFPrint, exportXLS } from "../exporters.js";
@@ -26,12 +27,61 @@ interface CustomerFee {
   createdAt: string;
 }
 
+interface CreditEntry {
+  kind: "overpay" | "refund_to_credit" | "used_for_order" | "withdrawn" | "expired" | "grant";
+  amountCents: number;
+  orderRef: string | null;
+  note: string;
+  actorLabel: string | null;
+  createdAt: string;
+}
+
+interface ConsentRow {
+  id: string;
+  mode: "accept" | "reject" | "custom";
+  analytics: boolean;
+  marketing: boolean;
+  policyVersion: string;
+  host: string;
+  createdAt: string;
+  /** Решение принято до регистрации — найдено по id браузера, а не по аккаунту. */
+  viaVisitor: boolean;
+}
+
+interface MailRow {
+  id: string;
+  type: string;
+  kind: string;
+  subject: string;
+  status: string;
+  sentAt: string | null;
+  scheduledFor: string | null;
+  lastError: string | null;
+  createdAt: string;
+}
+
+interface SessionRow {
+  id: string;
+  ua: string | null;
+  ip: string | null;
+  lastUsedAt: string | null;
+  createdAt: string;
+}
+
 interface CustomerDetail {
   customer: Customer;
   orders: Order[];
   bidStats: { totalBids: number; auctionsBidOn: number };
   fees: CustomerFee[];
   outstandingFeeCents: number;
+  credit: { balanceCents: number; entries: CreditEntry[] };
+  consents: ConsentRow[];
+  sessions: SessionRow[];
+  mail: MailRow[];
+  searches: Array<{ id: string; name: string; alertEmail: boolean; createdAt: string }>;
+  watchCount: number;
+  notificationPrefs: Array<{ event: string; email: boolean }>;
+  lifetime: { paidOrders: number; revenueCents: number };
 }
 
 interface ListResponse {
@@ -92,6 +142,15 @@ const FEE_STATUS_KEY: Record<CustomerFee["status"], TKey> = {
   waived: "cust.fees.st.waived",
 };
 
+const CREDIT_KIND_KEY: Record<CreditEntry["kind"], TKey> = {
+  grant: "cust.credit.k.grant",
+  overpay: "cust.credit.k.overpay",
+  refund_to_credit: "cust.credit.k.refund_to_credit",
+  used_for_order: "cust.credit.k.used_for_order",
+  withdrawn: "cust.credit.k.withdrawn",
+  expired: "cust.credit.k.expired",
+};
+
 function buildQuery(f: Filters, limit: number, offset: number): string {
   const p = new URLSearchParams();
   if (f.status !== "all") p.set("status", f.status);
@@ -125,6 +184,7 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
   const [detail, setDetail] = useState<CustomerDetail | null>(null);
   const [form, setForm] = useState({ email: "", alias: "", name: "", country: "LV", company: "", vatNo: "" });
   const [edit, setEdit] = useState({ alias: "", name: "", notes: "" });
+  const [creditForm, setCreditForm] = useState({ amount: "", kind: "grant", note: "" });
   const seq = useRef(0);
 
   useDebounced(qInput, (v) => setFilters((f) => (f.q === v ? f : { ...f, q: v })));
@@ -351,6 +411,27 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
       openDetail(detail.customer.id);
     } catch (err) {
       toast(err instanceof ApiError ? err.message : t("cust.fees.actionFailed"), "danger");
+    }
+  };
+
+  /** Ручное движение аванса: переплата по перечислению, компенсация,
+   *  исправление. Сумма в форме — в евро, знак задаёт направление. */
+  const creditMove = async () => {
+    if (!detail) return;
+    const amountCents = Math.round(Number(creditForm.amount.replace(",", ".")) * 100);
+    if (!Number.isFinite(amountCents) || amountCents === 0) return;
+    try {
+      await api.post(`/api/customers/${detail.customer.id}/credit`, {
+        amountCents,
+        kind: creditForm.kind,
+        note: creditForm.note,
+      });
+      toast(t("cust.credit.done"), "ok");
+      setCreditForm({ amount: "", kind: "grant", note: "" });
+      openDetail(detail.customer.id);
+    } catch (err) {
+      if (err instanceof ApiError && err.message === "insufficient_credit") toast(t("cust.credit.insufficient"), "danger");
+      else toast(err instanceof ApiError ? err.message : t("cust.credit.failed"), "danger");
     }
   };
 
@@ -652,12 +733,21 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
           }
         >
           <div style={{ display: "grid", gap: 14 }}>
-            <div style={{ display: "flex", gap: 12 }}>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              <Stat label={t("cd.lifetime")} value={formatEur(detail.lifetime.revenueCents)} />
               <Stat label={t("cust.stat.bids")} value={String(detail.bidStats.totalBids)} />
               <Stat label={t("cust.stat.auctions")} value={String(detail.bidStats.auctionsBidOn)} />
               <Stat label={t("cust.th.strikes")} value={String(detail.customer.strikes)} warn={detail.customer.strikes > 0} />
               <Stat label={t("cust.th.feesDue")} value={formatEur(detail.outstandingFeeCents)} warn={detail.outstandingFeeCents > 0} />
             </div>
+
+            {/* Откуда пришёл — первым делом: с этого начинается любой разговор
+                о клиенте, и раньше ответа на него в панели не было вовсе. */}
+            <AttributionCard
+              first={detail.customer.attribution}
+              last={detail.customer.attributionLast}
+              touches={detail.customer.attributionTouches}
+            />
 
             {/* A3: tag editor — toggling saves immediately (audited). */}
             {!detail.customer.erasedAt && (
@@ -709,6 +799,138 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
               </div>
             )}
 
+            {/* Как человек входит: почта (подтверждена или нет) и соцсети. */}
+            <div style={{ background: AT.surfaceAlt, borderRadius: AT.radiusSm, padding: "10px 12px", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span style={{ fontFamily: AT.body, fontSize: 12, fontWeight: 700, flex: 1 }}>{t("cust.verif.title")}</span>
+              {detail.customer.email.endsWith("@nav.izsoli.lv")
+                ? <ABadge tone="warn">{t("cust.verif.pending")}</ABadge>
+                : detail.customer.emailVerifiedAt
+                  ? <span title={formatDay(detail.customer.emailVerifiedAt)}><ABadge tone="ok">{t("cust.verif.ok")}</ABadge></span>
+                  : <ABadge tone="warn">{t("cust.verif.no")}</ABadge>}
+              {detail.customer.googleId && <ABadge tone="neutral">Google</ABadge>}
+              {detail.customer.facebookId && <ABadge tone="neutral">Facebook</ABadge>}
+              {detail.customer.telegramId && <ABadge tone="neutral">Telegram</ABadge>}
+              {!detail.customer.googleId && !detail.customer.facebookId && !detail.customer.telegramId && (
+                <span style={{ fontFamily: AT.body, fontSize: 12, color: AT.inkSoft }}>{t("cust.social.none")}</span>
+              )}
+              {/* Привязка говорит лишь, что связка есть. Чем человек реально
+                  пользуется — вот это, и при разборе «не могу войти» важно
+                  именно оно. */}
+              {detail.customer.lastLoginAt && (
+                <div style={{ flexBasis: "100%", fontFamily: AT.body, fontSize: 11.5, color: AT.inkSoft }}>
+                  {t("cd.lastLogin")}: {formatDay(detail.customer.lastLoginAt)}
+                  {detail.customer.lastLoginMethod
+                    ? ` · ${detail.customer.lastLoginMethod === "password" ? t("cd.login.password") : detail.customer.lastLoginMethod}`
+                    : ""}
+                  {detail.sessions.length > 0 ? ` · ${t("cd.sessions")}: ${detail.sessions.length}` : ""}
+                </div>
+              )}
+            </div>
+
+            {/* Согласия: и cookie, и рассылка, и стоп-сигналы — в одном месте.
+                На запрос «докажите, что он соглашался» ответ обязан находиться
+                за один клик, а не собираться из трёх экранов. */}
+            <ACard title={t("cd.consents")} pad={false}>
+              <div style={{ padding: "10px 12px", display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", borderBottom: `1px solid ${AT.ruleSoft}` }}>
+                <span style={{ fontFamily: AT.body, fontSize: 12, color: AT.inkSoft, minWidth: 92 }}>{t("cd.consent.marketing")}</span>
+                {detail.customer.marketingOptIn
+                  ? <ABadge tone="ok">{t("c.yes")}</ABadge>
+                  : <ABadge tone="neutral">{t("c.no")}</ABadge>}
+                {detail.customer.marketingOptInAt && (
+                  <span style={{ fontFamily: AT.body, fontSize: 11.5, color: AT.inkSoft }}>
+                    {formatDay(detail.customer.marketingOptInAt)}
+                    {detail.customer.marketingSource ? ` · ${detail.customer.marketingSource}` : ""}
+                  </span>
+                )}
+                {detail.customer.marketingOptOutAt && (
+                  <span style={{ fontFamily: AT.body, fontSize: 11.5, color: AT.inkSoft }}>
+                    ✕ {formatDay(detail.customer.marketingOptOutAt)}
+                  </span>
+                )}
+                {detail.customer.unsubscribedAt && (
+                  <span title={formatDay(detail.customer.unsubscribedAt)}><ABadge tone="warn">{t("cd.unsubscribed")}</ABadge></span>
+                )}
+                {detail.customer.emailBouncedAt && (
+                  <span title={formatDay(detail.customer.emailBouncedAt)}><ABadge tone="danger">{t("cd.bounced")}</ABadge></span>
+                )}
+              </div>
+              {detail.consents.length === 0 ? (
+                <div style={{ padding: "10px 12px", fontFamily: AT.body, fontSize: 12, color: AT.inkSoft }}>
+                  {t("cd.consent.none")}
+                </div>
+              ) : (
+                <ATable head={[t("cust.credit.when"), t("cd.consent.cookies"), t("cd.consent.analytics"), t("cd.consent.marketing"), t("cd.consent.version")]}>
+                  {detail.consents.map((c) => (
+                    <ATr key={c.id}>
+                      <ATd>
+                        {formatDay(c.createdAt)}
+                        {c.viaVisitor && (
+                          <span style={{ fontFamily: AT.body, fontSize: 10.5, color: AT.inkSoft }}> · {t("cd.consent.beforeSignup")}</span>
+                        )}
+                      </ATd>
+                      <ATd>
+                        <ABadge tone={c.mode === "accept" ? "ok" : c.mode === "reject" ? "neutral" : "warn"}>
+                          {t(`cd.consent.mode.${c.mode}` as TKey)}
+                        </ABadge>
+                      </ATd>
+                      <ATd>{c.analytics ? "✓" : "—"}</ATd>
+                      <ATd>{c.marketing ? "✓" : "—"}</ATd>
+                      <ATd mono>{c.policyVersion}</ATd>
+                    </ATr>
+                  ))}
+                </ATable>
+              )}
+            </ACard>
+
+            {/* Интересы: чего человек ждёт. По ним понятно, что ему предлагать
+                и почему он вообще подписался на письма. */}
+            {(detail.searches.length > 0 || detail.watchCount > 0) && (
+              <div style={{ background: AT.surfaceAlt, borderRadius: AT.radiusSm, padding: "10px 12px", display: "grid", gap: 6 }}>
+                <span style={{ fontFamily: AT.body, fontSize: 12, fontWeight: 700 }}>{t("cd.interests")}</span>
+                {detail.watchCount > 0 && (
+                  <div style={{ fontFamily: AT.body, fontSize: 12.5 }}>{t("cd.watchlist")}: {detail.watchCount}</div>
+                )}
+                {detail.searches.length > 0 && (
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {detail.searches.map((s) => (
+                      <ABadge key={s.id} tone={s.alertEmail ? "accent" : "neutral"}>
+                        {s.name}{s.alertEmail ? ` · ${t("cd.alertOn")}` : ""}
+                      </ABadge>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Письма: что человеку реально ушло и дошло ли. Без этого на
+                «мне ничего не приходило» ответить нечем. */}
+            <ACard title={`${t("cd.mail.title")} (${detail.mail.length})`} pad={false}>
+              {detail.mail.length === 0 ? (
+                <AEmpty text={t("cd.mail.none")} />
+              ) : (
+                <ATable head={[t("cust.credit.when"), t("cd.mail.subject"), t("c.status")]}>
+                  {detail.mail.map((m) => (
+                    <ATr key={m.id}>
+                      <ATd>{formatDay(m.sentAt ?? m.createdAt)}</ATd>
+                      <ATd>
+                        {m.subject}
+                        {m.kind === "marketing" && (
+                          <span style={{ fontFamily: AT.body, fontSize: 10.5, color: AT.inkSoft }}> · {t("cd.mail.marketing")}</span>
+                        )}
+                      </ATd>
+                      <ATd>
+                        <span title={m.lastError ?? (m.scheduledFor ? formatDay(m.scheduledFor) : undefined)}>
+                          <ABadge tone={m.status === "sent" ? "ok" : m.status === "failed" ? "danger" : "warn"}>
+                            {m.status === "pending" && m.scheduledFor ? t("cd.mail.scheduled") : m.status}
+                          </ABadge>
+                        </span>
+                      </ATd>
+                    </ATr>
+                  ))}
+                </ATable>
+              )}
+            </ACard>
+
             {!detail.customer.erasedAt && can("customers.edit") && (
               <>
                 <AField label={t("cust.f.alias")}><AInput value={edit.alias} onChange={(v) => setEdit({ ...edit, alias: v })} /></AField>
@@ -738,6 +960,43 @@ export function CustomersScreen({ nav: _nav }: { nav: Nav }) {
                   <ABtn kind="danger" size="sm" onClick={() => void ban()}>{t("cust.ban.confirm")}</ABtn>
                 </div>
               )
+            )}
+
+            {/* Аванс: баланс, движения и ручная кустība (№ 69b, 71–73).
+                Право то же, что у «отметить оплаченным» — оба признают деньги. */}
+            {(detail.credit.balanceCents !== 0 || detail.credit.entries.length > 0 || (!detail.customer.erasedAt && can("orders.mark_paid"))) && (
+              <ACard title={`${t("cust.credit.title")} · ${formatEur(detail.credit.balanceCents)}`} pad={false}>
+                {detail.credit.entries.length > 0 && (
+                  <ATable head={[t("cust.credit.when"), t("cust.credit.kind"), t("cust.credit.amount"), t("cust.credit.note"), t("cust.credit.who")]}>
+                    {detail.credit.entries.map((e, i) => (
+                      <ATr key={i}>
+                        <ATd>{formatDay(e.createdAt)}</ATd>
+                        <ATd>{t(CREDIT_KIND_KEY[e.kind])}{e.orderRef ? ` · ${e.orderRef}` : ""}</ATd>
+                        <ATd mono right>
+                          <span style={{ color: e.amountCents < 0 ? AT.danger : AT.ink }}>{formatEur(e.amountCents)}</span>
+                        </ATd>
+                        <ATd>{e.note || "—"}</ATd>
+                        <ATd>{e.actorLabel ?? "—"}</ATd>
+                      </ATr>
+                    ))}
+                  </ATable>
+                )}
+                {!detail.customer.erasedAt && can("orders.mark_paid") && (
+                  <div style={{ padding: 12, display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap", borderTop: `1px solid ${AT.ruleSoft}` }}>
+                    <AField label={t("cust.credit.amount")} hint={t("cust.credit.amountHint")}>
+                      <AInput value={creditForm.amount} onChange={(v) => setCreditForm({ ...creditForm, amount: v })} placeholder="10.00" />
+                    </AField>
+                    <AField label={t("cust.credit.kind")}>
+                      <ASelect value={creditForm.kind} onChange={(v) => setCreditForm({ ...creditForm, kind: v })}
+                        options={(["grant", "overpay", "refund_to_credit", "withdrawn", "expired"] as const).map((k) => ({ value: k, label: t(CREDIT_KIND_KEY[k]) }))} />
+                    </AField>
+                    <AField label={t("cust.credit.note")}>
+                      <AInput value={creditForm.note} onChange={(v) => setCreditForm({ ...creditForm, note: v })} />
+                    </AField>
+                    <ABtn size="sm" onClick={() => void creditMove()} disabled={!creditForm.amount.trim()}>{t("cust.credit.apply")}</ABtn>
+                  </div>
+                )}
+              </ACard>
             )}
 
             {detail.fees.length > 0 && (

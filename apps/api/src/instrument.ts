@@ -9,12 +9,29 @@ import * as Sentry from "@sentry/node";
  */
 const dsn = process.env.SENTRY_DSN;
 
+/**
+ * Вебхук почты аутентифицируется секретом в самом адресе, а адрес Sentry
+ * прикладывает к событию. Вырезаем: секрет не должен уезжать к чужому
+ * сервису из-за случайной ошибки на этом маршруте.
+ */
+const HOOK_PATH = /(\/api\/public\/email\/hook\/)[^/?#]+/g;
+export function scrubSecrets(url: string): string {
+  return url.replace(HOOK_PATH, "$1[redacted]");
+}
+
 if (dsn) {
   Sentry.init({
     dsn,
     environment: process.env.SENTRY_ENVIRONMENT ?? process.env.NODE_ENV ?? "production",
     release: process.env.SENTRY_RELEASE || undefined,
     tracesSampleRate: 0,
+    beforeSend(event) {
+      if (event.request?.url) event.request.url = scrubSecrets(event.request.url);
+      for (const crumb of event.breadcrumbs ?? []) {
+        if (typeof crumb.data?.url === "string") crumb.data.url = scrubSecrets(crumb.data.url);
+      }
+      return event;
+    },
   });
 }
 

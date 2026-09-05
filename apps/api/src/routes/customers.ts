@@ -1,8 +1,12 @@
-import { bids, cookieConsents, customerFees, customers, customerTagDefs, orders } from "@auction/db";
-import { and, asc, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
+import {
+  bids, cookieConsents, creditEntries, credits, customerFees, customers, customerTagDefs,
+  customerRefreshTokens, notificationPrefs, notifications, orders, savedSearches, watchlist,
+} from "@auction/db";
+import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { writeAudit } from "../audit.js";
+import { InsufficientCreditError, moveCredit } from "../engine/credits.js";
 import type { AppContext } from "../context.js";
 import { requirePermission, type PermissionService } from "../auth/rbac.js";
 
@@ -33,9 +37,29 @@ const customerCols = {
    * обязанность компании, а не человека: без даты и источника оно ничего не
    * стоит (GDPR ст. 7 п. 1). */
   marketingOptIn: customers.marketingOptIn,
+  /* Подтверждена ли почта и есть ли соцвход — кабинет клиента это показывает,
+   * панель должна видеть то же самое при разборе обращений. */
+  emailVerifiedAt: customers.emailVerifiedAt,
+  googleId: customers.googleId,
+  facebookId: customers.facebookId,
+  telegramId: customers.telegramId,
   marketingOptInAt: customers.marketingOptInAt,
   marketingSource: customers.marketingSource,
   marketingOptOutAt: customers.marketingOptOutAt,
+  /* Отписка по ссылке из письма и «мёртвый» адрес — это не то же самое, что
+   * снятая галочка в кабинете, и разбирать жалобу «мне не приходят письма»
+   * без них невозможно. */
+  unsubscribedAt: customers.unsubscribedAt,
+  emailBouncedAt: customers.emailBouncedAt,
+  /* Откуда человек пришёл: первое касание (кто привёл) и последнее (что
+   * привело в последний раз). Метки кампаний, не персональные данные. */
+  attribution: customers.attribution,
+  attributionLast: customers.attributionLast,
+  attributionTouches: customers.attributionTouches,
+  visitorId: customers.visitorId,
+  lastLoginMethod: customers.lastLoginMethod,
+  lastLoginAt: customers.lastLoginAt,
+  lang: customers.lang,
   createdAt: customers.createdAt,
 } as const;
 
@@ -259,6 +283,45 @@ export function registerCustomerRoutes(app: FastifyInstance, ctx: AppContext, pe
     return { updated, matched: rows.length };
   });
 
+  /** Начислить или списать аванс клиенту вручную: переплата по перечислению,
+   *  компенсация, исправление. Право то же, что у «отметить оплаченным» —
+   *  оба движения признают деньги. */
+  app.post("/api/customers/:id/credit", guard("orders.mark_paid"), async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = z
+      .object({
+        amountCents: z.number().int().refine((v) => v !== 0, "zero move"),
+        kind: z.enum(["overpay", "refund_to_credit", "grant", "withdrawn", "expired"]).default("grant"),
+        note: z.string().max(300).default(""),
+        orderRef: z.string().max(40).optional(),
+      })
+      .safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid_body", detail: body.error.flatten() });
+    const [customer] = await ctx.db.select().from(customers).where(eq(customers.id, id));
+    if (!customer) return reply.code(404).send({ error: "not_found" });
+    try {
+      const result = await ctx.db.transaction(async (tx) => {
+        const moved = await moveCredit(tx, id, {
+          kind: body.data.kind,
+          amountCents: body.data.amountCents,
+          orderRef: body.data.orderRef ?? null,
+          note: body.data.note,
+          actorLabel: actor(req).label,
+        }, ctx.now());
+        return moved;
+      });
+      await writeAudit(ctx.db, actor(req), "customer", "credit_move", id, {
+        kind: body.data.kind, amountCents: body.data.amountCents, note: body.data.note,
+      });
+      return { ok: true, balanceCents: result.balanceCents };
+    } catch (err) {
+      if (err instanceof InsufficientCreditError) {
+        return reply.code(409).send({ error: "insufficient_credit", balanceCents: err.balanceCents });
+      }
+      throw err;
+    }
+  });
+
   app.get("/api/customers/:id", guard("customers.view"), async (req, reply) => {
     const { id } = req.params as { id: string };
     const [row] = await ctx.db.select(customerCols).from(customers).where(eq(customers.id, id));
@@ -274,12 +337,109 @@ export function registerCustomerRoutes(app: FastifyInstance, ctx: AppContext, pe
       .where(eq(customerFees.customerId, id))
       .orderBy(desc(customerFees.createdAt))
       .limit(100);
+    // Аванс: баланс и последние движения — рядом с заказами и сборами.
+    const [creditRow] = await ctx.db.select().from(credits).where(eq(credits.customerId, id));
+    const creditRows = creditRow
+      ? await ctx.db
+          .select({ kind: creditEntries.kind, amountCents: creditEntries.amountCents, orderRef: creditEntries.orderRef, note: creditEntries.note, actorLabel: creditEntries.actorLabel, createdAt: creditEntries.createdAt })
+          .from(creditEntries)
+          .where(eq(creditEntries.creditId, creditRow.id))
+          .orderBy(desc(creditEntries.createdAt))
+          .limit(50)
+      : [];
+    /* Согласия на cookie — вся история решений человека.
+     *
+     * Ищем и по аккаунту, и по id браузера: до регистрации согласие
+     * записывается только на браузер, и без сшивки самая первая, самая
+     * важная строка — «что он выбрал, когда пришёл впервые» — навсегда
+     * оставалась бы невидимой в его карточке. */
+    const consentRows = await ctx.db
+      .select({
+        id: cookieConsents.id,
+        mode: cookieConsents.mode,
+        analytics: cookieConsents.analytics,
+        marketing: cookieConsents.marketing,
+        policyVersion: cookieConsents.policyVersion,
+        host: cookieConsents.host,
+        createdAt: cookieConsents.createdAt,
+        viaVisitor: sql<boolean>`${cookieConsents.customerId} is null`,
+      })
+      .from(cookieConsents)
+      .where(
+        row.visitorId
+          ? or(eq(cookieConsents.customerId, id), eq(cookieConsents.visitorId, row.visitorId))
+          : eq(cookieConsents.customerId, id),
+      )
+      .orderBy(desc(cookieConsents.createdAt))
+      .limit(50);
+
+    // Живые сессии: с чего человек заходит прямо сейчас — то же, что он сам
+    // видит на экране «Drošība».
+    const sessionRows = await ctx.db
+      .select({
+        id: customerRefreshTokens.id,
+        ua: customerRefreshTokens.ua,
+        ip: customerRefreshTokens.ip,
+        lastUsedAt: customerRefreshTokens.lastUsedAt,
+        createdAt: customerRefreshTokens.createdAt,
+      })
+      .from(customerRefreshTokens)
+      .where(and(eq(customerRefreshTokens.customerId, id), isNull(customerRefreshTokens.revokedAt)))
+      .orderBy(desc(customerRefreshTokens.lastUsedAt))
+      .limit(10);
+
+    // Последние письма: что человеку реально отправили и дошло ли.
+    const mailRows = await ctx.db
+      .select({
+        id: notifications.id,
+        type: notifications.type,
+        kind: notifications.kind,
+        subject: notifications.subject,
+        status: notifications.status,
+        sentAt: notifications.sentAt,
+        scheduledFor: notifications.scheduledFor,
+        lastError: notifications.lastError,
+        createdAt: notifications.createdAt,
+      })
+      .from(notifications)
+      .where(eq(notifications.customerId, id))
+      .orderBy(desc(notifications.createdAt))
+      .limit(20);
+
+    // Интересы: сохранённые поиски и вэлмес — по ним видно, чего человек ждёт.
+    const searchRows = await ctx.db
+      .select({ id: savedSearches.id, name: savedSearches.name, alertEmail: savedSearches.alertEmail, createdAt: savedSearches.createdAt })
+      .from(savedSearches)
+      .where(eq(savedSearches.customerId, id))
+      .orderBy(desc(savedSearches.createdAt))
+      .limit(20);
+    const [watchCount] = await ctx.db
+      .select({ n: sql<string>`count(*)` })
+      .from(watchlist)
+      .where(eq(watchlist.customerId, id));
+    const prefRows = await ctx.db
+      .select({ event: notificationPrefs.event, email: notificationPrefs.email })
+      .from(notificationPrefs)
+      .where(eq(notificationPrefs.customerId, id));
+
     return {
       customer: row,
       orders: orderRows,
       bidStats: { totalBids: Number(bidStats!.total), auctionsBidOn: Number(bidStats!.auctions) },
       fees: feeRows,
       outstandingFeeCents: feeRows.filter((f) => f.status === "outstanding").reduce((s, f) => s + f.amountCents, 0),
+      credit: { balanceCents: creditRow?.balanceCents ?? 0, entries: creditRows },
+      consents: consentRows,
+      sessions: sessionRows,
+      mail: mailRows,
+      searches: searchRows,
+      watchCount: Number(watchCount?.n ?? 0),
+      notificationPrefs: prefRows,
+      /** Итог по деньгам — то, что спрашивают первым: сколько он нам принёс. */
+      lifetime: {
+        paidOrders: orderRows.filter((o) => o.status === "paid").length,
+        revenueCents: orderRows.filter((o) => o.status === "paid").reduce((s, o) => s + o.totalCents, 0),
+      },
     };
   });
 

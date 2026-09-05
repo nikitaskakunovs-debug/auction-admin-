@@ -12,7 +12,8 @@
      для разделителя это нормально, для края поля ввода — нет. */
   --border-strong:#8D8E8B;
   --live:#C43D05; --live-soft:#FDEFE8; --on-live:#FFFFFF;
-  --f:var(--font-figtree),ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  /* Manrope вторым: в Figtree нет кириллицы, браузер добирает её из Manrope. */
+  --f:var(--font-figtree),var(--font-manrope),ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
   --s1:4px;--s2:8px;--s3:12px;--s4:16px;--s5:24px;--s6:32px;--s7:48px;--s8:64px;--s9:96px;
   --r-sm:8px;--r-md:16px;--r-lg:24px;--r-xl:40px;--r-pill:999px;
   --ease:cubic-bezier(.16,1,.3,1);--fast:.2s;
@@ -465,28 +466,33 @@ footer li a:hover{opacity:1;text-decoration:underline}
      всю страницу при каждом переходе между разделами. */
   contain:layout}
 @supports not (backdrop-filter:blur(1px)){.dock{background:var(--surface)}}
-.dock.is-hidden{translate:0 160%;opacity:0;pointer-events:none}
-/* Значок над подписью. Раньше подпись раскрывалась только у текущего раздела,
-   а остальные четыре оставались безымянными значками — узнать «сердечко» или
-   «молнию» без слова нельзя, и это же ломало доступность: на ощупь по значку
-   ориентируется только тот, кто уже знает интерфейс. */
-.dock a{position:relative;flex:1;min-width:0;height:56px;border-radius:var(--r-md);
-  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
-  color:var(--text);padding:0 2px;
-  transition:background var(--fast) var(--ease),color var(--fast) var(--ease)}
+/* Док не прячется при скролле: скрытие оставлено только под модалку
+   (`body.no-scroll .dock`). См. комментарий в components/Dock.tsx. */
+/* Все пять подписей видны всегда: значок сверху, подпись под ним.
+   Раньше подпись показывалась только у текущего пункта — по иконке одной
+   непонятно, куда ведёт кнопка. */
+.dock a{position:relative;flex:1;min-width:0;height:56px;border-radius:var(--r-pill);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  color:var(--text);padding-inline:2px;
+  transition:background var(--fast) var(--ease)}
 .dock a:hover{background:var(--surface-2)}
 .dock svg{width:23px;height:23px;flex:none;stroke:currentColor;fill:none;stroke-width:1.9;
   stroke-linecap:round;stroke-linejoin:round}
-.dock .lbl{font-size:11px;font-weight:700;letter-spacing:-.01em;line-height:1;
-  max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dock svg{width:22px;height:22px}
+.dock .lbl{font-size:11px;font-weight:600;letter-spacing:-.01em;white-space:nowrap;
+  max-width:100%;overflow:hidden;text-overflow:ellipsis;line-height:1.1}
 .dock a[aria-current]{background:var(--accent);color:var(--on-accent)}
-.dock .badge-dot{position:absolute;top:6px;right:calc(50% - 16px);width:10px;height:10px;
+.dock .badge-dot{position:absolute;top:6px;right:calc(50% - 14px);width:9px;height:9px;
   border-radius:50%;background:var(--live);box-shadow:0 0 0 2px var(--surface)}
-.dock .ava{width:23px;height:23px;border-radius:50%;background:var(--brand);color:var(--accent);
+/* Счётчик корзины: та же посадка, что у точки «в эфире», но с числом. */
+.dock .n{position:absolute;top:4px;right:calc(50% - 20px);min-width:16px;height:16px;
+  padding:0 4px;border-radius:9px;background:var(--accent);color:var(--on-accent);
+  font-size:10px;font-weight:800;line-height:16px;text-align:center;
+  box-shadow:0 0 0 2px var(--surface)}
+.dock a[aria-current] .n{background:var(--on-accent);color:var(--accent)}
+.dock .ava{width:22px;height:22px;border-radius:50%;background:var(--brand);color:var(--accent);
   display:grid;place-items:center;font-size:11px;font-weight:800;flex:none}
-/* На узком экране подпись не прячем — уменьшаем. Безымянный значок хуже
-   мелкой подписи: угадывать раздел по картинке человек не должен. */
-@media(max-width:380px){.dock{gap:2px;padding:6px}.dock .lbl{font-size:10px}}
+@media(max-width:340px){.dock .lbl{font-size:10px}}
 
 /* ═══ МОДАЛКИ ═══ */
 .modal{position:fixed;inset:0;z-index:120;display:grid;place-items:center;padding:16px}
@@ -599,37 +605,51 @@ footer li a:hover{opacity:1;text-decoration:underline}
 /* ── ФИКСИРОВАННАЯ ВЕРХНЯЯ ПАНЕЛЬ ─────────────────────────────
    .topchrome держит утилити-бар + шапку + ленту категорий.
    При скролле вниз сворачиваются утилити и категории, шапка остаётся. */
+/* Панель фиксированная и постоянной высоты.
+   Пробовал сделать липкой только строку с логотипом (`.head{position:sticky}`),
+   чтобы лента категорий уезжала сама: не работает — липкий элемент держится
+   только внутри своего родителя, а `.topchrome` высотой 177 px, поэтому шапка
+   уезжала вместе с ним. Оставляем fixed, но высота больше не меняется. */
 .topchrome{position:fixed;top:0;left:0;right:0;z-index:80;background:var(--surface);
-  box-shadow:0 1px 0 var(--border);transition:box-shadow var(--fast) var(--ease)}
-.topchrome.is-compact{box-shadow:var(--shadow-2)}
+  box-shadow:0 1px 0 var(--border)}
 .head{position:static;border-bottom:0}
-.util,.cats{overflow:hidden;
-  transition:max-height .34s var(--ease),opacity .22s var(--ease),border-color .22s linear}
 .util{max-height:44px}
-.cats{max-height:132px}
-.topchrome.is-compact .util{max-height:0;opacity:0}
-.topchrome.is-compact .cats{max-height:0;opacity:0;border-color:transparent}
-@media(prefers-reduced-motion:reduce){.util,.cats{transition:none}}
+/* Высота панели постоянна: ничего не складывается при скролле.
+   Складывание меняло body{padding-top} и сдвигало страницу на 195 px. */
 /* На телефоне шапка занимает две строки: логотип с кнопкой и поиск.
    При скролле она складывается в одну — логотип остаётся значком,
    поиск встаёт рядом. Это возвращает экрану ~56px высоты. */
 .head .wrap{transition:padding-block .28s var(--ease),gap .28s var(--ease)}
 .logo span:not(.logo-mark),.logo{transition:font-size .22s var(--ease),max-width .28s var(--ease)}
+/* ── ЛЕНТА КАТЕГОРИЙ НА ТЕЛЕФОНЕ ──────────────────────────────
+   Плитки 96×88 занимали 112 px — 13 % экрана — и это при том, что выше
+   уже стоят шапка и поле поиска. На телефоне лента всегда свёрнута в одну
+   строку чипов 36 px: те же категории, та же прокрутка вбок, но втрое ниже.
+   Ничего не складывается и не разворачивается — высота постоянна. */
 @media(max-width:600px){
-  .topchrome.is-compact .head .wrap{flex-wrap:nowrap;gap:10px;padding-block:8px}
-  .topchrome.is-compact .logo{font-size:0;gap:0;min-height:40px}
-  .topchrome.is-compact .search{order:2;flex:1 1 auto;flex-basis:auto;min-height:42px;padding:0 16px}
-  .topchrome.is-compact .head-act{order:3;margin-left:0}
-  .topchrome.is-compact .head-act .btn-sm{min-height:42px}
-  /* В одну строку помещаются поиск и одна кнопка. Вторая («Ienākt»)
-     уходит: вход есть в доке и на экране регистрации. */
-  .topchrome.is-compact .head .btn-outline.keep{display:none}
+  .cats .scroller{padding-block:8px;gap:6px}
+  .cat{width:auto;min-height:36px;flex-direction:row;justify-content:flex-start;gap:8px;
+    padding:0 14px 0 8px;border-radius:var(--r-pill);background:var(--surface-2);
+    font-size:13px;font-weight:600;white-space:nowrap}
+  .cat .ic{width:24px;height:24px;background:none;flex:none}
+  .cat .ic svg{width:18px;height:18px}
+  .cat[aria-current]{background:var(--accent);color:var(--on-accent)}
+  .cat[aria-current] .ic svg{stroke:var(--on-accent)}
+  .cat .dot{top:2px;right:6px}
+  /* край ленты растушёван, чтобы обрезанный чип читался как «листается вбок»,
+     а не как сломанная вёрстка */
+  .cats{position:relative}
+  .cats::after{content:"";position:absolute;top:0;right:0;bottom:1px;width:32px;
+    pointer-events:none;background:linear-gradient(90deg,transparent,var(--surface))}
 }
 @media(prefers-reduced-motion:reduce){.head .wrap,.logo{transition:none}}
-/* отступ под фиксированную панель: JS ставит точное значение, значения ниже — запас без JS */
+/* Отступ под фиксированную панель. Он ПОСТОЯННЫЙ: JS ставит его один раз при
+   загрузке и при смене размера окна. Раньше JS переписывал --chrome-h на
+   каждом скролле — с 254 px на 59 px и обратно — и вся страница прыгала на
+   195 px. Значения ниже — запас, если JS не отработал. */
 body{padding-top:var(--chrome-h,232px)}
 @media(max-width:1000px){body{padding-top:var(--chrome-h,188px)}}
-@media(max-width:600px){body{padding-top:var(--chrome-h,232px)}}
+@media(max-width:600px){body{padding-top:var(--chrome-h,177px)}}
 :where([id],.lot,.q,.banner,.bslide){scroll-margin-top:calc(var(--chrome-c,84px) + 16px)}
 
 /* ── ГЕРОЙ: только заголовок и поиск ── */
@@ -1618,3 +1638,1200 @@ footer .f-pill{border:0;font:inherit;cursor:pointer}
   transition:background var(--fast) var(--ease)}
 .lot-ad .ad-go:hover .ad-cta{background:var(--brand-2)}
 .lot-ad .ad-cta svg{stroke:currentColor;fill:none;stroke-width:2}
+
+/* ═══════════════════════════════════════════════════════════════
+   ПОРТ УТВЕРЖДЁННОГО МАКЕТА: КАБИНЕТ
+   Скопировано один в один из утверждённого пакета (new.css),
+   без перерисовки. Верхняя строка сайта и меню не затронуты —
+   раздел «ШАПКА: sticky» из пакета намеренно НЕ переносился.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Контент не уходит под док — дефект №3 главы 17. */
+.acct-page{padding-bottom:calc(96px + env(safe-area-inset-bottom,0px))}
+/* ── СОГЛАСИЕ НА МАРКЕТИНГ ────────────────────────────────────
+   По умолчанию снято — это требование закона, не настройка вкуса. */
+.optin,.fields label.optin{display:flex;gap:10px;align-items:flex-start;
+  padding:0;border:0;background:none}
+.optin input[type="checkbox"]{appearance:auto;-webkit-appearance:checkbox;width:18px;height:18px;
+  min-height:0;min-width:0;flex:0 0 18px;margin:1px 0 0;padding:0;border:0;border-radius:0;
+  background:none;box-shadow:none;accent-color:var(--brand);cursor:pointer}
+.optin .t{display:block;min-width:0;font-size:13px;font-weight:400;line-height:1.45;color:var(--text-2);cursor:pointer}
+.optin .t b{font-weight:600;color:var(--text-2)}
+.optin .t small{font-size:13px;font-weight:400;color:var(--text-3)}
+.optin a{color:inherit;border-bottom:1px solid var(--border)}
+/* На тёмном (подвал, док) — тот же размер, другой цвет. */
+.optin.on-dark .t,.optin.on-dark .t b{color:color-mix(in srgb,#fff 78%,transparent)}
+.optin.on-dark .t small{color:color-mix(in srgb,#fff 58%,transparent)}
+
+/* переключатель рассылки в кабинете — тот же .sw, что в cookie */
+.prefrow{display:flex;align-items:center;justify-content:space-between;gap:16px;
+  padding:16px 0;border-bottom:1px solid var(--border)}
+.prefrow:last-child{border-bottom:0}
+.prefrow .t{display:flex;flex-direction:column;gap:2px;min-width:0}
+.prefrow b{font-size:15px}
+.prefrow small{font-size:13px;color:var(--text-2)}
+.prefrow .since{font-size:12px;color:var(--text-3);margin-top:4px}
+
+/* ═══ КАБИНЕТ: ПЕРЕРАБОТКА ════════════════════════════════════
+   Было: «Iziet» стоял в .page-head рядом с h1, а на телефоне
+   .page-head переносил его на свою строку прямо над .acct-nav —
+   с той же высотой 44px, тем же радиусом 999px и той же рамкой
+   2px, что у семи табов под ним. Выход из аккаунта выглядел как
+   первый таб в ленте табов. */
+
+/* Шапка кабинета: аватар, кто вошёл, статус. */
+.acct-head{display:flex;align-items:center;gap:14px;padding:16px;
+  border-radius:var(--r-lg);background:var(--surface-2);border:1px solid var(--border)}
+.acct-head .ava{width:52px;height:52px;flex:none;border-radius:50%;background:var(--brand);
+  color:var(--accent);display:grid;place-items:center;font-size:20px;font-weight:800}
+.acct-head .t{min-width:0;flex:1}
+.acct-head b{display:block;font-size:18px;font-weight:800;letter-spacing:-.02em;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acct-head small{display:block;font-size:13px;color:var(--text-2);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acct-head .st{flex:none;font-size:12px;font-weight:800;letter-spacing:.04em;
+  text-transform:uppercase;padding:5px 11px;border-radius:var(--r-pill);
+  background:color-mix(in srgb,var(--accent) 26%,var(--surface));color:var(--brand)}
+
+/* Строка данных профиля с кнопкой «Изменить» на той же строке. */
+.prow{display:flex;align-items:center;gap:12px;padding:14px 0;
+  border-bottom:1px solid var(--border)}
+.prow:last-of-type{border-bottom:0}
+.prow .t{min-width:0;flex:1;display:flex;flex-direction:column;gap:2px}
+.prow .k{font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--text-3)}
+.prow .v{font-size:16px;font-weight:700;letter-spacing:-.01em;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.prow .btn{flex:none}
+/* Правка ника прямо в строке. */
+.prow.editing{flex-wrap:wrap;row-gap:10px}
+.prow .edit{flex:1 1 100%;display:flex;gap:8px}
+.prow .edit input{flex:1;min-width:0;min-height:48px;padding:0 14px;font-family:inherit;
+  font-size:16px;font-weight:700;border-radius:var(--r-md);border:2px solid var(--accent);
+  background:var(--surface);color:var(--text)}
+.prow .edit input:focus-visible{outline:none}
+
+/* Выход и удаление — отдельным блоком в самом низу, не в ленте табов. */
+.acct-exit{margin-top:24px;padding-top:20px;border-top:1px solid var(--border);
+  display:grid;gap:10px}
+.acct-exit .btn-out{display:flex;align-items:center;justify-content:center;gap:10px;
+  width:100%;min-height:52px;border-radius:var(--r-pill);background:var(--surface);
+  border:2px solid var(--border);font-family:inherit;font-size:16px;font-weight:700;
+  color:var(--text);cursor:pointer}
+.acct-exit .btn-out:hover{border-color:var(--text);background:var(--surface-2)}
+.acct-exit .btn-out svg{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:2.2;
+  stroke-linecap:round;stroke-linejoin:round}
+.acct-exit .danger{justify-self:center;min-height:44px;padding:0 8px;background:none;border:0;
+  font-family:inherit;font-size:14px;font-weight:700;color:var(--live);cursor:pointer;
+  border-bottom:2px solid transparent}
+.acct-exit .danger:hover{border-bottom-color:var(--live)}
+
+/* ── Покупка: карточка, которая раскрывается ───────────────────
+   Движок уже отдаёт hammerCents, premiumCents, vatCents,
+   shippingCents, handlingCents и createdAt — в интерфейсе не
+   показывалось ничего из этого. */
+.buy{border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface);
+  overflow:hidden}
+.buy+.buy{margin-top:10px}
+.buy-h{display:flex;align-items:center;gap:12px;width:100%;padding:14px;background:none;
+  border:0;font-family:inherit;text-align:left;color:var(--text);cursor:pointer}
+.buy-h:hover{background:var(--surface-2)}
+.buy-h .t{min-width:0;flex:1;display:flex;flex-direction:column;gap:3px}
+.buy-h .ref{font-size:12px;font-weight:800;letter-spacing:.06em;color:var(--text-3)}
+.buy-h b{font-size:15px;font-weight:700;line-height:1.3}
+.buy-h .r{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:5px}
+.buy-h .money{display:block;margin:0;padding:0;border:0;background:none;font-size:16px;
+  font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+.buy-h .chev{flex:none;width:18px;height:18px;stroke:var(--text-3);fill:none;stroke-width:2.4;
+  transition:rotate .2s var(--ease)}
+.buy.open .buy-h .chev{rotate:180deg}
+.buy-b{padding:0 14px 14px;border-top:1px solid var(--border);margin-top:-1px}
+.buy-b table{width:100%;border-collapse:collapse;font-size:14px;margin-top:12px}
+.buy-b th{text-align:left;font-weight:600;color:var(--text-2);padding:7px 0}
+.buy-b td{text-align:right;font-weight:700;font-variant-numeric:tabular-nums;padding:7px 0}
+.buy-b tr.tot th,.buy-b tr.tot td{border-top:1px solid var(--border);padding-top:11px;
+  font-weight:800;font-size:16px;color:var(--text)}
+.buy-b .meta{display:flex;flex-direction:column;gap:2px;margin-top:14px;font-size:14px;
+  color:var(--text-2)}
+.buy-b .meta b{color:var(--text);font-weight:700}
+.buy-b .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.buy-b .acts .btn{min-height:44px}
+.stpill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:800;
+  letter-spacing:.03em;padding:4px 10px;border-radius:var(--r-pill);white-space:nowrap}
+.stpill i{width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
+.stpill.paid{background:color-mix(in srgb,var(--accent) 26%,var(--surface));color:var(--brand)}
+.stpill.wait{background:var(--live-soft);color:var(--live)}
+.stpill.canc{background:var(--surface-3);color:var(--text-3)}
+
+/* ═══ КАБИНЕТ: ЧТО ВИДНО ПЕРВЫМ ═══════════════════════════════
+   Было: h1 «Mans konts», под ним ник и e-mail, потом лента из
+   семи табов, и только за ней — ставки. Личные данные заняли
+   первый экран, а то, зачем человек зашёл — где он сейчас
+   борется и что надо оплатить — оказалось в прокрутке.
+
+   Стало: сверху то, что требует действия, потом активные лоты,
+   личные данные — во вкладке «Profils». */
+
+/* ── Полоса «требует действия». Показывается только когда есть что. ── */
+.todo{display:grid;gap:8px}
+.todo a{display:flex;align-items:center;gap:12px;min-height:60px;padding:12px 14px;
+  border-radius:var(--r-md);text-decoration:none;color:var(--text);
+  border:1px solid var(--border);background:var(--surface)}
+.todo a .ic{width:38px;height:38px;flex:none;border-radius:12px;display:grid;place-items:center}
+.todo a .ic svg{width:19px;height:19px;fill:none;stroke-width:2;stroke-linecap:round;
+  stroke-linejoin:round}
+.todo a .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.todo a b{font-size:15px;font-weight:700;line-height:1.25}
+.todo a small{font-size:13px;color:var(--text-2)}
+.todo a .go{flex:none;width:18px;height:18px;stroke:var(--text-3);fill:none;stroke-width:2.4}
+/* Срочное — оплата и штраф за хранение. */
+.todo a.hot{border-color:transparent;background:var(--live-soft)}
+.todo a.hot .ic{background:var(--live);color:#fff}
+.todo a.hot .ic svg{stroke:#fff}
+.todo a.hot b{color:var(--live)}
+/* Приятное — забрать заказ. */
+.todo a.ok .ic{background:var(--accent)}
+.todo a.ok .ic svg{stroke:var(--on-accent)}
+
+/* ── Активная ставка: главный блок кабинета ────────────────────*/
+.mybid{display:flex;gap:12px;padding:12px;border-radius:var(--r-md);
+  border:1px solid var(--border);background:var(--surface)}
+.mybid+.mybid{margin-top:10px}
+.mybid .pic{flex:0 0 76px;align-self:flex-start;aspect-ratio:1;border-radius:var(--r-sm);
+  overflow:hidden;background:var(--surface-3)}
+.mybid .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+.mybid .row1{display:flex;align-items:center;gap:8px}
+.mybid h3{font-size:15px;font-weight:700;line-height:1.3;margin:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mybid .now{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.mybid .now b{font-size:19px;font-weight:800;letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums}
+.mybid .now small{font-size:13px;color:var(--text-2)}
+.mybid .foot{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.mybid .tl{display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:700;
+  font-variant-numeric:tabular-nums;color:var(--text-2)}
+.mybid .tl.crit{color:var(--live)}
+.mybid .tl svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2.2}
+.mybid .who{font-size:13px;color:var(--text-3);font-weight:600}
+.mybid .btn{margin-left:auto;min-height:40px;padding:0 16px;font-size:14px}
+/* Веду / перебили — единственный цветной элемент в строке. */
+.lead{display:inline-flex;align-items:center;gap:6px;flex:none;font-size:12px;font-weight:800;
+  letter-spacing:.03em;padding:4px 10px;border-radius:var(--r-pill);white-space:nowrap}
+.lead i{width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
+.lead.win{background:color-mix(in srgb,var(--accent) 30%,var(--surface));color:var(--brand)}
+.lead.out{background:var(--live-soft);color:var(--live)}
+.lead.won{background:var(--brand);color:var(--accent)}
+/* На телефоне кнопка уходит на свою строку — иначе таймер, число
+   солителей и кнопка не помещаются в 270 px. */
+@media(max-width:520px){
+  .mybid .foot{position:relative;padding-bottom:0}
+  .mybid .btn{margin-left:0;flex:1 1 100%;order:3}
+}
+
+/* ═══ ПОЛУЧЕНИЕ И ОПЛАТА НА МЕСТЕ ═════════════════════════════
+   Оплата на месте будет у большинства, поэтому это не сноска, а
+   полноценный экран: код, QR, сколько принести, куда и до когда.
+   Движок уже умеет: POST /api/desk/pay с method cash|card и
+   channel desk, и очередь pickup_tickets с номером на табло. */
+.pass{border-radius:var(--r-lg);overflow:hidden;border:1px solid var(--border);
+  background:var(--surface)}
+/* Пропуск-«билет»: всё в одну колонку по центру. Флекс в два
+   столбца рвался, как только название лота занимало две строки —
+   а оно занимает две строки почти всегда. */
+.pass-top{padding:20px 18px;background:var(--brand);color:var(--on-brand);
+  display:grid;justify-items:center;gap:10px;text-align:center}
+.pass-top .qr{width:124px;height:124px;border-radius:12px;background:#fff;
+  padding:7px;display:grid;place-items:center}
+.pass-top .t{min-width:0;width:100%;display:grid;justify-items:center;gap:2px}
+.pass-top .lab{display:block;font-size:11px;font-weight:800;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--accent)}
+.pass-top .code{display:block;font-size:40px;font-weight:800;letter-spacing:.18em;
+  font-variant-numeric:tabular-nums;line-height:1;text-indent:.18em}
+.pass-top small{display:block;font-size:13px;color:color-mix(in srgb,#fff 72%,transparent)}
+/* Сколько принести — самый заметный блок, если ещё не оплачено. */
+.pass-due{display:flex;align-items:center;justify-content:space-between;gap:16px;
+  padding:14px 18px;background:var(--live-soft);border-bottom:1px solid var(--border)}
+.pass-due .t{display:flex;flex-direction:column;gap:1px;min-width:0}
+.pass-due b{font-size:14px;font-weight:800;color:var(--live)}
+.pass-due small{font-size:13px;color:var(--text-2)}
+.pass-due .amt2{flex:none;font-size:22px;font-weight:800;letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums;color:var(--live)}
+.pass-paid{display:flex;align-items:center;gap:10px;padding:14px 18px;
+  background:color-mix(in srgb,var(--accent) 20%,var(--surface));
+  border-bottom:1px solid var(--border);font-size:14px;font-weight:700;color:var(--brand)}
+.pass-paid svg{width:18px;height:18px;stroke:var(--brand);fill:none;stroke-width:2.6;flex:none}
+.pass-body{padding:18px;display:grid;gap:16px}
+.pass-row{display:flex;gap:12px}
+.pass-row .ic{width:34px;height:34px;flex:none;border-radius:10px;background:var(--surface-2);
+  display:grid;place-items:center}
+.pass-row .ic svg{width:17px;height:17px;stroke:var(--text);fill:none;stroke-width:1.9;
+  stroke-linecap:round;stroke-linejoin:round}
+.pass-row .t{min-width:0}
+.pass-row .k{display:block;font-size:12px;font-weight:800;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--text-3);margin-bottom:2px}
+.pass-row .v{display:block;font-size:15px;font-weight:700;line-height:1.35}
+.pass-row .v span{display:block;font-weight:500;color:var(--text-2);font-size:14px}
+.pass-acts{display:flex;gap:8px;flex-wrap:wrap;padding:0 18px 18px}
+.pass-acts .btn{flex:1;min-width:140px;min-height:46px}
+
+/* Живая очередь: номер на табло и где он сейчас. */
+.queue{display:grid;gap:14px;padding:18px;border-radius:var(--r-lg);
+  background:var(--surface-2);border:1px solid var(--border)}
+.queue-n{display:flex;align-items:center;gap:14px}
+.queue-n .num{flex:none;width:76px;height:76px;border-radius:20px;background:var(--brand);
+  color:var(--accent);display:grid;place-items:center;font-size:30px;font-weight:800;
+  font-variant-numeric:tabular-nums}
+.queue-n .t b{display:block;font-size:17px;font-weight:800;letter-spacing:-.02em}
+.queue-n .t small{display:block;font-size:13px;color:var(--text-2);margin-top:2px}
+.qsteps{display:grid;gap:0}
+/* Соединитель рисуем на самом шаге, а не на точке: у точки высота
+   фиксированная, а шаг может занять две строки — линия рвалась. */
+.qstep{position:relative;display:flex;align-items:center;gap:12px;min-height:42px}
+.qstep:not(:last-child)::before{content:"";position:absolute;left:10px;top:21px;bottom:-21px;
+  width:2px;background:var(--surface-3)}
+.qstep.is-done:not(:last-child)::before{background:var(--accent)}
+.qstep .dot{position:relative;z-index:1;flex:none;width:22px;height:22px;border-radius:50%;
+  background:var(--surface-3);display:grid;place-items:center}
+.qstep .dot svg{width:12px;height:12px;stroke:var(--on-accent);fill:none;stroke-width:3}
+.qstep.is-done .dot{background:var(--accent)}
+.qstep.is-now .dot{background:var(--brand)}
+.qstep.is-now .dot svg{stroke:var(--accent)}
+.qstep span{font-size:15px;font-weight:600;color:var(--text-3)}
+.qstep.is-done span{color:var(--text-2)}
+.qstep.is-now span{color:var(--text);font-weight:800}
+
+/* ── Настройки аккаунта: удаление спрятано ─────────────────────
+   Было: «Dzēst kontu» красным стояло прямо под «Iziet», то есть
+   рядом с кнопкой, которую нажимают каждый раз. Теперь удаление
+   живёт внутри свёрнутого «Konta iestatījumi» и выглядит как
+   обычная ссылка, а не как акцент. */
+.acct-more{margin-top:20px;border-top:1px solid var(--border)}
+.acct-more>summary{display:flex;align-items:center;gap:8px;min-height:48px;
+  font-size:14px;font-weight:700;color:var(--text-3);cursor:pointer;list-style:none}
+.acct-more>summary::-webkit-details-marker{display:none}
+.acct-more>summary svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2.4;
+  transition:rotate .2s var(--ease)}
+.acct-more[open]>summary svg{rotate:180deg}
+.acct-more>summary:hover{color:var(--text)}
+.acct-more .inner{padding:2px 0 16px;display:grid;gap:12px}
+.acct-more .quiet{justify-self:start;background:none;border:0;padding:0;font-family:inherit;
+  font-size:13px;font-weight:600;color:var(--text-3);cursor:pointer;
+  border-bottom:1px solid var(--border)}
+.acct-more .quiet:hover{color:var(--live);border-bottom-color:var(--live)}
+
+/* ═══ НАСТРОЙКИ АККАУНТА ЗА ИКОНКОЙ ═══════════════════════════
+   Правка профиля и всё редкое уходит за шестерёнку в шапке
+   кабинета. В самом кабинете остаётся только то, зачем человек
+   зашёл: ставки, посылки, покупки. */
+.acct-head .gear{flex:none;width:40px;height:40px;border-radius:50%;border:1px solid var(--border);
+  background:var(--surface);display:grid;place-items:center;cursor:pointer}
+.acct-head .gear:hover{background:var(--surface-2);border-color:var(--text-3)}
+.acct-head .gear svg{width:19px;height:19px;stroke:var(--text-2);fill:none;stroke-width:1.9;
+  stroke-linecap:round;stroke-linejoin:round}
+
+/* Список настроек: группы, строки, значение справа. */
+.setgroup+.setgroup{margin-top:22px}
+.setgroup>h3{font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--text-3);margin:0 0 6px}
+.setrow{display:flex;align-items:center;gap:12px;width:100%;min-height:58px;padding:0;
+  background:none;border:0;border-bottom:1px solid var(--border);font-family:inherit;
+  color:var(--text);text-align:left;cursor:pointer}
+.setrow:last-child{border-bottom:0}
+.setrow .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.setrow b{font-size:15px;font-weight:700}
+.setrow small{font-size:13px;color:var(--text-2);line-height:1.35}
+.setrow .val{flex:none;font-size:14px;font-weight:700;color:var(--text-3);max-width:17ch;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.setrow .go{flex:none;width:17px;height:17px;stroke:var(--text-3);fill:none;stroke-width:2.4}
+.setrow.q{cursor:default}
+/* Закрытие аккаунта — последняя строка последней группы, серая. */
+.setgroup.danger>h3{color:var(--text-3)}
+.setrow.kill b{color:var(--text-2);font-weight:600}
+
+/* ═══ ПОСЫЛКИ: СТАТУСЫ ════════════════════════════════════════
+   Четыре состояния, которые клиент реально различает: готовим,
+   в пути, ждёт в пакомате, выдано. Плюс выдача в складе. */
+.dgroup+.dgroup{margin-top:22px}
+.dgroup>h3{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:800;
+  letter-spacing:.06em;text-transform:uppercase;color:var(--text-3);margin:0 0 8px}
+.dgroup>h3 .n{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 6px;
+  border-radius:999px;background:var(--surface-3);color:var(--text-2);font-size:12px}
+.dgroup.act>h3 .n{background:var(--accent);color:var(--on-accent)}
+.parcel{display:flex;gap:12px;padding:12px;border:1px solid var(--border);
+  border-radius:var(--r-md);background:var(--surface)}
+.parcel+.parcel{margin-top:10px}
+.parcel .carrier{flex:none;min-width:46px;height:44px;padding:0 8px;border-radius:12px;
+  display:grid;place-items:center;font-size:10px;font-weight:800;letter-spacing:.01em;
+  white-space:nowrap}
+.parcel .carrier.omniva{background:#FFEB69;color:#0E2A2A}
+.parcel .carrier.dpd{background:#DC0032;color:#fff}
+.parcel .carrier.desk{background:var(--brand);color:var(--accent)}
+.parcel .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.parcel .ref{font-size:12px;font-weight:800;letter-spacing:.05em;color:var(--text-3)}
+.parcel b{font-size:15px;font-weight:700;line-height:1.3}
+.parcel .where{font-size:13px;color:var(--text-2);line-height:1.35}
+.parcel .где,.parcel .deadline{font-size:13px;font-weight:700;color:var(--live)}
+.parcel .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
+.parcel .acts .btn{min-height:38px;padding:0 14px;font-size:13px}
+.dst{display:inline-flex;align-items:center;gap:6px;align-self:flex-start;font-size:12px;
+  font-weight:800;letter-spacing:.03em;padding:4px 10px;border-radius:var(--r-pill);white-space:nowrap}
+.dst i{width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
+.dst.prep{background:var(--surface-3);color:var(--text-2)}
+.dst.sent{background:color-mix(in srgb,var(--blue) 45%,var(--surface));color:#0E2A2A}
+.dst.way{background:color-mix(in srgb,var(--blue) 45%,var(--surface));color:#0E2A2A}
+.dst.wait{background:var(--live-soft);color:var(--live)}
+.dst.got{background:color-mix(in srgb,var(--accent) 26%,var(--surface));color:var(--brand)}
+
+/* ═══ КАЛЬКУЛЯТОР РАССРОЧКИ ═══════════════════════════════════
+   Потребительский кредит: по требованию PTAC рядом с ежемесячным
+   платежом обязаны стоять GPL и общая сумма к возврату. Цифры
+   приходят от провайдера, в вёрстке их не считаем. */
+.bnpl{border:1px solid var(--border);border-radius:var(--r-lg);background:var(--surface);
+  overflow:hidden}
+.bnpl-h{display:flex;align-items:center;gap:12px;padding:14px 16px;
+  border-bottom:1px solid var(--border)}
+.bnpl-h b{font-size:16px;font-weight:800;letter-spacing:-.02em;flex:1}
+.bnpl-body{padding:16px;display:grid;gap:16px}
+.bnpl .terms{display:flex;gap:8px;flex-wrap:wrap}
+.bnpl .terms button{flex:1;min-width:64px;min-height:46px;border-radius:var(--r-md);
+  border:2px solid var(--border);background:var(--surface);font-family:inherit;font-size:15px;
+  font-weight:800;color:var(--text);cursor:pointer;font-variant-numeric:tabular-nums}
+.bnpl .terms button[aria-pressed="true"]{border-color:var(--accent);
+  background:color-mix(in srgb,var(--accent) 20%,var(--surface))}
+.bnpl .out{display:flex;align-items:baseline;justify-content:space-between;gap:12px;
+  padding:14px 16px;border-radius:var(--r-md);background:var(--surface-2)}
+.bnpl .out .lab{font-size:13px;font-weight:700;color:var(--text-2)}
+.bnpl .out .per{font-size:30px;font-weight:800;letter-spacing:-.03em;
+  font-variant-numeric:tabular-nums;line-height:1}
+.bnpl .out .per span{font-size:15px;font-weight:700;color:var(--text-2);letter-spacing:0}
+.bnpl table{width:100%;border-collapse:collapse;font-size:14px}
+.bnpl th{text-align:left;font-weight:600;color:var(--text-2);padding:7px 0}
+.bnpl td{text-align:right;font-weight:700;font-variant-numeric:tabular-nums;padding:7px 0}
+.bnpl .zero td{color:var(--brand)}
+.bnpl .legal{font-size:12px;line-height:1.5;color:var(--text-3)}
+.bnpl .legal b{color:var(--text-2);font-weight:700}
+
+/* ═══ ВЫБОР ПАКОМАТА: OMNIVA И DPD ════════════════════════════
+   Провайдер переключается сегментом, у каждого своя цена. Внутри
+   поиск, «рядом со мной» и последний выбранный. */
+.pp-h{display:grid;gap:10px;padding-bottom:12px;border-bottom:1px solid var(--border)}
+/* Дети грида по умолчанию min-width:auto — без сброса ряд провайдеров
+   раздувается до min-content и вылезает за карточку. */
+.pp-h>*{min-width:0}
+.pp-prov{display:flex;gap:8px}
+.pp-prov button{flex:1 1 0;min-width:0;display:flex;align-items:center;gap:9px;min-height:56px;padding:0 10px;
+  border-radius:var(--r-md);border:2px solid var(--border);background:var(--surface);
+  font-family:inherit;text-align:left;cursor:pointer}
+.pp-prov button[aria-pressed="true"]{border-color:var(--accent);
+  background:color-mix(in srgb,var(--accent) 14%,var(--surface))}
+.pp-prov .cmark{flex:none;min-width:40px;height:36px;padding:0 6px;border-radius:10px;
+  display:grid;place-items:center;font-size:9px;font-weight:800;white-space:nowrap}
+.pp-prov .cmark.omniva{background:#FFEB69;color:#0E2A2A}
+.pp-prov .cmark.dpd{background:#DC0032;color:#fff}
+.pp-prov .t{min-width:0;overflow:hidden}
+.pp-prov .t b{display:block;font-size:14px;font-weight:800;letter-spacing:-.01em;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pp-prov .t small{display:block;font-size:12px;font-weight:700;color:var(--text-2);
+  font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pp-near{display:flex;align-items:center;gap:8px;min-height:44px;padding:0 14px;
+  border-radius:var(--r-pill);border:1px solid var(--border);background:var(--surface);
+  font-family:inherit;font-size:14px;font-weight:700;color:var(--text);cursor:pointer;
+  align-self:flex-start}
+.pp-near svg{width:16px;height:16px;stroke:var(--text-2);fill:none;stroke-width:2.2}
+.pp-list{display:grid;gap:2px;padding-top:8px}
+.pp-list h4{position:sticky;top:0;z-index:1;background:var(--surface);margin:8px 0 2px;
+  padding:6px 4px;font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--text-3)}
+.pp-row{display:flex;align-items:center;gap:12px;width:100%;min-height:64px;padding:8px 10px;
+  border:0;border-radius:var(--r-md);background:none;font-family:inherit;color:var(--text);
+  text-align:left;cursor:pointer}
+.pp-row:hover{background:var(--surface-2)}
+.pp-row[aria-pressed="true"]{background:var(--accent);color:var(--on-accent)}
+.pp-row .ic{flex:none;width:38px;height:38px;border-radius:10px;background:var(--surface-2);
+  display:grid;place-items:center}
+.pp-row .ic svg{width:18px;height:18px;stroke:var(--text);fill:none;stroke-width:1.9}
+.pp-row[aria-pressed="true"] .ic{background:var(--on-accent)}
+.pp-row[aria-pressed="true"] .ic svg{stroke:var(--accent)}
+.pp-row .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.pp-row b{font-size:15px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pp-row small{font-size:13px;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap}
+.pp-row[aria-pressed="true"] small{color:color-mix(in srgb,var(--on-accent) 72%,transparent)}
+.pp-row .far{flex:none;font-size:13px;font-weight:700;color:var(--text-3);
+  font-variant-numeric:tabular-nums}
+.pp-row[aria-pressed="true"] .far{color:var(--on-accent);opacity:.75}
+
+/* ── Пропуск: номер заказа и название на отдельных строках ─────
+   Было в одну строку «A-1019 · Bosch GSR 18V-55». Длинное название
+   («Gleznu komplekts, nezināms autors») ломало шапку карточки. */
+/* Номер заказа — своей строкой, название — своей. */
+.pass-top .ref2{display:block;font-size:12px;font-weight:800;letter-spacing:.06em;
+  color:color-mix(in srgb,#fff 58%,transparent);font-variant-numeric:tabular-nums}
+.pass-top .title{width:100%;font-size:14px;font-weight:600;line-height:1.35;
+  color:color-mix(in srgb,#fff 84%,transparent);margin-top:4px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+@media(max-width:400px){.pass-top .code{font-size:34px}.pass-top .qr{width:112px;height:112px}}
+
+/* ── Навигация: Waze, Google Maps, Apple Maps ──────────────────
+   Одну кнопку «Maršruts» нельзя привязать к одному приложению —
+   на iPhone стоит Apple Maps, у половины Waze, у половины Google.
+   Показываем выбор, порядок подстраиваем под платформу. */
+.nav-sheet{display:grid;gap:8px}
+.nav-opt{display:flex;align-items:center;gap:14px;width:100%;min-height:64px;padding:10px 14px;
+  border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface);
+  font-family:inherit;color:var(--text);text-align:left;cursor:pointer;text-decoration:none}
+.nav-opt:hover{background:var(--surface-2);border-color:var(--text-3)}
+.nav-opt .app{flex:none;width:42px;height:42px;border-radius:12px;display:grid;place-items:center;
+  font-size:11px;font-weight:800;letter-spacing:.02em}
+.nav-opt .app.waze{background:#33CCFF;color:#0E2A2A}
+.nav-opt .app.gmaps{background:#1A73E8;color:#fff}
+.nav-opt .app.amaps{background:#E8ECF2;color:#0E2A2A}
+.nav-opt .app.copy{background:var(--surface-3);color:var(--text-2)}
+.nav-opt .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.nav-opt b{font-size:15px;font-weight:700}
+.nav-opt small{font-size:13px;color:var(--text-2)}
+.nav-opt .go{flex:none;width:17px;height:17px;stroke:var(--text-3);fill:none;stroke-width:2.4}
+.nav-addr{padding:12px 14px;border-radius:var(--r-md);background:var(--surface-2);
+  border:1px solid var(--border);margin-bottom:4px}
+.nav-addr b{display:block;font-size:15px;font-weight:700}
+.nav-addr small{display:block;font-size:13px;color:var(--text-2);margin-top:2px}
+
+/* ── Номер лота: категория читается, объём нет ─────────────────*/
+.lotno{display:inline-flex;align-items:center;gap:0;font-variant-numeric:tabular-nums;
+  font-weight:800;letter-spacing:.04em}
+.lotno .grp{padding:2px 5px;border-radius:5px 0 0 5px;background:var(--brand);color:var(--accent);
+  font-size:12px}
+.lotno .rest{padding:2px 6px;border-radius:0 5px 5px 0;background:var(--surface-3);
+  color:var(--text-2);font-size:12px}
+
+
+/* Заголовок секции кабинета — те же метрики, что у .setgroup>h3
+   в утверждённом пакете. */
+.ttl-sm{font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--text-3);margin:0 0 10px}
+.acct>section+section{margin-top:var(--s5)}
+
+/* Экран m01, правки после сверки с утверждённым макетом.
+   1. «tavs maksimums» всегда с новой строки под ценой — в макете так.
+   2. На 390 px ник + пилюля + шестерёнка в одну строку не помещаются:
+      ник обрезался до «nikita123…». Пилюля уходит на вторую строку,
+      к e-mail, шестерёнка остаётся справа. */
+.mybid .now small{flex:1 0 100%}
+/* Шестерёнка ушла из шапки в ленту разделов последней пилюлей,
+   поэтому статус встал на её место и переносить его не нужно. */
+
+/* ── Кабинет на вебе: две колонки ──────────────────────────────
+   Веб-версии обзора в утверждённом пакете нет. Взял ту же сетку, что у
+   страницы лота (`.lot-page`): главное слева, действие справа и липкое.
+   На телефоне колонок нет — порядок остаётся как в макете: сначала
+   JĀDARA, потом активные лоты. */
+@media(min-width:1001px){
+  .acct-cols{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);
+    gap:clamp(24px,3vw,44px);align-items:start}
+  .acct-cols>*{min-width:0}
+  .acct-cols .acct-main{grid-column:1;grid-row:1;display:grid;gap:var(--s5)}
+  .acct-cols .acct-side{grid-column:2;grid-row:1;
+    position:sticky;top:calc(var(--chrome-c,84px) + 16px)}
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   КАБИНЕТ: ФИНАЛЬНЫЙ МАКЕТ (izsoli-visi-ekrani.pdf)
+   Веб — боковое меню слева; ≤700px — профиль строкой + лента чипов.
+   ═══════════════════════════════════════════════════════════════ */
+.acwrap{display:grid;grid-template-columns:248px minmax(0,1fr);gap:24px;align-items:start;margin-top:8px}
+.acmob{display:none}
+
+/* Карточка профиля + пункты навигации. */
+.acnav{position:sticky;top:calc(var(--chrome-h,64px) + 16px);
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);
+  box-shadow:var(--shadow-1);padding:14px;display:flex;flex-direction:column;gap:10px}
+.acu{display:flex;align-items:center;gap:10px;padding:4px 6px 10px;border-bottom:1px solid var(--border)}
+.acu .ava{width:40px;height:40px;flex:none;border-radius:50%;background:var(--brand);color:var(--accent);
+  display:grid;place-items:center;font-size:16px;font-weight:800}
+.acu .t{min-width:0}
+.acu b{display:block;font-size:15px;font-weight:800;letter-spacing:-.01em;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acu .st{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--text-2)}
+.acu .st i{width:7px;height:7px;border-radius:50%;background:var(--accent)}
+.acu .st.off i{background:var(--live)}
+.acnav-list{display:flex;flex-direction:column;gap:2px}
+.acnav-i{display:flex;align-items:center;gap:10px;min-height:40px;padding:0 10px;
+  border-radius:var(--r-md);font-size:14px;font-weight:600;color:var(--text);text-align:left;
+  transition:background var(--fast) var(--ease)}
+.acnav-i:hover{background:var(--surface-2)}
+.acnav-i.on{background:color-mix(in srgb,var(--accent) 22%,var(--surface));font-weight:700}
+.acnav-i svg{flex:none;color:var(--text-2)}
+.acnav-i.on svg{color:var(--brand)}
+.acnav-i span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acnav-i .n,.acchip .n,.subpill .n,.shipgroup .n,.g-lbl .n{flex:none;min-width:20px;height:20px;padding:0 6px;
+  border-radius:var(--r-pill);background:var(--brand);color:var(--accent);
+  font-size:11.5px;font-weight:800;display:inline-grid;place-items:center}
+.acnav-exit{display:flex;align-items:center;gap:10px;min-height:40px;padding:0 10px;margin-top:4px;
+  border-top:1px solid var(--border);border-radius:0 0 var(--r-md) var(--r-md);
+  font-size:14px;font-weight:600;color:var(--text-2)}
+.acnav-exit:hover{color:var(--text);background:var(--surface-2)}
+.acpanel{min-width:0}
+
+/* Подфильтры раздела: Aktīvie · Uzvarēti · … · Tiešā konsole. */
+.subpills{display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 16px}
+.subpill{display:inline-flex;align-items:center;gap:7px;min-height:38px;padding:0 14px;
+  border-radius:var(--r-pill);border:1.5px solid var(--border);font-size:13.5px;font-weight:700;
+  color:var(--text);background:var(--surface);transition:border-color var(--fast) var(--ease)}
+.subpill:hover{border-color:var(--text-3)}
+.subpill.on{background:var(--brand);border-color:var(--brand);color:var(--accent)}
+.subpill.on .n{background:var(--accent);color:var(--brand)}
+.subpill.dark{border-style:dashed}
+.subpill.dark.on{border-style:solid}
+
+/* Ряды «Manas izsoles» (№ 01). */
+.bidlist{display:flex;flex-direction:column;gap:10px}
+.bidrow{display:grid;grid-template-columns:56px minmax(0,1fr) auto 96px 36px;gap:14px;align-items:center;
+  padding:12px 14px;background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--r-lg);box-shadow:var(--shadow-1)}
+.bidrow .pic{width:56px;height:56px;border-radius:var(--r-md);overflow:hidden;background:var(--surface-2);
+  display:grid;place-items:center;color:var(--text-3)}
+.bidrow .pic img{width:100%;height:100%;object-fit:cover}
+.bidrow .t{min-width:0}
+.bidrow .t b{display:block;font-size:15px;font-weight:700;letter-spacing:-.01em;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bidrow .t small{color:var(--text-2);font-size:12.5px}
+.bidrow .r{display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+.bidrow .r .lbl{font-size:10.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--text-3)}
+.bidrow .r b{font-size:17px;font-weight:800;letter-spacing:-.02em}
+.bidrow .pill{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:800;
+  padding:3px 9px;border-radius:var(--r-pill)}
+.bidrow .pill i{width:6px;height:6px;border-radius:50%;background:currentColor}
+.bidrow .pill.lead,.bidrow .pill.won{background:color-mix(in srgb,var(--accent) 30%,var(--surface));color:var(--brand)}
+.bidrow .pill.out{background:var(--live-soft,#FBEAE2);color:var(--live)}
+.bidrow .pill.watch,.bidrow .pill.ended{background:var(--surface-2);color:var(--text-2)}
+.bidrow .cd{font-size:14px;font-weight:700;text-align:right;color:var(--text-2)}
+.bidrow.out .cd{color:var(--live)}
+.bidrow .hist{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;
+  background:var(--surface-2);color:var(--text-2)}
+.bidrow .hist:hover{background:var(--surface-3);color:var(--text)}
+
+/* Горячие ссылки обзора («Jādara»). */
+.todo{display:flex;flex-direction:column;gap:8px;margin-bottom:18px}
+.todo .hot{display:flex;align-items:center;gap:12px;padding:12px 14px;text-align:left;
+  border-radius:var(--r-lg);background:var(--live-soft,#FBEAE2);color:var(--text)}
+.todo .hot.ok{background:color-mix(in srgb,var(--accent) 24%,var(--surface))}
+.todo .hot .ic{width:34px;height:34px;flex:none;border-radius:50%;display:grid;place-items:center;
+  background:var(--surface);color:var(--text)}
+.todo .hot .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.todo .hot b{font-size:14.5px;font-weight:700}
+.todo .hot small{font-size:12.5px;color:var(--text-2)}
+.todo .hot .go{flex:none;color:var(--text-2)}
+
+/* ── Живая консоль (№ 02–04) ── */
+.konsole{display:flex;flex-direction:column;gap:16px}
+.k-head{display:flex;gap:14px;align-items:flex-start}
+.k-intro{flex:1;font-size:13.5px;line-height:1.5;color:var(--text-2);max-width:64ch}
+.k-grid{display:grid;gap:14px;grid-template-columns:repeat(2,minmax(0,1fr))}
+.k-grid.n1{grid-template-columns:minmax(0,420px)}
+@media(min-width:1100px){.k-grid.n3,.k-grid.n4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.kcard{border:2px solid var(--border);border-radius:var(--r-lg);background:var(--surface);
+  overflow:hidden;display:flex;flex-direction:column}
+.kcard.lead{border-color:color-mix(in srgb,var(--accent) 70%,var(--brand))}
+.kcard.out{border-color:var(--live)}
+.kcard.loading{min-height:280px}
+.k-media{position:relative;aspect-ratio:16/8;min-height:130px;background:var(--surface-2);display:grid;place-items:center;color:var(--text-3)}
+.k-media img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.k-timer{position:absolute;left:50%;top:12px;translate:-50% 0;padding:4px 12px;border-radius:var(--r-pill);
+  background:var(--brand);color:var(--accent);font-size:13px;font-weight:800}
+.kcard.out .k-timer{background:var(--live);color:#fff}
+.k-x{position:absolute;right:10px;top:10px;width:30px;height:30px;border-radius:50%;
+  background:color-mix(in srgb,var(--surface) 88%,transparent);color:var(--text);
+  display:grid;place-items:center}
+.k-state{position:absolute;left:50%;bottom:10px;translate:-50% 0;display:inline-flex;align-items:center;gap:6px;
+  padding:3px 10px;border-radius:var(--r-pill);font-size:12px;font-weight:800;
+  background:color-mix(in srgb,var(--surface) 92%,transparent)}
+.k-state i{width:7px;height:7px;border-radius:50%;background:var(--accent)}
+.k-state.out{color:var(--live)}
+.k-state.out i{background:var(--live)}
+.k-body{padding:14px;display:flex;flex-direction:column;gap:8px}
+.k-meta{display:flex;justify-content:space-between;font-size:12px;color:var(--text-2)}
+.k-body h3{font-size:15px;font-weight:700;letter-spacing:-.01em;line-height:1.3}
+.k-now{display:flex;flex-direction:column;gap:1px}
+.k-now small{font-size:10.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--text-3)}
+.k-now b{font-size:24px;font-weight:800;letter-spacing:-.03em}
+.k-bid{width:100%}
+.k-auto{border:1.5px solid var(--border);border-radius:var(--r-md);padding:8px 10px;
+  display:flex;flex-direction:column;gap:8px}
+.k-auto.open{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--surface))}
+.k-auto-t{display:flex;align-items:center;gap:9px;font-size:13px;font-weight:600;text-align:left;color:var(--text)}
+.k-auto-t i{width:16px;height:16px;flex:none;border-radius:4px;border:2px solid var(--border);background:var(--surface)}
+.k-auto.open .k-auto-t i{background:var(--accent);border-color:var(--accent)}
+.k-auto-in{display:flex;gap:8px}
+.k-auto-in input{flex:1;min-width:0;min-height:40px;padding:0 12px;font:inherit;font-weight:700;
+  border-radius:var(--r-md);border:2px solid var(--accent);background:var(--surface);color:var(--text)}
+.k-sum{display:flex;align-items:center;gap:12px;padding:13px 16px;border-radius:var(--r-lg);
+  background:var(--brand);color:#fff}
+.k-sum .lbl{flex:1;font-size:13.5px;font-weight:700}
+.k-sum .lbl small{display:block;font-size:11.5px;font-weight:500;opacity:.7}
+.k-sum b{font-size:19px;font-weight:800;letter-spacing:-.02em;color:var(--accent)}
+.k-add{border-top:1px solid var(--border);padding-top:14px;display:flex;flex-direction:column;gap:10px}
+.k-add-head{display:flex;align-items:center;justify-content:space-between}
+.k-cand{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--border);
+  border-radius:var(--r-lg);background:var(--surface)}
+.k-cand .pic{width:44px;height:44px;flex:none;border-radius:var(--r-md);overflow:hidden;
+  background:var(--surface-2);display:grid;place-items:center;color:var(--text-3)}
+.k-cand .pic img{width:100%;height:100%;object-fit:cover}
+.k-cand .t{flex:1;min-width:0}
+.k-cand b{display:block;font-size:14px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.k-cand small{font-size:12px;color:var(--text-2)}
+
+/* ── История ставок (№ 79) ── */
+.btn-back{display:inline-flex;align-items:center;gap:6px;min-height:36px;font-size:13.5px;font-weight:700;
+  color:var(--text-2);margin-bottom:6px}
+.btn-back:hover{color:var(--text)}
+.btn-back .flip{rotate:180deg}
+.ledger-sum{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:11px 14px;margin-bottom:12px;
+  border-radius:var(--r-lg);background:color-mix(in srgb,var(--accent) 16%,var(--surface));
+  font-size:13.5px;font-weight:600}
+.ledger-sum small{flex-basis:100%;color:var(--text-2);font-weight:500;padding-left:28px}
+.ledger{border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden;background:var(--surface)}
+.ledger-h{display:flex;justify-content:space-between;padding:9px 16px;background:var(--surface-2);
+  font-size:10.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--text-3)}
+.ledger-r{display:flex;align-items:center;gap:12px;padding:10px 16px;border-top:1px solid var(--border)}
+.ledger-r.you{background:color-mix(in srgb,var(--accent) 12%,var(--surface))}
+.ledger-r .ava{width:30px;height:30px;flex:none;border-radius:50%;background:var(--brand);color:var(--accent);
+  display:grid;place-items:center;font-size:12px;font-weight:800}
+.ledger-r .t{flex:1;min-width:0}
+.ledger-r b{font-size:14px;font-weight:700}
+.ledger-r small{display:block;font-size:12px;color:var(--text-2)}
+.ledger-r .am{font-size:15px;font-weight:800}
+.tag-auto,.tag-lead{display:inline-block;margin-left:7px;padding:1px 7px;border-radius:var(--r-pill);
+  font-style:normal;font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase}
+.tag-auto{background:var(--surface-2);color:var(--text-2)}
+.tag-lead{background:var(--accent);color:var(--brand)}
+
+/* ── Лента уведомлений (№ 07) + группы посылок ── */
+.feedcard{border:1px solid var(--border);border-radius:var(--r-lg);background:var(--surface);overflow:hidden}
+.feedrow{display:flex;align-items:flex-start;gap:12px;padding:12px 16px;border-top:1px solid var(--border)}
+.feedrow:first-child{border-top:0}
+.feedrow .ic{width:32px;height:32px;flex:none;border-radius:50%;display:grid;place-items:center;
+  background:var(--surface-2);color:var(--text-2)}
+.feedrow .ic.t-outbid{background:var(--live-soft,#FBEAE2);color:var(--live)}
+.feedrow .ic.t-won{background:color-mix(in srgb,var(--accent) 30%,var(--surface));color:var(--brand)}
+.feedrow .t{flex:1;min-width:0}
+.feedrow b{display:block;font-size:14px;font-weight:700}
+.feedrow .t small{display:block;font-size:12.5px;color:var(--text-2);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.feedrow .when{flex:none;font-size:12px;color:var(--text-3);padding-top:2px}
+
+/* ── Izņemšana (№ 16) ── */
+.pk-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start}
+.pk-main,.pk-side{display:flex;flex-direction:column;gap:16px;min-width:0}
+.passcard{border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden;background:var(--surface);
+  box-shadow:var(--shadow-1)}
+.passcard header{position:relative;background:var(--brand);color:#fff;padding:18px 76px 18px 20px;
+  display:flex;flex-direction:column;gap:3px}
+.passcard header small{font-size:12px;opacity:.7}
+.passcard .lbl{font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--accent)}
+.passcard .code{font-size:40px;font-weight:800;letter-spacing:.24em;line-height:1.1}
+.passcard .item{font-size:13.5px;font-weight:600;opacity:.9}
+.passcard .doc{position:absolute;right:18px;top:50%;translate:0 -50%;opacity:.85;color:var(--accent)}
+.pass-rows{padding:6px 20px}
+.prow-s{padding:12px 0;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:2px}
+.prow-s:first-child{border-top:0}
+.prow-s .k{display:inline-flex;align-items:center;gap:7px;font-size:10.5px;font-weight:800;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--text-3)}
+.prow-s b{font-size:14.5px;font-weight:700}
+.prow-s small{font-size:12.5px;color:var(--text-2)}
+.passcard .acts{padding:0 20px 16px}
+.queue{border:1px solid var(--border);border-radius:var(--r-lg);background:var(--surface);padding:16px 20px;
+  display:flex;flex-direction:column;gap:12px}
+.q-num{display:flex;align-items:center;gap:14px}
+.q-num b{font-size:34px;font-weight:800;letter-spacing:-.02em;color:var(--brand);
+  background:color-mix(in srgb,var(--accent) 24%,var(--surface));border-radius:var(--r-md);padding:4px 14px}
+.q-num span{font-size:14px;font-weight:600}
+.q-num small{display:block;font-size:12.5px;color:var(--text-2);font-weight:500}
+.q-steps{list-style:none;display:flex;flex-direction:column;gap:10px}
+.q-steps li{display:flex;align-items:center;gap:10px;font-size:13.5px;font-weight:600;color:var(--text-2)}
+.q-steps li i{width:18px;height:18px;flex:none;border-radius:50%;border:2px solid var(--border);
+  display:grid;place-items:center;background:var(--surface);color:var(--brand)}
+.q-steps li.done{color:var(--text)}
+.q-steps li.done i{background:var(--accent);border-color:var(--accent)}
+.q-steps li.on{color:var(--text);font-weight:700}
+.q-steps li.on i{border-color:var(--accent)}
+.shipgroup{border:1px solid var(--border);border-radius:var(--r-lg);background:var(--surface);
+  padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.g-lbl{font-size:10.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);
+  margin:10px 0 6px}
+.shipgroup .g-lbl{margin:4px 0 2px}
+.shiprow{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--border)}
+.shiprow:first-of-type{border-top:0}
+.shiprow .mark{width:44px;flex:none;display:grid;place-items:center}
+.shiprow .t{flex:1;min-width:0}
+.shiprow .t small{display:block;font-size:11.5px;color:var(--text-2);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.shiprow b{display:block;font-size:14px;font-weight:700;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.brand-chip{display:inline-flex;align-items:center;padding:0 8px;border-radius:6px;
+  border:1px solid var(--border);background:var(--surface);
+  font-size:11.5px;font-weight:800;letter-spacing:.01em;color:var(--text)}
+.modal-card.maps{width:min(420px,100%)}
+.maps-addr{padding:10px 14px;margin-bottom:12px;border-radius:var(--r-md);background:var(--surface-2)}
+.maps-addr b{display:block;font-size:14.5px}
+.maps-addr small{font-size:12.5px;color:var(--text-2)}
+.maps-row{display:flex;align-items:center;gap:12px;width:100%;padding:13px 14px;margin-top:8px;text-align:left;
+  border:1px solid var(--border);border-radius:var(--r-lg);background:var(--surface);color:var(--text);
+  transition:background var(--fast) var(--ease)}
+.maps-row:hover{background:var(--surface-2)}
+.maps-row b{flex:1;font-size:14.5px;font-weight:700}
+
+/* ── Хаб настроек (№ 59) и подэкраны ── */
+.hubgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:6px}
+.hubtile{display:flex;align-items:center;gap:12px;padding:14px;text-align:left;
+  border:1px solid var(--border);border-radius:var(--r-lg);background:var(--surface);
+  box-shadow:var(--shadow-1);transition:border-color var(--fast) var(--ease)}
+.hubtile:hover{border-color:var(--text-3)}
+.hubtile .ic{width:38px;height:38px;flex:none;border-radius:var(--r-md);display:grid;place-items:center;
+  background:color-mix(in srgb,var(--accent) 18%,var(--surface));color:var(--brand)}
+.hubtile .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.hubtile b{font-size:14.5px;font-weight:700}
+.hubtile small{font-size:12px;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hubtile small.st{color:var(--text-3);font-size:11.5px}
+.hubtile .go{flex:none;color:var(--text-3)}
+.seg2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+.seg{padding:12px;border:1.5px solid var(--border);border-radius:var(--r-lg);text-align:center;background:var(--surface)}
+.seg b{display:block;font-size:14px;font-weight:700}
+.seg small{font-size:11.5px;color:var(--text-2)}
+.seg.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,var(--surface))}
+.fld{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+.fld span{font-size:10.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--text-3)}
+.fld input{min-height:46px;padding:0 14px;font:inherit;font-weight:600;border-radius:var(--r-md);
+  border:1.5px solid var(--border);background:var(--surface);color:var(--text)}
+.fld input:focus{border-color:var(--accent);outline:none}
+.langrow{display:flex;align-items:center;gap:12px;width:100%;padding:12px 14px;margin-bottom:8px;text-align:left;
+  border:1.5px solid var(--border);border-radius:var(--r-lg);background:var(--surface);color:var(--text)}
+.langrow.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--surface))}
+.langrow .cc{width:32px;height:24px;flex:none;display:grid;place-items:center;border-radius:6px;
+  background:var(--surface-2);font-size:11px;font-weight:800;color:var(--text-2)}
+.langrow .t{flex:1;min-width:0}
+.langrow b{display:block;font-size:14.5px;font-weight:700}
+.langrow small{font-size:12px;color:var(--text-2)}
+.langrow .radio{width:18px;height:18px;flex:none;border-radius:50%;border:2px solid var(--border)}
+.langrow.on .radio{border-width:5px;border-color:var(--brand)}
+.ckrow{display:flex;align-items:flex-start;gap:14px;padding:13px 0;border-bottom:1px solid var(--border)}
+.ckrow:last-of-type{border-bottom:0}
+.ckrow .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.ckrow b{font-size:14.5px;font-weight:700}
+.ckrow small{font-size:12.5px;color:var(--text-2)}
+.ckrow small.ex{color:var(--text-3);font-size:11.5px}
+.sw.fixed{opacity:.55}
+.danger{margin-top:18px;padding:16px;border-radius:var(--r-lg);
+  background:var(--live-soft,#FBEAE2);display:flex;flex-direction:column;gap:9px}
+.danger>b{color:var(--live);font-size:15px;font-weight:800}
+.danger p{font-size:13px;line-height:1.5}
+.danger ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px;font-size:13px}
+.danger li.ok{color:var(--text-2);text-decoration:line-through}
+.danger .btn{align-self:flex-start}
+.danger .acts{display:flex;gap:10px;flex-wrap:wrap}
+.btn-del{border-color:var(--live);color:var(--live)}
+.btn-del:hover{background:var(--live);border-color:var(--live);color:#fff}
+
+/* Ienākšana ar Telegram (№ 52): шаги под виджетом */
+.tg-steps{margin:14px 0 4px;padding-left:22px;display:flex;flex-direction:column;gap:8px;
+  font-size:14px;line-height:1.5;color:var(--text-2)}
+.tg-steps li::marker{font-weight:800;color:var(--text)}
+.wish-grid{margin-top:4px}
+
+/* ── Мобильный: боковое меню → профиль строкой + лента чипов ── */
+@media(max-width:700px){
+  .acwrap{display:block}
+  .acnav{display:none}
+  .acmob{display:block;margin-bottom:14px}
+  .acmob .acu{border:1px solid var(--border);border-radius:var(--r-lg);background:var(--surface);
+    padding:10px 12px;margin-bottom:10px;border-bottom:1px solid var(--border)}
+  .acchips{display:flex;gap:8px;overflow-x:auto;padding:2px 2px 6px;scrollbar-width:none;
+    margin-inline:-2px}
+  .acchips::-webkit-scrollbar{display:none}
+  .acchip{display:inline-flex;align-items:center;gap:7px;flex:none;min-height:40px;padding:0 14px;
+    border-radius:var(--r-pill);border:1.5px solid var(--border);background:var(--surface);
+    font-size:13.5px;font-weight:700;color:var(--text)}
+  .acchip.on{background:var(--brand);border-color:var(--brand);color:var(--accent)}
+  .acchip.on .n{background:var(--accent);color:var(--brand)}
+  .k-grid,.k-grid.n1,.k-grid.n3,.k-grid.n4{grid-template-columns:minmax(0,1fr)}
+  .pk-cols{grid-template-columns:minmax(0,1fr)}
+  .hubgrid{grid-template-columns:minmax(0,1fr)}
+  .bidrow{grid-template-columns:48px minmax(0,1fr) 32px;grid-template-rows:auto auto;row-gap:8px}
+  .bidrow .pic{width:48px;height:48px;grid-row:1}
+  .bidrow .t{grid-column:2;grid-row:1}
+  .bidrow .hist{grid-column:3;grid-row:1;width:32px;height:32px}
+  .bidrow .r{grid-column:1/3;grid-row:2;flex-direction:row;align-items:center;gap:8px;flex-wrap:wrap}
+  .bidrow .cd{grid-column:3;grid-row:2;font-size:13px}
+  .passcard .code{font-size:32px}
+  .k-head{flex-direction:column}
+}
+
+/* ── Выпадающие меню шапки (№ 11): уведомления и аккаунт ── */
+.ddwrap{position:relative;display:inline-flex}
+.ava-btn{width:38px;height:38px;border-radius:50%;background:var(--brand);color:var(--accent);
+  display:grid;place-items:center;font-size:14px;font-weight:800;
+  transition:box-shadow var(--fast) var(--ease)}
+.ava-btn:hover{box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 50%,transparent)}
+.ddown{position:absolute;right:0;top:calc(100% + 10px);z-index:130;width:320px;max-width:86vw;
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);
+  box-shadow:var(--shadow-3);padding:8px;display:flex;flex-direction:column}
+.dd-h{padding:8px 10px 10px;border-bottom:1px solid var(--border);margin-bottom:6px}
+.dd-h b{display:block;font-size:14.5px;font-weight:800}
+.dd-h small{display:block;font-size:12px;color:var(--text-2)}
+.dd-row{display:flex;align-items:flex-start;gap:10px;padding:8px 10px;border-radius:var(--r-md)}
+.dd-row .ic{width:26px;height:26px;flex:none;border-radius:50%;display:grid;place-items:center;
+  background:var(--surface-2);color:var(--text-2)}
+.dd-row .t{flex:1;min-width:0}
+.dd-row b{display:block;font-size:13px;font-weight:700;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dd-row .t small{display:block;font-size:11.5px;color:var(--text-2);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dd-row .when{flex:none;font-size:11px;color:var(--text-3);padding-top:2px}
+.dd-empty{padding:14px 10px;font-size:13px;color:var(--text-2);text-align:center}
+.dd-all{margin-top:6px;padding:10px;border-top:1px solid var(--border);text-align:center;
+  font-size:13.5px;font-weight:700;color:var(--text);border-radius:0 0 var(--r-md) var(--r-md)}
+.dd-all:hover{background:var(--surface-2)}
+.dd-nav{display:flex;align-items:center;gap:8px;padding:9px 10px;border-radius:var(--r-md);
+  font-size:13.5px;font-weight:600;color:var(--text);text-align:left}
+.dd-nav:hover{background:var(--surface-2)}
+.dd-nav span:first-child{flex:1}
+.dd-nav .n{min-width:20px;height:20px;padding:0 6px;border-radius:var(--r-pill);
+  background:var(--brand);color:var(--accent);font-size:11px;font-weight:800;
+  display:inline-grid;place-items:center}
+.dd-nav.out{border-top:1px solid var(--border);margin-top:6px;border-radius:0;color:var(--text-2)}
+.dd-nav.out:hover{color:var(--text)}
+
+/* ── Чек (№ 41), аванс (№ 71) и переключатель аванса на оплате (№ 72) ── */
+.rcp-cols{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:18px;align-items:start}
+@media(max-width:700px){.rcp-cols{grid-template-columns:minmax(0,1fr)}}
+.rcp-main{display:flex;flex-direction:column;gap:12px;min-width:0}
+.rcp-head{display:flex;align-items:center;gap:12px;padding:16px;border-radius:var(--r-lg);
+  background:color-mix(in srgb,var(--accent) 30%,var(--surface))}
+.rcp-head .ok{width:36px;height:36px;flex:none;border-radius:50%;background:var(--accent);
+  color:var(--brand);display:grid;place-items:center}
+.rcp-head .t{flex:1;min-width:0}
+.rcp-head b{display:block;font-size:16px;font-weight:800}
+.rcp-head small{font-size:12.5px;color:var(--text-2)}
+.rcp-head .sum{font-size:22px;font-weight:800;letter-spacing:-.02em}
+.rcp-code{display:flex;align-items:center;gap:16px;padding:14px 18px;border-radius:var(--r-lg);
+  background:var(--brand);color:#fff}
+.rcp-code .lbl{font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--accent)}
+.rcp-code b{flex:1;font-size:32px;font-weight:800;letter-spacing:.22em}
+.rcp-code svg{color:var(--accent)}
+.rcp-steps{list-style:none;display:flex;flex-direction:column;gap:12px;padding:4px 0}
+.rcp-steps li{display:flex;gap:12px;align-items:flex-start}
+.rcp-steps i{width:24px;height:24px;flex:none;border-radius:50%;background:var(--accent);color:var(--brand);
+  display:grid;place-items:center;font-style:normal;font-size:12px;font-weight:800}
+.rcp-steps b{display:block;font-size:14px;font-weight:700}
+.rcp-steps small{font-size:12.5px;color:var(--text-2)}
+.rcp-side{border:1px solid var(--border);border-radius:var(--r-lg);background:var(--surface);
+  padding:14px 18px;min-width:0}
+.creditboard{border:1px solid var(--border);border-radius:var(--r-lg);background:var(--surface);
+  padding:14px 16px;margin-bottom:16px}
+.cb-head{display:flex;align-items:center;gap:14px}
+.cb-head .t{flex:1;min-width:0}
+.cb-head small{display:block;font-size:10.5px;font-weight:800;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--text-3)}
+.cb-head b{font-size:24px;font-weight:800;letter-spacing:-.02em;color:var(--brand)}
+.cb-row{display:flex;align-items:center;gap:12px;padding:9px 0;border-top:1px solid var(--border)}
+.cb-row .t{flex:1;min-width:0}
+.cb-row b{font-size:13.5px;font-weight:700;display:block}
+.cb-row small{font-size:12px;color:var(--text-2)}
+.cb-row .neg{color:var(--live)}
+.cb-row .pos{color:var(--brand)}
+.opt.credit input[type="checkbox"]{appearance:auto;-webkit-appearance:checkbox;width:18px;height:18px;
+  min-height:0;flex:0 0 18px;accent-color:var(--brand)}
+
+/* ═══════════════════════════════════════════════════════════════
+   ОПЛАТА: ШАГИ НА ТЕЛЕФОНЕ (макет № 28b / 46b / 46c / 48b)
+   На компьютере раскладка не меняется — карточки как были.
+   На ≤700px заполненный шаг сворачивается в строку с выбранным
+   значением и ссылкой «Mainīt»: открытым остаётся текущий шаг,
+   сводка заказа переезжает наверх строкой.
+   ═══════════════════════════════════════════════════════════════ */
+.pay-step{display:block}
+.pay-head{display:none}
+.pay-sum{display:none}
+.pay-marks{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:14px 0 0;
+  padding-top:12px;border-top:1px solid var(--border)}
+.pay-marks img{display:block;height:16px;width:auto}
+.opt .pay-opt-t{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.opt .pay-opt-t img{display:block;height:16px;width:auto;flex:none}
+
+@media (max-width:700px){
+  .pay-sum{display:flex;align-items:center;gap:12px;padding:12px 14px;margin-bottom:12px;
+    background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);
+    box-shadow:var(--shadow-1)}
+  .pay-sum .ic{flex:none;color:var(--brand);display:grid;place-items:center}
+  .pay-sum .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+  .pay-sum .t small{font-size:11.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
+    color:var(--text-3)}
+  .pay-sum .t b{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pay-sum .sum{flex:none;font-size:17px;font-weight:800;letter-spacing:-.02em}
+
+  .pay-step{margin-bottom:10px}
+  .pay-head{display:flex;align-items:center;gap:12px}
+  .pay-step.is-done .pay-head{padding:13px 14px;background:color-mix(in srgb,var(--accent) 14%,var(--surface));
+    border:1px solid var(--border);border-radius:var(--r-lg)}
+  .pay-step:not(.is-done) .pay-head{display:none}
+  .pay-num{flex:none;width:24px;height:24px;border-radius:50%;background:var(--accent);color:var(--brand);
+    display:grid;place-items:center;font-size:12px;font-weight:800}
+  .pay-head .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+  .pay-head .t small{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--text-3)}
+  .pay-head .t b{font-size:14px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pay-edit{flex:none;font-size:13px;font-weight:800;color:var(--brand);
+    text-decoration:underline;text-underline-offset:2px}
+  .pay-step.is-done .pay-body{display:none}
+
+  /* Сводка заказа внизу не нужна — она уже строкой сверху. */
+  .pay-side{display:none}
+  /* Знаки платёжных систем в один ряд с переносом. */
+  .pay-marks{gap:10px}
+}
+
+/* ── Кабинет: правки по замечаниям к макету ────────────────────*/
+/* Пустая полоса над H1 на вкладках кабинета: заголовок уже внутри
+   панели, верхний отступ страницы дублировался. */
+.acpanel>.page-head{margin-top:0}
+/* «Vēlmes» показывает компактные карточки, а не крупные каталожные. */
+.wish-grid{grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:14px}
+@media (max-width:700px){.wish-grid{grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:10px}}
+.wish-grid .lot-body{padding:12px}
+.wish-grid .lot h3{font-size:15px}
+.wish-grid .price{font-size:21px}
+
+/* ═══════════════════════════════════════════════════════════════
+   СТАТУС ЗАКАЗА: ДЕНЬГИ И ВОЗВРАТЫ (макеты № 64, 65, 67, 68, 69,
+   69b, 70). Свой префикс `os-`, чтобы не столкнуться с боевыми
+   .opt / .step / .done / .srch. Цвета — только через токены.
+   ═══════════════════════════════════════════════════════════════ */
+.os-sum{display:flex;align-items:center;gap:22px;flex-wrap:wrap;padding:14px 16px;margin:0 0 14px;
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);
+  box-shadow:var(--shadow-1)}
+.os-sum .t{display:flex;flex-direction:column;gap:2px;min-width:0}
+.os-sum .t small{font-size:11.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
+  color:var(--text-3)}
+.os-sum .t b{font-size:19px;font-weight:800;letter-spacing:-.02em}
+
+.os-head{display:flex;align-items:flex-start;gap:14px;padding:16px;margin:0 0 14px;
+  border:1px solid var(--border);border-radius:var(--r-lg);background:var(--surface-2)}
+.os-head .ic{flex:none;width:36px;height:36px;border-radius:50%;display:grid;place-items:center;
+  background:var(--surface);color:var(--brand)}
+.os-head .t{display:flex;flex-direction:column;gap:4px;min-width:0}
+.os-head .t b{font-size:17px;letter-spacing:-.01em}
+.os-head .t small{font-size:13.5px;line-height:1.45;color:var(--text-2)}
+.os-head.is-bad{background:var(--live-soft);border-color:color-mix(in srgb,var(--live) 30%,transparent)}
+.os-head.is-bad .ic{color:var(--live)}
+.os-head.is-wait{background:var(--surface-2);border-color:var(--text-3)}
+.os-head.is-wait .ic{background:var(--surface);color:var(--text-2)}
+.os-head.is-ok{background:color-mix(in srgb,var(--accent) 22%,var(--surface))}
+
+.os-acts{margin:0 0 18px}
+.os-block{padding:16px;margin:0 0 14px;background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--r-lg)}
+.os-block>.g-lbl{margin-top:0}
+.os-block .note{margin:0 0 12px;font-size:13.5px;line-height:1.5;color:var(--text-2)}
+
+.os-copy{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 14px;
+  background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-md)}
+.os-copy b{font-size:18px;letter-spacing:.04em}
+
+.os-form{display:flex;flex-direction:column;gap:14px}
+.os-reasons{border:0;padding:0;margin:0;display:flex;flex-direction:column;gap:8px}
+.os-reasons legend{padding:0;margin:0 0 8px}
+.os-radio{display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;
+  background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-md)}
+.os-radio input{flex:0 0 18px!important;width:18px;height:18px;min-width:0;accent-color:var(--brand)}
+.os-radio span{flex:1;min-width:0;font-size:14px;font-weight:600}
+.os-radio:has(input:checked){border-color:var(--brand);
+  background:color-mix(in srgb,var(--accent) 18%,var(--surface))}
+.os-form textarea{width:100%;resize:vertical;font:inherit;padding:10px 12px;
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);color:var(--text)}
+
+@media (max-width:700px){
+  .os-sum{gap:14px 22px;padding:12px 14px}
+  .os-sum .t b{font-size:17px}
+  .os-head{padding:14px;gap:12px}
+  .os-head .t b{font-size:16px}
+  .os-acts{display:flex;flex-direction:column;gap:10px}
+  .os-acts .btn{width:100%;justify-content:center}
+  .os-block{padding:14px}
+  /* Строки данных на телефоне встают колонкой, иначе ключ распирает блок. */
+  .os-block .prow-s{flex-direction:column;align-items:flex-start;gap:2px}
+  .os-block .prow-s .k{flex:0 0 auto}
+}
+
+/* ── Телефон с выбором страны и маской (макеты № 50, 51) ───────*/
+.phone-cell{display:grid;gap:4px}
+.phone-row{display:flex;align-items:center;gap:0;background:var(--surface);
+  border:1px solid var(--border);border-radius:var(--r-md);overflow:hidden}
+.phone-row.is-bad{border-color:var(--live)}
+.phone-row .phone-cc{flex:0 0 auto;max-width:168px;min-height:0;border:0;border-right:1px solid var(--border);
+  border-radius:0;background:transparent;font:inherit;font-weight:700;padding:13px 12px;color:var(--text);
+  appearance:none;cursor:pointer;text-overflow:ellipsis}
+.phone-row input{flex:1;min-width:0;border:0;background:transparent;font:inherit;
+  padding:13px 12px;letter-spacing:.03em;color:var(--text)}
+.phone-row input:focus,.phone-cc:focus{outline:none}
+.phone-row:focus-within{border-color:var(--brand)}
+.fld-err{color:var(--live);font-size:12.5px;line-height:1.4}
+@media (max-width:560px){
+  .phone-cc{max-width:106px;font-size:14px}
+  .phone-row input{font-size:16px} /* iOS не зумит поле от 16px */
+}
+
+/* ── Реквизиты для счёта: список профилей (макеты № 42–45, 81) ─*/
+.bp-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:13px 14px;margin-bottom:8px;
+  background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-md)}
+.bp-row .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.bp-row .t b{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:15px}
+.bp-row .t small{font-size:12.5px;line-height:1.45;color:var(--text-2)}
+.bp-tag{flex:none;font-style:normal;font-size:11px;font-weight:800;letter-spacing:.04em;
+  text-transform:uppercase;padding:3px 8px;border-radius:var(--r-pill);
+  background:var(--accent);color:var(--brand)}
+.bp-acts{flex:none;display:flex;gap:8px;flex-wrap:wrap}
+.co-billing{margin-bottom:14px}
+.co-billing>.g-lbl{display:block;margin:0 0 8px}
+@media (max-width:560px){
+  .bp-row{align-items:flex-start}
+  .bp-acts{width:100%}
+  .bp-acts .btn-sm{flex:1;justify-content:center}
+}
+
+/* ── Сохранённые поиски (макет № 80) ───────────────────────────*/
+.ss-block{padding:16px;margin-top:var(--s5);background:var(--surface);
+  border:1px solid var(--border);border-radius:var(--r-lg)}
+.ss-block>.g-lbl{margin-top:0}
+.ss-block .note{margin:12px 0 0;font-size:13px;line-height:1.5;color:var(--text-2)}
+.ss-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:13px 14px;margin-bottom:8px;
+  background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-md)}
+.ss-row .t{flex:1 1 220px;min-width:0;display:flex;flex-direction:column;gap:3px}
+.ss-row .t b{font-size:15px}
+.ss-row .t small{font-size:12.5px;color:var(--text-2)}
+.ss-alert{flex:none;display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;cursor:pointer}
+.ss-alert input{flex:0 0 18px!important;width:18px;height:18px;min-width:0;accent-color:var(--brand)}
+.ss-acts{flex:none;display:flex;gap:8px;flex-wrap:wrap}
+@media (max-width:560px){
+  .ss-row{align-items:flex-start}
+  .ss-acts{width:100%}
+  .ss-acts .btn-sm{flex:1;justify-content:center}
+}
+.cg-head-acts{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+@media (max-width:560px){.cg-head-acts{width:100%;justify-content:space-between}}
+
+/* ── Корзина: несколько лотов одним платежом (макеты № 47, 48) ─*/
+.cart-cols{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:var(--s5);align-items:start}
+.cart-main{display:grid;gap:10px}
+.cart-row{display:flex;align-items:center;gap:14px;padding:14px 16px;
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg)}
+.cart-row:has(input:checked){border-color:var(--brand);
+  background:color-mix(in srgb,var(--accent) 14%,var(--surface))}
+.cart-tick{flex:none;display:grid;place-items:center;cursor:pointer;padding:4px}
+.cart-row input{flex:0 0 18px!important;width:18px;height:18px;min-width:0;accent-color:var(--brand)}
+.cart-row .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.cart-row .t b{font-size:15.5px;overflow:hidden;text-overflow:ellipsis}
+.cart-row .t small{font-size:12.5px;color:var(--text-2)}
+.cart-row .sum{flex:none;font-size:18px;font-weight:800;letter-spacing:-.02em}
+.cart-main .note{margin:4px 0 0;font-size:13px;line-height:1.5;color:var(--text-2)}
+.cart-side{position:sticky;top:96px;padding:16px;background:var(--surface);
+  border:1px solid var(--border);border-radius:var(--r-lg);box-shadow:var(--shadow-1)}
+.cart-side>.g-lbl{margin-top:0}
+.cart-side .btn{width:100%;justify-content:center;margin-top:12px}
+.cart-side .note{margin:10px 0 0;font-size:12.5px;line-height:1.5;color:var(--text-3)}
+@media (max-width:900px){
+  .cart-cols{grid-template-columns:minmax(0,1fr)}
+  /* Итог на телефоне идёт первым: сумма не должна прятаться в конце. */
+  .cart-side{position:static;order:-1}
+}
+@media (max-width:560px){
+  .cart-row{align-items:flex-start;gap:12px;padding:13px 14px}
+  .cart-row .sum{font-size:16px}
+}
+.cart-cta{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:14px 16px;
+  background:color-mix(in srgb,var(--accent) 16%,var(--surface));
+  border:1px solid var(--border);border-radius:var(--r-lg)}
+.cart-cta .t{flex:1 1 220px;min-width:0;display:flex;flex-direction:column;gap:2px}
+.cart-cta .t b{font-size:15.5px}
+.cart-cta .t small{font-size:13px;color:var(--text-2)}
+@media (max-width:560px){.cart-cta .btn{width:100%;justify-content:center}}
+
+/* ── Google AdSense: управляемые места ─────────────────────────────────
+   Слот резервирует высоту сам (inline minHeight); здесь — только показ по
+   устройствам. Никакой рекламы поверх навигации и кнопок: слот — обычный
+   блок в потоке документа. */
+@media (max-width:767px){.ad-slot.ad-desktop{display:none !important}}
+@media (min-width:768px){.ad-slot.ad-mobile{display:none !important}}
+
+/* Партнёрский домен обходится без витринной шапки и дока — значит и место
+   под них резервировать не нужно (тот же приём, что у kiosk-mode). */
+body.partner-mode{padding-top:0;padding-bottom:24px}
+
+/* ── Партнёрский поддомен ────────────────────────────────────────────────
+   Кабинет поставщика живёт на своём имени и обходится без витринной шапки:
+   логотип, подпись и узкий подвал — ничего, что зовёт покупать. */
+.partner-head{border-bottom:1px solid var(--rule,#e6e6e0);background:var(--panel,#fff)}
+.partner-head-in{display:flex;align-items:center;gap:14px;padding:14px 0;flex-wrap:wrap}
+.partner-tag{font-size:13px;font-weight:600;color:var(--ink-soft,#6b6f68)}
+.partner-foot{border-top:1px solid var(--rule,#e6e6e0);margin-top:48px;padding:18px 0}
+.partner-foot p{margin:0;font-size:13px;color:var(--ink-soft,#6b6f68)}
+.partner-foot a{color:inherit;text-decoration:underline}
+
+/* ── Привилегии: код за регистрацию и «пригласи друга» ─────────────────── */
+.perks{display:grid;gap:10px;margin-bottom:16px}
+.perk{display:flex;align-items:center;gap:14px;padding:16px 18px;border-radius:var(--r-lg);text-align:left;
+  background:color-mix(in srgb,var(--accent) 28%,var(--surface));border:1px solid color-mix(in srgb,var(--accent) 60%,var(--border));
+  color:inherit;font:inherit;width:100%}
+.perk .ic{width:44px;height:44px;flex:none;border-radius:14px;background:var(--brand);color:var(--accent);display:grid;place-items:center}
+.perk .t{flex:1;min-width:0;display:grid;gap:3px}
+.perk .t b{font-size:15px;line-height:1.3}
+.perk .t small{font-size:13px;color:var(--text-2);line-height:1.4}
+.perk .code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:800;font-size:18px;letter-spacing:.08em}
+.perk .act{display:flex;gap:8px;flex-wrap:wrap;flex:none}
+.perk .act .btn{display:inline-flex;align-items:center;gap:6px}
+.perk.ref{background:var(--surface-2);border-color:var(--border);cursor:pointer}
+.perk.ref:hover{border-color:var(--brand)}
+.perk .go{flex:none;color:var(--text-3)}
+.perk-inline{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:var(--r-md);
+  background:color-mix(in srgb,var(--accent) 28%,var(--surface));font-size:14px;font-weight:600;color:var(--text)}
+.feedrow.perk-row{background:color-mix(in srgb,var(--accent) 18%,var(--surface));align-items:center}
+.feedrow.perk-row .btn{flex:none}
+/* Меню аккаунта в шапке */
+.dd-perk{display:flex;align-items:center;gap:10px;width:100%;margin:0 0 6px;padding:10px;border:0;border-radius:var(--r-md);
+  background:color-mix(in srgb,var(--accent) 30%,var(--surface));color:inherit;font:inherit;text-align:left;cursor:pointer}
+.dd-perk:hover{background:color-mix(in srgb,var(--accent) 45%,var(--surface))}
+.dd-perk .ic{width:28px;height:28px;flex:none;border-radius:50%;background:var(--brand);color:var(--accent);display:grid;place-items:center}
+.dd-perk .t{flex:1;min-width:0}
+.dd-perk b{display:block;font-size:13.5px;line-height:1.25}
+.dd-perk small{display:block;font-size:12px;color:var(--text-2);line-height:1.3;margin-top:2px}
+.dd-row.perk{width:100%;border:0;background:color-mix(in srgb,var(--accent) 22%,var(--surface));color:inherit;font:inherit;text-align:left;cursor:pointer;margin-bottom:4px}
+.dd-row.perk .ic{background:var(--brand);color:var(--accent)}
+.dd-nav.dd-ref{background:var(--surface-2);font-weight:700;margin-top:4px}
+/* Страница «Uzaicini draugus» */
+.refhero{display:grid;grid-template-columns:1.15fr .85fr;border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden;background:var(--surface)}
+.refhero .copy{padding:26px}
+.refhero h2{font-size:clamp(22px,2.4vw,30px);line-height:1.12;margin:0 0 12px;letter-spacing:-.01em}
+.refhero .art{background:var(--brand);color:var(--accent);display:grid;place-items:center;min-height:260px}
+.refhero .btn-lg{display:inline-flex;align-items:center;justify-content:center;gap:8px}
+.share-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.share-row .btn{display:inline-flex;align-items:center;gap:6px}
+.refsteps,.refstats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.refsteps div{border:1px solid var(--border);border-radius:var(--r-md);padding:14px 16px;font-size:14px;line-height:1.45;color:var(--text-2)}
+.refsteps b{display:block;font-size:22px;color:var(--brand);margin-bottom:6px}
+.refstats div{background:var(--surface-2);border-radius:var(--r-md);padding:16px;text-align:center}
+.refstats b{display:block;font-size:26px;font-weight:800}
+.refstats small{display:block;font-size:13px;color:var(--text-2);margin-top:2px}
+@media (max-width:720px){
+  .perk{flex-wrap:wrap}.perk .act{width:100%}
+  .refhero{grid-template-columns:1fr}.refhero .art{min-height:150px;order:-1}
+  .refsteps,.refstats{grid-template-columns:1fr}
+}
+/* Лента уведомлений: клик ведёт на страницу, крестик убирает */
+.feedrow .t.go{color:inherit;text-decoration:none;border-radius:var(--r-md);margin:-4px;padding:4px}
+.feedrow .t.go:hover b{text-decoration:underline}
+.feedrow .x{flex:none;width:30px;height:30px;border:0;border-radius:50%;background:transparent;color:var(--text-3);display:grid;place-items:center;cursor:pointer}
+.feedrow .x:hover{background:var(--surface-2);color:var(--text)}
+.feed-tools{display:flex;justify-content:flex-end;margin:-6px 0 10px}
+.feed-tools .btn{display:inline-flex;align-items:center;gap:6px}
+.dd-row.go{text-decoration:none;color:inherit}.dd-row.go:hover{background:var(--surface-2)}
+/* «Проверь почту»: кнопки в ящик */
+.mail-cta{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+.mail-cta .btn{display:inline-flex;align-items:center;gap:8px}

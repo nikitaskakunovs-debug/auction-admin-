@@ -12,6 +12,7 @@ import QRCode from "qrcode";
 import { z } from "zod";
 import { slackConsignmentOpened } from "../engine/slackNotify.js";
 import { writeAudit } from "../audit.js";
+import { notifyIntakeClosed } from "../engine/supplierMail.js";
 import type { AppContext } from "../context.js";
 import { requirePermission, type PermissionService } from "../auth/rbac.js";
 
@@ -156,6 +157,19 @@ export function registerReceivingRoutes(app: FastifyInstance, ctx: AppContext, p
     return { consignment: row, items: itemRows };
   });
 
+  /** Заявка поставщика из кабинета: машина приехала — начинаем приёмку. */
+  app.post("/api/consignments/:id/accept", guard("warehouse.manage"), async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const [row] = await ctx.db
+      .update(consignments)
+      .set({ status: "open" })
+      .where(and(eq(consignments.id, id), eq(consignments.status, "announced")))
+      .returning();
+    if (!row) return reply.code(409).send({ error: "not_announced" });
+    await writeAudit(ctx.db, actor(req), "item", "consignment_accepted", row.ref);
+    return { consignment: row };
+  });
+
   app.post("/api/consignments/:id/close", guard("warehouse.manage"), async (req, reply) => {
     const { id } = req.params as { id: string };
     const [row] = await ctx.db
@@ -165,6 +179,8 @@ export function registerReceivingRoutes(app: FastifyInstance, ctx: AppContext, p
       .returning();
     if (!row) return reply.code(409).send({ error: "not_open" });
     await writeAudit(ctx.db, actor(req), "item", "consignment_closed", row.ref);
+    // Письма S3/S4: закрытая приёмка — это акт для поставщика.
+    await notifyIntakeClosed(ctx, row.id).catch((err) => req.log?.error({ err }, "supplier intake mail failed"));
     return { consignment: row };
   });
 

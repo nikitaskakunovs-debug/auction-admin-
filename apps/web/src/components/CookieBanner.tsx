@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { publicApi } from "@/lib/api";
 import { useT } from "@/lib/i18n";
+import { consentUpdate } from "@/lib/track";
 import { Icon } from "./Icon";
 import { say } from "./Toast";
 
@@ -12,7 +13,7 @@ const VISITOR_KEY = "izsoli_visitor_v1";
 
 /** Действующая редакция текста. Должна совпадать с той, что знает API:
  *  согласие на прежнюю редакцию считается устаревшим и спрашивается заново. */
-const POLICY_VERSION = "2026-08-14";
+const POLICY_VERSION = "2026-08-21";
 
 type Saved = { mode: string; analytics: boolean; marketing: boolean; policyVersion?: string };
 
@@ -106,6 +107,8 @@ export function CookieBanner() {
     } catch { /* приватный режим — просто прячем плашку */ }
     setShown(false);
     say(message);
+    // Consent Mode узнаёт о решении сразу — теги ждут именно этого сигнала.
+    consentUpdate(a, m);
     // Запись в журнал — то, чем согласие доказывается. Молча падать нельзя,
     // но и держать человека перед плашкой из-за сети тоже нельзя.
     void publicApi

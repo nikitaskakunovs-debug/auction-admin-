@@ -25,6 +25,9 @@ export type PlaceBidError =
 export interface PlaceBidOk {
   ok: true;
   auctionId: string;
+  /** Выросла ли видимая цена. Лидер, поднявший свой максимум, цену не
+   *  двигает — без этого признака витрине не объяснить, что ставка принята. */
+  priceChanged: boolean;
   currentPriceCents: number;
   leaderCustomerId: string;
   leaderAlias: string;
@@ -171,6 +174,7 @@ export async function placeBid(
     return {
       ok: true,
       auctionId: auction.id,
+      priceChanged: resolution.priceChanged,
       currentPriceCents: resolution.state.currentPriceCents!,
       leaderCustomerId: newLeader.bidderId,
       leaderAlias: leaderRow?.alias ?? "—",
@@ -275,6 +279,20 @@ export async function voidBid(
           (listing!.reserveCents === null || state.leader.maxCents >= listing!.reserveCents),
       })
       .where(eq(auctions.id, args.auctionId));
+
+    // Письмо A5: человек должен узнать, что его ставки больше нет, — иначе
+    // он продолжает считать себя участником торгов.
+    await enqueueNotification(ctx, tx, {
+      customerId: target.customerId,
+      type: "bid_voided",
+      template: {
+        alias: "",
+        lotTitle: listing!.title,
+        amountCents: target.maxCents,
+        reason: args.reason,
+      },
+      dedupeKey: `bid_voided:${args.bidId}`,
+    });
 
     return {
       ok: true as const,

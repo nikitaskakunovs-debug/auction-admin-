@@ -25,6 +25,9 @@ export interface ApiConfig {
   /** Admin panel origin — used to build admin password-reset links. */
   adminBaseUrl: string;
   paymentDeadlineHours: number;
+  /** Срок оплаты товара «Pērc uzreiz». Короче аукционного намеренно: вещь в
+   *  одном экземпляре, и три дня ожидания закрывают её для всех остальных. */
+  buyNowDeadlineHours: number;
   /**
    * Dev/staging bid simulation endpoint. The public bidder API is a later
    * phase; production keeps this OFF (shill bidding is explicitly excluded
@@ -39,7 +42,13 @@ export interface ApiConfig {
   viesMode: "live" | "simulate";
   /** Email transport: console (dev) or smtp (any relay / self-hosted sender). */
   emailMode: "console" | "smtp";
-  smtp: { host: string; port: number; secure: boolean; user: string; pass: string; from: string } | null;
+  smtp: { host: string; port: number; secure: boolean; user: string; pass: string; from: string; replyTo: string } | null;
+  /**
+   * Живые ящики по «столам»: куда попадёт ответ клиента на письмо каждого
+   * рода. Не заданный стол сводится к общему адресу — так один info@ на всё
+   * остаётся рабочей конфигурацией.
+   */
+  replyDesks: { general: string; billing: string; support: string; partners: string };
   /** Honor X-Forwarded-For — MUST be on behind Caddy/nginx, off when exposed directly. */
   trustProxy: boolean;
   /** Hours before the payment deadline to send the unpaid-winner reminder. */
@@ -73,6 +82,22 @@ export interface ApiConfig {
    * driver for the test suite.
    */
   klixMode: "off" | "live" | "simulate";
+  /**
+   * Meta Conversions API — серверная копия событий пикселя.
+   *
+   * Токен живёт ТОЛЬКО здесь: ни во фронтенде, ни в GTM, ни в dataLayer, ни в
+   * репозитории. Без токена весь блок равен null, и движок просто ничего не
+   * шлёт — браузерный пиксель при этом продолжает работать сам по себе, так
+   * что выключение серверной части не ломает рекламу.
+   */
+  metaCapi: {
+    datasetId: string;
+    accessToken: string;
+    /** Версия Graph API — в конфиге, чтобы поднимать её без правки логики. */
+    graphVersion: string;
+    /** Код тестовых событий Meta. Только на время проверки, в проде пусто. */
+    testEventCode: string;
+  } | null;
   klix: {
     apiUrl: string;
     brandId: string;
@@ -98,6 +123,27 @@ export interface ApiConfig {
   /** Storefront origin used for post-checkout redirects (success/failure/cancel). */
   storefrontBaseUrl: string;
   /**
+   * Адрес кабинета поставщика. Отдельный поддомен (partner.izsoli.lv) не
+   * обязателен: без переменной кабинет живёт на витрине по /piegadatajs, и
+   * все ссылки в письмах ведут туда же.
+   */
+  supplierPortalUrl: string;
+  /** Соцвход (№ 52–54). off — кнопки в витрине отвечают «drīzumā». */
+  socialMode: "off" | "live" | "simulate";
+  google: { clientId: string; clientSecret: string } | null;
+  facebook: { appId: string; appSecret: string } | null;
+  telegram: { botToken: string; botName: string } | null;
+  /**
+   * Бот апрувов платежей (fin-architecture 10.3) — ОТДЕЛЬНЫЙ от соцвхода.
+   * Токен живёт только в deploy/.env на сервере (TELEGRAM_APPROVALS_BOT_TOKEN);
+   * webhookSecret — свой секрет для проверки X-Telegram-Bot-Api-Secret-Token.
+   * null — карточки в Telegram не шлются, апрувы работают только из админки.
+   */
+  telegramApprovals: { botToken: string; webhookSecret: string } | null;
+  /** Пускать к ставкам только подтверждённую почту (макет № 15). Выключатель
+   *  существует для тестовых миров; в проде всегда включено. */
+  requireVerifiedEmail: boolean;
+  /**
    * What the customer emails print about us: the footer block, the pickup
    * address and hours, and the optional header illustration. Deploy settings,
    * not code — the address changes without a release.
@@ -115,6 +161,7 @@ export interface ApiConfig {
     heroUrl: string | null;
     facebookUrl: string | null;
     instagramUrl: string | null;
+    tiktokUrl: string | null;
     reviewUrl: string | null;
   };
   /**
@@ -158,6 +205,8 @@ export interface ApiConfig {
   } | null;
   /** Shared secret for the inbound Jira webhook; null disables the endpoint. */
   jiraWebhookSecret: string | null;
+  /** Секрет для вебхука отказов почты (Resend или SES через SNS). */
+  emailWebhookSecret: string | null;
   /**
    * Slack mirroring (Phase S1). "off" posts nothing; "live" uses a bot token
    * (chat:write + chat:write.public); "simulate" is the in-memory test driver.
@@ -191,10 +240,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     if (env.JWT_SECRET.length < 32) throw new Error("JWT_SECRET must be at least 32 characters in production");
     if (!env.CORS_ORIGINS) throw new Error("CORS_ORIGINS must be set in production (comma-separated admin/storefront origins)");
   }
+  const storefrontBaseUrl = (env.STOREFRONT_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
+  const supplierPortalUrl = (env.SUPPLIER_PORTAL_URL || storefrontBaseUrl).replace(/\/$/, "");
   const corsOrigins = (env.CORS_ORIGINS ?? "http://localhost:5173,http://localhost:3000")
     .split(",")
     .map((o) => o.trim())
     .filter(Boolean);
+  // Кабинет на своём поддомене — это другой origin для браузера. Добавляем
+  // его сами, чтобы включение поддомена не требовало второй правки в .env
+  // (забытый CORS выглядел бы как «кабинет не открывается» без объяснений).
+  if (!corsOrigins.includes(supplierPortalUrl)) corsOrigins.push(supplierPortalUrl);
   const port = Number(env.PORT ?? 4000);
   const emailMode: "console" | "smtp" = env.EMAIL_MODE === "smtp" ? "smtp" : "console";
   if (emailMode === "smtp") {
@@ -228,6 +283,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   if (dpdMode === "live" && !env.DPD_API_TOKEN) {
     throw new Error("DPD_API_TOKEN must be set when DPD_MODE=live");
   }
+
+  const socialMode: "off" | "live" | "simulate" =
+    env.SOCIAL_MODE === "live" ? "live" : env.SOCIAL_MODE === "simulate" ? "simulate" : "off";
 
   const jiraMode: "off" | "live" | "simulate" =
     env.JIRA_MODE === "live" ? "live" : env.JIRA_MODE === "simulate" ? "simulate" : "off";
@@ -271,6 +329,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     // dev falls back to the Vite dev server.
     adminBaseUrl: (env.ADMIN_BASE_URL ?? "http://localhost:5173").replace(/\/$/, ""),
     paymentDeadlineHours: Number(env.PAYMENT_DEADLINE_HOURS ?? 72),
+    buyNowDeadlineHours: Number(env.BUY_NOW_DEADLINE_HOURS ?? 24),
     allowBidSimulation: (env.ALLOW_BID_SIMULATION ?? (env.NODE_ENV === "production" ? "0" : "1")) === "1",
     schedulerEnabled: (env.SCHEDULER_ENABLED ?? "1") === "1",
     viesMode: (env.VIES_MODE ?? (env.NODE_ENV === "production" ? "live" : "simulate")) === "live" ? "live" : "simulate",
@@ -284,8 +343,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
             user: env.SMTP_USER ?? "",
             pass: env.SMTP_PASS ?? "",
             from: env.EMAIL_FROM ?? "",
+            // По умолчанию — публичный адрес компании: он же стоит в счетах и
+            // в подвале писем, туда человек и ждёт, что попадёт его ответ.
+            replyTo: env.EMAIL_REPLY_TO || env.COMPANY_EMAIL || "info@izsoli.lv",
           }
         : null,
+    replyDesks: (() => {
+      const general = env.EMAIL_REPLY_TO || env.COMPANY_EMAIL || "info@izsoli.lv";
+      return {
+        general,
+        billing: env.EMAIL_REPLY_TO_BILLING || general,
+        support: env.EMAIL_REPLY_TO_SUPPORT || general,
+        partners: env.EMAIL_REPLY_TO_PARTNERS || general,
+      };
+    })(),
     // Behind the bundled Caddy proxy in production; direct exposure in dev.
     trustProxy: (env.TRUST_PROXY ?? (isProduction ? "1" : "0")) === "1",
     paymentReminderLeadHours: Number(env.PAYMENT_REMINDER_LEAD_HOURS ?? 24),
@@ -305,6 +376,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
         : null,
     maxPhotoBytes: Number(env.MAX_PHOTO_BYTES ?? 15 * 1024 * 1024),
     klixMode,
+    // Токен пустой — интеграция выключена целиком, и это нормальное рабочее
+    // состояние: браузерный пиксель ей не подчинён.
+    metaCapi:
+      env.META_CAPI_ACCESS_TOKEN && env.META_DATASET_ID
+        ? {
+            datasetId: env.META_DATASET_ID,
+            accessToken: env.META_CAPI_ACCESS_TOKEN,
+            graphVersion: env.META_GRAPH_VERSION ?? "v21.0",
+            testEventCode: env.META_TEST_EVENT_CODE ?? "",
+          }
+        : null,
     klix:
       klixMode === "off"
         ? null
@@ -329,7 +411,26 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
           },
     // Post-checkout redirect target. Production compose sets https://<DOMAIN>;
     // dev falls back to the Next.js storefront.
-    storefrontBaseUrl: (env.STOREFRONT_BASE_URL ?? "http://localhost:3000").replace(/\/$/, ""),
+    storefrontBaseUrl,
+    supplierPortalUrl,
+    requireVerifiedEmail: env.REQUIRE_VERIFIED_EMAIL !== "0",
+    socialMode,
+    // Провайдер включается своей парой ключей; без неё кнопка честно молчит.
+    google: env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET
+      ? { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET }
+      : socialMode === "simulate" ? { clientId: "sim", clientSecret: "sim" } : null,
+    facebook: env.FACEBOOK_APP_ID && env.FACEBOOK_APP_SECRET
+      ? { appId: env.FACEBOOK_APP_ID, appSecret: env.FACEBOOK_APP_SECRET }
+      : socialMode === "simulate" ? { appId: "sim", appSecret: "sim" } : null,
+    telegram: env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_BOT_NAME
+      ? { botToken: env.TELEGRAM_BOT_TOKEN, botName: env.TELEGRAM_BOT_NAME }
+      : null,
+    telegramApprovals: env.TELEGRAM_APPROVALS_BOT_TOKEN
+      ? {
+          botToken: env.TELEGRAM_APPROVALS_BOT_TOKEN,
+          webhookSecret: env.TELEGRAM_APPROVALS_WEBHOOK_SECRET ?? "",
+        }
+      : null,
     emailBrand: {
       companyName: env.COMPANY_NAME ?? "Izsoli.lv",
       legalName: env.COMPANY_LEGAL_NAME ?? "SIA Izsoli",
@@ -343,6 +444,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       heroUrl: env.EMAIL_HERO_URL || null,
       facebookUrl: env.SOCIAL_FACEBOOK_URL || null,
       instagramUrl: env.SOCIAL_INSTAGRAM_URL || null,
+      tiktokUrl: env.SOCIAL_TIKTOK_URL || null,
       reviewUrl: env.REVIEW_URL || null,
     },
     omnivaMode,
@@ -357,6 +459,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     dpdMode,
     jiraMode,
     jiraWebhookSecret: env.JIRA_WEBHOOK_SECRET ?? null,
+    emailWebhookSecret: env.EMAIL_WEBHOOK_SECRET || null,
     slackMode,
     slack:
       slackMode === "off"

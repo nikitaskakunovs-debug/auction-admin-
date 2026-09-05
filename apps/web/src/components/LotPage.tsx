@@ -7,8 +7,10 @@ import { PUBLIC_API_URL } from "@/lib/config";
 import { conditionLabel } from "@/lib/conditions";
 import { computeInvoice, increment, marketFees } from "@/lib/fees";
 import { dateLocale, useT } from "@/lib/i18n";
+import { loginHref } from "@/lib/nav";
 import { photoWeb, photoThumb } from "@/lib/photos";
-import { formatEur, type AuctionDetail, type PublicAuction } from "@/lib/types";
+import { formatEur, type AuctionDetail, type PublicAuction, type SimilarLot } from "@/lib/types";
+import { gaItem, track, trackPlaceBid } from "@/lib/track";
 import { useStickyBar } from "@/lib/ui";
 import { watchStore } from "@/lib/watch";
 import { KlixPayLater } from "./KlixPayLater";
@@ -52,6 +54,34 @@ export function LotPage({
   const [notice, setNotice] = useState<{ text: string; tone: "win" | "out" } | null>(null);
 
   const a = detail.auction;
+
+  // Аналитика (GTM): просмотр лота — раз на заход, не на каждый опрос цены.
+  // item_id = номер лота (SKU); price = молоток + комиссия без НДС — та же
+  // разбивка, что человек видит в блоке «Ко я maksāšu» (арифметика движка).
+  useEffect(() => {
+    const cents = a.currentPriceCents ?? a.startPriceCents ?? 0;
+    const inv = computeInvoice(cents, a.marketCode);
+    const netCents = inv.hammerCents + inv.premiumCents;
+    track("view_item", {
+      item_id: a.sku, listing_id: a.id, item_name: a.title, item_category: a.category,
+      sale_type: "auction",
+      value: netCents / 100, currency: "EUR",
+      gross_total: inv.totalCents / 100,
+      commission_value: inv.premiumCents / 100,
+      vat_scheme: "standard",
+      ecommerce: {
+        currency: "EUR", value: netCents / 100,
+        items: [gaItem({
+          sku: a.sku, listingId: a.id, name: a.title, category: a.category,
+          netCents, hammerCents: inv.hammerCents, feeCents: inv.premiumCents,
+          vatRateBp: marketFees(a.marketCode).vatRateBp, grossCents: inv.totalCents,
+          saleType: "auction",
+        })],
+      },
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [a.id]);
+
   const rep = (a as PublicAuction & { report?: LotReport }).report ?? {};
   const live = a.status === "live";
   const settled = a.status.startsWith("ended");
@@ -120,11 +150,17 @@ export function LotPage({
   }, [a.id]);
 
   useEffect(() => {
-    setSignedIn(publicApi.hasSession);
-    const fn = () => setSignedIn(publicApi.hasSession);
+    // Личные поля деталей (свой максимум, персональный минимум лидера)
+    // сервер отдаёт только с токеном — серверный рендер страницы их не
+    // знает, поэтому вошедшему перечитываем лот сразу.
+    const fn = () => {
+      setSignedIn(publicApi.hasSession);
+      if (publicApi.hasSession) void reload();
+    };
+    fn();
     publicApi.listeners.add(fn);
     return () => { publicApi.listeners.delete(fn); };
-  }, []);
+  }, [reload]);
 
   // Живые обновления по WebSocket, с переподключением.
   const reloadRef = useRef(reload);
@@ -164,7 +200,7 @@ export function LotPage({
   const placeBid = async () => {
     setBusy(true); setNotice(null);
     try {
-      const r = await publicApi.post<{ youLead: boolean; currentPriceCents: number; extended: boolean }>(
+      const r = await publicApi.post<{ youLead: boolean; currentPriceCents: number; extended: boolean; firstBid?: boolean; priceChanged?: boolean; eventId?: string }>(
         `/api/public/auctions/${a.id}/bids`, { maxCents: amount },
       );
       setConfirm(false);
@@ -176,15 +212,33 @@ export function LotPage({
           .then(() => say(t("acc.marketingOn")))
           .catch(() => setNewsDone(false));
       }
-      setNotice(r.youLead
-        ? { text: t("a.youLead"), tone: "win" }
-        : { text: `${t("a.outbid")} — ${formatEur(r.currentPriceCents)}`, tone: "out" });
-      say(r.youLead ? t("a.youLead") : t("a.outbid"));
+      // Лидер поднял собственный максимум: цена не растёт и новой строки в
+      // истории нет — так работают прокси-торги. Без отдельного сообщения
+      // это выглядит как «ставка не сделалась».
+      const maxRaised = r.youLead && r.priceChanged === false;
+      setNotice(maxRaised
+        ? { text: t("a.maxRaised", { sum: formatEur(amount) }), tone: "win" }
+        : r.youLead
+          ? { text: t("a.youLead"), tone: "win" }
+          : { text: `${t("a.outbid")} — ${formatEur(r.currentPriceCents)}`, tone: "out" });
+      say(maxRaised ? t("a.maxRaised", { sum: formatEur(amount) }) : r.youLead ? t("a.youLead") : t("a.outbid"));
       if (r.extended) say(t("a.extended"));
+      // Аналитика (GTM): единый обработчик успешной ставки — мы в ветке
+      // успеха, отказ события не рождает.
+      trackPlaceBid({
+        sku: a.sku, listingId: a.id, title: a.title, category: a.category,
+        marketCode: a.marketCode, amountCents: amount,
+        firstBid: r.firstBid === true, lead: r.youLead, eventId: r.eventId,
+        source: "lot_page",
+      });
       await reload();
     } catch (err) {
       if (err instanceof PublicApiError && err.body.code === "EMAIL_NOT_VERIFIED") {
         setNotice({ text: t("lc.verifyFirst"), tone: "out" });
+      } else if (err instanceof PublicApiError && err.body.code === "NOT_ABOVE_OWN_MAX" && typeof err.body.minAcceptableCents === "number") {
+        // Он уже лидирует с максимумом выше введённого: подсказываем сам
+        // максимум (это его собственная цифра, ему её видеть можно).
+        setNotice({ text: t("a.aboveOwnMax", { sum: formatEur(Number(err.body.minAcceptableCents) - 1) }), tone: "out" });
       } else if (err instanceof PublicApiError && typeof err.body.minAcceptableCents === "number") {
         setNotice({ text: `${t("a.minBid")}: ${formatEur(err.body.minAcceptableCents)}`, tone: "out" });
       } else if (err instanceof PublicApiError && err.body.code === "FEES_OUTSTANDING") {
@@ -203,7 +257,24 @@ export function LotPage({
   const myTop = detail.bids.find((b) => b.isYou);
   const iLead = detail.bids[0]?.isYou === true && !detail.bids[0]?.outbid;
 
-  const quick = [minNext, price + inc * 2, price + inc * 5];
+  // §7.2: закрытый аукцион без победы — похожие живые лоты тут же, не только
+  // письмом. Грузим лениво и только когда экран действительно «проигрыш».
+  const [similar, setSimilar] = useState<SimilarLot[]>([]);
+  const lost = (settled || over) && !iLead;
+  useEffect(() => {
+    if (!lost) return;
+    let cancelled = false;
+    void publicApi
+      .get<{ lots: SimilarLot[] }>(`/api/public/auctions/${a.id}/similar`)
+      .then((r) => { if (!cancelled) setSimilar(r.lots); })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lost, a.id]);
+
+  // Ступени от персонального минимума: у лидера он выше «цены + шаг», и
+  // старые ступени от цены предлагали бы ему суммы ниже его же максимума.
+  const quick = [minNext, minNext + inc, minNext + inc * 4];
 
 
   useStickyBar(live && !over && !bidVisible);
@@ -455,6 +526,15 @@ export function LotPage({
             {!notice && iLead && <p className="bb-status win">{t("a.youLead")}</p>}
             {!notice && !iLead && myTop && <p className="bb-status out">{t("a.outbid")}</p>}
 
+            {/* §7.5: соц-доказательство — только настоящие числа и только
+                когда они что-то говорят (от двух, чтобы не палить одиночку). */}
+            {live && !over && ((detail.watchersCount ?? 0) >= 2 || (detail.bidsLastHour ?? 0) >= 2) && (
+              <p className="fine" style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                {(detail.watchersCount ?? 0) >= 2 && <span>{t("lp.watching", { n: detail.watchersCount! })}</span>}
+                {(detail.bidsLastHour ?? 0) >= 2 && <span>{t("lp.bidsHour", { n: detail.bidsLastHour! })}</span>}
+              </p>
+            )}
+
             {live && !over && (
               signedIn ? (
                 <div>
@@ -496,6 +576,11 @@ export function LotPage({
                     {t("lp.minNext", { min: formatEur(minNext), inc: formatEur(inc),
                       prem: fees.buyerPremiumBp / 100, vat: fees.vatRateBp / 100 })}
                   </p>
+                  {/* Лидеру — его собственный скрытый максимум: без этого
+                      «поднять ставку» выглядит как отказ без причины. */}
+                  {detail.myMaxCents != null && (
+                    <p className="fine tnum">{t("a.myMaxNow", { sum: formatEur(detail.myMaxCents) })}</p>
+                  )}
 
                   {rep.buyNowCents ? (
                     <>
@@ -515,7 +600,7 @@ export function LotPage({
                 </div>
               ) : (
                 <div>
-                  <Link className="btn btn-primary btn-lg btn-block" href="/login">{t("a.signinToBid")}</Link>
+                  <Link className="btn btn-primary btn-lg btn-block" href={loginHref(`/auction/${a.id}`)}>{t("a.signinToBid")}</Link>
                   <p className="fine tnum">
                     {t("lp.minNext", { min: formatEur(minNext), inc: formatEur(inc),
                       prem: fees.buyerPremiumBp / 100, vat: fees.vatRateBp / 100 })}
@@ -556,6 +641,23 @@ export function LotPage({
                     </h3>
                     <p className="note">{t("lp.finalPrice")}</p>
                     <p className="sum-amt tnum">{formatEur(price)}</p>
+                    {/* §7.2: похожие живые лоты — сразу на экране проигрыша. */}
+                    {similar.length > 0 && (
+                      <div style={{ margin: "12px 0", textAlign: "left" }}>
+                        <p className="fine" style={{ marginBottom: 6 }}>{t("lp.similarNow")}</p>
+                        <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 6 }}>
+                          {similar.map((s) => (
+                            <li key={s.id}>
+                              <Link href={s.auctionId ? `/auction/${s.auctionId}` : `/listing/${s.id}`}
+                                    style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.title}</span>
+                                <span className="tnum" style={{ flexShrink: 0 }}>{formatEur(s.priceCents)}</span>
+                              </Link>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                     <Link className="btn btn-primary btn-block" href={`/katalogs?category=${a.category}`}>
                       {t("lp.findSimilar")}
                     </Link>
@@ -620,7 +722,7 @@ export function LotPage({
               {t("lc.bid")}<span className="tnum">{formatEur(minNext)}</span>
             </button>
           ) : (
-            <Link className="btn btn-primary" href={`/login?next=/auction/${a.id}`}>{t("a.signinToBid")}</Link>
+            <Link className="btn btn-primary" href={loginHref(`/auction/${a.id}`)}>{t("a.signinToBid")}</Link>
           )}
         </div>
       )}

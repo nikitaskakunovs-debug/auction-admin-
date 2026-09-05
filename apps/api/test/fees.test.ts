@@ -50,6 +50,39 @@ async function unpaidOrder(buyerToken: string, priceCents = 11_000): Promise<{ o
   return { orderId: order!.id, ref: orderRef, itemId };
 }
 
+/**
+ * Выигранный и неоплаченный АУКЦИОННЫЙ лот.
+ *
+ * Автоотмена штрафует только за нарушенное обязательство, а обязательство
+ * рождает ставка — поэтому проверять её надо на настоящих торгах, а не на
+ * покупке по фиксированной цене. Стартовая цена равна ставке: с одним
+ * участником прокси-торг останавливается на ней, и итог получается ровным.
+ */
+async function unpaidAuctionOrder(buyerToken: string, priceCents = 11_000): Promise<{ orderId: string; ref: string }> {
+  // Антиснайп выключен: ставка под самый конец продлила бы торги, и тест
+  // ждал бы закрытия дольше, чем идёт сам прогон.
+  const { auctionId } = await createLiveAuction(world, adminToken, { startPriceCents: priceCents, endsInMs: 1_200, antiSnipeSec: 0 });
+  const bid = await world.server.app.inject({
+    method: "POST",
+    url: `/api/public/auctions/${auctionId}/bids`,
+    headers: auth(buyerToken),
+    payload: { maxCents: priceCents },
+  });
+  expect(bid.statusCode).toBe(200);
+  await new Promise((r) => setTimeout(r, 1_400));
+  let order: { id: string; ref: string } | undefined;
+  const closed = await tickUntil(async () => {
+    const [row] = await world.ctx.db
+      .select({ id: orders.id, ref: orders.ref })
+      .from(orders)
+      .where(eq(orders.auctionId, auctionId));
+    order = row;
+    return Boolean(row);
+  });
+  expect(closed).toBe(true);
+  return { orderId: order!.id, ref: order!.ref };
+}
+
 /** Run scheduler ticks until a predicate holds (single tick can lose the lock). */
 async function tickUntil(done: () => Promise<boolean>, attempts = 25): Promise<boolean> {
   for (let i = 0; i < attempts; i++) {
@@ -63,7 +96,9 @@ async function tickUntil(done: () => Promise<boolean>, attempts = 25): Promise<b
 describe("unpaid-winner restock fee (auto-cancel)", () => {
   it("records an outstanding 5% fee, strikes, emails, and blocks bid + buy until settled", async () => {
     const buyer = await registerBidder("debt_dana");
-    const { orderId } = await unpaidOrder(buyer.accessToken, 11_000); // total 13310
+    // Именно аукционный лот: за неоплаченный buy-now штрафа нет, там заказ
+    // просто отменяется и вещь возвращается в продажу.
+    const { orderId } = await unpaidAuctionOrder(buyer.accessToken, 11_000);
 
     // Warp past the 72h payment deadline and let the scheduler cancel.
     world.setNow(new Date(Date.now() + 80 * 3_600_000));
@@ -79,13 +114,13 @@ describe("unpaid-winner restock fee (auto-cancel)", () => {
 
     const [order] = await world.ctx.db.select().from(orders).where(eq(orders.id, orderId));
     expect(order!.cancelReason).toBe("unpaid");
-    expect(order!.restockFeeCents).toBe(666); // 5% of 13310, half-up
+    expect(order!.restockFeeCents).toBe(550); // 5% от финальных €110 (11000), half-up
 
     const feeRows = await world.ctx.db.select().from(customerFees).where(eq(customerFees.customerId, buyer.bidder.id));
     expect(feeRows).toHaveLength(1);
     expect(feeRows[0]!.type).toBe("unpaid_restock");
     expect(feeRows[0]!.status).toBe("outstanding");
-    expect(feeRows[0]!.amountCents).toBe(666);
+    expect(feeRows[0]!.amountCents).toBe(550);
 
     const [cust] = await world.ctx.db.select().from(customers).where(eq(customers.id, buyer.bidder.id));
     expect(cust!.strikes).toBe(1);
@@ -95,11 +130,11 @@ describe("unpaid-winner restock fee (auto-cancel)", () => {
       .from(notifications)
       .where(and(eq(notifications.customerId, buyer.bidder.id), eq(notifications.type, "unpaid_cancelled")));
     expect(mails).toHaveLength(1);
-    expect(mails[0]!.body, "the fee, written the way a Latvian reads it").toContain("6,66 €");
+    expect(mails[0]!.body, "the fee, written the way a Latvian reads it").toContain("5,50 €");
 
     // The account sees the debt…
     const myFees = await world.server.app.inject({ method: "GET", url: "/api/public/me/fees", headers: auth(buyer.accessToken) });
-    expect((myFees.json() as { outstandingCents: number }).outstandingCents).toBe(666);
+    expect((myFees.json() as { outstandingCents: number }).outstandingCents).toBe(550);
 
     // …and bidding + buying are paused.
     const { auctionId } = await createLiveAuction(world, adminToken, { startPriceCents: 1_000 });
@@ -216,7 +251,7 @@ describe("no-pickup fee lands in the same ledger, born settled", () => {
     expect(feeRows).toHaveLength(1);
     expect(feeRows[0]!.type).toBe("no_pickup_restock");
     expect(feeRows[0]!.status).toBe("settled"); // deducted from held funds
-    expect(feeRows[0]!.amountCents).toBe(666);
+    expect(feeRows[0]!.amountCents).toBe(550);
 
     // Settled-at-source fees never pause the account.
     const { auctionId } = await createLiveAuction(world, adminToken, { startPriceCents: 1_000 });

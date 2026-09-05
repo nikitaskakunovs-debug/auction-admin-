@@ -1,16 +1,26 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { publicApi } from "@/lib/api";
-import { useT } from "@/lib/i18n";
+import { captureAttribution, submitAttribution } from "@/lib/attr";
+import { dateLocale, useT } from "@/lib/i18n";
 import type { Country } from "@/lib/country";
 import { alertStore, useRail, useReveal } from "@/lib/ui";
+import { cartStore, type MyPromoCode } from "@/lib/cart";
+import { loginHref } from "@/lib/nav";
+import { copyText, usePerks } from "@/lib/perks";
+import { trackPageView } from "@/lib/track";
+import { formatEur } from "@/lib/types";
 import { watchStore } from "@/lib/watch";
+import { markAlertsSeen, notificationHref, relTime, type MyNotification } from "./account/data";
 import { CatalogMenu } from "./CatalogMenu";
+import { Ph } from "./Ph";
 import { COUNTRY_LABEL, LANG_NAME, RegionMenu } from "./RegionMenu";
 import { SearchOverlay } from "./SearchOverlay";
 import { Icon } from "./Icon";
+import { say } from "./Toast";
 
 /** Категории макета. Коды — из движка (CATEGORY_CODES), первые три пункта
  *  это срезы каталога, а не категории: так было в утверждённом макете. */
@@ -33,18 +43,26 @@ export function Chrome({ country = "LV" }: { country?: Country }) {
   const { lang, t } = useT();
   const [signedIn, setSignedIn] = useState(false);
   const [watched, setWatched] = useState(0);
-  const [compact, setCompact] = useState(false);
   const [region, setRegion] = useState(false);
   const [search, setSearch] = useState(false);
   const [alerts, setAlerts] = useState(0);
+  const [cart, setCart] = useState(0);
   const [menu, setMenu] = useState(false);
   const rail = useRail<HTMLDivElement>();
+  const path = usePathname();
+  // Неиспользованный код за регистрацию держит «1» на колокольчике, пока
+  // человек его не потратит: подарок, о котором не напоминают, — не подарок.
+  const perks = usePerks();
 
   useReveal();
 
   useEffect(() => {
     setSignedIn(publicApi.hasSession);
-    const fn = () => setSignedIn(publicApi.hasSession);
+    // Первое касание рекламы запоминаем на любом входе на сайт; как только
+    // появляется аккаунт — один раз отдаём движку (для отчёта по кампаниям).
+    captureAttribution();
+    submitAttribution();
+    const fn = () => { setSignedIn(publicApi.hasSession); submitAttribution(); };
     publicApi.listeners.add(fn);
     return () => { publicApi.listeners.delete(fn); };
   }, []);
@@ -61,15 +79,41 @@ export function Chrome({ country = "LV" }: { country?: Country }) {
     return alertStore.subscribe(sync);
   }, []);
 
+  useEffect(() => {
+    const sync = () => setCart(cartStore.count());
+    sync();
+    return cartStore.subscribe(sync);
+  }, []);
 
-  /* Высота панели. Её меряет ResizeObserver — он срабатывает ровно тогда,
-   * когда высота действительно изменилась.
+  // §4: «vēlmes на исходе» — бейдж срочности на сердце: сколько наблюдаемых
+  // лотов закрывается в ближайшие сутки. Не поп-ап, просто число.
+  const [endingSoon, setEndingSoon] = useState(0);
+  useEffect(() => {
+    if (!publicApi.hasSession) return;
+    void publicApi.get<{ endingSoon: number }>("/api/public/me/wishlist-alerts")
+      .then((r) => setEndingSoon(r.endingSoon))
+      .catch(() => undefined);
+  }, [path]);
+
+  // Meta PageView при переходах внутри витрины. Выключен, пока базовый тег
+  // GTM не переведён на событие meta_page_view (иначе просмотр считался бы
+  // дважды) — см. trackPageView.
+  useEffect(() => { trackPageView(); }, [path]);
+
+
+  /* Высота верхней панели постоянна.
    *
-   * Раньше здесь на каждом кадре скролла стоял `setTimeout(measure, 360)`.
-   * Каждый такой вызов читал offsetHeight (браузер вынужден пересчитать
-   * раскладку немедленно) и записывал переменную в :root, обесценивая стили
-   * всей страницы. За пять секунд прокрутки набегало три сотни таких пар —
-   * это и был главный источник рывков. */
+   *  Раньше при скролле ниже 56 px панель складывалась, а через 360 мс JS
+   *  переписывал `--chrome-h`, из которого считается `body{padding-top}`.
+   *  На телефоне 390×844 это давало мгновенный сдвиг всей страницы на 195 px —
+   *  четверть экрана — вверх при прокрутке вниз и обратно вниз при прокрутке
+   *  вверх. Именно это читается как «экран дёргается».
+   *
+   *  Теперь панель не складывается, а лента категорий на телефоне свёрнута до
+   *  одной строки чипов (см. globals.css). Высоту меряет ResizeObserver —
+   *  он срабатывает ровно тогда, когда она действительно изменилась;
+   *  на скролл не реагируем вообще.
+   */
   useEffect(() => {
     const el = document.querySelector<HTMLElement>("[data-chrome]");
     const head = document.querySelector<HTMLElement>(".head");
@@ -91,31 +135,8 @@ export function Chrome({ country = "LV" }: { country?: Country }) {
     return () => ro.disconnect();
   }, []);
 
-  /* Сворачивание панели — по направлению прокрутки, как в Instagram:
-   * листаешь вниз — панель ужимается и освобождает экран, ведёшь вверх —
-   * возвращается сразу, не дожидаясь, пока доскроллишь до самого верха.
-   *
-   * Порог в 8 пикселей гасит дрожание пальца, иначе панель будет моргать. */
-  useEffect(() => {
-    let last = window.scrollY, raf = 0;
-    const read = () => {
-      raf = 0;
-      const y = window.scrollY;
-      if (y <= 56) setCompact(false);
-      else if (y > last + 8) setCompact(true);
-      else if (y < last - 8) setCompact(false);
-      last = y;
-    };
-    const onScroll = () => { if (!raf) raf = requestAnimationFrame(read); };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      window.removeEventListener("scroll", onScroll);
-      if (raf) cancelAnimationFrame(raf);
-    };
-  }, []);
-
   return (
-    <div className={`topchrome${compact ? " is-compact" : ""}`} data-chrome>
+    <div className="topchrome" data-chrome>
       <div className="util">
         <div className="wrap">
           <span className="util-l">
@@ -157,34 +178,59 @@ export function Chrome({ country = "LV" }: { country?: Country }) {
           </button>
 
           <div className="head-act">
-            <Link className="icon-link" href="/account?tab=alerts">
-              <Icon name="bell" size={22} />{t("nav.alerts")}
-              {alerts > 0 && (
-                <>
-                  <span className="n" aria-hidden="true">{alerts}</span>
-                  <span className="sr">{t("nav.alertsN", { n: alerts })}</span>
-                </>
-              )}
-            </Link>
+            {signedIn ? (
+              <BellMenu alerts={alerts + (perks.welcome && !perks.welcomeDismissed ? 1 : 0)}
+                        welcome={perks.welcome && !perks.welcomeDismissed ? perks.welcome : null} />
+            ) : (
+              <Link className="icon-link" href="/account?tab=bridinajumi">
+                <Icon name="bell" size={22} />{t("nav.alerts")}
+                {alerts > 0 && (
+                  <>
+                    <span className="n" aria-hidden="true">{alerts}</span>
+                    <span className="sr">{t("nav.alertsN", { n: alerts })}</span>
+                  </>
+                )}
+              </Link>
+            )}
             <Link className="icon-link" href="/velmes">
               <Icon name="heart" size={22} />{t("nav.watchlist")}
-              {watched > 0 && (
+              {endingSoon > 0 ? (
+                <>
+                  <span className="n" aria-hidden="true" style={{ background: "var(--live, #C43C2E)", color: "#fff" }}>{endingSoon}</span>
+                  <span className="sr">{t("nav.watchEndingN", { n: endingSoon })}</span>
+                </>
+              ) : watched > 0 && (
                 <>
                   <span className="n" aria-hidden="true">{watched}</span>
                   <span className="sr">{t("nav.watchlistN", { n: watched })}</span>
                 </>
               )}
             </Link>
+            {/* Корзина. Раньше страница /grozs существовала, но попасть на
+                неё было неоткуда: ссылка появлялась в кабинете только при
+                двух и более неоплаченных лотах. Значок даёт корзине
+                постоянное место — как в любом магазине, — и показывает
+                число лотов, ждущих оплаты. Гостю корзину не показываем:
+                у него нет заказов, и пустой значок только путал бы. */}
+            {signedIn && (
+              <Link className="icon-link" href="/grozs">
+                <Icon name="cart" size={22} />{t("nav.cart")}
+                {cart > 0 && (
+                  <>
+                    <span className="n" aria-hidden="true">{cart}</span>
+                    <span className="sr">{t("nav.cartN", { n: cart })}</span>
+                  </>
+                )}
+              </Link>
+            )}
+
             {/* На телефоне видна только primary-кнопка, поэтому главным
                 действием стоит вход и кабинет, а не выход. */}
             {signedIn ? (
-              <>
-                <button className="btn btn-outline btn-sm" onClick={() => publicApi.logout()}>{t("nav.signout")}</button>
-                <Link className="btn btn-primary btn-sm" href="/account">{t("nav.account")}</Link>
-              </>
+              <UserMenu />
             ) : (
               <>
-                <Link className="btn btn-outline btn-sm keep" href="/login">{t("nav.signin")}</Link>
+                <Link className="btn btn-outline btn-sm keep" href={loginHref(path)}>{t("nav.signin")}</Link>
                 <Link className="btn btn-primary btn-sm" href="/register">{t("nav.register")}</Link>
               </>
             )}
@@ -217,5 +263,186 @@ export function Chrome({ country = "LV" }: { country?: Country }) {
       <RegionMenu open={region} onClose={() => setRegion(false)} country={country} />
       <SearchOverlay open={search} onClose={() => setSearch(false)} />
     </div>
+  );
+}
+
+
+/** Выпадающее меню уведомлений в шапке (макет № 11). Список подтягивается
+ *  при открытии — шапка не делает лишних запросов на каждой странице. */
+function BellMenu({ alerts, welcome }: { alerts: number; welcome: MyPromoCode | null }) {
+  const { t, lang } = useT();
+  const [open, setOpen] = useState(false);
+  const [rows, setRows] = useState<MyNotification[] | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement).closest(".ddwrap")) setOpen(false);
+    };
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [open]);
+
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    if (next && rows === null) {
+      void publicApi
+        .get<{ notifications: MyNotification[] }>("/api/public/me/notifications")
+        .then((r) => setRows(r.notifications))
+        .catch(() => setRows([]));
+    }
+    if (next) markAlertsSeen();
+  };
+
+  return (
+    <span className="ddwrap">
+      <button className="icon-link" type="button" aria-haspopup="menu" aria-expanded={open} onClick={toggle}>
+        <Icon name="bell" size={22} />{t("nav.alerts")}
+        {alerts > 0 && <span className="n" aria-hidden="true">{alerts}</span>}
+      </button>
+      {open && (
+        <div className="ddown" role="menu" aria-label={t("nav.alerts")}>
+          <div className="dd-h">
+            <b>{t("nav.alerts")}</b>
+          </div>
+          {/* Закреплённая первая строка: код за регистрацию. Не уведомление из
+              базы, а живое состояние — исчезает сама, когда код потрачен. */}
+          {welcome && (
+            <button className="dd-row perk" type="button" role="menuitem"
+                    onClick={() => { void copyText(welcome.code).then((ok) => say(ok ? t("perk.codeCopied") : welcome.code)); }}>
+              <span className="ic" aria-hidden="true"><Ph name="gift" size={14} /></span>
+              <span className="t">
+                <b>{t("perk.alertTitle", { n: welcome.value })}</b>
+                <small>{t("perk.alertBody", { code: welcome.code, d: welcome.validTo ? new Date(welcome.validTo).toLocaleDateString(dateLocale(lang)) : "" })}</small>
+              </span>
+            </button>
+          )}
+          {(rows ?? []).slice(0, 4).map((n) => (
+            <Link className="dd-row go" key={n.id} role="menuitem" href={notificationHref(n.type)} onClick={() => setOpen(false)}>
+              <span className="ic" aria-hidden="true">
+                <Ph name={n.type === "outbid" ? "gavel" : n.type === "won" ? "check" : "bell"} size={14} />
+              </span>
+              <span className="t">
+                <b>{n.subject}</b>
+                <small>{n.body}</small>
+              </span>
+              <small className="when">{relTime(n.createdAt, t)}</small>
+            </Link>
+          ))}
+          {rows !== null && rows.length === 0 && !welcome && <p className="dd-empty">{t("kb.emptyAlertsT")}</p>}
+          <Link className="dd-all" href="/account?tab=bridinajumi" onClick={() => setOpen(false)}>
+            {t("kb.allAlerts")}
+          </Link>
+        </div>
+      )}
+    </span>
+  );
+}
+
+/** Меню аккаунта в шапке (макет № 11): разделы кабинета со счётчиками. */
+function UserMenu() {
+  const { t, lang } = useT();
+  const perks = usePerks();
+  const [open, setOpen] = useState(false);
+  const [me, setMe] = useState<{ alias: string; email: string } | null>(null);
+  const [counts, setCounts] = useState<{ bids: number; orders: number; pickup: number } | null>(null);
+
+  // Буква на аватаре видна сразу, а не после первого клика.
+  useEffect(() => {
+    void publicApi
+      .get<{ bidder: { alias: string; email: string } }>("/api/public/auth/me")
+      .then((r) => setMe(r.bidder))
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement).closest(".ddwrap")) setOpen(false);
+    };
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [open]);
+
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    if (next && counts === null) {
+      void Promise.all([
+        publicApi.get<{ bids: Array<{ status: string }> }>("/api/public/me/bids").catch(() => ({ bids: [] })),
+        publicApi.get<{ orders: Array<{ status: string }> }>("/api/public/me/orders").catch(() => ({ orders: [] })),
+        publicApi.get<{ pickup: unknown[] }>("/api/public/me/pickup").catch(() => ({ pickup: [] })),
+      ]).then(([b, o, p]) =>
+        setCounts({
+          bids: b.bids.filter((x) => x.status === "live").length,
+          orders: o.orders.length,
+          pickup: p.pickup.length,
+        }),
+      );
+    }
+  };
+
+  const rows: Array<[string, string, number]> = [
+    ["parskats", "ac.overview", 0],
+    ["izsoles", "acc.myBids", counts?.bids ?? 0],
+    ["pirkumi", "kb.purchases", counts?.orders ?? 0],
+    ["velmes", "nav.watchlist", watchStore.list().length],
+    ["bridinajumi", "nav.alerts", 0],
+    ["iznemsana", "ac.pickup", counts?.pickup ?? 0],
+    ["iestatijumi", "ac.settings", 0],
+    // Последним — как в боковом меню кабинета: предложение, а не дело.
+    ["draugi", "ref.tab", 0],
+  ];
+  const refTotal = perks.referral ? perks.referral.rewards.signupCents + perks.referral.rewards.orderCents : 0;
+
+  return (
+    <span className="ddwrap">
+      <button className="ava-btn" type="button" aria-haspopup="menu" aria-expanded={open}
+              aria-label={t("kb.accountMenu")} onClick={toggle}>
+        {(me?.alias ?? "•").slice(0, 1).toUpperCase()}
+      </button>
+      {open && (
+        <div className="ddown" role="menu" aria-label={t("kb.accountMenu")}>
+          <div className="dd-h">
+            <b>{me?.alias ?? ""}</b>
+            <small>{me?.email ?? ""}</small>
+          </div>
+          {/* Подарок за регистрацию — первой строкой, пока не потрачен.
+              Нажатие копирует код: в корзине его останется вставить. */}
+          {perks.welcome && (
+            <button className="dd-perk" type="button" role="menuitem"
+                    onClick={() => { void copyText(perks.welcome!.code).then((ok) => say(ok ? t("perk.codeCopied") : perks.welcome!.code)); }}>
+              <span className="ic" aria-hidden="true"><Ph name="gift" size={15} /></span>
+              <span className="t">
+                <b>{t("perk.menuCode", { n: perks.welcome.value, code: perks.welcome.code })}</b>
+                <small>{t("perk.menuCodeSub", { d: perks.welcome.validTo ? new Date(perks.welcome.validTo).toLocaleDateString(dateLocale(lang)) : "" })}</small>
+              </span>
+            </button>
+          )}
+          {rows.map(([tab, key, n]) => (
+            <Link className={`dd-nav${tab === "draugi" ? " dd-ref" : ""}`} key={tab} role="menuitem" onClick={() => setOpen(false)}
+                  href={tab === "parskats" ? "/account" : `/account?tab=${tab}`}>
+              {/* «Пригласи друга» — с суммой, как у Vinted: строка меню
+                  сама объясняет, зачем на неё нажимать. */}
+              <span>{tab === "draugi" && refTotal > 0 ? t("ref.menu", { s: formatEur(refTotal) }) : t(key)}</span>
+              {n > 0 && <span className="n">{n}</span>}
+            </Link>
+          ))}
+          <button className="dd-nav out" type="button" role="menuitem"
+                  onClick={() => {
+                    publicApi.logout();
+                    // Человек остаётся там, где был: уводить с карточки лота
+                    // на главную при выходе — значит терять его. На главную —
+                    // только со страниц, которых без входа не существует.
+                    const p = window.location.pathname;
+                    if (p.startsWith("/account") || p.startsWith("/apmaksa")) window.location.href = "/";
+                    else window.location.reload();
+                  }}>
+            <Ph name="sign-out" size={15} /> {t("ac.signOutFull")}
+          </button>
+        </div>
+      )}
+    </span>
   );
 }

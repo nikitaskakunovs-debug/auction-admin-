@@ -48,6 +48,8 @@ declare module "fastify" {
   interface FastifyRequest {
     admin?: AccessClaims;
     bidder?: AccessClaims;
+    /** Кабинет поставщика: sub — id поставщика. */
+    supplier?: AccessClaims;
   }
 }
 

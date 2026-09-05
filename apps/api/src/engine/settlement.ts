@@ -1,11 +1,15 @@
-import { items, markets, orders } from "@auction/db";
+import { items, markets, orders, referrals } from "@auction/db";
 import { assertItemTransition, type ItemStatus } from "@auction/domain";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { slackOrderPaid } from "./slackNotify.js";
 import { writeAudit } from "../audit.js";
+import { earnPointsForOrder, movePoints } from "./loyalty.js";
+import { purchaseToMeta } from "./metaPurchase.js";
 import type { AppContext } from "../context.js";
 import { enqueueNotification } from "./notifications.js";
 import { generatePickupCode } from "./pickup.js";
+import { getSettings } from "./settings.js";
+import { postSalePaid } from "./ledger.js";
 
 export type SettleResult =
   | { outcome: "settled"; order: typeof orders.$inferSelect }
@@ -44,10 +48,63 @@ export async function settleOrderPaid(
       .set({ status: "paid", paidAt: ctx.now(), pickupCode: forPickup ? pickupCode : null, pickupDeadlineAt })
       .where(eq(orders.id, orderId));
     await tx.update(items).set({ status: "paid", updatedAt: ctx.now() }).where(eq(items.id, item!.id));
+
+    // Баллы лояльности (MD §5a): 1 балл за каждый полный евро РЕАЛЬНОЙ
+    // оплаты — за часть, закрытую баллами, новых баллов не даём. Абзац о
+    // начислении едет в этом же письме об оплате (IZ-P06, транзакционное).
+    const paidCents = order.totalCents - order.pointsAppliedCents;
+    const earned = await earnPointsForOrder(ctx, tx, {
+      customerId: order.customerId,
+      orderRef: order.ref,
+      paidCents,
+    }).catch(() => null);
+
+    // Реферальная награда, ступень 2 (MD §1.6.1): первый ОПЛАЧЕННЫЙ заказ
+    // приглашённого — пригласивший получает вторую часть. Fraud-флаг держит
+    // и её до ручной проверки.
+    await (async () => {
+      const [r] = await tx
+        .select()
+        .from(referrals)
+        .where(and(eq(referrals.referredCustomerId, order.customerId), eq(referrals.status, "signup_rewarded")))
+        .for("update");
+      if (!r || r.fraudFlag) return;
+      const s = await getSettings(ctx);
+      if (s.referral_order_points_cents > 0) {
+        await movePoints(tx, r.referrerCustomerId, {
+          reason: "referral_order",
+          amountCents: s.referral_order_points_cents,
+          referralId: r.id,
+          orderRef: order.ref,
+        }, ctx.now());
+      }
+      await tx
+        .update(referrals)
+        .set({ status: "order_rewarded", orderRewardedAt: ctx.now() })
+        .where(eq(referrals.id, r.id));
+    })().catch(() => undefined);
+
+    // Финансовый журнал (раздел 11): компоненты продажи + COGS + clearing —
+    // в той же транзакции, где оплата стала фактом: заказ без проводок или
+    // проводки без заказа появиться не могут.
+    await postSalePaid(tx, {
+      order,
+      itemCostCents: item!.costCents,
+      earnedPointsCents: earned?.earnedCents ?? 0,
+      provider: typeof meta.provider === "string" ? meta.provider : typeof meta.via === "string" ? meta.via : undefined,
+    }, ctx.now());
+
+    // Через кого пришли деньги: при рассрочке письмо обязано объяснить, что
+    // нам заказ оплачен полностью, а платить дальше человек будет банку.
+    const paidVia = typeof meta.provider === "string" ? meta.provider : typeof meta.via === "string" ? meta.via : undefined;
     await enqueueNotification(ctx, tx, {
       customerId: order.customerId,
       type: "order_paid",
-      template: { alias: "", lotTitle: "", orderRef: order.ref, totalCents: order.totalCents },
+      template: {
+        alias: "", lotTitle: "", orderRef: order.ref, totalCents: order.totalCents,
+        ...(paidVia ? { paidVia } : {}),
+        ...(earned ? { pointsEarnedCents: earned.earnedCents, pointsBalanceCents: earned.balanceCents } : {}),
+      },
     });
     if (forPickup) {
       // Pickup pass: collection code + deadline (design: 14 days, 5% fee).
@@ -67,6 +124,11 @@ export async function settleOrderPaid(
       via: typeof meta.provider === "string" ? meta.provider : "manuāli",
       orderId: result.order.id,
     });
+    // Meta CAPI: покупка отправляется ИМЕННО отсюда — из единственного места,
+    // где оплата действительно подтверждена. Браузер шлёт свою копию с тем же
+    // event_id, Meta склеивает их в одну конверсию. Если человек закрыл
+    // вкладку сразу после банка, серверная копия всё равно дойдёт.
+    void purchaseToMeta(ctx, result.order).catch(() => undefined);
   }
   return result;
 }

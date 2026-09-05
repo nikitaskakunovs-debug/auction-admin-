@@ -8,6 +8,14 @@
 	reverse_proxy web:3000
 }
 
+# Партнёрский кабинет — та же витрина на своём имени; приложение видит
+# partner.* и отдаёт только кабинет поставщика (всё прочее уводит на вход).
+# Нужна DNS A-запись: partner.{$DOMAIN} → этот дроплет.
+partner.{$DOMAIN} {
+	encode gzip
+	reverse_proxy web:3000
+}
+
 # Public API (browser-side REST + WebSocket for the storefront)
 api.{$DOMAIN} {
 	encode gzip

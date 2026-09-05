@@ -1,5 +1,5 @@
 import { notifications, orders, payments, refunds } from "@auction/db";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { SimulatedInbankClient } from "../src/engine/inbank.js";
 import { SimulatedKlixClient } from "../src/engine/klix.js";
@@ -86,7 +86,7 @@ describe("checkout creation", () => {
     const [p] = await paymentRow(orderId);
     expect(p!.status).toBe("created");
     expect(p!.channel).toBe("web");
-    expect(p!.amountCents).toBe(13_310); // 11000 + 10% premium + 21% VAT
+    expect(p!.amountCents).toBe(11_000); // ставка финальная — к оплате ровно она
     expect(p!.providerId).toBeTruthy();
     expect(p!.checkoutUrl).toBe(checkoutUrl);
   });
@@ -333,11 +333,11 @@ describe("refunds through the provider", () => {
       method: "POST",
       url: `/api/orders/${orderId}/refund`,
       headers: auth(adminToken),
-      payload: { amountCents: 13_310, reason: "item damaged in storage" },
+      payload: { amountCents: 11_000, reason: "item damaged in storage" },
     });
     expect(res.statusCode).toBe(200);
     // The simulated provider actually moved the money back.
-    expect(klix.inspect(providerId)!.refundedCents).toBe(13_310);
+    expect(klix.inspect(providerId)!.refundedCents).toBe(11_000);
     expect(klix.inspect(providerId)!.status).toBe("refunded");
     const [order] = await world.ctx.db.select().from(orders).where(eq(orders.id, orderId));
     expect(order!.status).toBe("refunded");
@@ -392,7 +392,7 @@ describe("refunds through the provider", () => {
       method: "POST",
       url: `/api/orders/${orderId}/refund`,
       headers: auth(adminToken),
-      payload: { amountCents: 13_310, reason: "refunded in the Klix portal", viaProvider: false },
+      payload: { amountCents: 11_000, reason: "refunded in the Klix portal", viaProvider: false },
     });
     expect(res.statusCode).toBe(200);
     expect(klix.inspect(providerId)!.refundedCents).toBe(0);
@@ -447,7 +447,7 @@ describe("Inbank BNPL (e-POS sessions)", () => {
     expect(p!.provider).toBe("inbank");
     expect(p!.channel).toBe("web");
     expect(p!.status).toBe("created");
-    expect(p!.amountCents).toBe(13_310);
+    expect(p!.amountCents).toBe(11_000);
     // Inbank receives the reference + our callback URL.
     const input = inbank.inspect(p!.providerId!)!.input;
     expect(input.reference).toBe(ref);
@@ -490,6 +490,142 @@ describe("Inbank BNPL (e-POS sessions)", () => {
     // The customer can immediately retry — with either provider.
     const retry = await startCheckout(ref, buyer.accessToken);
     expect(retry.checkoutUrl).toContain("klix.simulated");
+  });
+
+  it("«заявка у банка» — письмо уходит один раз, при первой вести от Inbank", async () => {
+    const buyer = await registerBidder("inb_letter");
+    const { orderId, ref } = await unpaidOrder(buyer.accessToken);
+    await startInbank(ref, buyer.accessToken);
+    const [p] = await paymentRow(orderId);
+    const letters = () =>
+      world.ctx.db
+        .select()
+        .from(notifications)
+        .where(and(eq(notifications.customerId, buyer.bidder.id), eq(notifications.type, "bnpl_pending")));
+
+    // Сессию создали мы, человек ещё ничего не заполнил — писать не о чем.
+    await world.server.app.inject({ method: "POST", url: `/api/public/payments/inbank/callback?payment=${p!.id}` });
+    expect(await letters()).toHaveLength(0);
+
+    // Банк взял заявку в работу — вот теперь письмо.
+    inbank.setStatus(p!.providerId!, "granted");
+    await world.server.app.inject({ method: "POST", url: `/api/public/payments/inbank/callback?payment=${p!.id}` });
+    const first = await letters();
+    expect(first).toHaveLength(1);
+    expect(first[0]!.body).toContain(ref);
+
+    // Колбэков и опросов витрины бывает много — письмо остаётся одно.
+    await world.server.app.inject({ method: "POST", url: `/api/public/payments/inbank/callback?payment=${p!.id}` });
+    expect(await letters()).toHaveLength(1);
+  });
+
+  it("пока заявка в банке, автоотмена заказ не трогает", async () => {
+    const buyer = await registerBidder("inb_hold");
+    const { orderId, ref } = await unpaidOrder(buyer.accessToken);
+    await startInbank(ref, buyer.accessToken);
+    const [p] = await paymentRow(orderId);
+    inbank.setStatus(p!.providerId!, "granted");
+    await world.server.app.inject({ method: "POST", url: `/api/public/payments/inbank/callback?payment=${p!.id}` });
+
+    // Срок оплаты прошёл, пока банк думает.
+    await world.ctx.db
+      .update(orders)
+      .set({ paymentDeadlineAt: new Date(world.ctx.now().getTime() - 3_600_000) })
+      .where(eq(orders.id, orderId));
+
+    // Контрольный заказ без рассрочки с тем же просроченным сроком. Он
+    // ОБЯЗАН отмениться: иначе «не отменился» ничего не доказывает — фаза
+    // могла просто упасть и не отменить вообще ничего.
+    const other = await registerBidder("inb_hold_ctl");
+    const control = await unpaidOrder(other.accessToken);
+    await world.ctx.db
+      .update(orders)
+      .set({ paymentDeadlineAt: new Date(world.ctx.now().getTime() - 3_600_000) })
+      .where(eq(orders.id, control.orderId));
+
+    const { AuctionScheduler } = await import("../src/engine/scheduler.js");
+    await new AuctionScheduler(world.ctx).tick();
+
+    const [order] = await world.ctx.db.select().from(orders).where(eq(orders.id, orderId));
+    // Человек ничего не нарушил: заявка жива, отменять его заказ не за что.
+    expect(order!.status).toBe("awaiting_payment");
+    const [controlOrder] = await world.ctx.db.select().from(orders).where(eq(orders.id, control.orderId));
+    expect(controlOrder!.status).toBe("cancelled");
+    expect(controlOrder!.cancelReason).toBe("unpaid");
+  });
+
+  it("после отказа банка срок продлевается на время рассмотрения", async () => {
+    const buyer = await registerBidder("inb_resume");
+    const { orderId, ref } = await unpaidOrder(buyer.accessToken);
+    await startInbank(ref, buyer.accessToken);
+    const [p] = await paymentRow(orderId);
+
+    // Заявка провисела два часа: отматываем начало платежа назад.
+    const startedAt = new Date(world.ctx.now().getTime() - 2 * 3_600_000);
+    await world.ctx.db.update(payments).set({ createdAt: startedAt }).where(eq(payments.id, p!.id));
+    const [before] = await world.ctx.db.select().from(orders).where(eq(orders.id, orderId));
+
+    inbank.setStatus(p!.providerId!, "rejected");
+    await world.server.app.inject({ method: "POST", url: `/api/public/payments/inbank/callback?payment=${p!.id}` });
+
+    const [after] = await world.ctx.db.select().from(orders).where(eq(orders.id, orderId));
+    const addedMs = after!.paymentDeadlineAt!.getTime() - before!.paymentDeadlineAt!.getTime();
+    // Часы стояли, пока решал банк, — возвращаем ровно это время.
+    expect(addedMs).toBeGreaterThanOrEqual(2 * 3_600_000 - 5_000);
+    expect(addedMs).toBeLessThanOrEqual(2 * 3_600_000 + 5_000);
+    expect(after!.status).toBe("awaiting_payment");
+  });
+
+  it("отказ банка — своё письмо, без причины и без «попробуйте ещё раз»", async () => {
+    const buyer = await registerBidder("inb_declined");
+    const { orderId, ref } = await unpaidOrder(buyer.accessToken);
+    await startInbank(ref, buyer.accessToken);
+    const [p] = await paymentRow(orderId);
+
+    inbank.setStatus(p!.providerId!, "rejected");
+    await world.server.app.inject({ method: "POST", url: `/api/public/payments/inbank/callback?payment=${p!.id}` });
+
+    const declined = await world.ctx.db
+      .select()
+      .from(notifications)
+      .where(and(eq(notifications.customerId, buyer.bidder.id), eq(notifications.type, "bnpl_declined")));
+    expect(declined).toHaveLength(1);
+    expect(declined[0]!.body).toContain(ref);
+    // Причину банка не пересказываем — её нам и не сообщают.
+    expect(declined[0]!.body?.toLowerCase()).not.toContain("rejected");
+
+    // Карточное «платёж не прошёл» при отказе в кредите не уходит: это
+    // разные события, и звать «попробуйте ещё раз» тут нечего.
+    const failed = await world.ctx.db
+      .select()
+      .from(notifications)
+      .where(and(eq(notifications.customerId, buyer.bidder.id), eq(notifications.type, "payment_failed")));
+    expect(failed).toHaveLength(0);
+
+    // Заказ жив.
+    const [order] = await world.ctx.db.select().from(orders).where(eq(orders.id, orderId));
+    expect(order!.status).toBe("awaiting_payment");
+  });
+
+  it("брошенное окно банка — это обычная неудача платежа, не отказ", async () => {
+    const buyer = await registerBidder("inb_abandoned");
+    const { orderId, ref } = await unpaidOrder(buyer.accessToken);
+    await startInbank(ref, buyer.accessToken);
+    const [p] = await paymentRow(orderId);
+
+    inbank.setStatus(p!.providerId!, "cancelled");
+    await world.server.app.inject({ method: "POST", url: `/api/public/payments/inbank/callback?payment=${p!.id}` });
+
+    const failed = await world.ctx.db
+      .select()
+      .from(notifications)
+      .where(and(eq(notifications.customerId, buyer.bidder.id), eq(notifications.type, "payment_failed")));
+    expect(failed).toHaveLength(1);
+    const declined = await world.ctx.db
+      .select()
+      .from(notifications)
+      .where(and(eq(notifications.customerId, buyer.bidder.id), eq(notifications.type, "bnpl_declined")));
+    expect(declined).toHaveLength(0);
   });
 
   it("switching provider supersedes the open Klix checkout (cancelled at Klix) — one open checkout ever", async () => {
@@ -541,7 +677,7 @@ describe("Inbank BNPL (e-POS sessions)", () => {
       method: "POST",
       url: `/api/orders/${orderId}/refund`,
       headers: auth(adminToken),
-      payload: { amountCents: 13_310, reason: "customer returned the item" },
+      payload: { amountCents: 11_000, reason: "customer returned the item" },
     });
     expect(auto.statusCode).toBe(409);
     expect((auto.json() as { error: string }).error).toBe("provider_refund_unsupported");
@@ -552,7 +688,7 @@ describe("Inbank BNPL (e-POS sessions)", () => {
       method: "POST",
       url: `/api/orders/${orderId}/refund`,
       headers: auth(adminToken),
-      payload: { amountCents: 13_310, reason: "credited in Inbank portal", viaProvider: false },
+      payload: { amountCents: 11_000, reason: "credited in Inbank portal", viaProvider: false },
     });
     expect(manual.statusCode).toBe(200);
     const [order] = await world.ctx.db.select().from(orders).where(eq(orders.id, orderId));
@@ -631,7 +767,7 @@ describe("Pay Later calculator support", () => {
     const listingId = (listing.json() as { listing: { id: string } }).listing.id;
     await app.inject({ method: "POST", url: `/api/listings/${listingId}/publish`, headers: auth(adminToken) });
     const detail = await app.inject({ method: "GET", url: `/api/public/listings/${listingId}` });
-    expect((detail.json() as { listing: { estimatedTotalCents: number } }).listing.estimatedTotalCents).toBe(13_310);
+    expect((detail.json() as { listing: { estimatedTotalCents: number } }).listing.estimatedTotalCents).toBe(11_000);
   });
 });
 

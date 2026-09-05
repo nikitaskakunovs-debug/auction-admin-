@@ -33,10 +33,27 @@ export interface PublicBid {
 
 export interface AuctionDetail {
   auction: PublicAuction;
+  /** Для лидера — персональный минимум (выше собственного максимума,
+   *  округлён до чистого шага); для остальных — цена + шаг. */
   minNextBidCents: number;
+  /** Собственный скрытый максимум — приходит только самому лидеру. */
+  myMaxCents?: number | null;
   /** Current price + buyer premium + VAT — what winning right now costs. */
   estimatedTotalCents: number;
+  /** §7.5 соц-доказательство: наблюдающие и ставки за час — живые числа. */
+  watchersCount?: number;
+  bidsLastHour?: number;
   bids: PublicBid[];
+}
+
+/** Похожий живой лот (§7.2) — с экрана закрытого аукциона. */
+export interface SimilarLot {
+  id: string;
+  title: string;
+  priceCents: number;
+  type: string;
+  category: string;
+  auctionId: string | null;
 }
 
 export interface Bidder {
@@ -62,6 +79,8 @@ export interface FixedListing {
   marketCode: string;
   priceCents: number;
   quantity: number;
+  /** Живой остаток: единицы минус чужие резервы на оформлении. */
+  stock?: number;
   soldOut?: boolean;
   /** Price + VAT — the checkout total (fixed-price buys carry no premium). */
   estimatedTotalCents?: number;
@@ -69,20 +88,33 @@ export interface FixedListing {
 
 export interface MyOrder {
   ref: string;
+  /** Откуда родился заказ: торги или фикс-цена. Решает движок. */
+  saleType?: "auction" | "buy_now";
   itemTitle: string;
   itemSku: string;
+  /** Категория и состояние лота — строка «Lots» и «Atrast līdzīgus». */
+  itemCategory?: string | null;
+  itemCondition?: string | null;
   hammerCents: number;
   premiumCents: number;
   vatCents: number;
+  /** Ставка НДС в базисных пунктах (2100 = 21%) и режим reverse charge —
+   *  их решает движок; аналитика передаёт как vat_rate / vat_scheme. */
+  vatRateBp?: number;
+  reverseCharge?: boolean;
   shippingCents: number;
   handlingCents: number;
   totalCents: number;
   status: string;
   paymentDeadlineAt: string | null;
   createdAt: string;
+  /** Дата оплаты — шаг «Apmaksāts» в хронологии покупки. */
+  paidAt?: string | null;
   /** pickup | omniva_pm */
   fulfilment: string;
   shippingTo: { provider: string; machineId: string; name: string; zip: string; country: string; address?: string } | null;
+  /** Телефон получателя в международном формате — подстановка в оплате. */
+  recipientPhone?: string | null;
   shipment: { barcode: string; status: string } | null;
 }
 

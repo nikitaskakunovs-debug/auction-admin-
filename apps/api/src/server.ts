@@ -31,8 +31,16 @@ import { registerPublicRoutes } from "./routes/public.js";
 import { registerReceivingRoutes } from "./routes/receiving.js";
 import { registerSearchRoutes } from "./routes/search.js";
 import { registerStockCountRoutes } from "./routes/stockCounts.js";
+import { registerMarketingRoutes } from "./routes/marketing.js";
+import { registerMarketingAdminRoutes } from "./routes/marketingAdmin.js";
+import { registerFinRoutes } from "./routes/fin.js";
+import { registerEmailHookRoutes } from "./routes/emailHooks.js";
+import { registerTrackRoutes } from "./routes/track.js";
+import { registerMetaRoutes } from "./routes/meta.js";
+import { registerCartRoutes } from "./routes/cart.js";
 import { registerSellThroughRoutes } from "./routes/sellThrough.js";
 import { registerSupplierRoutes } from "./routes/suppliers.js";
+import { registerSupplierPortalRoutes } from "./routes/supplierPortal.js";
 import { registerViewRoutes } from "./routes/views.js";
 import { registerShippingRoutes } from "./routes/shipping.js";
 import { registerWarehouseOpsRoutes } from "./routes/warehouseOps.js";
@@ -70,7 +78,18 @@ export async function buildServer(ctx: AppContext, opts: { logger?: boolean } = 
   await app.register(cors, {
     origin: (origin, cb) => cb(null, !origin || allowed.has(origin)),
     credentials: true,
+    // По умолчанию @fastify/cors пускает из браузера только GET/HEAD/POST —
+    // и «Noņemt» в корзине (DELETE) молча умирал на preflight. Разрешаем
+    // весь набор, которым пользуется витрина.
+    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"],
   });
+
+  // Почтовики (Gmail, Yahoo) жмут кнопку «Отписаться» сами и шлют
+  // form-urlencoded — без этого разбора Fastify ответил бы 415, и кнопка
+  // в почте перестала бы работать. Тело нам не нужно: токен в адресе.
+  app.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string" }, (_req, body, done) =>
+    done(null, body),
+  );
 
   // Global rate limit (per-IP), Redis-backed so it holds across instances.
   // Auth endpoints add their own stricter caps via per-route config.
@@ -112,6 +131,7 @@ export async function buildServer(ctx: AppContext, opts: { logger?: boolean } = 
       const claims = verifyAccessToken(header.slice(7), ctx.config.jwtSecret, ctx.now().getTime());
       if (claims?.kind === "admin") req.admin = claims;
       else if (claims?.kind === "bidder") req.bidder = claims;
+      else if (claims?.kind === "supplier") req.supplier = claims;
     }
   });
 
@@ -153,8 +173,16 @@ export async function buildServer(ctx: AppContext, opts: { logger?: boolean } = 
   registerItemCommentRoutes(app, ctx, perms);
   registerReceivingRoutes(app, ctx, perms);
   registerSupplierRoutes(app, ctx, perms);
+  registerSupplierPortalRoutes(app, ctx);
   registerSellThroughRoutes(app, ctx, perms);
+  registerMarketingRoutes(app, ctx, perms);
+  registerMarketingAdminRoutes(app, ctx, perms);
+  registerFinRoutes(app, ctx, perms);
+  registerEmailHookRoutes(app, ctx);
+  registerTrackRoutes(app, ctx);
   registerPublicRoutes(app, ctx);
+  registerMetaRoutes(app, ctx);
+  registerCartRoutes(app, ctx);
   registerPaymentRoutes(app, ctx);
   registerShippingRoutes(app, ctx, perms);
   registerSearchRoutes(app, ctx, perms);

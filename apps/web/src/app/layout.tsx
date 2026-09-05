@@ -11,12 +11,21 @@ import { Chrome } from "@/components/Chrome";
 import { CookieBanner } from "@/components/CookieBanner";
 import { Dock } from "@/components/Dock";
 import { Footer } from "@/components/Footer";
+import { PartnerFooter, PartnerHeader } from "@/components/PartnerShell";
+import { IdleGuard } from "@/components/IdleGuard";
+import { MetaDebug } from "@/components/MetaDebug";
 import { Modals } from "@/components/Modals";
+import { SocialCatch } from "@/components/SocialCatch";
 import { Toast } from "@/components/Toast";
 import "./globals.css";
 
 // Шрифт лежит в репозитории и не тянется из сети ни в рантайме, ни на сборке:
 // сборка не должна падать из-за недоступного fonts.googleapis.com.
+//
+// Файлы — слитые подмножества latin + latin-ext (fontTools Merger из
+// @fontsource/figtree). До этого здесь лежал только latin-ext: 136 глифов
+// с диакритикой, но без a–z и цифр — слово «Rēķins» рисовалось двумя
+// гарнитурами сразу.
 const figtree = localFont({
   src: [
     { path: "./fonts/figtree-400.woff2", weight: "400", style: "normal" },
@@ -29,6 +38,68 @@ const figtree = localFont({
   variable: "--font-figtree",
 });
 
+// Кириллицы в Figtree не существует в природе — русская версия сайта падала
+// в системный шрифт. Manrope стоит вторым семейством: браузер берёт из него
+// только те символы, которых нет в Figtree.
+const manrope = localFont({
+  src: [
+    { path: "./fonts/manrope-400.woff2", weight: "400", style: "normal" },
+    { path: "./fonts/manrope-500.woff2", weight: "500", style: "normal" },
+    { path: "./fonts/manrope-600.woff2", weight: "600", style: "normal" },
+    { path: "./fonts/manrope-700.woff2", weight: "700", style: "normal" },
+    { path: "./fonts/manrope-800.woff2", weight: "800", style: "normal" },
+  ],
+  display: "swap",
+  variable: "--font-manrope",
+});
+
+/** Google Tag Manager. Включается только когда сборке передан контейнер
+ *  (NEXT_PUBLIC_GTM_ID) — dev и предпросмотры живут без внешних тегов.
+ *
+ *  Порядок внутри скрипта важен: сначала Consent Mode запрещает всё по
+ *  умолчанию, затем проигрывается сохранённое решение из нашей плашки
+ *  (izsoli_cc_v1), и только после этого грузится сам GTM — ни один тег не
+ *  успевает выстрелить до согласия. Свежие решения плашка шлёт через
+ *  consentUpdate() из lib/track.ts. */
+const GTM_ID = /^GTM-[A-Z0-9]+$/.test(process.env.NEXT_PUBLIC_GTM_ID ?? "")
+  ? process.env.NEXT_PUBLIC_GTM_ID!
+  : null;
+
+/** Google AdSense — базовый скрипт: верификация сайта и будущие
+ *  контролируемые размещения. Включается только когда сборке передан
+ *  издатель (NEXT_PUBLIC_ADSENSE_CLIENT) — dev, CI и предпросмотры живут
+ *  без внешних тегов. Auto Ads НЕ включены: сам скрипт рекламу не рисует,
+ *  блок появится лишь там, где явно поставлен <AdSenseSlot /> и включён
+ *  отдельный флаг показа. Идентификатор издателя — публичный (он и так
+ *  виден в ads.txt), подменять или проксировать скрипт нельзя. */
+const ADSENSE_CLIENT = /^ca-pub-\d{5,20}$/.test(process.env.NEXT_PUBLIC_ADSENSE_CLIENT ?? "")
+  ? process.env.NEXT_PUBLIC_ADSENSE_CLIENT!
+  : null;
+
+/** Возврат после соцвхода приходит с токенами во фрагменте (#a=…&r=…), а от
+ *  Telegram — с #tgAuthResult=<base64>, внутри которого имя человека. GA4
+ *  пишет page_location вместе с фрагментом, поэтому снимать его в React
+ *  (после гидратации) поздно: гонка с загрузкой gtm.js могла отправить в
+ *  аналитику токен сессии и личные данные. Забираем фрагмент здесь — до
+ *  любых тегов — и отдаём SocialCatch через window. */
+const authFragmentGuard = `
+try{var h=location.hash.replace(/^#/,'');
+if(h&&/(^|&)(a=|tgAuthResult=)/.test(h)){window.__izAuthFragment=h;
+history.replaceState(null,'',location.pathname+location.search);}}catch(e){}`;
+const gtmBootstrap = GTM_ID && `
+window.dataLayer=window.dataLayer||[];
+function gtag(){dataLayer.push(arguments);}
+gtag('consent','default',{ad_storage:'denied',ad_user_data:'denied',ad_personalization:'denied',analytics_storage:'denied',wait_for_update:500});
+try{var c=JSON.parse(localStorage.getItem('izsoli_cc_v1')||'null');
+if(c){gtag('consent','update',{analytics_storage:c.analytics?'granted':'denied',ad_storage:c.marketing?'granted':'denied',ad_user_data:c.marketing?'granted':'denied',ad_personalization:c.marketing?'granted':'denied'});}}catch(e){}
+try{var bt=JSON.parse(localStorage.getItem('auction_bidder_tokens')||'null');
+if(bt&&bt.accessToken){var bp=JSON.parse(atob(bt.accessToken.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
+if(bp&&bp.sub){window.dataLayer.push({user_id:bp.sub});}}}catch(e){}
+(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});
+var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';
+j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+})(window,document,'script','dataLayer','${GTM_ID}');`;
+
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
@@ -40,6 +111,16 @@ export const viewport: Viewport = {
 export async function generateMetadata(): Promise<Metadata> {
   const host = (await headers()).get("host");
   const country = resolveCountry(host);
+  // Партнёрский поддомен закрыт от поиска: это рабочий кабинет по
+  // приглашению, ему нечего делать в выдаче.
+  if ((host ?? "").toLowerCase().startsWith("partner.")) {
+    return {
+      title: { default: "Piegādātāja kabinets · Izsoli.lv", template: "%s · Izsoli.lv" },
+      description: "Izsoli.lv piegādātāju kabinets.",
+      metadataBase: new URL(SITE_ORIGINS[country.code]),
+      robots: { index: false, follow: false },
+    };
+  }
   return {
     title: { default: "Izsoli.lv — tiešsaistes izsoles", template: "%s · Izsoli.lv" },
     description: "Live auctions in Latvia, Estonia and Lithuania. Watches, art, design and collectibles.",
@@ -47,6 +128,18 @@ export async function generateMetadata(): Promise<Metadata> {
     // The current country's own domain is the canonical base; the ccTLD
     // siblings (.lv/.ee/.lt) reinforce each other via hreflang.
     alternates: alternatesFor(country, "/"),
+    // Фирменные иконки из логотип-пакета. favicon.ico, icon.svg и
+    // apple-icon.png Next.js подхватывает из app/ сам; здесь — размеры для
+    // Android и закладка Safari.
+    manifest: "/site.webmanifest",
+    icons: {
+      icon: [
+        { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
+        { url: "/favicon-16x16.png", sizes: "16x16", type: "image/png" },
+        { url: "/favicon-96x96.png", sizes: "96x96", type: "image/png" },
+      ],
+      other: [{ rel: "mask-icon", url: "/safari-pinned-tab.svg", color: "#161A17" }],
+    },
     openGraph: {
       siteName: "Izsoli.lv",
       locale: country.defaultLang,
@@ -68,26 +161,53 @@ async function fetchFooterPages(): Promise<Array<{ slug: string; title: Localize
 export default async function RootLayout({ children }: { children: ReactNode }) {
   const host = (await headers()).get("host");
   const country = resolveCountry(host);
-  const footerPages = await fetchFooterPages();
+  // Партнёрский поддомен: кабинет поставщика без витринной обвязки — ни
+  // каталога, ни корзины, ни кнопки «Reģistrēties». Поставщику там нечего
+  // покупать, а лишние элементы только сбивают.
+  const isPartner = (host ?? "").toLowerCase().startsWith("partner.");
+  const footerPages = isPartner ? [] : await fetchFooterPages();
   return (
-    <html lang={country.defaultLang} className={`${figtree.variable} no-js`}>
+    <html lang={country.defaultLang} className={`${figtree.variable} ${manrope.variable} no-js`}>
       <head>
         {/* Снимаем no-js до первой отрисовки: правила фолбэка в globals.css
             рассчитаны на то, что с JS их не видно. */}
         <script dangerouslySetInnerHTML={{ __html: "document.documentElement.classList.remove('no-js')" }} />
+        {/* Строго до GTM: снимаем токены соцвхода из адреса. */}
+        <script dangerouslySetInnerHTML={{ __html: authFragmentGuard }} />
+        {gtmBootstrap && <script dangerouslySetInnerHTML={{ __html: gtmBootstrap }} />}
+        {/* AdSense: один экземпляр на страницу, в head, async — SPA-переходы
+            Next скрипт не дублируют, layout рендерится один раз. */}
+        {ADSENSE_CLIENT && (
+          <script
+            async
+            src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_CLIENT}`}
+            crossOrigin="anonymous"
+          />
+        )}
       </head>
-      <body>
+      <body className={isPartner ? "partner-mode" : undefined}>
+        {GTM_ID && (
+          <noscript>
+            <iframe src={`https://www.googletagmanager.com/ns.html?id=${GTM_ID}`}
+                    height="0" width="0" style={{ display: "none", visibility: "hidden" }} title="gtm" />
+          </noscript>
+        )}
         <I18nProvider initialLang={country.defaultLang} available={country.languages}>
           {/* Внутри провайдера: снаружи <T /> получал пустой контекст и выводил
               сам ключ — на экране стояло «nav.skipToMain». */}
           <a className="skip" href="#main"><T k="nav.skipToMain" /></a>
-          <Chrome country={country.code} />
+          {isPartner ? <PartnerHeader /> : <Chrome country={country.code} />}
           <main id="main">{children}</main>
-          <Footer pages={footerPages} country={country.code} />
+          {isPartner ? <PartnerFooter /> : <Footer pages={footerPages} country={country.code} />}
           <Dock />
           <Modals />
+          <SocialCatch />
           <CookieBanner />
           <Toast />
+          <IdleGuard />
+          {/* Открывается вручную адресом ?metadebug=1 — обычный посетитель её
+              не видит и о ней не знает. */}
+          <MetaDebug />
         </I18nProvider>
       </body>
     </html>

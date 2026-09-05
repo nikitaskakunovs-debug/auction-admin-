@@ -361,13 +361,13 @@ describe("stock counts + cost (W5/W6)", () => {
     const [item] = await world.ctx.db.select().from(items).where(eq(items.id, itemId));
     const line = body.lines.find((l) => l.sku === item!.sku);
     expect(line, "sold lot appears in the report").toBeTruthy();
-    // One bidder → hammer stays at the 1000-cent start price.
-    expect(line!.soldCents).toBe(1_000);
+    // Один солист → финальная цена 1000; молотковая доля из неё — 751.
+    expect(line!.soldCents).toBe(751);
     expect(line!.costCents).toBe(1_500); // 1000 own + 500 extras / 1 unit
-    expect(line!.profitCents).toBe(-500);
+    expect(line!.profitCents).toBe(-749);
     expect(body.summary.soldCount).toBeGreaterThanOrEqual(1);
 
-    const conLine = body.consignments.find((c) => c.soldCount > 0 && c.profitCents === -500);
+    const conLine = body.consignments.find((c) => c.soldCount > 0 && c.profitCents === -749);
     expect(conLine, "delivery scoreboard carries the pro-rata result").toBeTruthy();
   });
 

@@ -7,13 +7,15 @@ import { publicApi, PublicApiError } from "@/lib/api";
 import { conditionLabel } from "@/lib/conditions";
 import { increment } from "@/lib/fees";
 import { dateLocale, useT } from "@/lib/i18n";
+import { loginHref } from "@/lib/nav";
 import { photoThumb } from "@/lib/photos";
 import { formatEur, type FixedListing, type PublicAuction } from "@/lib/types";
+import { trackPlaceBid } from "@/lib/track";
 import { alertStore } from "@/lib/ui";
 import { watchStore } from "@/lib/watch";
 import { Icon } from "./Icon";
-import { useNow, formatLeft } from "./Countdown";
-import { openScale, openShare } from "./Modals";
+import { useNowVisible, formatLeft } from "./Countdown";
+import { openBidConfirm, openScale, openShare } from "./Modals";
 import { say } from "./Toast";
 
 /** Карточка лота утверждённого макета.
@@ -70,7 +72,8 @@ const FRAMES = 4;
 export function LotCard({ lot }: { lot: CardLot }) {
   const { t, lang } = useT();
   const router = useRouter();
-  const now = useNow();
+  const root = useRef<HTMLElement>(null);
+  const now = useNowVisible(root);
   const [frame, setFrame] = useState(0);
   const [touched, setTouched] = useState(false);
   const [watched, setWatched] = useState(false);
@@ -116,22 +119,46 @@ export function LotCard({ lot }: { lot: CardLot }) {
   const swipe = useRef(0);
 
   /** Ставка прямо из карточки — как `[data-bid]` в макете.
-   *  Без сессии уводим на вход, сохранив адрес лота. */
-  const bid = async (e: React.MouseEvent) => {
+   *  Без сессии уводим на вход, сохранив адрес лота.
+   *  Ставка — обязательство: и здесь сначала окно подтверждения с той же
+   *  раскладкой суммы, что на странице лота, а не списание одним касанием. */
+  const bid = (e: React.MouseEvent) => {
     stop(e);
     if (settled || over) { say(t("lc.ended")); return; }
-    if (!publicApi.hasSession) { router.push(`/login?next=${href}`); return; }
+    if (!publicApi.hasSession) { router.push(loginHref(href)); return; }
+    openBidConfirm({ sku: lot.sku, title: lot.title, marketCode: lot.marketCode, amountCents: ask, onConfirm: place });
+  };
+
+  const place = async () => {
     setBusy(true);
     try {
-      const r = await publicApi.post<{ youLead: boolean; currentPriceCents: number; extended: boolean }>(
-        `/api/public/auctions/${lot.id}/bids`, { maxCents: ask },
-      );
+      const r = await publicApi.post<{
+        youLead: boolean; currentPriceCents: number; extended: boolean;
+        firstBid?: boolean; priceChanged?: boolean; eventId?: string;
+      }>(`/api/public/auctions/${lot.id}/bids`, { maxCents: ask });
       setLive({ price: r.currentPriceCents, bids: bidCount + 1, youLead: r.youLead });
-      say(r.youLead ? t("lc.accepted", { sum: formatEur(r.currentPriceCents) }) : t("a.outbid"));
+      // Аналитика (GTM): единый обработчик успешной ставки — быстрая ставка
+      // из списка раньше не отслеживалась вовсе (задача IT: bid_source).
+      // Только здесь, в ветке успеха: отказ и обрыв сети события не рождают,
+      // и никакого view_item карточка лота не выдумывает.
+      trackPlaceBid({
+        sku: lot.sku, listingId: lot.id, title: lot.title, category: lot.category,
+        marketCode: lot.marketCode, amountCents: ask,
+        firstBid: r.firstBid === true, lead: r.youLead, eventId: r.eventId,
+        source: "quick_bid",
+      });
+      // Лидер поднял собственный максимум: цена стоит — объясняем, иначе
+      // «Pieņemts» с прежней ценой выглядит как несработавшая ставка.
+      if (r.youLead && r.priceChanged === false) say(t("a.maxRaised", { sum: formatEur(ask) }));
+      else say(r.youLead ? t("lc.accepted", { sum: formatEur(r.currentPriceCents) }) : t("a.outbid"));
       if (r.extended) say(t("a.extended"));
     } catch (err) {
       if (err instanceof PublicApiError && err.body.code === "EMAIL_NOT_VERIFIED") {
         say(t("lc.verifyFirst"));
+      } else if (err instanceof PublicApiError && err.body.code === "NOT_ABOVE_OWN_MAX" && typeof err.body.minAcceptableCents === "number") {
+        // Быстрая ставка из карточки не знает чужих максимумов: лидер сам
+        // себя не перебьёт — объясняем, а не пугаем минимумом в центах.
+        say(t("a.aboveOwnMax", { sum: formatEur(Number(err.body.minAcceptableCents) - 1) }));
       } else if (err instanceof PublicApiError && typeof err.body.minAcceptableCents === "number") {
         say(`${t("a.minBid")}: ${formatEur(err.body.minAcceptableCents)}`);
       } else {
@@ -161,6 +188,7 @@ export function LotCard({ lot }: { lot: CardLot }) {
 
   return (
     <article
+      ref={root}
       className={`lot${settled ? " is-settled" : ""}`}
       data-lot data-id={lot.sku}
       onKeyDown={(e) => {
@@ -228,7 +256,7 @@ export function LotCard({ lot }: { lot: CardLot }) {
                     say(alertStore.has(lot.id) ? t("lc.alertOn") : t("lc.alertOff"));
                   }}><Icon name="bell" /></button>
           <button type="button" aria-haspopup="dialog" aria-label={t("lc.shareAria", { title: lot.title })}
-                  onClick={(e) => { stop(e); openShare({ id: lot.id, sku: lot.sku, title: lot.title, icon }); }}
+                  onClick={(e) => { stop(e); openShare({ id: lot.id, sku: lot.sku, title: lot.title, icon, kind: fixed ? "fixed" : "auction" }); }}
           ><Icon name="share" /></button>
         </div>
 

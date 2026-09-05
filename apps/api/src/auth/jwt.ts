@@ -7,12 +7,15 @@ const AUDIENCE = "baltic-admin";
 
 export interface AccessClaims {
   sub: string; // admin user id or customer id, per kind
-  /** Token audience: admin panel vs public bidder. Never interchangeable. */
-  kind: "admin" | "bidder";
+  /** Token audience: admin panel, public bidder, or supplier portal.
+   *  Never interchangeable — каждый вид токена открывает только свою дверь. */
+  kind: "admin" | "bidder" | "supplier";
   email: string;
   name: string;
   /** Admin role id; bidders carry "bidder". */
   role: string;
+  /** Строка сессии (id refresh-строки) — для списка «Aktīvās sesijas». */
+  sid?: string;
   iss: string;
   aud: string;
   exp: number; // epoch seconds
@@ -89,7 +92,7 @@ export function signAccessToken(
 export function verifyAccessToken(token: string, secret: string, nowMs = Date.now()): AccessClaims | null {
   const claims = verify(token, secret, nowMs);
   if (!claims) return null;
-  if (claims.kind !== "admin" && claims.kind !== "bidder") return null;
+  if (claims.kind !== "admin" && claims.kind !== "bidder" && claims.kind !== "supplier") return null;
   return claims as unknown as AccessClaims;
 }
 

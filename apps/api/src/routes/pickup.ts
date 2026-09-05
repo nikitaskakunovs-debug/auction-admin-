@@ -180,7 +180,12 @@ export function registerPickupRoutes(app: FastifyInstance, ctx: AppContext, perm
       : undefined;
     const result = await completeTicket(ctx, (req.params as { id: string }).id, body.data.pickupCode ?? "", actor(req), override);
     if (!result.ok) {
-      return reply.code(result.error === "invalid_pickup_code" ? 403 : 409).send({ error: result.error });
+      // Сумма долга едет вместе с отказом: кассиру нужно назвать её клиенту
+      // сразу, а не искать в другой вкладке.
+      return reply.code(result.error === "invalid_pickup_code" ? 403 : 409).send({
+        error: result.error,
+        ...(result.storageDueCents !== undefined ? { storageDueCents: result.storageDueCents } : {}),
+      });
     }
     return result;
   });

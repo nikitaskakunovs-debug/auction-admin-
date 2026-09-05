@@ -3,10 +3,13 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { publicApi, PublicApiError } from "@/lib/api";
+import { PublicApiError } from "@/lib/api";
+import { cartAdd, cartList, refreshCart } from "@/lib/cart";
 import { conditionLabel } from "@/lib/conditions";
 import { useT } from "@/lib/i18n";
+import { computeInvoice, marketFees } from "@/lib/fees";
 import { photoWeb, photoThumb } from "@/lib/photos";
+import { addToCartOnce, gaItem, track } from "@/lib/track";
 import { formatEur, type FixedListing } from "@/lib/types";
 import { KlixPayLater } from "@/components/KlixPayLater";
 import { Icon } from "./Icon";
@@ -18,42 +21,95 @@ import { say } from "./Toast";
 export function BuyNow({ listing }: { listing: FixedListing }) {
   const { t } = useT();
   const router = useRouter();
-  const [signedIn, setSignedIn] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [soldOut, setSoldOut] = useState(!!listing.soldOut);
   const [frame, setFrame] = useState(0);
-  const [confirm, setConfirm] = useState(false);
+  const [inCart, setInCart] = useState(false);
 
+  // Лот уже отложен? Карточка обязана это помнить и после ухода в кабинет
+  // и обратно — иначе кнопка выглядит так, будто ничего не было.
   useEffect(() => {
-    setSignedIn(publicApi.hasSession);
-    const fn = () => setSignedIn(publicApi.hasSession);
-    publicApi.listeners.add(fn);
-    return () => { publicApi.listeners.delete(fn); };
-  }, []);
+    void cartList()
+      .then((c) => setInCart(c.items.some((i) => i.listingId === listing.id)))
+      .catch(() => undefined);
+  }, [listing.id]);
 
-  const buy = async () => {
+  // Аналитика (GTM): просмотр товара «Pērc uzreiz». Цена финальная —
+  // раскладываем той же арифметикой, что движок (комиссия и НДС внутри).
+  useEffect(() => {
+    const inv = computeInvoice(listing.priceCents, listing.marketCode, "buy_now");
+    const netCents = inv.hammerCents + inv.premiumCents;
+    track("view_item", {
+      item_id: listing.sku, listing_id: listing.id, item_name: listing.title, item_category: listing.category,
+      sale_type: "buy_now",
+      value: netCents / 100, currency: "EUR",
+      gross_total: inv.totalCents / 100, commission_value: inv.premiumCents / 100, vat_scheme: "standard",
+      ecommerce: {
+        currency: "EUR", value: netCents / 100,
+        items: [gaItem({
+          sku: listing.sku, listingId: listing.id, name: listing.title, category: listing.category,
+          netCents, hammerCents: inv.hammerCents, feeCents: inv.premiumCents,
+          vatRateBp: marketFees(listing.marketCode).vatRateBp, grossCents: inv.totalCents,
+          saleType: "buy_now",
+        })],
+      },
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listing.id]);
+
+  /** Параметры add_to_cart — одни и те же для гостя и для покупки сразу. */
+  const atcParams = () => {
+    const inv = computeInvoice(listing.priceCents, listing.marketCode, "buy_now");
+    const netCents = inv.hammerCents + inv.premiumCents;
+    const item = gaItem({
+      sku: listing.sku, listingId: listing.id, name: listing.title, category: listing.category,
+      netCents, hammerCents: inv.hammerCents, feeCents: inv.premiumCents,
+      vatRateBp: marketFees(listing.marketCode).vatRateBp, grossCents: inv.totalCents,
+      saleType: "buy_now",
+    });
+    return {
+      item_id: listing.sku, listing_id: listing.id, item_name: listing.title,
+      sale_type: "buy_now",
+      value: netCents / 100, currency: "EUR",
+      gross_total: inv.totalCents / 100,
+      commission_value: inv.premiumCents / 100,
+      vat_scheme: "standard",
+      cart_size: 1,
+      cart_gross_total: inv.totalCents / 100,
+      ecommerce: { currency: "EUR", value: netCents / 100, items: [item] },
+    };
+  };
+
+  /** Единственный путь покупки — через корзину, и для гостя, и для
+   *  вошедшего: лот откладывается на сервере, заказ родится в грозсе.
+   *  «Pirkt tagad» — то же добавление плюс переход сразу в грозс. */
+  const addToCart = async (goToCart: boolean) => {
     setBusy(true); setError(null);
     try {
-      await publicApi.post(`/api/public/listings/${listing.id}/buy`);
-      setConfirm(false);
-      say(t("buy.now"));
-      router.push("/account");
+      const r = await cartAdd(listing.id);
+      setInCart(true);
+      refreshCart();
+      // Один раз на лот: повторное нажатие и повторное открытие корзины
+      // второго AddToCart не рождают.
+      if (r.added) addToCartOnce(`listing:${listing.id}`, atcParams());
+      if (goToCart) {
+        router.push("/grozs");
+        return;
+      }
+      // Резерв стартует с добавления — человека сразу предупреждают,
+      // сколько у него времени на завершение заказа.
+      say(!r.added ? t("cart.inCart") : r.reservedUntil ? t("cart.added10") : t("cart.added"));
     } catch (err) {
-      if (err instanceof PublicApiError && err.body.code === "NOT_AVAILABLE") {
+      if (err instanceof PublicApiError && err.status === 409) {
         setSoldOut(true); setError(t("buy.soldOut"));
-      } else if (err instanceof PublicApiError && err.body.code === "BIDDER_BLOCKED") {
-        setError(t("buy.blocked"));
-      } else if (err instanceof PublicApiError && err.body.code === "EMAIL_NOT_VERIFIED") {
-        setError(t("lc.verifyFirst"));
-      } else if (err instanceof PublicApiError && err.body.code === "FEES_OUTSTANDING") {
-        setError(t("fees.blockedShort"));
       } else {
         setError(err instanceof Error ? err.message : "error");
       }
     } finally { setBusy(false); }
   };
 
+  const stock = listing.stock ?? listing.quantity;
   const shots = listing.photos.length ? listing.photos : new Array<string | null>(3).fill(null);
 
   return (
@@ -122,7 +178,7 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
 
           <div className="lacts">
             <button type="button" aria-haspopup="dialog" aria-label={t("bn.share")}
-                    onClick={() => openShare({ id: listing.id, sku: listing.sku, title: listing.title })}
+                    onClick={() => openShare({ id: listing.id, sku: listing.sku, title: listing.title, kind: "fixed" })}
             ><Icon name="share" /></button>
           </div>
 
@@ -137,13 +193,26 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
 
             {error && <p className="bb-status err">{error}</p>}
 
+            {/* Живой остаток: единицы минус чужие резервы. Больше одной —
+                говорим сколько; ноль при живом лоте — всё на оформлении. */}
+            {!soldOut && stock > 1 && <p className="note">{t("bn.stock", { n: stock })}</p>}
+
             {soldOut ? (
               <p className="bb-status warn">{t("buy.soldOut")}</p>
-            ) : signedIn ? (
-              <button className="btn btn-primary btn-lg btn-block" type="button" disabled={busy}
-                      aria-haspopup="dialog" onClick={() => setConfirm(true)}>{t("buy.now")}</button>
+            ) : stock === 0 ? (
+              <p className="bb-status warn">{t("cart.allReserved")}</p>
+            ) : inCart ? (
+              <Link className="btn btn-primary btn-lg btn-block" href="/grozs">{t("cart.open")}</Link>
             ) : (
-              <Link className="btn btn-primary btn-lg btn-block" href="/login">{t("buy.signin")}</Link>
+              /* Путь один для всех — через корзину, вход спросят при
+                 оформлении. «Pirkt tagad» = положить и сразу в грозс. */
+              <>
+                <button className="btn btn-primary btn-lg btn-block" type="button" disabled={busy}
+                        onClick={() => void addToCart(true)}>{t("buy.now")}</button>
+                <button className="btn btn-outline btn-lg btn-block" type="button" disabled={busy}
+                        style={{ marginTop: 8 }}
+                        onClick={() => void addToCart(false)}>{t("cart.add")}</button>
+              </>
             )}
 
             {!soldOut && listing.estimatedTotalCents ? (
@@ -157,48 +226,6 @@ export function BuyNow({ listing }: { listing: FixedListing }) {
         </div>
       </div>
 
-      {/* ═══ МОДАЛКА: ПОДТВЕРЖДЕНИЕ ПОКУПКИ ═══ */}
-      {confirm && (
-        <div className="modal" role="dialog" aria-modal="true" aria-labelledby="m-buy-t">
-          <div className="modal-bd" onClick={() => setConfirm(false)} />
-          <div className="modal-card">
-            <div className="modal-head">
-              <div>
-                <span className="kicker">{t("bn.confirmKicker")} · {listing.sku}</span>
-                <h3 id="m-buy-t">{listing.title}</h3>
-              </div>
-              <button className="modal-x" type="button" aria-label={t("nav.close")}
-                      onClick={() => setConfirm(false)}><Icon name="x" /></button>
-            </div>
-            <div className="sum">
-              <p className="sum-lab">{t("buy.price")}</p>
-              <p className="sum-amt tnum">{formatEur(listing.priceCents)}</p>
-              <p className="note">{t("buy.vatNote")}</p>
-            </div>
-            <table className="fees"><tbody>
-              <tr><th scope="row">{t("bn.item")}</th><td className="tnum">{formatEur(listing.priceCents)}</td></tr>
-              {listing.estimatedTotalCents ? (
-                <>
-                  <tr><th scope="row">{t("bn.vat")}</th>
-                    <td className="tnum">{formatEur(listing.estimatedTotalCents - listing.priceCents)}</td></tr>
-                  <tr className="tot"><th scope="row">{t("bn.total")}</th>
-                    <td className="tnum">{formatEur(listing.estimatedTotalCents)}</td></tr>
-                </>
-              ) : null}
-            </tbody></table>
-            {error && <p className="bb-status out">{error}</p>}
-            <button className="btn btn-primary btn-block" type="button" disabled={busy}
-                    onClick={() => void buy()}>
-              {busy ? t("bn.processing") : t("bn.buyAndPay")}
-            </button>
-            <button className="btn btn-outline btn-block" type="button" style={{ marginTop: 8 }}
-                    onClick={() => setConfirm(false)}>{t("bn.cancel")}</button>
-            <p className="note" style={{ textAlign: "center", marginTop: 12 }}>
-              {t("bn.noPremium")}
-            </p>
-          </div>
-        </div>
-      )}
     </section>
   );
 }

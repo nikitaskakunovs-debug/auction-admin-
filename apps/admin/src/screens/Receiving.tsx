@@ -48,6 +48,12 @@ interface Supplier {
   phone?: string;
   address?: string;
   bankAccount?: string;
+  contactName?: string;
+  lang?: string;
+  model?: string;
+  commissionBp?: number;
+  pendingBankAccount?: string | null;
+  portalLastLoginAt?: string | null;
   notes?: string;
   outstandingCents?: number;
   overdueCents?: number;
@@ -1387,6 +1393,10 @@ interface SupplierForm {
   notes: string;
   /** Finance-only fields — never sent by a caller without finance.view. */
   bankAccount: string;
+  contactName: string;
+  lang: string;
+  model: string;
+  commission: string;
   terms: string;
   active: boolean;
 }
@@ -1394,10 +1404,11 @@ interface SupplierForm {
 const emptySupplierForm: SupplierForm = {
   name: "", regNo: "", vatNo: "", email: "", phone: "", address: "", notes: "",
   bankAccount: "", terms: "", active: true,
+  contactName: "", lang: "lv", model: "buyout", commission: "",
 };
 
 /** Text fields the API accepts from any warehouse manager. */
-type SupplierTextKey = "name" | "regNo" | "vatNo" | "email" | "phone" | "address" | "notes" | "bankAccount";
+type SupplierTextKey = "name" | "regNo" | "vatNo" | "email" | "phone" | "address" | "notes" | "bankAccount" | "contactName";
 
 function SuppliersTab({ list, reload }: { list: Supplier[]; reload: () => void }) {
   const { can } = useAuth();
@@ -1432,12 +1443,40 @@ function SuppliersTab({ list, reload }: { list: Supplier[]; reload: () => void }
       bankAccount: s.bankAccount ?? "",
       terms: String(s.paymentTermsDays),
       active: s.active,
+      contactName: s.contactName ?? "",
+      lang: s.lang ?? "lv",
+      model: s.model ?? "buyout",
+      commission: s.commissionBp ? String(Math.round(s.commissionBp / 100)) : "",
     });
     setOpen(true);
   };
 
   const days = parseTermsDays(form.terms);
   const canSave = !busy && form.name.trim().length >= 2 && !(canMoney && days === "bad");
+
+  /** Приглашение в кабинет: письмо со ссылкой на установку пароля. */
+  const invite = async () => {
+    if (!editing) return;
+    try {
+      const r = await api.post<{ sentTo: string }>(`/api/suppliers/${editing.id}/invite`);
+      toast(`${t("rcv.sup.inviteSent")} ${r.sentTo}`, "ok");
+    } catch {
+      toast(t("rcv.sup.saveFailed"), "danger");
+    }
+  };
+
+  /** Подтверждение или отказ по заявленной смене банковского счёта. */
+  const decideBank = async (decision: "approve" | "reject") => {
+    if (!editing) return;
+    try {
+      await api.post(`/api/suppliers/${editing.id}/bank-change`, { decision });
+      toast(t("rcv.sup.saved"), "ok");
+      setOpen(false);
+      reload();
+    } catch {
+      toast(t("rcv.sup.saveFailed"), "danger");
+    }
+  };
 
   const save = async () => {
     if (!canSave) return;
@@ -1468,6 +1507,16 @@ function SuppliersTab({ list, reload }: { list: Supplier[]; reload: () => void }
     put("phone", editing?.phone);
     put("address", editing?.address);
     put("notes", editing?.notes);
+    put("contactName", editing?.contactName);
+    // Кабинет поставщика: язык переписки и модель работы.
+    if (!editing || form.lang !== (editing.lang ?? "lv")) body.lang = form.lang;
+    if (canMoney) {
+      if (!editing || form.model !== (editing.model ?? "buyout")) body.model = form.model;
+      const bp = form.model === "commission" ? Math.round(Number(form.commission) * 100) : 0;
+      if (Number.isFinite(bp) && bp >= 0 && bp <= 10_000 && (!editing || bp !== (editing.commissionBp ?? 0))) {
+        body.commissionBp = bp;
+      }
+    }
     if (canMoney) {
       put("bankAccount", editing?.bankAccount);
       if (typeof days === "number" && (!editing || days !== editing.paymentTermsDays)) body.paymentTermsDays = days;
@@ -1617,6 +1666,58 @@ function SuppliersTab({ list, reload }: { list: Supplier[]; reload: () => void }
                 <AField label={t("rcv.sup.bank")}>
                   <AInput value={form.bankAccount} onChange={(v) => setForm({ ...form, bankAccount: v })} placeholder="LV00 HABA 0000 0000 0000 0" />
                 </AField>
+                {/* Заявка на смену реквизитов из кабинета: платить по новому
+                    счёту можно только после подтверждения здесь. */}
+                {editing?.pendingBankAccount ? (
+                  <div style={{ display: "grid", gap: 8, padding: 12, border: `1px solid ${AT.danger}`, borderRadius: AT.radiusSm }}>
+                    <div style={{ fontFamily: AT.body, fontSize: 12.5, color: AT.ink }}>
+                      {t("rcv.sup.bankPending")}: <strong style={{ fontFamily: AT.mono }}>{editing.pendingBankAccount}</strong>
+                    </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <ABtn size="sm" onClick={() => void decideBank("approve")}>{t("rcv.sup.bankApprove")}</ABtn>
+                      <ABtn size="sm" kind="danger" onClick={() => void decideBank("reject")}>{t("rcv.sup.bankReject")}</ABtn>
+                    </div>
+                  </div>
+                ) : null}
+                <AField label={t("rcv.sup.model")}>
+                  <ASelect
+                    value={form.model}
+                    onChange={(v) => setForm({ ...form, model: v })}
+                    options={[
+                      { value: "buyout", label: t("rcv.sup.modelBuyout") },
+                      { value: "commission", label: t("rcv.sup.modelCommission") },
+                    ]}
+                  />
+                </AField>
+                {form.model === "commission" && (
+                  <AField label={t("rcv.sup.commission")} hint={t("rcv.sup.commissionHint")}>
+                    <AInput value={form.commission} onChange={(v) => setForm({ ...form, commission: v })} placeholder="25" />
+                  </AField>
+                )}
+              </div>
+            )}
+
+            {/* ── Кабинет поставщика ── */}
+            {editing && (
+              <div style={{ display: "grid", gap: 12, borderTop: `1px solid ${AT.ruleSoft}`, paddingTop: 14 }}>
+                <div style={{ fontFamily: AT.body, fontSize: 13, fontWeight: 700, color: AT.ink }}>{t("rcv.sup.portal")}</div>
+                <AField label={t("rcv.sup.contactName")}>
+                  <AInput value={form.contactName} onChange={(v) => setForm({ ...form, contactName: v })} />
+                </AField>
+                <AField label={t("rcv.sup.lang")}>
+                  <ASelect
+                    value={form.lang}
+                    onChange={(v) => setForm({ ...form, lang: v })}
+                    options={[{ value: "lv", label: "LV" }, { value: "ru", label: "RU" }, { value: "en", label: "EN" }]}
+                  />
+                </AField>
+                <div style={{ fontFamily: AT.body, fontSize: 11.5, color: AT.inkSoft }}>
+                  {editing.portalLastLoginAt ? `${t("rcv.sup.lastLogin")}: ${formatDate(editing.portalLastLoginAt)}` : t("rcv.sup.neverLoggedIn")}
+                </div>
+                <ABtn kind="soft" onClick={() => void invite()} disabled={!editing.email}>{t("rcv.sup.invite")}</ABtn>
+                {!editing.email ? (
+                  <div style={{ fontFamily: AT.body, fontSize: 11.5, color: AT.inkSoft }}>{t("rcv.sup.inviteNeedsEmail")}</div>
+                ) : null}
               </div>
             )}
           </div>

@@ -30,12 +30,21 @@ export interface Invoice {
   totalCents: number;
 }
 
-/** НДС считается на сумму молотка и комиссии — как в computeInvoice. */
-export function computeInvoice(hammerCents: number, market: string): Invoice {
-  const { buyerPremiumBp, vatRateBp } = marketFees(market);
-  const premiumCents = applyBasisPoints(hammerCents, buyerPremiumBp);
-  const vatCents = applyBasisPoints(hammerCents + premiumCents, vatRateBp);
-  return { hammerCents, premiumCents, vatCents, totalCents: hammerCents + premiumCents + vatCents };
+/** Цена — ФИНАЛЬНАЯ (комиссия и НДС внутри). Разложение вниз от суммы,
+ *  которую видит клиент, — та же арифметика, что в движке: net = gross/(1+НДС),
+ *  hammer = net/(1+комиссия), остатки — разностями, копейка в копейку.
+ *
+ *  `saleType: "buy_now"` убирает комиссию: у продажи по фиксированной цене
+ *  торгов не было, цены молотка не существует, и делить сумму надвое не на
+ *  чем. Движок считает так же (engine/purchase.ts). */
+export function computeInvoice(grossCents: number, market: string, saleType: "auction" | "buy_now" = "auction"): Invoice {
+  const { buyerPremiumBp: marketPremiumBp, vatRateBp } = marketFees(market);
+  const buyerPremiumBp = saleType === "buy_now" ? 0 : marketPremiumBp;
+  const netCents = Math.round((grossCents * 10_000) / (10_000 + vatRateBp));
+  const vatCents = grossCents - netCents;
+  const hammerCents = Math.round((netCents * 10_000) / (10_000 + buyerPremiumBp));
+  const premiumCents = netCents - hammerCents;
+  return { hammerCents, premiumCents, vatCents, totalCents: grossCents };
 }
 
 /** Шаг ставки движка (центы). */

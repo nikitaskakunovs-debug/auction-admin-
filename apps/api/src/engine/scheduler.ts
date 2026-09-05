@@ -1,9 +1,11 @@
-import { auctions, customers, items, markets, orders } from "@auction/db";
+import { auctions, customers, items, listings, markets, orders, payments } from "@auction/db";
 import { assertItemTransition, computeNoShowSettlement, type ItemStatus } from "@auction/domain";
 import { and, eq, gt, inArray, lte, sql } from "drizzle-orm";
 import { writeAudit, SYSTEM_ACTOR } from "../audit.js";
 import type { AppContext } from "../context.js";
 import { closeAuction, openAuction } from "./close.js";
+import { moveCredit } from "./credits.js";
+import { movePoints } from "./loyalty.js";
 import { recordFee } from "./fees.js";
 import { cancelNoShowDue, remindPickupDue } from "./noShow.js";
 import { dispatchNotifications, enqueueNotification, reminderDedupeKey } from "./notifications.js";
@@ -74,6 +76,17 @@ export class AuctionScheduler {
         await phase("pollShipments", () => this.pollShipments());
         // Phase E: pull Jira statuses + IT comments (every 5 min).
         await phase("syncBugs", () => this.syncBugs());
+        // Письма по просьбе: новые лоты под сохранённые поиски и вэлмес на
+        // исходе (раз в 30 минут — чаще некуда, письма всё равно суточные).
+        await phase("marketingCrons", () => this.marketingCrons());
+        // Ночной пакет роста (план v15): сводка интересов, RFM, сегменты,
+        // lifecycle-письма. Раз в сутки, ранним утром.
+        await phase("growthNightly", () => this.growthNightly());
+        // Кампании конструктора: раз в минуту смотрим, не пора ли слать.
+        await phase("campaigns", () => this.campaignsDue());
+        // Финансовые кроны (fin-architecture): clearing-окна, SLA возвратов,
+        // порог €10k EE+LT — раз в час.
+        await phase("finCrons", () => this.finCrons());
         // Drain the outbox last so this tick's enqueues go out promptly.
         await phase("dispatchNotifications", () => dispatchNotifications(this.ctx));
       } finally {
@@ -114,6 +127,73 @@ export class AuctionScheduler {
     }
   }
 
+  /** Кроны запрошенных писем, раз в 30 минут (Redis-маркер). */
+  private async marketingCrons(): Promise<void> {
+    const marker = await this.ctx.redis.set("marketing:crons", "1", "PX", 30 * 60 * 1000, "NX");
+    if (marker !== "OK") return;
+    const { runSavedSearchAlerts, runWatchlistEndingAlerts } = await import("./marketingCrons.js");
+    await runSavedSearchAlerts(this.ctx).catch((err) => console.error("saved search alerts failed", err));
+    await runWatchlistEndingAlerts(this.ctx).catch((err) => console.error("watchlist alerts failed", err));
+  }
+
+  /** Ночной пересчёт роста: раз в сутки, между 01:00 и 06:00 UTC (03:00–08:00
+   *  по Риге) — статистика ночная, письма всё равно задержит тишина. */
+  private async growthNightly(): Promise<void> {
+    const hour = this.ctx.now().getUTCHours();
+    if (hour < 1 || hour >= 6) return;
+    const day = this.ctx.now().toISOString().slice(0, 10);
+    const marker = await this.ctx.redis.set(`growth:${day}`, "1", "PX", 26 * 3600 * 1000, "NX");
+    if (marker !== "OK") return;
+    const { runNightlyGrowth } = await import("./growth.js");
+    await runNightlyGrowth(this.ctx).catch((err) => console.error("nightly growth failed", err));
+  }
+
+  /** Кампании со scheduledAt в прошлом — раз в минуту. */
+  private async campaignsDue(): Promise<void> {
+    const marker = await this.ctx.redis.set("campaigns:due", "1", "PX", 60 * 1000, "NX");
+    if (marker !== "OK") return;
+    const { dispatchCampaigns } = await import("./growth.js");
+    await dispatchCampaigns(this.ctx).catch((err) => console.error("campaign dispatch failed", err));
+    // §6.1: окно «торги в последних часах» узкое — проверяем тем же маркером
+    // раз в 30 минут, а не ночью.
+    const abMarker = await this.ctx.redis.set("growth:abandoned", "1", "PX", 30 * 60 * 1000, "NX");
+    if (abMarker === "OK") {
+      const { runAbandonedBidNudges } = await import("./growth.js");
+      await runAbandonedBidNudges(this.ctx).catch((err) => console.error("abandoned-bid nudges failed", err));
+      // BN-1/BN-2: корзина и снижение цены живут в тех же часах, что и лоты
+      // на исходе, — ночного прогона такие поводы не переживут.
+      const { runCartReminders, runPriceDropNotices } = await import("./buyNowNudges.js");
+      await runCartReminders(this.ctx).catch((err) => console.error("cart reminders failed", err));
+      await runPriceDropNotices(this.ctx).catch((err) => console.error("price-drop notices failed", err));
+    }
+  }
+
+  /** Финансовые контрольные кроны — раз в час (Redis-маркер). */
+  private async finCrons(): Promise<void> {
+    const marker = await this.ctx.redis.set("fin:crons", "1", "PX", 60 * 60 * 1000, "NX");
+    if (marker !== "OK") return;
+    const { runFinCrons } = await import("./finFlags.js");
+    await runFinCrons(this.ctx);
+    // Сгорание баллов — раз в сутки, свой маркер поверх часового.
+    const day = this.ctx.now().toISOString().slice(0, 10);
+    const expiryMarker = await this.ctx.redis.set(`fin:expiry:${day}`, "1", "PX", 26 * 3600 * 1000, "NX");
+    if (expiryMarker === "OK") {
+      // Месячный пакет поставщикам (сводка, комиссионный расчёт, остатки).
+      const { closeExpiredDiscrepancies, runSupplierMonthly, runSupplierUnsold } = await import("./supplierMail.js");
+      await runSupplierMonthly(this.ctx).catch((err) => console.error("supplier monthly failed", err));
+      await runSupplierUnsold(this.ctx).catch((err) => console.error("supplier unsold failed", err));
+      await closeExpiredDiscrepancies(this.ctx).catch((err) => console.error("discrepancy close failed", err));
+      // Плата за хранение: раз в сутки, тем же дневным маркером.
+      const { runStorageFees } = await import("./storage.js");
+      await runStorageFees(this.ctx).catch((err) => console.error("storage fees failed", err));
+      const { runPointsExpiry, runPointsExpiryWarnings } = await import("./loyaltyExpiry.js");
+      // Сначала предупреждаем, потом сжигаем: письмо «сгорит через 30 дней»
+      // должно уйти раньше, чем баллы действительно исчезнут.
+      await runPointsExpiryWarnings(this.ctx).catch((err) => console.error("points expiry warnings failed", err));
+      await runPointsExpiry(this.ctx).catch((err) => console.error("points expiry failed", err));
+    }
+  }
+
   /** Jira → panel sync, guarded by a 5-minute Redis marker. */
   private async syncBugs(): Promise<void> {
     if (!this.ctx.jira) return;
@@ -150,8 +230,14 @@ export class AuctionScheduler {
     const now = this.ctx.now();
     const windowEnd = new Date(now.getTime() + this.ctx.config.paymentReminderLeadHours * 3_600_000);
     const due = await this.ctx.db
-      .select({ id: orders.id, ref: orders.ref, customerId: orders.customerId, totalCents: orders.totalCents, deadline: orders.paymentDeadlineAt })
+      .select({
+        id: orders.id, ref: orders.ref, customerId: orders.customerId,
+        totalCents: orders.totalCents, deadline: orders.paymentDeadlineAt,
+        listingType: listings.type, restockFeeBp: markets.restockFeeBp,
+      })
       .from(orders)
+      .innerJoin(listings, eq(listings.id, orders.listingId))
+      .leftJoin(markets, eq(markets.code, orders.marketCode))
       .where(
         and(
           eq(orders.status, "awaiting_payment"),
@@ -170,6 +256,11 @@ export class AuctionScheduler {
           totalCents: o.totalCents,
           deadline: o.deadline ?? undefined,
           payUrl: buildPayUrl(this.ctx, o.ref, o.deadline),
+          // Напоминание тоже обязано называть верное последствие: у лота —
+          // комиссия, у товара с ценником — возврат в продажу без штрафа.
+          ...(o.listingType === "fixed"
+            ? { saleType: "buy_now" as const }
+            : { saleType: "auction" as const, restockPercent: Math.round((o.restockFeeBp ?? 500) / 100) }),
         },
         dedupeKey: reminderDedupeKey(o.id),
       });
@@ -180,13 +271,40 @@ export class AuctionScheduler {
    * Unpaid-winner handling: deadline passed → cancel order + strike + an
    * OUTSTANDING restock fee (we hold no funds to deduct from, so the fee is
    * a claim that blocks bidding/buying until settled or waived).
+   *
+   * Исключение — рассрочка. Решение Inbank идёт часами: одобрение, затем
+   * подписание договора. Человек, подавший заявку перед самым сроком, ничего
+   * не нарушил, и отменить его заказ ночью — значит выдать страйк и комиссию
+   * за возврат ни за что, а наутро получить деньги по отменённому заказу.
+   * Пока заявка жива, заказ не трогаем; после отказа срок продлевается ровно
+   * на время рассмотрения (см. resumeDeadlineAfterBnpl).
+   *
+   * Держит заявка не вечно: брошенная сессия старше bnpl_pending_max_days
+   * заказ больше не защищает — иначе лот заморозится навсегда.
    */
   private async cancelUnpaidDue(): Promise<void> {
     const now = this.ctx.now();
+    const { getFinSettings } = await import("./finSettings.js");
+    const finSettings = await getFinSettings(this.ctx);
+    const bnplFloor = new Date(now.getTime() - finSettings.bnpl_pending_max_days * 86_400_000);
     const due = await this.ctx.db
       .select({ id: orders.id })
       .from(orders)
-      .where(and(eq(orders.status, "awaiting_payment"), lte(orders.paymentDeadlineAt, now)));
+      .where(
+        and(
+          eq(orders.status, "awaiting_payment"),
+          lte(orders.paymentDeadlineAt, now),
+          // group_order_ids — jsonb-массив строк (один платёж закрывает
+          // несколько заказов), поэтому проверка вхождения через @>, а не any().
+          sql`not exists (
+            select 1 from payments p
+            where p.provider = 'inbank'
+              and p.status = 'created'
+              and p.created_at > ${bnplFloor}
+              and (p.order_id = ${orders.id} or p.group_order_ids @> to_jsonb(${orders.id}))
+          )`,
+        ),
+      );
     for (const o of due) {
       await this.ctx.db.transaction(async (tx) => {
         const [order] = await tx.select().from(orders).where(eq(orders.id, o.id)).for("update");
@@ -195,30 +313,68 @@ export class AuctionScheduler {
 
         assertItemTransition(item!.status as ItemStatus, "unpaid_cancelled");
         const [market] = await tx.select().from(markets).where(eq(markets.code, order.marketCode));
-        const feeCents = computeNoShowSettlement(order.totalCents, market?.restockFeeBp ?? 500).feeCents;
+        // Комиссия и страйк — за нарушенное обязательство. Ставка на торгах
+        // им является: человек торговался, выиграл и обязан выкупить. Нажать
+        // «Купить» и не оплатить — это брошенная корзина, а не нарушение:
+        // товар просто возвращается в продажу, и мы ничего не теряем.
+        // Наказывать за это значит отучить людей нажимать кнопку.
+        const [listing] = await tx.select({ type: listings.type }).from(listings).where(eq(listings.id, order.listingId));
+        const fromAuction = listing?.type !== "fixed";
+        const feeCents = fromAuction
+          ? computeNoShowSettlement(order.totalCents, market?.restockFeeBp ?? 500).feeCents
+          : 0;
         await tx
           .update(orders)
           .set({ status: "cancelled", cancelledAt: now, cancelReason: "unpaid", restockFeeCents: feeCents })
           .where(eq(orders.id, order.id));
         await tx.update(items).set({ status: "unpaid_cancelled", updatedAt: now }).where(eq(items.id, item!.id));
-        await tx
-          .update(customers)
-          .set({ strikes: sql`${customers.strikes} + 1` })
-          .where(eq(customers.id, order.customerId));
-        await recordFee(tx, {
-          customerId: order.customerId,
-          orderId: order.id,
-          orderRef: order.ref,
-          type: "unpaid_restock",
-          amountCents: feeCents,
-          status: "outstanding",
-          note: "auto: payment deadline passed",
-          now,
-        });
+        // Зачтённый аванс не сгорает вместе с заказом — возвращается на счёт.
+        if (order.creditAppliedCents > 0) {
+          await moveCredit(tx, order.customerId, {
+            kind: "refund_to_credit",
+            amountCents: order.creditAppliedCents,
+            orderRef: order.ref,
+            note: "pasūtījums atcelts — avanss atgriezts",
+          }, now);
+          await tx.update(orders).set({ creditAppliedCents: 0 }).where(eq(orders.id, order.id));
+        }
+        // Списанные баллы — тоже: отменённый заказ их не съедает.
+        if (order.pointsAppliedCents > 0) {
+          await movePoints(tx, order.customerId, {
+            reason: "manual",
+            amountCents: order.pointsAppliedCents,
+            orderRef: order.ref,
+            note: "pasūtījums atcelts — punkti atgriezti",
+          }, now);
+          await tx.update(orders).set({ pointsAppliedCents: 0 }).where(eq(orders.id, order.id));
+        }
+        if (fromAuction) {
+          await tx
+            .update(customers)
+            .set({ strikes: sql`${customers.strikes} + 1` })
+            .where(eq(customers.id, order.customerId));
+          await recordFee(tx, {
+            customerId: order.customerId,
+            orderId: order.id,
+            orderRef: order.ref,
+            type: "unpaid_restock",
+            amountCents: feeCents,
+            status: "outstanding",
+            note: "auto: payment deadline passed",
+            now,
+          });
+        }
         await enqueueNotification(this.ctx, tx, {
           customerId: order.customerId,
           type: "unpaid_cancelled",
-          template: { alias: "", lotTitle: "", orderRef: order.ref, feeCents },
+          template: {
+            alias: "",
+            lotTitle: "",
+            orderRef: order.ref,
+            feeCents,
+            saleType: fromAuction ? "auction" : "buy_now",
+            ...(fromAuction ? { restockPercent: Math.round((market?.restockFeeBp ?? 500) / 100) } : {}),
+          },
           dedupeKey: `unpaid_cancelled:${order.id}`,
         });
         await writeAudit(tx, SYSTEM_ACTOR, "order", "auto_cancelled_unpaid", order.ref, {

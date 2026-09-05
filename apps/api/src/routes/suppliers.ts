@@ -5,6 +5,9 @@ import { z } from "zod";
 import { writeAudit } from "../audit.js";
 import { requirePermission, type PermissionService } from "../auth/rbac.js";
 import type { AppContext } from "../context.js";
+import { applySupplierDefaults, routeInvoiceApproval } from "../engine/approvals.js";
+import { notifyPaymentSent, sendSupplierInvite } from "../engine/supplierMail.js";
+import { createHash, randomBytes } from "node:crypto";
 
 const actor = (req: { admin?: { sub: string; name: string } }) => ({
   id: req.admin?.sub ?? null,
@@ -211,6 +214,12 @@ export function registerSupplierRoutes(app: FastifyInstance, ctx: AppContext, pe
     /** Commercial — finance.view only (same rule as costCents in receiving). */
     paymentTermsDays: z.number().int().min(0).max(365).optional(),
     bankAccount: z.string().max(64).optional(),
+    /** Кабинет поставщика: к кому обращаемся, на каком языке и по какой
+     *  модели работаем (выкуп или комиссия). */
+    contactName: z.string().max(120).optional(),
+    lang: z.enum(["lv", "ru", "en"]).optional(),
+    model: z.enum(["buyout", "commission"]).optional(),
+    commissionBp: z.number().int().min(0).max(10_000).optional(),
   });
 
   /** Terms and bank details are money data: refuse them from callers who are
@@ -264,6 +273,10 @@ export function registerSupplierRoutes(app: FastifyInstance, ctx: AppContext, pe
     if (d.notes !== undefined) set.notes = d.notes;
     if (d.paymentTermsDays !== undefined) set.paymentTermsDays = d.paymentTermsDays;
     if (d.bankAccount !== undefined) set.bankAccount = d.bankAccount;
+    if (d.contactName !== undefined) set.contactName = d.contactName;
+    if (d.lang !== undefined) set.lang = d.lang;
+    if (d.model !== undefined) set.model = d.model;
+    if (d.commissionBp !== undefined) set.commissionBp = d.commissionBp;
     if (d.active !== undefined) set.active = d.active;
 
     if (set.name !== undefined) {
@@ -406,6 +419,12 @@ export function registerSupplierRoutes(app: FastifyInstance, ctx: AppContext, pe
     dueDate: z.coerce.date().optional(),
     amountCents: z.number().int().min(0).max(1_000_000_000),
     note: z.string().max(2000).optional(),
+    /** Approval-слой (10.2): пусто — наследуется из карточки поставщика. */
+    department: z.string().max(64).optional(),
+    category: z.string().max(64).optional(),
+    legalEntity: z.string().max(8).optional(),
+    /** «Запомнить как правило» — записать отдел/категорию поставщику. */
+    saveAsDefaults: z.boolean().default(false),
   });
 
   app.post("/api/supplier-invoices", guard("finance.view"), async (req, reply) => {
@@ -438,6 +457,24 @@ export function registerSupplierRoutes(app: FastifyInstance, ctx: AppContext, pe
 
     // No due date on the paperwork → this supplier's agreed terms.
     const dueDate = d.dueDate ?? new Date(d.invoiceDate.getTime() + supplier.paymentTermsDays * DAY_MS);
+    // Vendor auto-mapping (10.2): пустые поля наследуются из карточки
+    // поставщика; «saveAsDefaults» пишет их обратно как правило.
+    const mapped = await applySupplierDefaults(ctx.db, supplier.id, {
+      department: d.department ?? null,
+      category: d.category ?? null,
+      legalEntity: d.legalEntity ?? null,
+    });
+    if (d.saveAsDefaults) {
+      await ctx.db
+        .update(suppliers)
+        .set({
+          defaultDepartment: mapped.department,
+          defaultCategory: mapped.category,
+          defaultLegalEntity: mapped.legalEntity,
+          updatedAt: ctx.now(),
+        })
+        .where(eq(suppliers.id, supplier.id));
+    }
     const [created] = await ctx.db
       .insert(supplierInvoices)
       .values({
@@ -449,6 +486,10 @@ export function registerSupplierRoutes(app: FastifyInstance, ctx: AppContext, pe
         amountCents: d.amountCents,
         status: deriveStatus(d.amountCents, 0),
         note: d.note ?? "",
+        department: mapped.department,
+        category: mapped.category,
+        legalEntity: mapped.legalEntity,
+        approvalStatus: "pending",
         createdById: req.admin!.sub,
       })
       .returning();
@@ -457,6 +498,9 @@ export function registerSupplierRoutes(app: FastifyInstance, ctx: AppContext, pe
       invoice: created!.number,
       consignment: consignment?.ref ?? null,
     });
+    // Маршрутизация по approval_rules: auto-порог проводится сразу, остальное
+    // встаёт в очередь и шлёт карточку в Telegram.
+    await routeInvoiceApproval(ctx, created!.id, actor(req));
     return { invoice: shapeInvoice(await loadInvoice(created!.id) as InvoiceQueryRow, ctx.now()) };
   });
 
@@ -549,6 +593,10 @@ export function registerSupplierRoutes(app: FastifyInstance, ctx: AppContext, pe
       const [inv] = await tx.select().from(supplierInvoices).where(eq(supplierInvoices.id, id)).for("update");
       if (!inv) return { kind: "not_found" as const };
       if (inv.status === "cancelled") return { kind: "cancelled" as const };
+      // Approval-слой (10.3): платить можно только по одобренному счёту —
+      // pending ждёт подписи (dual — двух), rejected не платится вовсе.
+      if (inv.approvalStatus === "pending" || inv.approvalStatus === "rejected")
+        return { kind: "not_approved" as const, approvalStatus: inv.approvalStatus };
       const [sum] = await tx
         .select({ paid: sql<string>`coalesce(sum(${supplierPayments.amountCents}), 0)` })
         .from(supplierPayments)
@@ -586,12 +634,71 @@ export function registerSupplierRoutes(app: FastifyInstance, ctx: AppContext, pe
     });
     if (result.kind === "not_found") return reply.code(404).send({ error: "not_found" });
     if (result.kind === "cancelled") return reply.code(409).send({ error: "invoice_cancelled" });
+    if (result.kind === "not_approved")
+      return reply.code(409).send({ error: "invoice_not_approved", approvalStatus: result.approvalStatus });
     if (result.kind === "exceeds")
       return reply.code(422).send({ error: "exceeds_outstanding", outstandingCents: result.outstandingCents });
+    // Письмо S7: деньги ушли — поставщик узнаёт сумму и референс сразу.
+    await notifyPaymentSent(ctx, result.payment.id).catch((err) => req.log?.error({ err }, "supplier payment mail failed"));
     return {
       invoice: shapeInvoice((await loadInvoice(id)) as InvoiceQueryRow, ctx.now()),
       payment: result.payment,
     };
+  });
+
+  // ── Кабинет поставщика: приглашение и защита реквизитов ─────────────────
+
+  /**
+   * Пригласить поставщика в кабинет (письмо S1). Ссылка одноразовая и живёт
+   * ограниченное число дней; повторный вызов выдаёт новую и гасит прежнюю.
+   */
+  app.post("/api/suppliers/:id/invite", guard("finance.view"), async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const days = 7;
+    const [sup] = await ctx.db.select().from(suppliers).where(eq(suppliers.id, id));
+    if (!sup) return reply.code(404).send({ error: "not_found" });
+    if (!sup.email.trim()) return reply.code(422).send({ error: "email_required" });
+    const token = randomBytes(32).toString("base64url");
+    await ctx.db
+      .update(suppliers)
+      .set({
+        inviteTokenHash: createHash("sha256").update(token).digest("hex"),
+        inviteExpiresAt: new Date(ctx.now().getTime() + days * DAY_MS),
+        updatedAt: ctx.now(),
+      })
+      .where(eq(suppliers.id, id));
+    await sendSupplierInvite(ctx, {
+      supplierId: id,
+      inviteUrl: `${ctx.config.supplierPortalUrl}/piegadatajs/parole?token=${token}`,
+      days,
+    });
+    await writeAudit(ctx.db, actor(req), "finance", "supplier_invited", sup.name, { days });
+    return { ok: true, sentTo: sup.email };
+  });
+
+  /**
+   * Подтвердить или отклонить смену банковского счёта, заявленную из
+   * кабинета. До подтверждения платить по новому IBAN нельзя — это защита
+   * от классической подмены реквизитов.
+   */
+  app.post("/api/suppliers/:id/bank-change", guard("finance.view"), async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = z.object({ decision: z.enum(["approve", "reject"]) }).safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid_body" });
+    const [sup] = await ctx.db.select().from(suppliers).where(eq(suppliers.id, id));
+    if (!sup?.pendingBankAccount) return reply.code(409).send({ error: "no_pending_change" });
+    const approved = body.data.decision === "approve";
+    await ctx.db
+      .update(suppliers)
+      .set({
+        ...(approved ? { bankAccount: sup.pendingBankAccount } : {}),
+        pendingBankAccount: null,
+        pendingBankRequestedAt: null,
+        updatedAt: ctx.now(),
+      })
+      .where(eq(suppliers.id, id));
+    await writeAudit(ctx.db, actor(req), "finance", approved ? "supplier_bank_change_approved" : "supplier_bank_change_rejected", sup.name, {});
+    return { ok: true, bankAccount: approved ? sup.pendingBankAccount : sup.bankAccount };
   });
 
   /** Mistyped a payment? Remove it and let the status fall back. */
