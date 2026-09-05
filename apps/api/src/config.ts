@@ -42,7 +42,7 @@ export interface ApiConfig {
   viesMode: "live" | "simulate";
   /** Email transport: console (dev) or smtp (any relay / self-hosted sender). */
   emailMode: "console" | "smtp";
-  smtp: { host: string; port: number; secure: boolean; user: string; pass: string; from: string } | null;
+  smtp: { host: string; port: number; secure: boolean; user: string; pass: string; from: string; replyTo: string } | null;
   /** Honor X-Forwarded-For — MUST be on behind Caddy/nginx, off when exposed directly. */
   trustProxy: boolean;
   /** Hours before the payment deadline to send the unpaid-winner reminder. */
@@ -199,6 +199,8 @@ export interface ApiConfig {
   } | null;
   /** Shared secret for the inbound Jira webhook; null disables the endpoint. */
   jiraWebhookSecret: string | null;
+  /** Секрет для вебхука отказов почты (Resend или SES через SNS). */
+  emailWebhookSecret: string | null;
   /**
    * Slack mirroring (Phase S1). "off" posts nothing; "live" uses a bot token
    * (chat:write + chat:write.public); "simulate" is the in-memory test driver.
@@ -335,6 +337,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
             user: env.SMTP_USER ?? "",
             pass: env.SMTP_PASS ?? "",
             from: env.EMAIL_FROM ?? "",
+            // По умолчанию — публичный адрес компании: он же стоит в счетах и
+            // в подвале писем, туда человек и ждёт, что попадёт его ответ.
+            replyTo: env.EMAIL_REPLY_TO ?? env.COMPANY_EMAIL ?? "info@izsoli.lv",
           }
         : null,
     // Behind the bundled Caddy proxy in production; direct exposure in dev.
@@ -439,6 +444,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     dpdMode,
     jiraMode,
     jiraWebhookSecret: env.JIRA_WEBHOOK_SECRET ?? null,
+    emailWebhookSecret: env.EMAIL_WEBHOOK_SECRET ?? null,
     slackMode,
     slack:
       slackMode === "off"

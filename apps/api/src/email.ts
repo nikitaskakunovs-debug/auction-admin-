@@ -63,6 +63,15 @@ export interface SmtpConfig {
   pass: string;
   /** e.g. "Izsoli.lv <noreply@izsoli.lv>" */
   from: string;
+  /**
+   * Живой ящик, куда попадёт ответ человека.
+   *
+   * Письма уходят с noreply-адреса — так принято, и он защищён от автоответов.
+   * Но человек, получивший «товар готов к выдаче», нажимает «Ответить», а не
+   * ищет контакты на сайте. Без этого заголовка его вопрос уходит в никуда, и
+   * он уверен, что написал нам.
+   */
+  replyTo?: string;
 }
 
 export class SmtpEmailAdapter implements EmailAdapter {
@@ -96,6 +105,9 @@ export class SmtpEmailAdapter implements EmailAdapter {
       text: msg.text,
       ...(msg.html ? { html: msg.html } : {}),
       ...(msg.headers ? { headers: msg.headers } : {}),
+      // Отправитель — noreply, отвечать надо в живой ящик. Заголовок ставится
+      // здесь, а не в каждом вызове: забыть его в одном месте нельзя.
+      ...(this.cfg.replyTo ? { replyTo: this.cfg.replyTo } : {}),
     });
   }
 }
