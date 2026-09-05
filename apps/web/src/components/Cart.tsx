@@ -20,8 +20,9 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { publicApi, PublicApiError } from "@/lib/api";
 import { cartCheckout, cartCheckoutStart, cartList, cartPromoCheck, cartRemove, myPromoCodes, setCartCount, setCartItemsCount, type CartItem, type CartView, type MyPromoCode } from "@/lib/cart";
-import { useT } from "@/lib/i18n";
+import { dateLocale, useT } from "@/lib/i18n";
 import { loginHref } from "@/lib/nav";
+import { usePerks } from "@/lib/perks";
 import { addToCartOnce, adsUserData, beginCheckoutOnce, gaItem, markBeginCheckout, orderEcom, saleTypeOf, track } from "@/lib/track";
 import { formatEur, type MyOrder } from "@/lib/types";
 import { Ph } from "./Ph";
@@ -87,6 +88,7 @@ export function Cart() {
   const [promoErr, setPromoErr] = useState<string | null>(null);
   const [promoBusy, setPromoBusy] = useState(false);
   const [myCodes, setMyCodes] = useState<MyPromoCode[]>([]);
+  const perks = usePerks();
 
   useEffect(() => {
     if (!publicApi.hasSession) return;
@@ -382,6 +384,17 @@ export function Cart() {
           <span className="ic" aria-hidden="true"><Ph name="package" size={22} /></span>
           <h3>{signedIn ? t("cart.emptyT") : t("cart.emptyG")}</h3>
           <p>{signedIn ? t("cart.emptyD") : t("cart.emptyGD")}</p>
+          {/* Пустая корзина — лучший момент напомнить о коде за регистрацию:
+              человек уже здесь, а купить ещё ничего не решил. */}
+          {signedIn && perks.welcome && (
+            <p className="perk-inline">
+              <Ph name="gift" size={16} />
+              {t("perk.cartEmptyHint", {
+                n: perks.welcome.value, code: perks.welcome.code,
+                d: perks.welcome.validTo ? new Date(perks.welcome.validTo).toLocaleDateString(dateLocale(lang)) : "",
+              })}
+            </p>
+          )}
           <Link className="btn btn-primary" href="/katalogs?type=fixed">{t("kb.findLots")}</Link>
         </div>
       ) : (

@@ -5,12 +5,14 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { publicApi } from "@/lib/api";
 import { captureAttribution, submitAttribution } from "@/lib/attr";
-import { useT } from "@/lib/i18n";
+import { dateLocale, useT } from "@/lib/i18n";
 import type { Country } from "@/lib/country";
 import { alertStore, useRail, useReveal } from "@/lib/ui";
-import { cartStore } from "@/lib/cart";
+import { cartStore, type MyPromoCode } from "@/lib/cart";
 import { loginHref } from "@/lib/nav";
+import { copyText, usePerks } from "@/lib/perks";
 import { trackPageView } from "@/lib/track";
+import { formatEur } from "@/lib/types";
 import { watchStore } from "@/lib/watch";
 import { markAlertsSeen, relTime, type MyNotification } from "./account/data";
 import { CatalogMenu } from "./CatalogMenu";
@@ -18,6 +20,7 @@ import { Ph } from "./Ph";
 import { COUNTRY_LABEL, LANG_NAME, RegionMenu } from "./RegionMenu";
 import { SearchOverlay } from "./SearchOverlay";
 import { Icon } from "./Icon";
+import { say } from "./Toast";
 
 /** Категории макета. Коды — из движка (CATEGORY_CODES), первые три пункта
  *  это срезы каталога, а не категории: так было в утверждённом макете. */
@@ -47,6 +50,9 @@ export function Chrome({ country = "LV" }: { country?: Country }) {
   const [menu, setMenu] = useState(false);
   const rail = useRail<HTMLDivElement>();
   const path = usePathname();
+  // Неиспользованный код за регистрацию держит «1» на колокольчике, пока
+  // человек его не потратит: подарок, о котором не напоминают, — не подарок.
+  const perks = usePerks();
 
   useReveal();
 
@@ -173,7 +179,7 @@ export function Chrome({ country = "LV" }: { country?: Country }) {
 
           <div className="head-act">
             {signedIn ? (
-              <BellMenu alerts={alerts} />
+              <BellMenu alerts={alerts + (perks.welcome ? 1 : 0)} welcome={perks.welcome} />
             ) : (
               <Link className="icon-link" href="/account?tab=bridinajumi">
                 <Icon name="bell" size={22} />{t("nav.alerts")}
@@ -262,8 +268,8 @@ export function Chrome({ country = "LV" }: { country?: Country }) {
 
 /** Выпадающее меню уведомлений в шапке (макет № 11). Список подтягивается
  *  при открытии — шапка не делает лишних запросов на каждой странице. */
-function BellMenu({ alerts }: { alerts: number }) {
-  const { t } = useT();
+function BellMenu({ alerts, welcome }: { alerts: number; welcome: MyPromoCode | null }) {
+  const { t, lang } = useT();
   const [open, setOpen] = useState(false);
   const [rows, setRows] = useState<MyNotification[] | null>(null);
 
@@ -299,6 +305,18 @@ function BellMenu({ alerts }: { alerts: number }) {
           <div className="dd-h">
             <b>{t("nav.alerts")}</b>
           </div>
+          {/* Закреплённая первая строка: код за регистрацию. Не уведомление из
+              базы, а живое состояние — исчезает сама, когда код потрачен. */}
+          {welcome && (
+            <button className="dd-row perk" type="button" role="menuitem"
+                    onClick={() => { void copyText(welcome.code).then((ok) => say(ok ? t("perk.codeCopied") : welcome.code)); }}>
+              <span className="ic" aria-hidden="true"><Ph name="gift" size={14} /></span>
+              <span className="t">
+                <b>{t("perk.alertTitle", { n: welcome.value })}</b>
+                <small>{t("perk.alertBody", { code: welcome.code, d: welcome.validTo ? new Date(welcome.validTo).toLocaleDateString(dateLocale(lang)) : "" })}</small>
+              </span>
+            </button>
+          )}
           {(rows ?? []).slice(0, 4).map((n) => (
             <div className="dd-row" key={n.id}>
               <span className="ic" aria-hidden="true">
@@ -311,7 +329,7 @@ function BellMenu({ alerts }: { alerts: number }) {
               <small className="when">{relTime(n.createdAt, t)}</small>
             </div>
           ))}
-          {rows !== null && rows.length === 0 && <p className="dd-empty">{t("kb.emptyAlertsT")}</p>}
+          {rows !== null && rows.length === 0 && !welcome && <p className="dd-empty">{t("kb.emptyAlertsT")}</p>}
           <Link className="dd-all" href="/account?tab=bridinajumi" onClick={() => setOpen(false)}>
             {t("kb.allAlerts")}
           </Link>
@@ -323,7 +341,8 @@ function BellMenu({ alerts }: { alerts: number }) {
 
 /** Меню аккаунта в шапке (макет № 11): разделы кабинета со счётчиками. */
 function UserMenu() {
-  const { t } = useT();
+  const { t, lang } = useT();
+  const perks = usePerks();
   const [open, setOpen] = useState(false);
   const [me, setMe] = useState<{ alias: string; email: string } | null>(null);
   const [counts, setCounts] = useState<{ bids: number; orders: number; pickup: number } | null>(null);
@@ -370,8 +389,10 @@ function UserMenu() {
     ["velmes", "nav.watchlist", watchStore.list().length],
     ["bridinajumi", "nav.alerts", 0],
     ["iznemsana", "ac.pickup", counts?.pickup ?? 0],
+    ["draugi", "ref.tab", 0],
     ["iestatijumi", "ac.settings", 0],
   ];
+  const refTotal = perks.referral ? perks.referral.rewards.signupCents + perks.referral.rewards.orderCents : 0;
 
   return (
     <span className="ddwrap">
@@ -385,10 +406,24 @@ function UserMenu() {
             <b>{me?.alias ?? ""}</b>
             <small>{me?.email ?? ""}</small>
           </div>
+          {/* Подарок за регистрацию — первой строкой, пока не потрачен.
+              Нажатие копирует код: в корзине его останется вставить. */}
+          {perks.welcome && (
+            <button className="dd-perk" type="button" role="menuitem"
+                    onClick={() => { void copyText(perks.welcome!.code).then((ok) => say(ok ? t("perk.codeCopied") : perks.welcome!.code)); }}>
+              <span className="ic" aria-hidden="true"><Ph name="gift" size={15} /></span>
+              <span className="t">
+                <b>{t("perk.menuCode", { n: perks.welcome.value, code: perks.welcome.code })}</b>
+                <small>{t("perk.menuCodeSub", { d: perks.welcome.validTo ? new Date(perks.welcome.validTo).toLocaleDateString(dateLocale(lang)) : "" })}</small>
+              </span>
+            </button>
+          )}
           {rows.map(([tab, key, n]) => (
-            <Link className="dd-nav" key={tab} role="menuitem" onClick={() => setOpen(false)}
+            <Link className={`dd-nav${tab === "draugi" ? " dd-ref" : ""}`} key={tab} role="menuitem" onClick={() => setOpen(false)}
                   href={tab === "parskats" ? "/account" : `/account?tab=${tab}`}>
-              <span>{t(key)}</span>
+              {/* «Пригласи друга» — с суммой, как у Vinted: строка меню
+                  сама объясняет, зачем на неё нажимать. */}
+              <span>{tab === "draugi" && refTotal > 0 ? t("ref.menu", { s: formatEur(refTotal) }) : t(key)}</span>
               {n > 0 && <span className="n">{n}</span>}
             </Link>
           ))}

@@ -6,6 +6,7 @@ import { BidHistory } from "@/components/account/BidHistory";
 import { Console } from "@/components/account/Console";
 import { relTime, useAccountData, type MyBidAuction } from "@/components/account/data";
 import { CreditBoard, InvoicePdfButton, Receipt } from "@/components/account/Money";
+import { Friends, PerkCards } from "@/components/account/Perks";
 import { Pickup } from "@/components/account/Pickup";
 import { SettingsHub } from "@/components/account/SettingsHub";
 import { Countdown } from "@/components/Countdown";
@@ -19,6 +20,7 @@ import { publicApi } from "@/lib/api";
 import { setCartCount } from "@/lib/cart";
 import { dateLocale, useT, type Lang } from "@/lib/i18n";
 import { loginHref } from "@/lib/nav";
+import { copyText, usePerks } from "@/lib/perks";
 import { addToCartOnce, adsUserData, orderEcom, purchaseOnce, saleTypeOf, track } from "@/lib/track";
 import { photoThumb } from "@/lib/photos";
 import { formatEur, type MyOrder } from "@/lib/types";
@@ -32,7 +34,7 @@ import { formatEur, type MyOrder } from "@/lib/types";
  * Значения движка авторитетнее макета: цены, шаги, комиссия и НДС приходят
  * из API и нигде не пересчитываются на клиенте.
  */
-type Tab = "parskats" | "izsoles" | "pirkumi" | "velmes" | "bridinajumi" | "iznemsana" | "verifikacija" | "iestatijumi";
+type Tab = "parskats" | "izsoles" | "pirkumi" | "velmes" | "bridinajumi" | "iznemsana" | "draugi" | "verifikacija" | "iestatijumi";
 
 const TABS: Array<[Tab, string, string]> = [
   ["parskats", "ac.overview", "house"],
@@ -41,6 +43,9 @@ const TABS: Array<[Tab, string, string]> = [
   ["velmes", "nav.watchlist", "heart"],
   ["bridinajumi", "nav.alerts", "bell"],
   ["iznemsana", "ac.pickup", "map-pin"],
+  // «Пригласи друга» — свой раздел, а не абзац на странице о баллах:
+  // о программе должен узнавать каждый, а не только подписанный на рассылку.
+  ["draugi", "ref.tab", "users-three"],
   ["iestatijumi", "ac.settings", "gear"],
 ];
 
@@ -50,6 +55,7 @@ export default function AccountPage() {
   const { t, lang } = useT();
   const data = useAccountData();
   const { signedIn, me, bids, orders, fees, pickup, shipments, notifications, watchIds, alertIds, catalog } = data;
+  const perks = usePerks();
 
   const [tab, setTab] = useState<Tab>("parskats");
   const [historyLot, setHistoryLot] = useState<string | null>(null);
@@ -178,8 +184,9 @@ export default function AccountPage() {
     izsoles: liveBids.length,
     pirkumi: orders.length,
     velmes: watchIds.length,
-    bridinajumi: 0,
+    bridinajumi: perks.welcome ? 1 : 0,
     iznemsana: pickup.pickup.length,
+    draugi: 0,
     verifikacija: 0,
     iestatijumi: 0,
   };
@@ -214,9 +221,9 @@ export default function AccountPage() {
   // почты — до этапа аккаунтов его просто нет, врать статусом нельзя.
   const showVerif = me?.emailVerified !== undefined;
   const navItems: Array<[Tab, string, string]> = [
-    ...TABS.slice(0, 6),
+    ...TABS.slice(0, 7),
     ...(showVerif ? ([["verifikacija", "kb.verification", "shield-check"]] as Array<[Tab, string, string]>) : []),
-    TABS[6]!,
+    TABS[7]!,
   ];
 
   const userCard = (
@@ -295,8 +302,11 @@ export default function AccountPage() {
                 window.history.replaceState(null, "", `/account?tab=izsoles&lot=${id}`);
               }}
               verifyBlock={showVerif && me?.emailVerified === false && !me?.emailPending ? <VerifyNotice email={me?.email ?? ""} compact /> : null}
+              perkBlock={<PerkCards goFriends={() => goTab("draugi")} />}
             />
           )}
+
+          {tab === "draugi" && <Friends />}
 
           {tab === "izsoles" && historyLot && (
             <BidHistory
@@ -391,7 +401,7 @@ export default function AccountPage() {
                   <p className="cnt">{t("kb.alertsSub")}</p>
                 </div>
               </div>
-              {notifications.length === 0 ? (
+              {notifications.length === 0 && !perks.welcome ? (
                 <div className="empty">
                   <span className="ic" aria-hidden="true"><Ph name="bell" size={22} /></span>
                   <h3>{t("kb.emptyAlertsT")}</h3>
@@ -400,6 +410,21 @@ export default function AccountPage() {
                 </div>
               ) : (
                 <div className="feedcard">
+                  {/* Закреплено сверху, пока код не потрачен: это единственное
+                      уведомление, которое человеку выгодно не пропустить. */}
+                  {perks.welcome && (
+                    <div className="feedrow perk-row">
+                      <span className="ic t-won" aria-hidden="true"><Ph name="gift" size={16} /></span>
+                      <span className="t">
+                        <b>{t("perk.alertTitle", { n: perks.welcome.value })}</b>
+                        <small>{t("perk.alertBody", { code: perks.welcome.code, d: perks.welcome.validTo ? new Date(perks.welcome.validTo).toLocaleDateString(dateLocale(lang)) : "" })}</small>
+                      </span>
+                      <button className="btn btn-outline btn-sm" type="button"
+                              onClick={() => { void copyText(perks.welcome!.code).then((ok) => say(ok ? t("perk.codeCopied") : perks.welcome!.code)); }}>
+                        {t("perk.copyCode")}
+                      </button>
+                    </div>
+                  )}
                   {notifications.map((n) => (
                     <div className="feedrow" key={n.id}>
                       <span className={`ic t-${n.type}`} aria-hidden="true">
@@ -473,7 +498,7 @@ export default function AccountPage() {
  * Непустого макета для Pārskats в комплекте нет — экран собран из
  * утверждённых частей: рядов «Manas izsoles» и горячих ссылок. */
 function Overview({
-  bids, unpaid, feesCents, storageCents, pickupCount, goTab, onHistory, lang, verifyBlock,
+  bids, unpaid, feesCents, storageCents, pickupCount, goTab, onHistory, lang, verifyBlock, perkBlock,
 }: {
   bids: MyBidAuction[];
   unpaid: MyOrder[];
@@ -484,6 +509,7 @@ function Overview({
   onHistory: (id: string) => void;
   lang: Lang;
   verifyBlock: React.ReactNode;
+  perkBlock: React.ReactNode;
 }) {
   const { t } = useT();
   const liveBids = bids.filter((b) => b.status === "live");
@@ -500,6 +526,7 @@ function Overview({
       </div>
 
       {verifyBlock}
+      {perkBlock}
 
       {hasTodo && (
         <div className="todo">
