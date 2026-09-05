@@ -26,8 +26,9 @@ describe("отказы почты и жалобы", () => {
     return res.json() as { accessToken: string; bidder: { id: string } };
   };
 
-  const hook = (body: unknown, secret = SECRET) =>
-    world.server.app.inject({ method: "POST", url: `/api/public/email/hook/${secret}`, payload: body });
+  // async + await: inject() без await отдаёт цепочку, у которой нет statusCode.
+  const hook = async (body: Record<string, unknown>, secret = SECRET) =>
+    await world.server.app.inject({ method: "POST", url: `/api/public/email/hook/${secret}`, payload: body });
 
   const personOf = async (id: string) => {
     const [row] = await world.ctx.db.select().from(customers).where(eq(customers.id, id));
