@@ -33,6 +33,32 @@ describe("designed emails", () => {
     world.email.sent.length = 0;
   });
 
+  it("survives a client that drops <style>: forwarding, quoting, some phones", async () => {
+    // Gmail keeps <style> only in the original view. Forwarded or quoted, the
+    // block is gone — and with it every class-based colour, leaving default
+    // blue links on bare tables. So the styles must live on the elements.
+    for (const type of ["verify_email", "won", "sup_monthly_report"] as const) {
+      const r = await renderNotification(world.ctx, type, "lv", sampleInput(type));
+      const styleBlocks = [...r.html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map((m) => m[1]!.trim());
+      expect(styleBlocks.length, `${type}: one style block`).toBe(1);
+      expect(styleBlocks[0]!.startsWith("@media"), `${type}: only media queries remain in <style>`).toBe(true);
+
+      const anchors = [...r.html.matchAll(/<a [^>]*>/g)].map((m) => m[0]);
+      expect(anchors.length).toBeGreaterThan(0);
+      for (const a of anchors) {
+        // Gmail's own link colour wins over anything a class could say.
+        expect(a, `${type}: link carries its colour inline: ${a.slice(0, 80)}`).toMatch(/style="[^"]*color:/);
+      }
+      // The button keeps its yellow with the style block gone.
+      const stripped = r.html.replace(/<style[\s\S]*?<\/style>/g, "");
+      expect(stripped).toMatch(/<a class="cta"[^>]*style="[^"]*background:\s*#EFFF38/i);
+      // The logo is a link we colour ourselves, not text for Gmail to auto-link.
+      expect(stripped).toMatch(/<a [^>]*class="brand"[^>]*style="[^"]*color:\s*#161A17/i);
+      // White around the card, like every other letter in the inbox.
+      expect(stripped).not.toMatch(/#F5F5EC/i);
+    }
+  });
+
   it("renders every type in every language, with the button and the facts intact", async () => {
     for (const type of NOTIFICATION_TYPES) {
       for (const lang of LANGS) {

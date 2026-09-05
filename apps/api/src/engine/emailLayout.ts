@@ -6,10 +6,32 @@
  * соцсетями. Шаблоны описывают ЧТО сказать; этот файл решает, как это
  * выглядит, — смена дизайна остаётся правкой одного файла.
  *
- * Написано для почтовых клиентов, не браузеров: таблицы, инлайн-стили,
- * медиазапросы в <style> (Gmail их уважает), никаких веб-шрифтов. Картинки —
- * НЕ data:URI (Gmail их режет), а PNG с нашего же сайта {siteUrl}/email/*.png.
+ * Написано для почтовых клиентов, не браузеров: таблицы, никаких веб-шрифтов.
+ * Картинки — НЕ data:URI (Gmail их режет), а PNG с нашего же сайта
+ * {siteUrl}/email/*.png.
+ *
+ * Стили пишутся классами ради читаемости, но перед отправкой ВЖИМАЮТСЯ в
+ * атрибут style каждого элемента (см. inlineForMail). Блок <style> Gmail
+ * уважает только в оригинале письма: при пересылке, в цитате ответа и в части
+ * мобильных приложений он выброшен — и остаются голые таблицы с синими
+ * ссылками по умолчанию. В <style> остаются только медиазапросы: их иначе не
+ * выразить, а без них письмо просто чуть шире на телефоне, не сломано.
+ *
+ * Логотип и кнопка — ссылки с цветом прямо на <a> и на <span> внутри:
+ * иначе Gmail сам делает из текста «izsoli.lv» синюю ссылку, а кнопке
+ * подставляет свой цвет ссылки.
  */
+import juice from "juice";
+
+/** Вжать CSS в атрибуты style; медиазапросы остаются в <style>. */
+function inlineForMail(html: string): string {
+  return juice(html, {
+    preserveMediaQueries: true,
+    preserveImportant: true,
+    removeStyleTags: true,
+    applyAttributesTableElements: true,
+  });
+}
 
 const BRAND = {
   ink: "#161A17",
@@ -19,7 +41,9 @@ const BRAND = {
   rule: "#E4E6DF",
   panel: "#F5F6F2",
   page: "#FFFFFF",
-  shell: "#F5F5EC",
+  // Поле вокруг карточки — белое, как у остальных писем во входящих: серое
+  // читалось как «чужой фон», а на телефоне всё равно пропадало.
+  shell: "#FFFFFF",
   accent: "#EFFF38",
   ok: "#174C3C",
   warn: "#9A5B00",
@@ -286,7 +310,7 @@ export function renderEmailHtml(spec: EmailSpec, brand: EmailBrand): string {
     : "";
 
   const cta = spec.cta
-    ? `<div class="ctaWrap"><a class="cta" href="${safeUrl(spec.cta.url)}" target="_blank">${esc(spec.cta.label)}</a></div>`
+    ? `<div class="ctaWrap"><a class="cta" href="${safeUrl(spec.cta.url)}" target="_blank" style="color:${BRAND.ink};text-decoration:none;"><span style="color:${BRAND.ink};text-decoration:none;">${esc(spec.cta.label)}</span></a></div>`
     : "";
 
   const notes = (spec.notes ?? [])
@@ -299,7 +323,7 @@ export function renderEmailHtml(spec: EmailSpec, brand: EmailBrand): string {
     brand.tiktokUrl ? { url: brand.tiktokUrl, icon: "social-tt", alt: "TikTok" } : null,
   ].filter((x): x is { url: string; icon: string; alt: string } => x !== null);
 
-  return `<!doctype html>
+  return inlineForMail(`<!doctype html>
 <html lang="lv"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -314,7 +338,7 @@ export function renderEmailHtml(spec: EmailSpec, brand: EmailBrand): string {
 <tr><td class="pad">
 
 <table role="presentation" width="100%"><tr>
-  <td class="brand">${esc(host)}</td>
+  <td class="brand"><a href="${safeUrl(brand.siteUrl)}" target="_blank" class="brand" style="color:${BRAND.ink};text-decoration:none;"><span style="color:${BRAND.ink};text-decoration:none;">${esc(host)}</span></a></td>
   <td align="right"><img class="arrow" src="${assets}/arrow.png" width="54" height="54" alt=""></td>
 </tr></table>
 
@@ -351,5 +375,5 @@ ${spec.unsubscribe ? `<div class="unsub">${esc(spec.unsubscribe.note)}<br><a hre
 </td></tr>
 </table>
 </td></tr></table>
-</body></html>`;
+</body></html>`);
 }
