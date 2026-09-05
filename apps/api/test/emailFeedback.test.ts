@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { parseEmailFeedback } from "../src/engine/emailFeedback.js";
 import { loadConfig } from "../src/config.js";
+import { scrubSecrets } from "../src/instrument.js";
 import { createWorld, type TestWorld } from "./helpers.js";
 
 /**
@@ -167,6 +168,19 @@ describe("отказы почты и жалобы", () => {
     expect(
       loadConfig({ ...base, COMPANY_EMAIL: "sveiki@izsoli.lv", EMAIL_REPLY_TO: "atbalsts@izsoli.lv" }).smtp?.replyTo,
     ).toBe("atbalsts@izsoli.lv");
+  });
+
+  it("секрет из адреса не уезжает в мониторинг", () => {
+    const url = `https://api.izsoli.lv/api/public/email/hook/${SECRET}`;
+    expect(scrubSecrets(url)).toBe("https://api.izsoli.lv/api/public/email/hook/[redacted]");
+    expect(scrubSecrets(url)).not.toContain(SECRET);
+    // Хвост запроса вырезание не съедает, а чужие адреса не трогает.
+    expect(scrubSecrets(`${url}?retry=2`)).toBe(
+      "https://api.izsoli.lv/api/public/email/hook/[redacted]?retry=2",
+    );
+    expect(scrubSecrets("https://api.izsoli.lv/api/public/listings")).toBe(
+      "https://api.izsoli.lv/api/public/listings",
+    );
   });
 
   it("незнакомый адрес — не ошибка: письма уходят и поставщикам", async () => {
