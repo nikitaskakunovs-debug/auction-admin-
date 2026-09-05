@@ -235,7 +235,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     if (!env.CORS_ORIGINS) throw new Error("CORS_ORIGINS must be set in production (comma-separated admin/storefront origins)");
   }
   const storefrontBaseUrl = (env.STOREFRONT_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
-  const supplierPortalUrl = (env.SUPPLIER_PORTAL_URL ?? storefrontBaseUrl).replace(/\/$/, "");
+  const supplierPortalUrl = (env.SUPPLIER_PORTAL_URL || storefrontBaseUrl).replace(/\/$/, "");
   const corsOrigins = (env.CORS_ORIGINS ?? "http://localhost:5173,http://localhost:3000")
     .split(",")
     .map((o) => o.trim())
@@ -339,7 +339,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
             from: env.EMAIL_FROM ?? "",
             // По умолчанию — публичный адрес компании: он же стоит в счетах и
             // в подвале писем, туда человек и ждёт, что попадёт его ответ.
-            replyTo: env.EMAIL_REPLY_TO ?? env.COMPANY_EMAIL ?? "info@izsoli.lv",
+            replyTo: env.EMAIL_REPLY_TO || env.COMPANY_EMAIL || "info@izsoli.lv",
           }
         : null,
     // Behind the bundled Caddy proxy in production; direct exposure in dev.
@@ -444,7 +444,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     dpdMode,
     jiraMode,
     jiraWebhookSecret: env.JIRA_WEBHOOK_SECRET ?? null,
-    emailWebhookSecret: env.EMAIL_WEBHOOK_SECRET ?? null,
+    emailWebhookSecret: env.EMAIL_WEBHOOK_SECRET || null,
     slackMode,
     slack:
       slackMode === "off"

@@ -65,6 +65,14 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
       EMAIL_FROM: ${EMAIL_FROM:-}
+      # Куда уходит ответ клиента на любое наше письмо (по умолчанию —
+      # COMPANY_EMAIL). Секрет вебхука почты: путь отказов/жалоб от Resend
+      # или SES. Оба живут только в deploy/.env.
+      EMAIL_REPLY_TO: ${EMAIL_REPLY_TO:-}
+      EMAIL_WEBHOOK_SECRET: ${EMAIL_WEBHOOK_SECRET:-}
+      BUY_NOW_DEADLINE_HOURS: ${BUY_NOW_DEADLINE_HOURS:-24}
+      # Партнёрский кабинет живёт на своём имени; ссылки в письмах поставщикам.
+      SUPPLIER_PORTAL_URL: ${SUPPLIER_PORTAL_URL:-https://partner.${DOMAIN}}
       INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:-}
       INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
       VIES_MODE: live
