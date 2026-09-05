@@ -92,6 +92,71 @@ export const SUPPLIER_TYPES = [
 export const isSupplierType = (t: NotificationType): boolean =>
   (SUPPLIER_TYPES as readonly string[]).includes(t);
 
+/**
+ * Куда попадёт ответ человека на письмо — «стол», за которым его прочитают.
+ *
+ * Все письма уходят с noreply, но ответ на счёт должен лечь к бухгалтеру, а
+ * «где мой заказ» — к поддержке, не в одну общую кучу. Адреса столов задаёт
+ * конфиг; здесь — только принадлежность типа письма столу. Запись обязана
+ * быть у каждого типа: забытый новый тип не собирается.
+ */
+export type ReplyDesk = "general" | "billing" | "support" | "partners";
+
+const REPLY_DESK: Record<NotificationType, ReplyDesk> = {
+  // Деньги: счета, оплата, возвраты, рассрочка, платы. Ответ — бухгалтерии.
+  won: "billing",
+  purchased: "billing",
+  payment_reminder: "billing",
+  order_paid: "billing",
+  unpaid_cancelled: "billing",
+  no_pickup_cancelled: "billing",
+  refunded: "billing",
+  payment_failed: "billing",
+  bnpl_pending: "billing",
+  bnpl_declined: "billing",
+  storage_started: "billing",
+  // Заказ, выдача, доставка, доступ к кабинету. Ответ — поддержке.
+  verify_email: "support",
+  password_reset: "support",
+  security_alert: "support",
+  outbid: "support",
+  pickup_ready: "support",
+  pickup_reminder: "support",
+  checked_in: "support",
+  shipped: "support",
+  delivered: "support",
+  bid_voided: "support",
+  lot_withdrawn: "support",
+  points_expiring: "support",
+  gift_card_received: "support",
+  // Рассылки и подсказки: общий ящик.
+  saved_search_hits: "general",
+  watchlist_ending: "general",
+  welcome_reminder: "general",
+  inactive_nudge: "general",
+  winback_offer: "general",
+  lost_bid_similar: "general",
+  review_request: "general",
+  referral_invite: "general",
+  abandoned_bid: "general",
+  second_purchase: "general",
+  cart_reminder: "general",
+  price_drop: "general",
+  // Поставщики — свой стол.
+  sup_invite: "partners",
+  sup_welcome: "partners",
+  sup_intake_done: "partners",
+  sup_discrepancy: "partners",
+  sup_invoice_accepted: "partners",
+  sup_invoice_rejected: "partners",
+  sup_payment_sent: "partners",
+  sup_monthly_report: "partners",
+  sup_sales_report: "partners",
+  sup_unsold: "partners",
+};
+
+export const replyDeskOf = (t: NotificationType): ReplyDesk => REPLY_DESK[t];
+
 const ALL_TYPES = [
   "verify_email", "outbid", "won", "purchased", "payment_reminder", "order_paid",
   "pickup_ready", "pickup_reminder", "no_pickup_cancelled", "unpaid_cancelled",

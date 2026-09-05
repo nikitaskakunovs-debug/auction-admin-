@@ -43,6 +43,12 @@ export interface ApiConfig {
   /** Email transport: console (dev) or smtp (any relay / self-hosted sender). */
   emailMode: "console" | "smtp";
   smtp: { host: string; port: number; secure: boolean; user: string; pass: string; from: string; replyTo: string } | null;
+  /**
+   * Живые ящики по «столам»: куда попадёт ответ клиента на письмо каждого
+   * рода. Не заданный стол сводится к общему адресу — так один info@ на всё
+   * остаётся рабочей конфигурацией.
+   */
+  replyDesks: { general: string; billing: string; support: string; partners: string };
   /** Honor X-Forwarded-For — MUST be on behind Caddy/nginx, off when exposed directly. */
   trustProxy: boolean;
   /** Hours before the payment deadline to send the unpaid-winner reminder. */
@@ -342,6 +348,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
             replyTo: env.EMAIL_REPLY_TO || env.COMPANY_EMAIL || "info@izsoli.lv",
           }
         : null,
+    replyDesks: (() => {
+      const general = env.EMAIL_REPLY_TO || env.COMPANY_EMAIL || "info@izsoli.lv";
+      return {
+        general,
+        billing: env.EMAIL_REPLY_TO_BILLING || general,
+        support: env.EMAIL_REPLY_TO_SUPPORT || general,
+        partners: env.EMAIL_REPLY_TO_PARTNERS || general,
+      };
+    })(),
     // Behind the bundled Caddy proxy in production; direct exposure in dev.
     trustProxy: (env.TRUST_PROXY ?? (isProduction ? "1" : "0")) === "1",
     paymentReminderLeadHours: Number(env.PAYMENT_REMINDER_LEAD_HOURS ?? 24),

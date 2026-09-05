@@ -146,6 +146,33 @@ describe("отказы почты и жалобы", () => {
     expect(world.email.sent.length).toBe(before + 1);
   });
 
+  it("ответ на напоминание об оплате уходит бухгалтерии, а не в общую кучу", async () => {
+    const person = await register("who_pays");
+    (world.ctx.config as { replyDesks: Record<string, string> }).replyDesks = {
+      general: "info@izsoli.lv", billing: "rekini@izsoli.lv", support: "atbalsts@izsoli.lv", partners: "partneri@izsoli.lv",
+    };
+    const queue = (type: string) =>
+      world.ctx.db.insert(notifications).values({
+        customerId: person.bidder.id,
+        type,
+        kind: "service",
+        channel: "email",
+        toEmail: "who_pays@bounce.test",
+        subject: type,
+        body: type,
+        status: "pending",
+      });
+    await queue("payment_reminder");
+    await queue("pickup_ready");
+    await queue("saved_search_hits");
+    await dispatchNotifications(world.ctx);
+
+    const byType = (t: string) => world.email.sent.find((m) => m.subject === t)!;
+    expect(byType("payment_reminder").replyTo).toBe("rekini@izsoli.lv");
+    expect(byType("pickup_ready").replyTo).toBe("atbalsts@izsoli.lv");
+    expect(byType("saved_search_hits").replyTo).toBe("info@izsoli.lv");
+  });
+
   it("временный отказ ничего не ломает — ящик просто переполнен", async () => {
     const person = await register("full_box");
     const res = await hook({
@@ -210,6 +237,22 @@ describe("отказы почты и жалобы", () => {
     expect(
       loadConfig({ ...base, COMPANY_EMAIL: "sveiki@izsoli.lv", EMAIL_REPLY_TO: "atbalsts@izsoli.lv" }).smtp?.replyTo,
     ).toBe("atbalsts@izsoli.lv");
+  });
+
+  it("столы: не заданный сводится к общему, заданный — свой", () => {
+    const base = {
+      DATABASE_URL: "postgres://x/y", REDIS_URL: "redis://x", JWT_SECRET: "x".repeat(32),
+    } as NodeJS.ProcessEnv;
+    // Один info@ на всё — по-прежнему рабочая конфигурация.
+    expect(loadConfig({ ...base }).replyDesks).toEqual({
+      general: "info@izsoli.lv", billing: "info@izsoli.lv", support: "info@izsoli.lv", partners: "info@izsoli.lv",
+    });
+    // Compose подставляет "" за отсутствующую переменную — это тоже «не задано».
+    expect(
+      loadConfig({ ...base, EMAIL_REPLY_TO_BILLING: "rekini@izsoli.lv", EMAIL_REPLY_TO_SUPPORT: "" }).replyDesks,
+    ).toEqual({
+      general: "info@izsoli.lv", billing: "rekini@izsoli.lv", support: "info@izsoli.lv", partners: "info@izsoli.lv",
+    });
   });
 
   it("секрет из адреса не уезжает в мониторинг", () => {

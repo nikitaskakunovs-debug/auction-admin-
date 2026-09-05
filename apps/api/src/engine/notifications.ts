@@ -7,6 +7,7 @@ import {
   MARKETING_TYPES,
   NOTIFICATION_TYPES,
   renderCopy,
+  replyDeskOf,
   sampleInput,
   type CopyContext,
   type Lang,
@@ -538,6 +539,9 @@ export async function dispatchNotifications(ctx: AppContext, batch = 50): Promis
         text: body,
         ...(html ? { html } : {}),
         ...(headers ? { headers } : {}),
+        // Ответ на счёт — бухгалтерии, на «где заказ» — поддержке: стол
+        // выбирает тип письма, адрес стола — конфиг.
+        replyTo: ctx.config.replyDesks[replyDeskOf(n.type as NotificationType)],
       });
       await ctx.db
         .update(notifications)

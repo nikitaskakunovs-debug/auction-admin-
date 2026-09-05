@@ -69,6 +69,11 @@ services:
       # COMPANY_EMAIL). Секрет вебхука почты: путь отказов/жалоб от Resend
       # или SES. Оба живут только в deploy/.env.
       EMAIL_REPLY_TO: ${EMAIL_REPLY_TO:-}
+      # Ответы по «столам»: счета/возвраты, поддержка, поставщики. Пусто —
+      # всё в общий EMAIL_REPLY_TO.
+      EMAIL_REPLY_TO_BILLING: ${EMAIL_REPLY_TO_BILLING:-}
+      EMAIL_REPLY_TO_SUPPORT: ${EMAIL_REPLY_TO_SUPPORT:-}
+      EMAIL_REPLY_TO_PARTNERS: ${EMAIL_REPLY_TO_PARTNERS:-}
       EMAIL_WEBHOOK_SECRET: ${EMAIL_WEBHOOK_SECRET:-}
       BUY_NOW_DEADLINE_HOURS: ${BUY_NOW_DEADLINE_HOURS:-24}
       # Партнёрский кабинет живёт на своём имени; ссылки в письмах поставщикам.

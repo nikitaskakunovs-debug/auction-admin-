@@ -15,6 +15,8 @@ export interface EmailMessage {
   /** Служебные заголовки письма. Сегодня это List-Unsubscribe: без него
    * Gmail не показывает свою кнопку отписки и хуже пропускает рассылку. */
   headers?: Record<string, string>;
+  /** Куда уйдёт ответ на это письмо. Пусто — общий ящик из конфига. */
+  replyTo?: string;
 }
 
 export interface EmailAdapter {
@@ -105,9 +107,10 @@ export class SmtpEmailAdapter implements EmailAdapter {
       text: msg.text,
       ...(msg.html ? { html: msg.html } : {}),
       ...(msg.headers ? { headers: msg.headers } : {}),
-      // Отправитель — noreply, отвечать надо в живой ящик. Заголовок ставится
-      // здесь, а не в каждом вызове: забыть его в одном месте нельзя.
-      ...(this.cfg.replyTo ? { replyTo: this.cfg.replyTo } : {}),
+      // Отправитель — noreply, отвечать надо в живой ящик. Письмо может
+      // назвать свой стол (счета — бухгалтерии); иначе общий ящик из конфига.
+      // Умолчание стоит здесь, а не в каждом вызове: забыть его нельзя.
+      ...(msg.replyTo || this.cfg.replyTo ? { replyTo: msg.replyTo || this.cfg.replyTo } : {}),
     });
   }
 }
