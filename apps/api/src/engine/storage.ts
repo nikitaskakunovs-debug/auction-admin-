@@ -1,7 +1,7 @@
 import { customerFees, customers, items, orders, type Db } from "@auction/db";
 import { and, eq, isNotNull, lte, sql } from "drizzle-orm";
 import type { AppContext } from "../context.js";
-import { getFinSettings } from "./finSettings.js";
+import { getFinSettings, setFinSetting } from "./finSettings.js";
 import { enqueueNotification } from "./notifications.js";
 
 /**
@@ -20,9 +20,22 @@ import { enqueueNotification } from "./notifications.js";
  *  — доставка в пакомат хранения не знает вовсе — там вещь уезжает сразу.
  */
 
-/** Сколько платных дней хранения набежало к этому моменту. */
-export function storageDaysDue(args: { paidAt: Date; now: Date; freeDays: number }): number {
-  const heldMs = args.now.getTime() - args.paidAt.getTime();
+/**
+ * Сколько платных дней хранения набежало к этому моменту.
+ *
+ * `startAt` — момент, раньше которого хранение не считается вовсе. Вещь,
+ * оплаченная за месяц до введения правила, не должна на следующее утро
+ * получить долг за этот месяц: отсчёт для неё начинается со дня, когда
+ * правило заработало, и бесплатные дни она получает заново.
+ */
+export function storageDaysDue(args: {
+  paidAt: Date;
+  now: Date;
+  freeDays: number;
+  startAt?: Date;
+}): number {
+  const from = args.startAt && args.startAt > args.paidAt ? args.startAt : args.paidAt;
+  const heldMs = args.now.getTime() - from.getTime();
   const heldDays = Math.floor(heldMs / 86_400_000);
   return Math.max(heldDays - args.freeDays, 0);
 }
@@ -70,7 +83,19 @@ export async function runStorageFees(ctx: AppContext): Promise<number> {
   const s = await getFinSettings(ctx);
   if (s.storage_per_day_cents <= 0) return 0;
   const now = ctx.now();
+
+  // Первый прогон только отмечает точку старта и ничего не считает. Иначе на
+  // складе, где вещи лежат месяцами, в первое же утро выписалось бы два
+  // десятка долгов за прошлое — по правилу, которого в те дни не было.
+  if (s.storage_start_ms <= 0) {
+    await setFinSetting(ctx, "storage_start_ms", now.getTime());
+    return 0;
+  }
+  const startAt = new Date(s.storage_start_ms);
+
   const chargeableFrom = new Date(now.getTime() - s.storage_free_days * 86_400_000);
+  // Бесплатные дни с момента старта ещё не вышли — считать нечего никому.
+  if (startAt > chargeableFrom) return 0;
 
   const due = await ctx.db
     .select({
@@ -100,7 +125,7 @@ export async function runStorageFees(ctx: AppContext): Promise<number> {
 
   let charged = 0;
   for (const order of due) {
-    const days = storageDaysDue({ paidAt: order.paidAt!, now, freeDays: s.storage_free_days });
+    const days = storageDaysDue({ paidAt: order.paidAt!, now, freeDays: s.storage_free_days, startAt });
     if (days <= order.chargedDays) continue;
 
     const existing = await storageFeeOfOrder(ctx.db, order.id);

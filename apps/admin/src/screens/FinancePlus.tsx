@@ -522,7 +522,10 @@ export function FinSettingsTab() {
     api.get<{ settings: Record<string, number> }>("/api/fin/settings").then((r) => setValues(r.settings)).catch(() => undefined);
   }, []);
 
-  const editable = Object.keys(values).filter((k) => k !== "points_expiry_start_ms");
+  // Служебные отметки о старте режимов правятся кроном, а не руками:
+  // сдвинуть их означало бы задним числом переписать чужие долги.
+  const TECHNICAL = new Set(["points_expiry_start_ms", "storage_start_ms"]);
+  const editable = Object.keys(values).filter((k) => !TECHNICAL.has(k));
   const save = async () => {
     const patch: Record<string, number> = {};
     for (const [k, v] of Object.entries(dirty)) {

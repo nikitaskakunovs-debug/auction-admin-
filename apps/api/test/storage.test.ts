@@ -2,6 +2,7 @@ import { customerFees, items, notifications, orders, refunds } from "@auction/db
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { cancelNoShowDue } from "../src/engine/noShow.js";
+import { getFinSettings, setFinSetting } from "../src/engine/finSettings.js";
 import { runStorageFees, storageDaysDue, storageOwedCents } from "../src/engine/storage.js";
 import { auth, createWorld, loginAs, type TestWorld } from "./helpers.js";
 
@@ -66,9 +67,14 @@ describe("плата за хранение", () => {
       .from(customerFees)
       .where(and(eq(customerFees.orderId, orderId), eq(customerFees.type, "storage")));
 
+  /** Отодвинуть точку старта платного хранения в прошлое (или сбросить). */
+  const setStorageStart = (ms: number) => setFinSetting(world.ctx, "storage_start_ms", ms);
+
   beforeAll(async () => {
     world = await createWorld();
     adminToken = await loginAs(world, "super@auction.test");
+    // Режим давно работает: тесты ниже про саму плату, а не про её запуск.
+    await setStorageStart(world.ctx.now().getTime() - 365 * 86_400_000);
   });
   afterAll(async () => {
     if (world) await world.close();
@@ -80,6 +86,19 @@ describe("плата за хранение", () => {
     expect(storageDaysDue({ paidAt: new Date("2026-01-01T10:00:00Z"), now: new Date("2026-01-05T10:00:00Z"), freeDays: 7 })).toBe(0);
     expect(storageDaysDue({ paidAt: new Date("2026-01-01T10:00:00Z"), now: new Date("2026-01-08T10:00:00Z"), freeDays: 7 })).toBe(0);
     expect(storageDaysDue({ paidAt: new Date("2026-01-01T10:00:00Z"), now: new Date("2026-01-11T10:00:00Z"), freeDays: 7 })).toBe(3);
+  });
+
+  it("вещь, оплаченная до введения правила, лежит с момента введения", () => {
+    const paidAt = new Date("2026-01-01T10:00:00Z");
+    const startAt = new Date("2026-03-01T10:00:00Z");
+    // Два месяца на полке до правила — но долг с них не считается.
+    expect(storageDaysDue({ paidAt, now: new Date("2026-03-05T10:00:00Z"), freeDays: 7, startAt })).toBe(0);
+    // Бесплатные дни она получает заново, от точки старта.
+    expect(storageDaysDue({ paidAt, now: new Date("2026-03-08T10:00:00Z"), freeDays: 7, startAt })).toBe(0);
+    expect(storageDaysDue({ paidAt, now: new Date("2026-03-11T10:00:00Z"), freeDays: 7, startAt })).toBe(3);
+    // Оплаченной после старта отсечка не мешает: считаем со дня оплаты.
+    const later = new Date("2026-03-10T10:00:00Z");
+    expect(storageDaysDue({ paidAt: later, now: new Date("2026-03-20T10:00:00Z"), freeDays: 7, startAt })).toBe(3);
   });
 
   it("оба потолка: и в деньгах, и долей от заказа", () => {
@@ -217,5 +236,31 @@ describe("плата за хранение", () => {
     const [fee] = await storageFees(order.orderId);
     expect(fee!.status).toBe("settled");
     expect(fee!.amountCents).toBe(500);
+  });
+
+  /* ── Запуск режима ────────────────────────────────────────────────────── */
+
+  it("первый запуск не выставляет долг за прошлое", async () => {
+    const buyer = await registerBidder("stor_legacy");
+    // Вещь лежит месяц: по тарифу это 23 платных дня, то есть потолок.
+    const order = await heldOrder(buyer.accessToken, { daysHeld: 30 });
+    await setStorageStart(0);
+
+    // Первый прогон только запоминает момент — денег ни с кого.
+    expect(await runStorageFees(world.ctx)).toBe(0);
+    expect(await storageFees(order.orderId)).toHaveLength(0);
+    const started = (await getFinSettings(world.ctx)).storage_start_ms;
+    expect(started).toBeGreaterThan(0);
+
+    // И назавтра тоже: бесплатные дни человек получает заново, с этой точки.
+    expect(await runStorageFees(world.ctx)).toBe(0);
+    expect(await storageFees(order.orderId)).toHaveLength(0);
+
+    // А когда бесплатные дни от старта пройдут — плата пойдёт как обычно,
+    // но за дни после старта, а не за весь месяц на полке.
+    await setStorageStart(world.ctx.now().getTime() - 9 * 86_400_000);
+    expect(await runStorageFees(world.ctx)).toBe(1);
+    const [fee] = await storageFees(order.orderId);
+    expect(fee!.amountCents).toBe(200); // 9 дней − 7 бесплатных, а не 23
   });
 });

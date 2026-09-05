@@ -141,6 +141,7 @@ export const FIN2 = {
   "f2.sk.supplier_discrepancy_days": { lv: "Piegādātāja atbilde par neatbilstību, darba dienas", ru: "Ответ поставщика по расхождению, рабочих дней", en: "Supplier reply on a discrepancy, working days" },
   "f2.sk.supplier_unsold_days": { lv: "Nepārdotais pēc pieņemšanas, dienas", ru: "Непроданное после приёмки, дней", en: "Unsold after intake, days" },
   "f2.sk.storage_free_days": { lv: "Bezmaksas glabāšana, dienas", ru: "Бесплатное хранение, дней", en: "Free storage, days" },
+  "f2.sk.storage_start_ms": { lv: "Glabāšanas maksas starts (tehnisks)", ru: "Старт платного хранения (техн.)", en: "Storage charging start (technical)" },
   "f2.sk.storage_per_day_cents": { lv: "Glabāšana par diennakti, centi", ru: "Хранение за сутки, центы", en: "Storage per day, cents" },
   "f2.sk.storage_cap_cents": { lv: "Glabāšanas griesti, centi", ru: "Потолок хранения, центы", en: "Storage cap, cents" },
   "f2.sk.storage_cap_bp": { lv: "Glabāšanas griesti no summas, b.p. (5000 = 50%)", ru: "Потолок хранения от суммы, б.п. (5000 = 50%)", en: "Storage cap as a share, bp (5000 = 50%)" },
